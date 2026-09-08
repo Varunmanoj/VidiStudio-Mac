@@ -262,3 +262,9 @@ Validation: `script/build_and_run.sh --verify` completed with `BUILD SUCCEEDED` 
 The description-row Segment actions menu now hides SwiftUI's separate disclosure chevron and displays only the ellipsis action icon. The same contextual actions, disabled processing state, and Segment actions accessibility label are preserved.
 
 Validation: `script/build_and_run.sh --verify` completed with `BUILD SUCCEEDED`, and `git diff --check` passed. In the rebuilt running app, the populated Descriptions row exposed one Segment actions control without a separate disclosure control in the accessibility tree. No segment action was invoked and project data was unchanged.
+
+### Visible editor controls with preview hidden — 2026-09-08
+
+Replaced the zero-height `VSplitView` collapse state, which left the editor controls in the accessibility hierarchy but visually clipped them above the window. The preview now stays mounted inside a persistent vertical layout and collapses to zero without moving the editor. The section picker, in-place Show Preview button, playback/editor controls, contextual Generate or Regenerate action, Add Segment when applicable, and the segment list remain visibly aligned from the top. The replacement preview divider remains pointer-draggable and exposes an adjustable Resize video preview control to VoiceOver.
+
+Validation: `script/build_and_run.sh --verify` completed with `BUILD SUCCEEDED`, and `git diff --check` passed. A screenshot of the rebuilt app with the preview hidden visibly showed the Transcript controls and Regenerate Transcript across the top with transcript rows directly underneath; the video and timeline were absent. Show Preview restored the native video and timeline. The accessible divider successfully adjusted from 413 to 453 points and back. No project content or processing action was changed.

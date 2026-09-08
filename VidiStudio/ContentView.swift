@@ -311,6 +311,8 @@ struct ProjectEditor: View {
     @State private var tab = "transcript"
     @State private var requestedTitle = ""
     @State private var previewHidden = false
+    @State private var previewHeight: CGFloat = 413
+    @State private var previewHeightAtDragStart: CGFloat?
     @State private var cueToEdit: Segment?
     @State private var audioPreview: AVAudioPlayer?
     @State private var segmentScreenText: String?
@@ -500,98 +502,152 @@ struct ProjectEditor: View {
         readingFrameForSegment = false
     }
 
-    var body: some View {
-        VSplitView {
-            VStack(spacing: 0) {
-                Group {
-                    if let url = project.youtubeURL, project.source.isEmpty { YouTubePlayer(url: url, playback: playback) }
-                    else { NativeVideoPlayer(player: playback.player, playback: playback) }
-                }.frame(minWidth: 0, idealWidth: 700, maxWidth: .infinity, minHeight: previewHidden ? 0 : 120, idealHeight: previewHidden ? 0 : 340, maxHeight: previewHidden ? 0 : .infinity).background(.black)
-                TimelineView(project: project, playback: playback).frame(height: previewHidden ? 0 : nil).clipped()
-            }.frame(minHeight: previewHidden ? 0 : 220, maxHeight: previewHidden ? 0 : .infinity).clipped().accessibilityHidden(previewHidden).allowsHitTesting(!previewHidden)
-            VStack(spacing: 0) {
-                processingControlBar
-                editorToolbar
-                if let error = playback.speechError { Text(error).foregroundStyle(.red).padding(8) }
-                Divider()
-                if studio.busy {
-                    VStack {
-                        Spacer(minLength: 24)
-                        ProgressView()
-                            .controlSize(.large)
-                            .scaleEffect(2)
-                            .frame(width: 88, height: 88)
-                            .accessibilityLabel("Processing")
-                            .accessibilityValue(studio.message)
-                            .accessibilityHint("VidiStudio is working. This indicator continues spinning until processing finishes.")
-                        Spacer(minLength: 24)
-                    }
-                    .frame(maxWidth: .infinity, maxHeight: .infinity)
-                } else if tab == "ad-overview" {
-                    ADOverviewView(studio: studio, project: project)
-                } else if tab == "summary" {
-                    MarkdownSummaryView(markdown: project.summary.isEmpty ? "Generate a summary after transcription to capture the story and visual context." : project.summary)
+    private var previewPane: some View {
+        VStack(spacing: 0) {
+            Group {
+                if let url = project.youtubeURL, project.source.isEmpty { YouTubePlayer(url: url, playback: playback) }
+                else { NativeVideoPlayer(player: playback.player, playback: playback) }
+            }
+            .frame(minWidth: 0, idealWidth: 700, maxWidth: .infinity, minHeight: 120, idealHeight: 340, maxHeight: .infinity)
+            .background(.black)
+            TimelineView(project: project, playback: playback)
+        }
+    }
+
+    @ViewBuilder
+    private var editorPane: some View {
+        VStack(spacing: 0) {
+            processingControlBar
+            editorToolbar
+            if let error = playback.speechError { Text(error).foregroundStyle(.red).padding(8) }
+            Divider()
+            if studio.busy {
+                VStack {
+                    Spacer(minLength: 24)
+                    ProgressView()
+                        .controlSize(.large)
+                        .scaleEffect(2)
+                        .frame(width: 88, height: 88)
+                        .accessibilityLabel("Processing")
+                        .accessibilityValue(studio.message)
+                        .accessibilityHint("VidiStudio is working. This indicator continues spinning until processing finishes.")
+                    Spacer(minLength: 24)
+                }
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+            } else if tab == "ad-overview" {
+                ADOverviewView(studio: studio, project: project)
+            } else if tab == "summary" {
+                MarkdownSummaryView(markdown: project.summary.isEmpty ? "Generate a summary after transcription to capture the story and visual context." : project.summary)
+            } else {
+                let segments = transcriptRows
+                if segments.isEmpty {
+                    ContentUnavailableView(tab == "descriptions" ? "Describe what matters" : "Your transcript appears here", systemImage: tab == "descriptions" ? "text.below.photo" : "text.bubble", description: Text(tab == "descriptions" ? "Generate descriptions from the inspector or add a segment manually." : tab == "ad-transcript" ? "Transcribe the video or add audio descriptions to see them together here." : "Use Transcribe Video in the inspector to begin."))
                 } else {
-                    let segments = transcriptRows
-                    if segments.isEmpty {
-                        ContentUnavailableView(tab == "descriptions" ? "Describe what matters" : "Your transcript appears here", systemImage: tab == "descriptions" ? "text.below.photo" : "text.bubble", description: Text(tab == "descriptions" ? "Generate descriptions from the inspector or add a segment manually." : tab == "ad-transcript" ? "Transcribe the video or add audio descriptions to see them together here." : "Use Transcribe Video in the inspector to begin."))
-                    } else {
-                        ScrollViewReader { reader in
-                        List(segments) { row in
-                            let cue = row.segment
-                            HStack(alignment: .top, spacing: 16) {
-                                if tab == "transcript" || tab == "ad-transcript" {
-                                    Button {
-                                        if row.isDescription { playback.narrationEnabled = true }
-                                        playback.play(from: cue.start)
-                                    } label: {
-                                        MaterialIcon(glyph: "\u{e037}")
-                                    }
-                                    .buttonStyle(.borderless)
-                                    .accessibilityLabel(row.playbackLabel)
-                                    .help(row.playbackLabel)
+                    ScrollViewReader { reader in
+                    List(segments) { row in
+                        let cue = row.segment
+                        HStack(alignment: .top, spacing: 16) {
+                            if tab == "transcript" || tab == "ad-transcript" {
+                                Button {
+                                    if row.isDescription { playback.narrationEnabled = true }
+                                    playback.play(from: cue.start)
+                                } label: {
+                                    MaterialIcon(glyph: "\u{e037}")
                                 }
-                                Button { playback.seek(cue.start) } label: {
-                                    VStack { Text(timecode(cue.start)); Text(timecode(cue.end)).foregroundStyle(.secondary) }.monospacedDigit().font(.caption)
-                                }.buttonStyle(.plain).help("Seek to \(timecode(cue.start))")
-                                VStack(alignment: .leading, spacing: 6) {
-                                    if tab == "ad-transcript" {
-                                        HStack(spacing: 6) {
-                                            MaterialIcon(glyph: row.isDescription ? "\u{e050}" : "\u{e0b7}")
-                                            Text(row.kind).font(.caption.bold())
-                                        }
-                                        .foregroundStyle(row.color)
+                                .buttonStyle(.borderless)
+                                .accessibilityLabel(row.playbackLabel)
+                                .help(row.playbackLabel)
+                            }
+                            Button { playback.seek(cue.start) } label: {
+                                VStack { Text(timecode(cue.start)); Text(timecode(cue.end)).foregroundStyle(.secondary) }.monospacedDigit().font(.caption)
+                            }.buttonStyle(.plain).help("Seek to \(timecode(cue.start))")
+                            VStack(alignment: .leading, spacing: 6) {
+                                if tab == "ad-transcript" {
+                                    HStack(spacing: 6) {
+                                        MaterialIcon(glyph: row.isDescription ? "\u{e050}" : "\u{e0b7}")
+                                        Text(row.kind).font(.caption.bold())
                                     }
-                                    Text(cue.text).textSelection(.enabled)
-                                }.frame(maxWidth: .infinity, alignment: .leading)
-                                if tab == "descriptions" {
-                                    if cue.audio != nil && cue.audioText == cue.text && cue.audioSettings == studio.settings.narrationSignature { Image(systemName: "waveform.circle.fill").foregroundStyle(.green).accessibilityLabel("Narration ready") }
-                                    Button("Edit", systemImage: "pencil") { cueToEdit = cue }.labelStyle(.iconOnly).disabled(studio.busy)
-                                    Menu {
-                                        if let audio = cue.audio, let url = project.url(audio) { Button("Preview Narration", systemImage: "play.circle") { audioPreview = try? AVAudioPlayer(contentsOf: url); audioPreview?.play() } }
-                                        Button("Rewrite to Fit", systemImage: "wand.and.stars") { studio.execute("rewrite-cue", extra: ["--segment", cue.id]) }
-                                        Button("Synthesize This Segment", systemImage: "waveform") { studio.execute("synthesize-tts", extra: ["--segment", cue.id]) }
-                                        Button("Delete Segment", systemImage: "trash", role: .destructive) { studio.saveCues(project.cues.filter { $0.id != cue.id }) }
-                                    } label: { Image(systemName: "ellipsis") }
-                                        .menuStyle(.borderlessButton)
-                                        .menuIndicator(.hidden)
-                                        .fixedSize()
-                                        .disabled(studio.busy)
-                                        .accessibilityLabel("Segment actions")
+                                    .foregroundStyle(row.color)
                                 }
-                            }.padding(.vertical, 8)
-                                .accessibilityElement(children: .contain)
-                                .id(row.id)
-                                .listRowBackground(playback.time >= cue.start && playback.time < cue.end ? Color.accentColor.opacity(0.15) : Color.clear)
-                        }.listStyle(.inset)
-                        .onChange(of: segments.first(where: { playback.time >= $0.segment.start && playback.time < $0.segment.end })?.id) { _, id in
-                            if studio.settings.followTranscript, let id { if reduceMotion { reader.scrollTo(id, anchor: .center) } else { withAnimation { reader.scrollTo(id, anchor: .center) } } }
-                        }
-                        }
+                                Text(cue.text).textSelection(.enabled)
+                            }.frame(maxWidth: .infinity, alignment: .leading)
+                            if tab == "descriptions" {
+                                if cue.audio != nil && cue.audioText == cue.text && cue.audioSettings == studio.settings.narrationSignature { Image(systemName: "waveform.circle.fill").foregroundStyle(.green).accessibilityLabel("Narration ready") }
+                                Button("Edit", systemImage: "pencil") { cueToEdit = cue }.labelStyle(.iconOnly).disabled(studio.busy)
+                                Menu {
+                                    if let audio = cue.audio, let url = project.url(audio) { Button("Preview Narration", systemImage: "play.circle") { audioPreview = try? AVAudioPlayer(contentsOf: url); audioPreview?.play() } }
+                                    Button("Rewrite to Fit", systemImage: "wand.and.stars") { studio.execute("rewrite-cue", extra: ["--segment", cue.id]) }
+                                    Button("Synthesize This Segment", systemImage: "waveform") { studio.execute("synthesize-tts", extra: ["--segment", cue.id]) }
+                                    Button("Delete Segment", systemImage: "trash", role: .destructive) { studio.saveCues(project.cues.filter { $0.id != cue.id }) }
+                                } label: { Image(systemName: "ellipsis") }
+                                    .menuStyle(.borderlessButton)
+                                    .menuIndicator(.hidden)
+                                    .fixedSize()
+                                    .disabled(studio.busy)
+                                    .accessibilityLabel("Segment actions")
+                            }
+                        }.padding(.vertical, 8)
+                            .accessibilityElement(children: .contain)
+                            .id(row.id)
+                            .listRowBackground(playback.time >= cue.start && playback.time < cue.end ? Color.accentColor.opacity(0.15) : Color.clear)
+                    }.listStyle(.inset)
+                    .onChange(of: segments.first(where: { playback.time >= $0.segment.start && playback.time < $0.segment.end })?.id) { _, id in
+                        if studio.settings.followTranscript, let id { if reduceMotion { reader.scrollTo(id, anchor: .center) } else { withAnimation { reader.scrollTo(id, anchor: .center) } } }
+                    }
                     }
                 }
-            }.frame(minHeight: 180)
+            }
         }
+        .frame(minHeight: 180)
+    }
+
+    private var editorLayout: some View {
+        GeometryReader { geometry in
+            let dividerHeight: CGFloat = 6
+            let maximumPreviewHeight = max(220, geometry.size.height - 180 - dividerHeight)
+            let visiblePreviewHeight = min(max(220, previewHeight), maximumPreviewHeight)
+
+            VStack(spacing: 0) {
+                previewPane
+                    .frame(height: previewHidden ? 0 : visiblePreviewHeight)
+                    .clipped()
+                    .accessibilityHidden(previewHidden)
+                    .allowsHitTesting(!previewHidden)
+
+                if !previewHidden {
+                    Rectangle()
+                        .fill(Color(nsColor: .separatorColor))
+                        .frame(height: 1)
+                        .frame(height: dividerHeight)
+                        .contentShape(Rectangle())
+                        .gesture(
+                            DragGesture(minimumDistance: 0)
+                                .onChanged { value in
+                                    if previewHeightAtDragStart == nil {
+                                        previewHeightAtDragStart = visiblePreviewHeight
+                                    }
+                                    let proposed = (previewHeightAtDragStart ?? visiblePreviewHeight) + value.translation.height
+                                    previewHeight = min(max(220, proposed), maximumPreviewHeight)
+                                }
+                                .onEnded { _ in previewHeightAtDragStart = nil }
+                        )
+                        .accessibilityElement()
+                        .accessibilityLabel("Resize video preview")
+                        .accessibilityValue("\(Int(visiblePreviewHeight)) points high")
+                        .accessibilityAdjustableAction { direction in
+                            let change: CGFloat = direction == .increment ? 40 : -40
+                            previewHeight = min(max(220, visiblePreviewHeight + change), maximumPreviewHeight)
+                        }
+                }
+
+                editorPane
+                    .frame(maxHeight: .infinity)
+            }
+        }
+    }
+
+    var body: some View {
+        editorLayout
         .focusedSceneValue(\.editorShortcuts, shortcutsBlocked || studio.busy || cueToEdit != nil || studio.screenText != nil ? nil : EditorShortcutActions(run: { action in
             switch action {
             case "preview": playback.exitVideoFullScreen(); previewHidden.toggle()
