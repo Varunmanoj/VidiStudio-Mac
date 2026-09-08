@@ -131,7 +131,7 @@ struct ContentView: View {
             if projectGrid {
                 ProjectGridView(projects: studio.projects.filter { search.isEmpty || $0.name.localizedStandardContains(search) }, selection: $studio.selectedID, busy: studio.busy, rename: { p in
                     studio.selectedID = p.id; rename = p.name; renaming = true
-                }, delete: { studio.trashProject($0) })
+                }, delete: { studio.trashProject($0) }, process: { p in studio.selectedID = p.id; studio.execute("analyze", project: p) }, clear: { studio.clearGeneratedContent($0) })
             } else {
             List(selection: $studio.selectedID) {
                 Section("Local Projects") {
@@ -144,9 +144,15 @@ struct ContentView: View {
                             }.padding(.vertical, 5)
                         }.tag(p.id)
                         .contextMenu {
-                            Button("Rename") { studio.selectedID = p.id; rename = p.name; renaming = true }
+                            Button("Rename", systemImage: "pencil") { studio.selectedID = p.id; rename = p.name; renaming = true }
                             Button("Open in Project Folder", systemImage: "folder") { if let folder = p.folder { NSWorkspace.shared.open(folder) } }
-                            Button("Delete", role: .destructive) { studio.trashProject(p) }.help("Move this project to the Mac Trash").disabled(studio.busy)
+                            Button(p.canReprocess ? "Reprocess Video" : "Process Video", systemImage: "sparkles") {
+                                studio.selectedID = p.id
+                                studio.execute("analyze", project: p)
+                            }.disabled(studio.busy)
+                            Divider()
+                            Button("Delete Generated Content…", systemImage: "eraser", role: .destructive) { studio.clearGeneratedContent(p) }.disabled(studio.busy || !p.hasGeneratedContent)
+                            Button("Delete Project", systemImage: "trash", role: .destructive) { studio.trashProject(p) }.help("Move this project to the Mac Trash").disabled(studio.busy)
                         }
                     }
                 }
@@ -178,7 +184,7 @@ struct ContentView: View {
                     Text("Create a project from a video file on this Mac or a YouTube video.")
                 } actions: {
                     Button("New Project…", systemImage: "plus") { studio.isCreatingProject = true }.buttonStyle(.glassProminent)
-                    Button("Open Project Folder…") { studio.openProject() }
+                    Button("Open Project Folder…", systemImage: "folder") { studio.openProject() }
                 }
             }
         }.frame(width: max(0, geometry.size.width - (showProjects ? (projectGrid ? min(440, geometry.size.width * 0.48) : 252) + 1 : 0) - (inspectorVisible ? 273 : 0)), height: geometry.size.height).clipped()
@@ -194,7 +200,7 @@ struct ContentView: View {
         .sheet(isPresented: $renaming) {
             VStack(spacing: 20) {
                 TextField("Project name", text: $rename)
-                HStack { Button("Cancel", role: .cancel) { renaming = false }; Button("Rename") { studio.execute("rename-project", extra: ["--name", rename]); renaming = false }.keyboardShortcut(.defaultAction) }
+                HStack { Button("Cancel", role: .cancel) { renaming = false }; Button("Rename", systemImage: "pencil") { studio.execute("rename-project", extra: ["--name", rename]); renaming = false }.keyboardShortcut(.defaultAction) }
             }.padding(24).frame(width: 420)
         }
         .sheet(isPresented: $studio.isCreatingProject) {
@@ -218,11 +224,9 @@ struct ContentView: View {
         .safeAreaInset(edge: .bottom) {
             if studio.busy {
                 HStack(spacing: 12) {
-                    ProgressView().controlSize(.small)
                     Text(studio.message).lineLimit(2).font(.caption)
                     Spacer()
-                    Button("Cancel Processing") { studio.process?.terminate() }
-                    ProgressView(value: studio.progress).frame(width: 120).accessibilityLabel("Processing progress")
+                    Button("Cancel Processing", systemImage: "stop.circle") { studio.process?.terminate() }
                 }
                 .padding(.horizontal, 18)
                 .padding(.vertical, 10)
@@ -256,19 +260,19 @@ struct ProcessingInspector: View {
                         Button { studio.execute(stage.0) } label: { HStack { MaterialIcon(glyph: stage.0 == "transcribe" ? "\u{e8af}" : stage.0 == "synthesize-tts" ? "\u{e050}" : "\u{e037}"); Text(stage.1) }.frame(maxWidth: .infinity, alignment: .leading) }
                             .disabled(studio.busy || (p.source.isEmpty && ["probe-video", "generate-thumbnails", "extract-audio"].contains(stage.0))).controlSize(.large)
                     }
-                    Menu("Export Text") {
+                    Menu("Export Text", systemImage: "square.and.arrow.up") {
                         ForEach(["transcript", "descriptions", "combined"], id: \.self) { content in
-                            Menu(content.capitalized) {
+                            Menu(content.capitalized, systemImage: "doc.text") {
                                 ForEach(["srt", "vtt", "txt", "json"], id: \.self) { format in
-                                    Button(format.uppercased()) { studio.execute("export-subtitles", extra: ["--content", content, "--format", format]) }
+                                    Button(format.uppercased(), systemImage: "doc") { studio.execute("export-subtitles", extra: ["--content", content, "--format", format]) }
                                 }
                             }
                         }
                     }.disabled(studio.busy)
-                    Button("Export Narration Audio") { studio.execute("export-audio") }.disabled(studio.busy)
-                    Button("Synthesize Changed Segments") { studio.execute("synthesize-tts", extra: ["--changed"]) }.disabled(studio.busy)
-                    HStack { Button("Undo Segment Edit") { studio.execute("undo-cues") }; Button("Redo") { studio.execute("redo-cues") } }.disabled(studio.busy)
-                    if p.sourceType == "youtube" { Button("Attach Local Video Copy…") { studio.attachVideo() }.disabled(studio.busy) }
+                    Button("Export Narration Audio", systemImage: "square.and.arrow.up") { studio.execute("export-audio") }.disabled(studio.busy)
+                    Button("Synthesize Changed Segments", systemImage: "waveform") { studio.execute("synthesize-tts", extra: ["--changed"]) }.disabled(studio.busy)
+                    HStack { Button("Undo Segment Edit", systemImage: "arrow.uturn.backward") { studio.execute("undo-cues") }; Button("Redo", systemImage: "arrow.uturn.forward") { studio.execute("redo-cues") } }.disabled(studio.busy)
+                    if p.sourceType == "youtube" { Button("Attach Local Video Copy…", systemImage: "paperclip") { studio.attachVideo() }.disabled(studio.busy) }
                     Text("Run analysis stages in order. Review and edit descriptions before synthesizing narration.").font(.caption).foregroundStyle(.secondary)
                     Button("Show Project in Finder", systemImage: "folder") { if let folder = p.folder { NSWorkspace.shared.open(folder) } }
                     if !p.exports.isEmpty {
@@ -328,10 +332,23 @@ struct ProjectEditor: View {
                 }.controlSize(.small).padding(12) }.fixedSize(horizontal: false, vertical: true)
                 if let error = playback.speechError { Text(error).foregroundStyle(.red).padding(8) }
                 Divider()
-                if tab == "ad-overview" {
+                if studio.busy {
+                    VStack {
+                        Spacer(minLength: 24)
+                        ProgressView()
+                            .controlSize(.large)
+                            .scaleEffect(2)
+                            .frame(width: 88, height: 88)
+                            .accessibilityLabel("Processing")
+                            .accessibilityValue(studio.message)
+                            .accessibilityHint("VidiStudio is working. This indicator continues spinning until processing finishes.")
+                        Spacer(minLength: 24)
+                    }
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+                } else if tab == "ad-overview" {
                     ADOverviewView(studio: studio, project: project)
                 } else if tab == "summary" {
-                    ScrollView { Text(project.summary.isEmpty ? "Generate a summary after transcription to capture the story and visual context." : project.summary).textSelection(.enabled).frame(maxWidth: .infinity, alignment: .leading).padding(20) }
+                    MarkdownSummaryView(markdown: project.summary.isEmpty ? "Generate a summary after transcription to capture the story and visual context." : project.summary)
                 } else {
                     let segments = (tab == "descriptions" || tab == "ad-transcript") ? project.cues : project.transcript
                     if segments.isEmpty {
@@ -348,10 +365,10 @@ struct ProjectEditor: View {
                                     if cue.audio != nil && cue.audioText == cue.text && cue.audioSettings == studio.settings.narrationSignature { Image(systemName: "waveform.circle.fill").foregroundStyle(.green).accessibilityLabel("Narration ready") }
                                     Button("Edit", systemImage: "pencil") { cueToEdit = cue }.labelStyle(.iconOnly).disabled(studio.busy)
                                     Menu {
-                                        if let audio = cue.audio, let url = project.url(audio) { Button("Preview Narration") { audioPreview = try? AVAudioPlayer(contentsOf: url); audioPreview?.play() } }
-                                        Button("Rewrite to Fit") { studio.execute("rewrite-cue", extra: ["--segment", cue.id]) }
-                                        Button("Synthesize This Segment") { studio.execute("synthesize-tts", extra: ["--segment", cue.id]) }
-                                        Button("Delete Segment", role: .destructive) { studio.saveCues(project.cues.filter { $0.id != cue.id }) }
+                                        if let audio = cue.audio, let url = project.url(audio) { Button("Preview Narration", systemImage: "play.circle") { audioPreview = try? AVAudioPlayer(contentsOf: url); audioPreview?.play() } }
+                                        Button("Rewrite to Fit", systemImage: "wand.and.stars") { studio.execute("rewrite-cue", extra: ["--segment", cue.id]) }
+                                        Button("Synthesize This Segment", systemImage: "waveform") { studio.execute("synthesize-tts", extra: ["--segment", cue.id]) }
+                                        Button("Delete Segment", systemImage: "trash", role: .destructive) { studio.saveCues(project.cues.filter { $0.id != cue.id }) }
                                     } label: { Image(systemName: "ellipsis") }.menuStyle(.borderlessButton).fixedSize().disabled(studio.busy).accessibilityLabel("Segment actions")
                                 }
                             }.padding(.vertical, 8)
@@ -419,7 +436,7 @@ struct ProjectEditor: View {
                 HStack {
                     Button("Close") { studio.screenText = nil }
                     Spacer()
-                    Button("Add as Description") {
+                    Button("Add as Description", systemImage: "text.badge.plus") {
                         cueToEdit = Segment(id: UUID().uuidString, start: studio.screenTimestamp, end: min(project.duration, studio.screenTimestamp + 3), text: studio.screenText ?? "")
                         studio.screenText = nil
                     }.disabled(studio.screenText?.isEmpty != false)
@@ -574,7 +591,7 @@ struct CueEditor: View {
                 HStack {
                     Spacer()
                     Button("Cancel", role: .cancel) { dismiss() }.keyboardShortcut(.cancelAction)
-                    Button("Save Segment") { save(cue); dismiss() }.keyboardShortcut(.defaultAction)
+                    Button("Save Segment", systemImage: "checkmark") { save(cue); dismiss() }.keyboardShortcut(.defaultAction)
                     .disabled(cue.text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || cue.start < 0 || cue.end <= cue.start || cue.end > duration)
                 }
             }

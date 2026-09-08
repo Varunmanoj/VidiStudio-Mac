@@ -4,6 +4,28 @@ ENGINE=Path(__file__).resolve().parents[1]/'engine/vidistudio_engine.py'
 sys.path.insert(0,str(ENGINE.parent))
 spec=importlib.util.spec_from_file_location('engine',ENGINE); engine=importlib.util.module_from_spec(spec); spec.loader.exec_module(engine)
 class Validation(unittest.TestCase):
+    def test_clear_generated_preserves_source(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            (root/'source').mkdir()
+            (root/'source/video.mp4').write_bytes(b'original')
+            p = dict(id='project', name='Keep me', source='source/video.mp4', youtubeURL='https://youtu.be/example', summary='old', hasProcessed=True)
+            for name in ['metadata', 'thumbnails', 'transcript', 'audio-description', 'exports']:
+                (root/name).mkdir()
+                (root/name/'generated').write_text('old')
+            engine.clear_generated(root, p)
+            self.assertEqual((root/'source/video.mp4').read_bytes(), b'original')
+            self.assertEqual(p['id'], 'project')
+            self.assertEqual(p['name'], 'Keep me')
+            self.assertEqual(p['summary'], '')
+            self.assertFalse(p['hasProcessed'])
+            self.assertEqual(p['undoStack'], [])
+            self.assertFalse(any((root/'exports').iterdir()))
+            p['source'] = 'transcript/original.mp4'
+            (root/p['source']).write_bytes(b'protected')
+            with self.assertRaises(ValueError): engine.clear_generated(root, p)
+            self.assertEqual((root/p['source']).read_bytes(), b'protected')
+
     def test_overlap_and_boundaries(self):
         for cues in [[{'start':-1,'end':2,'text':'a'}],[{'start':0,'end':11,'text':'a'}],[{'start':0,'end':3,'text':'a'},{'start':2,'end':5,'text':'b'}],[{'start':0,'end':float('nan'),'text':'a'}]]:
             with self.assertRaises(ValueError): engine.validate_cues(cues,10)

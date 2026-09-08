@@ -59,6 +59,11 @@ struct StudioProject: Codable, Identifiable {
     var sourceType: String?
     var youtubeURL: String?
     var folder: URL?
+    var hasProcessed: Bool?
+    var canReprocess: Bool {
+        hasProcessed == true || !transcript.isEmpty || !summary.isEmpty || !cues.isEmpty || !exports.isEmpty
+    }
+    var hasGeneratedContent: Bool { canReprocess || !thumbnails.isEmpty }
     func url(_ relative: String) -> URL? {
         guard let folder else { return nil }
         let resolved = folder.appendingPathComponent(relative).standardizedFileURL.resolvingSymlinksInPath()
@@ -258,6 +263,18 @@ final class StudioModel {
         guard !busy, let folder = project.folder else { return }
         do { try FileManager.default.trashItem(at: folder, resultingItemURL: nil); reload() }
         catch { self.error = error.localizedDescription }
+    }
+    func clearGeneratedContent(_ project: StudioProject) {
+        guard !busy else { return }
+        let alert = NSAlert()
+        alert.messageText = "Delete generated content from “\(project.name)”?"
+        alert.informativeText = "This deletes transcripts, summaries, descriptions, narration, thumbnails, exports, and edit history. Your project and original video or YouTube link are kept. This cannot be undone."
+        alert.alertStyle = .warning
+        alert.addButton(withTitle: "Cancel")
+        alert.addButton(withTitle: "Delete Generated Content")
+        guard alert.runModal() == .alertSecondButtonReturn else { return }
+        selectedID = project.id
+        execute("clear-generated", project: project)
     }
     func openProject() {
         guard !busy else { return }

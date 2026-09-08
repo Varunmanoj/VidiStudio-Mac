@@ -6,18 +6,21 @@ struct SettingsView: View {
     @State private var saved = false
     @State private var section = "Appearance"
     private let sections = ["Appearance", "Narration", "Gemini API", "Developer prompts", "Storage", "Help"]
+    private let sectionIcons = ["Appearance": "circle.lefthalf.filled", "Narration": "speaker.wave.2", "Gemini API": "sparkles", "Developer prompts": "text.bubble", "Storage": "folder", "Help": "questionmark.circle"]
     private func prompt(_ stage: String, _ key: String) -> Binding<String> {
         Binding(get: { studio.settings.prompts[stage]?[key] ?? "" }, set: { studio.settings.prompts[stage, default: [:]][key] = $0 })
     }
     var body: some View {
         NavigationSplitView {
-            List(sections, id: \.self, selection: $section) { Text($0).tag($0) }
+            List(sections, id: \.self, selection: $section) { item in
+                Label(item, systemImage: sectionIcons[item] ?? "gearshape").tag(item)
+            }
                 .navigationTitle("Settings")
                 .navigationSplitViewColumnWidth(min: 170, ideal: 190)
         } detail: {
         Form {
             if section == "Help" { Section("Help and keyboard shortcuts") {
-                Button("Open VidiStudio Help") { openWindow(id: "help") }
+                Button("Open VidiStudio Help", systemImage: "questionmark.circle") { openWindow(id: "help") }
                 LabeledContent("App version", value: AppVersionInfo.display)
                     .accessibilityElement(children: .ignore)
                     .accessibilityLabel("App version, \(AppVersionInfo.display)")
@@ -26,7 +29,7 @@ struct SettingsView: View {
             }
             if section == "Appearance" { Section("Appearance and playback") {
                 Picker("Appearance", selection: $studio.settings.theme) {
-                    Text("System").tag("system"); Text("Light").tag("light"); Text("Dark").tag("dark")
+                    Label("System", systemImage: "desktopcomputer").tag("system"); Label("Light", systemImage: "sun.max").tag("light"); Label("Dark", systemImage: "moon").tag("dark")
                 }
                 Toggle("Follow transcript during playback", isOn: $studio.settings.followTranscript)
             }
@@ -34,11 +37,11 @@ struct SettingsView: View {
             if section == "Gemini API" { GeminiAPISettingsView(studio: studio) }
             if section == "Narration" { Section("Narration") {
                 Picker("Speech engine", selection: $studio.settings.ttsMode) {
-                    Text("Apple on-device voices · offline").tag("system"); Text("Gemini TTS").tag("gemini")
+                    Label("Apple on-device voices · offline", systemImage: "speaker.wave.2").tag("system"); Label("Gemini TTS", systemImage: "sparkles").tag("gemini")
                 }
                 Picker("Narration during playback", selection: $studio.settings.narrationPlayback) {
-                    Text("Play synthesized narration").tag("generated")
-                    Text("Preview segment text with Apple Speech").tag("device")
+                    Label("Play synthesized narration", systemImage: "play.circle").tag("generated")
+                    Label("Preview segment text with Apple Speech", systemImage: "text.bubble").tag("device")
                 }
                 Text("Play synthesized narration to hear the saved audio used for timing and exports. Apple Speech previews segment text immediately without creating audio files; seeking or resuming restarts the active segment.").font(.caption).foregroundStyle(.secondary)
                 if studio.settings.ttsMode == "gemini" {
@@ -105,7 +108,7 @@ struct SettingsView: View {
                     .font(.caption)
                     .foregroundStyle(.secondary)
                 HStack(spacing: 10) {
-                    Button("Check Engine") { studio.checkEngine() }.disabled(studio.busy)
+                    Button("Check Engine", systemImage: "checkmark.shield") { studio.checkEngine() }.disabled(studio.busy)
                     switch studio.engineCheckStatus {
                     case .unchecked:
                         EmptyView()
@@ -137,7 +140,7 @@ struct SettingsView: View {
         .navigationSplitViewStyle(.balanced)
         .toolbar {
             ToolbarItem(placement: .primaryAction) {
-                Button("Save Settings") { studio.saveSettings(); saved = studio.error == nil }.keyboardShortcut("s").disabled(studio.busy)
+                Button("Save Settings", systemImage: "square.and.arrow.down") { studio.saveSettings(); saved = studio.error == nil }.keyboardShortcut("s").disabled(studio.busy)
             }
         }
         .frame(minWidth: 850, idealWidth: 940, minHeight: 650, idealHeight: 740)

@@ -350,9 +350,26 @@ def project_lock(root):
         yield
 
 
+def clear_generated(root, p):
+    folders = ['metadata', 'thumbnails', 'transcript', 'audio-description', 'exports']
+    source = local(root, p['source']).resolve() if p.get('source') else None
+    for name in folders:
+        folder = root / name
+        if folder.is_symlink() or (source and (folder.resolve() == source or folder.resolve() in source.parents)):
+            raise ValueError('Cannot clear generated content: a generated folder contains the source video or is a symbolic link.')
+    for name in folders:
+        folder = root / name
+        if folder.exists(): shutil.rmtree(folder)
+        folder.mkdir()
+    for key in ('thumbnails', 'transcript', 'cues', 'exports', 'undoStack', 'redoStack'):
+        p[key] = []
+    p['summary'] = ''
+    p['hasProcessed'] = False
+    p.pop('error', None)
+
 def main():
     parser=argparse.ArgumentParser(description=__doc__)
-    parser.add_argument('command',choices=['list-models','preview-tts','import-video','probe-video','generate-thumbnails','extract-audio','transcribe','generate-summary','generate-ad-cues','synthesize-tts','export-final-video','save-cues','doctor',*parity.COMMANDS])
+    parser.add_argument('command',choices=['clear-generated','list-models','preview-tts','import-video','probe-video','generate-thumbnails','extract-audio','transcribe','generate-summary','generate-ad-cues','synthesize-tts','export-final-video','save-cues','doctor',*parity.COMMANDS])
     parser.add_argument('--project',type=Path); parser.add_argument('--video',type=Path); parser.add_argument('--library',type=Path); parser.add_argument('--input',type=Path)
     parser.add_argument('--content',choices=['transcript','descriptions','combined'],default='descriptions'); parser.add_argument('--url'); parser.add_argument('--name'); parser.add_argument('--timestamp',type=float,default=0); parser.add_argument('--duration',type=float); parser.add_argument('--segment'); parser.add_argument('--format',choices=['srt','vtt','txt','json'],default='srt'); parser.add_argument('--changed',action='store_true'); parser.add_argument('--start-stage',default='transcribe')
     parser.add_argument('--output', type=Path); parser.add_argument('--text')
@@ -390,7 +407,10 @@ def main():
         atomic_json(root/'metadata/history'/f'{time.time_ns()}-{args.command}.json',p)
         p['status']='Processing '+args.command; save(root,p)
         try:
-            if args.command=='probe-video': atomic_json(root/'metadata/probe.json',probe(local(root,p['source'])))
+            if args.command in ('analyze', 'transcribe', 'generate-summary', 'generate-ad-cues', 'synthesize-tts'):
+                p['hasProcessed'] = True
+            if args.command=='clear-generated': clear_generated(root,p)
+            elif args.command=='probe-video': atomic_json(root/'metadata/probe.json',probe(local(root,p['source'])))
             elif args.command=='generate-thumbnails': thumbnails(root,p)
             elif args.command=='extract-audio':
                 if not p['hasAudio']: raise ValueError('This video has no audio track.')

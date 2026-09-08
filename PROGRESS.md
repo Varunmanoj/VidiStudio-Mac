@@ -156,3 +156,19 @@ Renamed the Narration during playback choices to Play synthesized narration and 
 ### Simplified Gemini voice settings — 2026-09-08
 
 Removed the visible Custom Gemini voice ID field from Settings → Narration. The saved voice identifier and engine support remain intact, including compatibility with previously stored custom identifiers; users now choose from the supported Gemini voice menu. Debug and Release builds passed. Native accessibility inspection confirmed Gemini voice, Sample text, and preview controls remain while Custom Gemini voice ID is absent. The signed Release ZIP and DMG were rebuilt.
+
+### Large processing indicator — 2026-09-08
+
+Processing now replaces the lower editor content with a large, continuously spinning native activity indicator so it remains visible beside the inspector and within the transcript area. Removed the small footer spinner and determinate progress bar; the footer retains the current status text and Cancel Processing action. VoiceOver exposes the large indicator as Processing and reads the current operation as its value. The Debug Xcode build passed.
+
+### Formatted summary — 2026-09-08
+
+Summary now uses Foundation Markdown parsing and native SwiftUI block rendering for headings, bullets, numbered lists, inline emphasis, links, and paragraph spacing. Headings expose the VoiceOver header trait and text remains selectable. Stored Markdown remains unchanged. `script/build_and_run.sh --verify` passed and launched the updated Debug app; visual and VoiceOver interaction were not separately verified in this pass.
+
+### Project processing and reset menu — 2026-09-08
+
+List and grid context menus now offer Process Video for fresh projects or Reprocess Video for projects with analysis attempts or results. Both run the sequential analysis pipeline. Delete Generated Content requires a native confirmation and clears metadata, thumbnails, transcripts, summaries, descriptions, narration, exports, and undo/redo history while preserving project identity and source media. Delete Project is a separate action. Reset rejects generated folders that are symlinks or contain the source. The focused preservation test and packaged engine reset smoke test passed; the bundled Debug app built and launched through the verify script.
+
+### Settings and menu iconography — 2026-09-08
+
+Added native symbol labels to settings navigation and appearance/narration choices, app-owned File/View/Playback/Project Editor/Help commands, list and grid context actions, segment actions, and export menus. Rename, clear generated content, and delete project now have distinct symbols. Existing text, shortcuts, enabled states, and destructive roles remain intact. The Debug build and launch verification passed; menu visuals were not independently inspected in this pass.

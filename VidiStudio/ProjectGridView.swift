@@ -7,6 +7,8 @@ struct ProjectGridView: View {
     let busy: Bool
     let rename: (StudioProject) -> Void
     let delete: (StudioProject) -> Void
+    let process: (StudioProject) -> Void
+    let clear: (StudioProject) -> Void
 
     var body: some View {
         ScrollView {
@@ -30,11 +32,14 @@ struct ProjectGridView: View {
                     .accessibilityLabel("\(project.name), \(timecode(project.duration)), \(project.cues.count) descriptions")
                     .accessibilityAddTraits(selection == project.id ? [.isSelected] : [])
                     .contextMenu {
-                        Button("Rename") { rename(project) }
+                        Button("Rename", systemImage: "pencil") { rename(project) }
                         Button("Open in Project Folder", systemImage: "folder") {
                             if let folder = project.folder { NSWorkspace.shared.open(folder) }
                         }
-                        Button("Delete", role: .destructive) { delete(project) }.disabled(busy)
+                        Button(project.canReprocess ? "Reprocess Video" : "Process Video", systemImage: "sparkles") { process(project) }.disabled(busy)
+                        Divider()
+                        Button("Delete Generated Content…", systemImage: "eraser", role: .destructive) { clear(project) }.disabled(busy || !project.hasGeneratedContent)
+                        Button("Delete Project", systemImage: "trash", role: .destructive) { delete(project) }.disabled(busy)
                     }
                 }
             }.padding(12)

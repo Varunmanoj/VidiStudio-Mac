@@ -18,6 +18,26 @@ struct StudioShortcut: Identifiable {
     let modifiers: EventModifiers
     let spoken: String
     let group: String
+    var icon: String {
+        switch id {
+        case "preview": return "video"
+        case "fullscreen": return "arrow.up.left.and.arrow.down.right"
+        case "play": return "playpause"
+        case "back": return "gobackward.5"
+        case "forward": return "goforward.5"
+        case "narration": return "speaker.wave.2"
+        case "descriptions": return "text.below.photo"
+        case "transcript": return "text.bubble"
+        case "summary": return "text.alignleft"
+        case "ad-transcript": return "text.quote"
+        case "ad-overview": return "chart.bar"
+        case "add": return "plus"
+        case "follow": return "text.line.first.and.arrowtriangle.forward"
+        case "undo": return "arrow.uturn.backward"
+        case "redo": return "arrow.uturn.forward"
+        default: return "circle"
+        }
+    }
     static let editor: [StudioShortcut] = [
         .init(id: "preview", title: "Show or Hide Preview", key: "v", modifiers: [.command, .shift], spoken: "Command + Shift + V", group: "Playback"),
         .init(id: "fullscreen", title: "Full-Screen Video", key: "f", modifiers: [.command, .option], spoken: "Command + Option + F; Escape to return", group: "Playback"),
@@ -42,30 +62,30 @@ struct StudioCommands: Commands {
     @Environment(\.openWindow) private var openWindow
     var body: some Commands {
         CommandGroup(after: .sidebar) {
-            Button(browser?.showProjects.wrappedValue == true ? "Hide Project List" : "Show Project List") { browser?.showProjects.wrappedValue.toggle() }
+            Button(browser?.showProjects.wrappedValue == true ? "Hide Project List" : "Show Project List", systemImage: "sidebar.left") { browser?.showProjects.wrappedValue.toggle() }
                 .keyboardShortcut("b", modifiers: .command).disabled(browser == nil)
-            Button(browser?.hasProject == true && browser?.showInspector.wrappedValue == true ? "Hide Inspector" : "Show Inspector") { browser?.showInspector.wrappedValue.toggle() }
+            Button(browser?.hasProject == true && browser?.showInspector.wrappedValue == true ? "Hide Inspector" : "Show Inspector", systemImage: "sidebar.right") { browser?.showInspector.wrappedValue.toggle() }
                 .keyboardShortcut("b", modifiers: [.command, .shift]).disabled(browser?.hasProject != true)
             Divider()
-            Button("Project List View") { browser?.grid.wrappedValue = false; browser?.showProjects.wrappedValue = true }
+            Button("Project List View", systemImage: "list.bullet") { browser?.grid.wrappedValue = false; browser?.showProjects.wrappedValue = true }
                 .keyboardShortcut("1", modifiers: [.command, .option]).disabled(browser == nil)
-            Button("Project Grid View") { browser?.grid.wrappedValue = true; browser?.showProjects.wrappedValue = true }
+            Button("Project Grid View", systemImage: "square.grid.2x2") { browser?.grid.wrappedValue = true; browser?.showProjects.wrappedValue = true }
                 .keyboardShortcut("2", modifiers: [.command, .option]).disabled(browser == nil)
         }
         CommandGroup(replacing: .appInfo) {
-            Button("About VidiStudio") {
+            Button("About VidiStudio", systemImage: "info.circle") {
                 NSApplication.shared.orderFrontStandardAboutPanel(nil)
             }
         }
         CommandMenu("Playback") { entries("Playback") }
         CommandMenu("Project Editor") { entries("Editor") }
         CommandGroup(replacing: .help) {
-            Button("VidiStudio Help") { openWindow(id: "help") }.keyboardShortcut("/", modifiers: [.command, .option])
+            Button("VidiStudio Help", systemImage: "questionmark.circle") { openWindow(id: "help") }.keyboardShortcut("/", modifiers: [.command, .option])
         }
     }
     @ViewBuilder private func entries(_ group: String) -> some View {
         ForEach(StudioShortcut.editor.filter { $0.group == group }) { shortcut in
-            Button(shortcut.title) { editor?.run(shortcut.id) }
+            Button(shortcut.title, systemImage: shortcut.icon) { editor?.run(shortcut.id) }
                 .keyboardShortcut(shortcut.key, modifiers: shortcut.modifiers)
                 .disabled(editor == nil)
         }
