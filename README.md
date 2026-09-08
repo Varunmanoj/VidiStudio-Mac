@@ -17,7 +17,9 @@ Other flags: `--build-only`, `--debug`, `--logs`, `--telemetry`. `script/package
 1. New Project (Command-N) lets you choose a video file or YouTube video. Video files are copied into the project library and receive metadata and eight thumbnails.
 2. In Settings (Command-comma), save your Gemini API key and model names. System narration works without a key.
 3. Import a local video or use the toolbar link button for a YouTube project. Run All Analysis transcribes, summarizes, then generates descriptions; each stage is also available separately.
-4. Review cues, seek from their timestamps or timeline, and add/edit/delete cues. Save rejects overlaps with dialogue and other descriptions.
+4. Review cues, seek from their timestamps or the thumbnail timeline, and add/edit/delete cues. The timeline shows a synchronized playhead and millisecond-precision current/total time; click or drag its thumbnail strip to seek. Save rejects overlaps with dialogue and other descriptions.
+   Transcript, Summary, and Descriptions each expose a right-aligned Generate or Regenerate action. Descriptions keeps Add Segment beside that action.
+   Read Frame Text pauses on the selected playhead position, shows its AI processing status, and uses the final valid frame when the playhead is at the exact end of the video.
 5. Synthesize narration. Text that exceeds its time slot must be shortened or retimed.
 6. Export Final Video mixes the original audio with narration into a new local MP4. Changed or missing narration blocks export.
 
@@ -66,13 +68,13 @@ Current delivery evidence and known feature/validation limits are recorded in `P
 
 ## Keyboard shortcuts and Help
 
-Open **Help → VidiStudio Help** (Command+Option+/), or **Settings → Help and keyboard shortcuts** for the complete reference. Native Playback and Project Editor menus show available commands and their key equivalents. New Project: Command+N; open folder: Command+O; Settings: Command+Comma; play/pause: Command+Shift+Space; seek five seconds: Command+Option+Left/Right; descriptions/transcript/summary: Command+1/2/3; add segment: Command+Shift+N; follow: Command+Shift+F; narration: Command+Shift+D; segment undo/redo: Command+Option+Z / Command+Option+Shift+Z. Save Settings with Command+S and Save Segment with Return in their respective views. Escape cancels a sheet or closes Help.
+Open **Help → VidiStudio Help** (Command+Option+/), or **Settings → Help and keyboard shortcuts** for the complete reference. The View and Project menus show available commands and their key equivalents. New Project: Command+N; open folder: Command+O; Settings: Command+Comma; show/hide preview: Command+Shift+V; play/pause: Command+Shift+Space; seek five seconds: Command+Option+Left/Right; transcript/summary/descriptions/AD overview/AD transcript: Command+1/2/3/4/5; add segment: Command+Shift+N; follow: Command+Shift+F; narration: Command+Shift+D; segment undo/redo: Command+Option+Z / Command+Option+Shift+Z. Save Settings with Command+S and Save Segment with Return in their respective views. Escape cancels a sheet or closes Help.
 
 Editor commands disable during processing and editing sheets. Standard text undo and VoiceOver Control+Option commands are preserved. Enable macOS Keyboard navigation to Tab through all controls. Windows web shortcuts are documented in the online application; a Windows desktop UI is not yet shipped.
 
 ## AD views and narration settings
 
-Use the Editor section menu for Descriptions, Transcript, Summary, AD Transcript (Command+4), and AD Overview (Command+5). The AD transcript lists timed description text; AD Overview reports segment counts, ready/stale/missing audio, and description time, with actions to generate all or missing/changed narration.
+The Editor section opens to Transcript by default and is ordered Transcript (Command+1), Summary (Command+2), Descriptions (Command+3), AD Overview (Command+4), and AD Transcript (Command+5). Descriptions lists authored AD segments; AD Overview reports segment counts, ready/stale/missing audio, and description time, with actions to generate all or missing/changed narration; AD Transcript combines dialogue and AD segments chronologically.
 
 Settings now has a native sidebar: Appearance, Narration, Gemini API, Developer prompts, Storage, Help. Narration offers Apple on-device voices or Gemini TTS for saved audio generation. Its language/region filter and search list all voices exposed by macOS speech, including installed enhanced voices; each has a Speak Sample action. Download more voices through macOS Accessibility → Read & Speak, then Refresh Voices. Save Settings preserves the chosen voice and engine.
 
@@ -84,7 +86,7 @@ Settings → Narration shows samples for the selected speech engine. Apple voice
 
 ### Preview workspace
 
-Use Show/Hide Preview in the editor or Command+Shift+V to collapse the video and timeline while keeping the player loaded. Full-Screen Video (Command+Option+F) presents the video separately from the editor; Escape restores it. Both controls are also in the Playback menu and keyboard reference.
+Use **View → Hide Preview** or Command+Shift+V to collapse the video and timeline while keeping the player loaded. The same command changes to **Show Preview**, so the preview can always be restored from the View menu or keyboard. Full-Screen Video (Command+Option+F) presents the video separately from the editor; Escape restores it. Full-Screen Video remains in **Project → Playback** and both shortcuts are included in the keyboard reference.
 
 ### Fixed project list and inspector
 

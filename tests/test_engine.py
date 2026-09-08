@@ -7,6 +7,29 @@ ENGINE=Path(__file__).resolve().parents[1]/'engine/vidistudio_engine.py'
 sys.path.insert(0,str(ENGINE.parent))
 spec=importlib.util.spec_from_file_location('engine',ENGINE); engine=importlib.util.module_from_spec(spec); spec.loader.exec_module(engine)
 class Validation(unittest.TestCase):
+    def test_frame_timestamp_uses_last_valid_frame_at_video_end(self):
+        self.assertEqual(engine.parity.frame_timestamp(10, 10), 9.9)
+        self.assertEqual(engine.parity.frame_timestamp(4.25, 10), 4.25)
+        with self.assertRaises(ValueError): engine.parity.frame_timestamp(10.02, 10)
+        with self.assertRaises(ValueError): engine.parity.frame_timestamp(-0.01, 10)
+
+    def test_capture_frame_at_video_end_reaches_text_processing(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            (root/'metadata').mkdir()
+            p = dict(duration=10, source='', sourceType='youtube', youtubeURL='https://www.youtube.com/watch?v=abcdefghijk')
+            args = SimpleNamespace(command='capture-frame', timestamp=10)
+            prompts = {'youtube_screen_text': dict(user_prompt='Read {timestamp_seconds}', system_instruction='')}
+            client = Mock()
+            with patch.object(engine, 'config', return_value={'prompts': prompts, 'videoProcessing': 'agentic'}), \
+                 patch.object(engine, 'client_and_model', return_value=(client, 'gemini-video')), \
+                 patch.object(engine.gemini_adapter, 'video_interaction', return_value='{"screenText":"Last frame"}'), \
+                 patch.object(engine, 'emit') as emit:
+                engine.parity.execute(args, root, p, engine)
+            self.assertEqual(args.timestamp, 9.9)
+            emit.assert_called_once_with('Frame text extracted', screenText='Last frame', timestamp=9.9)
+            client.close.assert_called_once()
+
     def test_regenerate_all_clears_then_recreates_analysis(self):
         with tempfile.TemporaryDirectory() as temp:
             root=Path(temp)

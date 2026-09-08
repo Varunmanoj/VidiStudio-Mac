@@ -38,6 +38,12 @@ def render(prompt,p,**extra):
 def clock(seconds,separator='.'):
     ms=round(seconds*1000);return f'{ms//3600000:02}:{ms//60000%60:02}:{ms//1000%60:02}{separator}{ms%1000:03}'
 
+def frame_timestamp(value,duration):
+    value=float(value);duration=float(duration)
+    if not math.isfinite(value) or not math.isfinite(duration) or duration<=0 or value<0 or value>duration+.01:
+        raise ValueError('Choose a frame inside the video.')
+    return min(value,max(0,duration-.1))
+
 def remember(p):
     p.setdefault('undoStack',[]).append(copy.deepcopy(p['cues']));p['undoStack']=p['undoStack'][-50:];p['redoStack']=[]
 
@@ -107,7 +113,7 @@ def execute(args,root,p,e):
             remember(p);cue['text']=text;p['exports']=[];e.atomic_json(root/'audio-description/cues.json',p['cues'])
         finally:client.close()
     elif command=='capture-frame':
-        if not 0<=args.timestamp<p['duration']:raise ValueError('Choose a frame inside the video.')
+        args.timestamp=frame_timestamp(args.timestamp,p['duration'])
         cfg=e.config();youtube=p.get('sourceType')=='youtube' and not p.get('source');key='youtube_screen_text' if youtube else 'screen_text';pair=cfg['prompts'][key]
         client,model=e.client_and_model('screen_text')
         try:

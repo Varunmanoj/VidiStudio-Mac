@@ -118,6 +118,7 @@ struct StudioSettings: Codable {
 
 @MainActor @Observable
 final class StudioModel {
+    static let defaultErrorTitle = "VidiStudio needs attention"
     var projects: [StudioProject] = []
     var selectedID: String? { didSet { UserDefaults.standard.set(selectedID, forKey: "lastProjectID") } }
     var settings = StudioSettings()
@@ -125,6 +126,7 @@ final class StudioModel {
     var message = "All files stay in your local project folders."
     var progress = 0.0
     var error: String?
+    var errorTitle = StudioModel.defaultErrorTitle
     var logs: [String] = []
     var screenText: String?
     var screenTimestamp = 0.0
@@ -134,6 +136,12 @@ final class StudioModel {
     var geminiModelsLoaded = false
     var engineCheckStatus: EngineCheckStatus = .unchecked
     var selected: StudioProject? { projects.first { $0.id == selectedID } }
+
+    func dismissError() {
+        error = nil
+        errorTitle = StudioModel.defaultErrorTitle
+    }
+
     init() {
         var merged = (try? JSONSerialization.jsonObject(with: JSONEncoder().encode(settings))) as? [String: Any] ?? [:]
         if let url = Bundle.main.resourceURL?.appendingPathComponent("Engine/_internal/ai-defaults.json"),
@@ -390,6 +398,7 @@ final class StudioModel {
 
     func execute(_ command: String, extra: [String] = [], project: StudioProject? = nil, configurationURL: URL? = nil, cleanupURL: URL? = nil) {
         guard !busy else { return }
+        errorTitle = command == "capture-frame" ? "Read Frame Text Processing" : StudioModel.defaultErrorTitle
         if command == "doctor" {
             error = nil
             engineCheckStatus = .checking
@@ -402,7 +411,9 @@ final class StudioModel {
             error = message
             return
         }
-        busy = true; progress = 0; message = command.replacingOccurrences(of: "-", with: " ").capitalized
+        busy = true
+        progress = 0
+        message = command == "capture-frame" ? "Processing text from the selected frame…" : command.replacingOccurrences(of: "-", with: " ").capitalized
         let task = Process(); task.executableURL = engine
         task.arguments = [command] + (target?.folder.map { ["--project", $0.path] } ?? []) + extra
         task.environment = ProcessInfo.processInfo.environment.merging(["VIDISTUDIO_CONFIG": (configurationURL ?? StudioSettings.url).path]) { _, new in new }
@@ -445,6 +456,7 @@ final class StudioModel {
             if let cleanupURL { try? FileManager.default.removeItem(at: cleanupURL) }
             busy = false; process = nil; reload()
             if task.terminationStatus != 0 && self.error == nil { self.error = "Processing stopped. Your previously completed results are saved." }
+            if task.terminationStatus == 0 { self.errorTitle = StudioModel.defaultErrorTitle }
             if command == "doctor" {
                 engineCheckStatus = task.terminationStatus == 0
                     ? .ready

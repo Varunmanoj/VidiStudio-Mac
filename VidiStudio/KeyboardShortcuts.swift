@@ -3,6 +3,7 @@ import AppKit
 
 struct EditorShortcutActions {
     var run: (String) -> Void
+    var previewHidden: Bool
 }
 private struct EditorShortcutKey: FocusedValueKey { typealias Value = EditorShortcutActions }
 extension FocusedValues {
@@ -45,11 +46,11 @@ struct StudioShortcut: Identifiable {
         .init(id: "back", title: "Seek Back 5 Seconds", key: .leftArrow, modifiers: [.command, .option], spoken: "Command + Option + Left Arrow", group: "Playback"),
         .init(id: "forward", title: "Seek Forward 5 Seconds", key: .rightArrow, modifiers: [.command, .option], spoken: "Command + Option + Right Arrow", group: "Playback"),
         .init(id: "narration", title: "Toggle Narration", key: "d", modifiers: [.command, .shift], spoken: "Command + Shift + D", group: "Playback"),
-        .init(id: "descriptions", title: "Show Descriptions", key: "1", modifiers: .command, spoken: "Command + 1", group: "Editor"),
-        .init(id: "transcript", title: "Show Transcript", key: "2", modifiers: .command, spoken: "Command + 2", group: "Editor"),
-        .init(id: "summary", title: "Show Summary", key: "3", modifiers: .command, spoken: "Command + 3", group: "Editor"),
-        .init(id: "ad-transcript", title: "Show AD Transcript", key: "4", modifiers: .command, spoken: "Command + 4", group: "Editor"),
-        .init(id: "ad-overview", title: "Show AD Overview", key: "5", modifiers: .command, spoken: "Command + 5", group: "Editor"),
+        .init(id: "transcript", title: "Show Transcript", key: "1", modifiers: .command, spoken: "Command + 1", group: "Editor"),
+        .init(id: "summary", title: "Show Summary", key: "2", modifiers: .command, spoken: "Command + 2", group: "Editor"),
+        .init(id: "descriptions", title: "Show Descriptions", key: "3", modifiers: .command, spoken: "Command + 3", group: "Editor"),
+        .init(id: "ad-overview", title: "Show AD Overview", key: "4", modifiers: .command, spoken: "Command + 4", group: "Editor"),
+        .init(id: "ad-transcript", title: "Show AD Transcript", key: "5", modifiers: .command, spoken: "Command + 5", group: "Editor"),
         .init(id: "add", title: "Add Description Segment", key: "n", modifiers: [.command, .shift], spoken: "Command + Shift + N", group: "Editor"),
         .init(id: "follow", title: "Toggle Transcript Follow", key: "f", modifiers: [.command, .shift], spoken: "Command + Shift + F", group: "Editor"),
         .init(id: "undo", title: "Undo Segment Edit", key: "z", modifiers: [.command, .option], spoken: "Command + Option + Z", group: "Editor"),
@@ -67,6 +68,12 @@ struct StudioCommands: Commands {
     @Environment(\.openWindow) private var openWindow
     var body: some Commands {
         CommandGroup(after: .sidebar) {
+            Button(editor?.previewHidden == true ? "Show Preview" : "Hide Preview", systemImage: editor?.previewHidden == true ? "video" : "video.slash") {
+                editor?.run("preview")
+            }
+            .keyboardShortcut("v", modifiers: [.command, .shift])
+            .disabled(editor == nil)
+            Divider()
             Button(browser?.showProjects.wrappedValue == true ? "Hide Project List" : "Show Project List", systemImage: "sidebar.left") { browser?.showProjects.wrappedValue.toggle() }
                 .keyboardShortcut("b", modifiers: .command).disabled(browser == nil)
             Button(browser?.hasProject == true && browser?.showInspector.wrappedValue == true ? "Hide Inspector" : "Show Inspector", systemImage: "sidebar.right") { browser?.showInspector.wrappedValue.toggle() }
@@ -85,9 +92,11 @@ struct StudioCommands: Commands {
         CommandGroup(replacing: .textEditing) { }
         CommandGroup(replacing: .textFormatting) { }
         CommandMenu("Project") {
-            Menu("Playback") { entries("Playback") }
+            Menu("Playback") {
+                shortcutEntries(StudioShortcut.editor.filter { $0.group == "Playback" && $0.id != "preview" })
+            }
             Menu("Editor Sections") {
-                shortcutEntries(StudioShortcut.editor.filter { ["descriptions", "transcript", "summary", "ad-transcript", "ad-overview"].contains($0.id) })
+                shortcutEntries(StudioShortcut.editor.filter { ["transcript", "summary", "descriptions", "ad-overview", "ad-transcript"].contains($0.id) })
             }
             Menu("Segments") {
                 shortcutEntries(StudioShortcut.editor.filter { ["add", "follow", "undo", "redo"].contains($0.id) })
@@ -155,7 +164,7 @@ struct StudioHelpView: View {
                     .foregroundStyle(.secondary)
                     .accessibilityLabel("VidiStudio \(AppVersionInfo.display)")
                 Text("Import a local video or create a YouTube project, run analysis from the inspector, review descriptions, synthesize narration, and export. Your project files and completed results are saved locally.")
-                Text("Editor sections include Transcript, Summary, AD Transcript, and AD Overview. AD Overview shows segment and narration counts and generates audio with Apple voices or Gemini TTS. Settings → Narration contains the language and voice browser, voice samples, offline speech rate, pitch and volume controls, Restore Defaults, and the choice between saved audio playback and speaking on device without files.")
+                Text("Editor sections are ordered Transcript, Summary, Descriptions, AD Overview, and AD Transcript. Transcript shows spoken dialogue; Descriptions contains the authored AD segments; AD Overview shows segment and narration counts and generates audio with Apple voices or Gemini TTS; AD Transcript combines dialogue and AD segments chronologically. Settings → Narration contains the language and voice browser, voice samples, offline speech rate, pitch and volume controls, Restore Defaults, and the choice between saved audio playback and speaking on device without files.")
                 ShortcutReferenceView()
                 Button("Close Help") { dismiss() }.keyboardShortcut(.cancelAction)
             }.padding(24)

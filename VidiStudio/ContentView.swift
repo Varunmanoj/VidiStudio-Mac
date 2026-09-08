@@ -221,19 +221,8 @@ struct ContentView: View {
                 ToolbarItem(placement: .primaryAction) { Button(showInspector ? "Hide Inspector" : "Show Inspector", systemImage: "sidebar.right") { showInspector.toggle() } }
             }
         }
-        .safeAreaInset(edge: .bottom) {
-            if studio.busy {
-                HStack(spacing: 12) {
-                    Text(studio.message).lineLimit(2).font(.caption)
-                    Spacer()
-                    Button("Cancel Processing", systemImage: "stop.circle") { studio.process?.terminate() }
-                }
-                .padding(.horizontal, 18)
-                .padding(.vertical, 10)
-            }
-        }
-        .alert("VidiStudio needs attention", isPresented: Binding(get: { studio.error != nil }, set: { if !$0 { studio.error = nil } })) {
-            Button("OK", role: .cancel) { studio.error = nil }
+        .alert(studio.errorTitle, isPresented: Binding(get: { studio.error != nil }, set: { if !$0 { studio.dismissError() } })) {
+            Button("OK", role: .cancel) { studio.dismissError() }
         } message: { Text(studio.error ?? "") }
     }
 }
@@ -245,6 +234,16 @@ struct ProcessingInspector: View {
         ("extract-audio","Extract Audio","waveform"), ("transcribe","Transcribe Video","text.bubble"),
         ("generate-summary","Generate Summary","text.alignleft"), ("generate-ad-cues","Generate Descriptions","sparkles"),
         ("synthesize-tts","Synthesize Narration","speaker.wave.2"), ("export-final-video","Export Final Video","square.and.arrow.up")]
+
+    private func title(for stage: (String, String, String), project: StudioProject) -> String {
+        switch stage.0 {
+        case "transcribe": return project.transcript.isEmpty ? "Generate Transcript" : "Regenerate Transcript"
+        case "generate-summary": return project.summary.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? "Generate Summary" : "Regenerate Summary"
+        case "generate-ad-cues": return project.cues.isEmpty ? "Generate Descriptions" : "Regenerate Descriptions"
+        default: return stage.1
+        }
+    }
+
     var body: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 18) {
@@ -262,7 +261,7 @@ struct ProcessingInspector: View {
                     Text("Individual actions replace only their own content. Regenerate All deletes generated content and recreates the transcript, summary, and AD segments. Narration and exports can then be generated separately.")
                         .font(.caption).foregroundStyle(.secondary)
                     ForEach(stages, id: \.0) { stage in
-                        Button { studio.execute(stage.0) } label: { HStack { MaterialIcon(glyph: stage.0 == "transcribe" ? "\u{e8af}" : stage.0 == "synthesize-tts" ? "\u{e050}" : "\u{e037}"); Text(stage.1) }.frame(maxWidth: .infinity, alignment: .leading) }
+                        Button { studio.execute(stage.0) } label: { HStack { MaterialIcon(glyph: stage.0 == "transcribe" ? "\u{e8af}" : stage.0 == "synthesize-tts" ? "\u{e050}" : "\u{e037}"); Text(title(for: stage, project: p)) }.frame(maxWidth: .infinity, alignment: .leading) }
                             .disabled(studio.busy || (p.source.isEmpty && ["probe-video", "generate-thumbnails", "extract-audio"].contains(stage.0))).controlSize(.large)
                     }
                     Menu("Export Text", systemImage: "square.and.arrow.up") {
@@ -309,7 +308,7 @@ struct ProjectEditor: View {
     let project: StudioProject
     @State private var playback = PlaybackModel()
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
-    @State private var tab = "descriptions"
+    @State private var tab = "transcript"
     @State private var requestedTitle = ""
     @State private var previewHidden = false
     @State private var cueToEdit: Segment?
@@ -326,16 +325,30 @@ struct ProjectEditor: View {
         }
     }
 
+    private var generationAction: (command: String, title: String, icon: String)? {
+        switch tab {
+        case "transcript":
+            return ("transcribe", project.transcript.isEmpty ? "Generate Transcript" : "Regenerate Transcript", "text.bubble")
+        case "summary":
+            let hasSummary = !project.summary.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+            return ("generate-summary", hasSummary ? "Regenerate Summary" : "Generate Summary", "text.alignleft")
+        case "descriptions":
+            return ("generate-ad-cues", project.cues.isEmpty ? "Generate Descriptions" : "Regenerate Descriptions", "sparkles")
+        default:
+            return nil
+        }
+    }
+
     private var editorToolbar: some View {
         HStack(spacing: 10) {
             ScrollView(.horizontal, showsIndicators: false) {
                 HStack(spacing: 8) {
                     Picker("Editor section", selection: $tab) {
-                        Text("Descriptions").tag("descriptions")
                         Text("Transcript").tag("transcript")
                         Text("Summary").tag("summary")
-                        Text("AD Transcript").tag("ad-transcript")
+                        Text("Descriptions").tag("descriptions")
                         Text("AD Overview").tag("ad-overview")
+                        Text("AD Transcript").tag("ad-transcript")
                     }
                     .pickerStyle(.menu)
                     .labelsHidden()
@@ -353,7 +366,7 @@ struct ProjectEditor: View {
                     .labelStyle(.iconOnly)
                     .help("View video full screen; press Escape to return")
                     Button("Read Frame Text", systemImage: "text.viewfinder") {
-                        studio.execute("capture-frame", extra: ["--timestamp", String(playback.time)])
+                        readCurrentFrameText()
                     }
                     .labelStyle(.iconOnly)
                     .help("Extract text from the current video frame")
@@ -366,6 +379,12 @@ struct ProjectEditor: View {
                         .help("Follow the active transcript or description")
                 }
             }
+            if let action = generationAction {
+                Button(action.title, systemImage: action.icon) { studio.execute(action.command) }
+                    .disabled(studio.busy)
+                    .help(action.title.hasPrefix("Regenerate") ? "Replace the existing content after confirmation" : "Generate content for this section")
+                    .fixedSize()
+            }
             if tab == "descriptions" {
                 Button("Add Segment", systemImage: "plus") { presentNewSegment() }
                     .disabled(studio.busy)
@@ -375,6 +394,37 @@ struct ProjectEditor: View {
         .controlSize(.small)
         .padding(12)
         .fixedSize(horizontal: false, vertical: true)
+    }
+
+    @ViewBuilder
+    private var processingControlBar: some View {
+        if studio.busy {
+            HStack(spacing: 12) {
+                Text(studio.message)
+                    .font(.callout)
+                    .foregroundStyle(.secondary)
+                    .lineLimit(2)
+                    .accessibilityLabel("Processing status: \(studio.message)")
+                Spacer(minLength: 12)
+                Button {
+                    studio.process?.terminate()
+                } label: {
+                    HStack(spacing: 6) {
+                        MaterialIcon(glyph: "\u{e047}")
+                        Text("Cancel Processing")
+                    }
+                }
+                .buttonStyle(.borderedProminent)
+                .tint(.red)
+                .fixedSize()
+                .accessibilityLabel("Cancel Processing")
+                .accessibilityHint("Stops the current processing operation. Completed results remain saved.")
+            }
+            .padding(.horizontal, 12)
+            .padding(.vertical, 8)
+            .background(.bar)
+            .overlay(alignment: .bottom) { Divider() }
+        }
     }
 
     private var screenTextPresented: Binding<Bool> {
@@ -460,6 +510,7 @@ struct ProjectEditor: View {
                 TimelineView(project: project, playback: playback).frame(height: previewHidden ? 0 : nil).clipped()
             }.frame(minHeight: previewHidden ? 0 : 220, maxHeight: previewHidden ? 0 : .infinity).clipped().accessibilityHidden(previewHidden).allowsHitTesting(!previewHidden)
             VStack(spacing: 0) {
+                processingControlBar
                 editorToolbar
                 if let error = playback.speechError { Text(error).foregroundStyle(.red).padding(8) }
                 Divider()
@@ -521,7 +572,12 @@ struct ProjectEditor: View {
                                         Button("Rewrite to Fit", systemImage: "wand.and.stars") { studio.execute("rewrite-cue", extra: ["--segment", cue.id]) }
                                         Button("Synthesize This Segment", systemImage: "waveform") { studio.execute("synthesize-tts", extra: ["--segment", cue.id]) }
                                         Button("Delete Segment", systemImage: "trash", role: .destructive) { studio.saveCues(project.cues.filter { $0.id != cue.id }) }
-                                    } label: { Image(systemName: "ellipsis") }.menuStyle(.borderlessButton).fixedSize().disabled(studio.busy).accessibilityLabel("Segment actions")
+                                    } label: { Image(systemName: "ellipsis") }
+                                        .menuStyle(.borderlessButton)
+                                        .menuIndicator(.hidden)
+                                        .fixedSize()
+                                        .disabled(studio.busy)
+                                        .accessibilityLabel("Segment actions")
                                 }
                             }.padding(.vertical, 8)
                                 .accessibilityElement(children: .contain)
@@ -555,7 +611,7 @@ struct ProjectEditor: View {
             case "analyze", "transcribe", "generate-summary", "generate-ad-cues", "regenerate-all": studio.execute(action)
             default: break
             }
-        }))
+        }, previewHidden: previewHidden))
         .navigationTitle(project.name)
         .onChange(of: studio.busy) { _, busy in handleBusyChange(busy) }
         .onChange(of: studio.screenText) { _, text in handleScreenText(text) }
@@ -593,43 +649,138 @@ struct ProjectEditor: View {
         }
     }
 
+    private func safeFrameTimestamp(_ requestedTimestamp: Double) -> Double {
+        guard project.duration > 0 else { return 0 }
+        return min(max(0, requestedTimestamp), max(0, project.duration - 0.1))
+    }
+
+    private func readCurrentFrameText() {
+        studio.screenText = nil
+        playback.pauseAndCaptureTime { capturedTime in
+            let timestamp = safeFrameTimestamp(capturedTime)
+            studio.execute("capture-frame", extra: ["--timestamp", String(timestamp)])
+        }
+    }
+
     private func readFrameForSegment(at timestamp: Double) {
         segmentScreenText = nil
         readingFrameForSegment = true
-        studio.execute("capture-frame", extra: ["--timestamp", String(timestamp)])
+        studio.execute("capture-frame", extra: ["--timestamp", String(safeFrameTimestamp(timestamp))])
     }
 }
 
 struct TimelineView: View {
     let project: StudioProject
     let playback: PlaybackModel
+
+    private var duration: Double { max(0, project.duration) }
+
+    private var timelineValue: Binding<Double> {
+        Binding {
+            min(max(0, playback.time), duration)
+        } set: { newValue in
+            playback.seek(min(max(0, newValue), duration))
+        }
+    }
+
+    private func preciseTimecode(_ seconds: Double) -> String {
+        guard seconds.isFinite else { return "00:00.000" }
+        let milliseconds = Int((max(0, seconds) * 1000).rounded())
+        let hours = milliseconds / 3_600_000
+        let minutes = (milliseconds / 60_000) % 60
+        let wholeSeconds = (milliseconds / 1_000) % 60
+        let remainder = milliseconds % 1_000
+        return hours > 0
+            ? String(format: "%02d:%02d:%02d.%03d", hours, minutes, wholeSeconds, remainder)
+            : String(format: "%02d:%02d.%03d", minutes, wholeSeconds, remainder)
+    }
+
+    private func seek(at x: CGFloat, in width: CGFloat) {
+        guard width > 0, duration > 0 else { return }
+        playback.seek(duration * min(max(0, x / width), 1))
+    }
+
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
-            HStack { Label("Timeline", systemImage: "film").font(.caption); Spacer(); Text(timecode(project.duration)).font(.caption).monospacedDigit() }
+            HStack {
+                Label("Timeline", systemImage: "film").font(.caption)
+                Spacer()
+                Text("\(preciseTimecode(playback.time)) / \(preciseTimecode(duration))")
+                    .font(.caption)
+                    .monospacedDigit()
+                    .accessibilityLabel("Current time \(preciseTimecode(playback.time)), duration \(preciseTimecode(duration))")
+            }
             GeometryReader { geometry in
+                let timelineWidth = geometry.size.width
+                let progress = duration > 0 ? min(max(0, playback.time / duration), 1) : 0
+                let thumbnailCount = max(1, project.thumbnails.count)
+                let thumbnailWidth = max(1, (timelineWidth - CGFloat(thumbnailCount - 1) * 2) / CGFloat(thumbnailCount))
+
                 ZStack(alignment: .leading) {
-                    HStack(spacing: 2) {
-                        ForEach(project.thumbnails, id: \.self) { path in
-                            if let url = project.url(path), let image = NSImage(contentsOf: url) {
-                                Image(nsImage: image).resizable().scaledToFill().frame(width: max(1,(geometry.size.width-14)/8), height: 42).clipped().accessibilityHidden(true)
+                    VStack(spacing: 4) {
+                        ZStack {
+                            RoundedRectangle(cornerRadius: 5).fill(.quaternary)
+                            HStack(spacing: 2) {
+                                ForEach(project.thumbnails, id: \.self) { path in
+                                    if let url = project.url(path), let image = NSImage(contentsOf: url) {
+                                        Image(nsImage: image)
+                                            .resizable()
+                                            .scaledToFill()
+                                            .frame(width: thumbnailWidth, height: 42)
+                                            .clipped()
+                                            .accessibilityHidden(true)
+                                    }
+                                }
+                            }
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                            Rectangle()
+                                .fill(.clear)
+                                .contentShape(Rectangle())
+                                .gesture(
+                                    DragGesture(minimumDistance: 0)
+                                        .onChanged { seek(at: $0.location.x, in: timelineWidth) }
+                                )
+                                .accessibilityRepresentation {
+                                    Slider(value: timelineValue, in: 0...max(0.001, duration)) {
+                                        Text("Video timeline")
+                                    }
+                                    .accessibilityValue("\(preciseTimecode(playback.time)) of \(preciseTimecode(duration))")
+                                    .accessibilityHint("Adjust to seek through the video")
+                                }
+                        }
+                        .frame(height: 42)
+                        .clipShape(.rect(cornerRadius: 5))
+
+                        ZStack(alignment: .leading) {
+                            RoundedRectangle(cornerRadius: 4).fill(.quaternary)
+                            ForEach(project.cues) { cue in
+                                Button { playback.seek(cue.start) } label: {
+                                    RoundedRectangle(cornerRadius: 3).fill(.tint).overlay {
+                                        Text(cue.text).font(.caption2).lineLimit(1).foregroundStyle(.white).padding(.horizontal, 4)
+                                    }
+                                }
+                                .buttonStyle(.plain)
+                                .frame(width: max(4, timelineWidth * (cue.end - cue.start) / max(1, duration)))
+                                .offset(x: timelineWidth * cue.start / max(1, duration))
+                                .accessibilityLabel("Description at \(timecode(cue.start)): \(cue.text)")
                             }
                         }
+                        .frame(height: 26)
                     }
-                }
-            }.frame(height: 42).clipShape(.rect(cornerRadius: 5))
-            GeometryReader { geometry in
-                ZStack(alignment: .leading) {
-                    RoundedRectangle(cornerRadius: 4).fill(.quaternary)
-                    ForEach(project.cues) { cue in
-                        Button { playback.seek(cue.start) } label: {
-                            RoundedRectangle(cornerRadius: 3).fill(.tint).overlay { Text(cue.text).font(.caption2).lineLimit(1).foregroundStyle(.white).padding(.horizontal,4) }
-                        }.buttonStyle(.plain)
-                            .frame(width: max(4,geometry.size.width*(cue.end-cue.start)/max(1,project.duration)))
-                            .offset(x: geometry.size.width*cue.start/max(1,project.duration))
-                            .accessibilityLabel("Description at \(timecode(cue.start)): \(cue.text)")
+
+                    VStack(spacing: 0) {
+                        Circle().fill(.white).frame(width: 10, height: 10)
+                            .overlay { Circle().stroke(.tint, lineWidth: 2) }
+                        Rectangle().fill(.tint).frame(width: 2)
                     }
+                    .frame(width: 10, height: 72)
+                    .position(x: min(max(5, timelineWidth * progress), max(5, timelineWidth - 5)), y: 36)
+                    .shadow(color: .black.opacity(0.65), radius: 1)
+                    .allowsHitTesting(false)
+                    .accessibilityHidden(true)
                 }
-            }.frame(height: 26)
+            }
+            .frame(height: 72)
         }.padding(12)
     }
 }

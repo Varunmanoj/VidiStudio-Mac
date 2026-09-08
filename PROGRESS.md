@@ -159,7 +159,7 @@ Removed the visible Custom Gemini voice ID field from Settings → Narration. Th
 
 ### Large processing indicator — 2026-09-08
 
-Processing now replaces the lower editor content with a large, continuously spinning native activity indicator so it remains visible beside the inspector and within the transcript area. Removed the small footer spinner and determinate progress bar; the footer retains the current status text and Cancel Processing action. VoiceOver exposes the large indicator as Processing and reads the current operation as its value. The Debug Xcode build passed.
+Processing now replaces the lower editor content with a large, continuously spinning native activity indicator so it remains visible beside the inspector and within the transcript area. Removed the small footer spinner and determinate progress bar. VoiceOver exposes the large indicator as Processing and reads the current operation as its value. The status and cancellation controls were later moved from the footer into the dedicated center-pane bar documented below. The Debug Xcode build passed.
 
 ### Add Segment timing alignment and pause capture — 2026-09-08
 
@@ -220,3 +220,45 @@ Validation: `git diff --check` and `script/build_and_run.sh --verify` passed. In
 The Add/Edit Segment dialog now validates timing continuously against the project's transcript and every other audio description. Transcript overlaps and AD-to-AD overlaps appear as blocking red Timing errors with the conflicting segment's millisecond-precision range and a concise text excerpt. Invalid ranges, including an end time equal to or earlier than the start time, display a direct error. Save Segment remains disabled until timing is valid; adjacent boundaries are allowed. The validation summary and repair guidance are combined into a VoiceOver-readable element, and the disabled Save button explains that timing errors must be resolved.
 
 Validation: `git diff --check`, the two focused engine boundary/overlap tests, and `script/build_and_run.sh --verify` passed. An isolated temporary project confirmed the running Debug UI reports transcript overlap at 00:00:01.000–00:00:03.000, reports overlap with an existing AD at 00:00:03.000–00:00:06.000, and reports “End time must be after start time” when Start is 00:00:04.000 and End is 00:00:03.000. The final check used a non-empty description and confirmed Save Segment remained disabled specifically because of the invalid timing. Moving the segment to the clear 00:00:03.000–00:00:06.000 range removed the transcript warning and enabled Save after text was entered. The temporary test profile was removed without modifying the user's project library.
+
+### Relocated processing cancellation control — 2026-09-08
+
+Removed the processing footer that spanned beneath the editor and inspector. While work is active, the center editor now shows a dedicated bar immediately below the video/timeline preview, with the live status on the left and a prominent red Cancel Processing button fixed to the top-right of the main editor pane. The button and status have explicit VoiceOver labels, and the cancellation hint explains that completed results remain saved. The existing large processing indicator remains below the editor controls.
+
+Validation: `git diff --check` and `script/build_and_run.sh --verify` passed. A running isolated Debug app with a local mock processing task visually confirmed that the status and Cancel Processing control remain entirely inside the center pane and do not overlap the inspector. The accessibility tree exposed “Processing status: Preparing isolated validation media” followed by “Cancel Processing” with the stop-operation hint. Activating the relocated button terminated the task and produced the existing “Processing stopped. Your previously completed results are saved.” result. The temporary app/profile were removed without modifying project data.
+
+### Transcript-first editor navigation — 2026-09-08
+
+Projects now open on Transcript instead of Descriptions. The editor picker and Project → Editor Sections menu use the same order: Transcript, Summary, Descriptions, AD Overview, then AD Transcript. The AD views remain adjacent and AD Transcript is last. Command-number shortcuts now follow the visible order: Command-1 through Command-5 respectively. Updated the in-app Help and README to distinguish spoken-dialogue Transcript, authored AD Descriptions, coverage/narration-readiness AD Overview, and the combined chronological AD Transcript.
+
+Validation: `git diff --check` and `script/build_and_run.sh --verify` passed. In the launched Debug app, opening the existing project exposed the Editor section picker with Transcript selected and displayed transcript rows. Opening the picker showed Transcript, Summary, Descriptions, AD Overview, and AD Transcript in order. Project → Editor Sections exposed Show Transcript, Show Summary, Show Descriptions, Show AD Overview, and Show AD Transcript in the same order.
+
+### Synchronized editor timeline playhead — 2026-09-08
+
+The thumbnail timeline below the video now has an editor-style playhead spanning the video thumbnails and AD cue lane. It follows the native or YouTube playback position, and clicking or dragging anywhere on the thumbnail strip seeks to that exact relative position. The timeline header shows the current and total duration with millisecond precision. Its accessibility representation is an adjustable Video timeline slider with the same precise value and a seek hint; individual AD cue buttons remain separately actionable.
+
+Validation: `git diff --check` and `script/build_and_run.sh --verify` passed. In the launched Debug app, the playhead was visually present over both timeline lanes. The accessibility tree exposed a settable Video timeline slider with `00:00.000 of 05:36.396`, and during native playback its value advanced from `00:04.200` to `00:11.100` while the visible playhead moved. Playback was paused after verification. Pointer dragging and live YouTube synchronization were implemented but not independently exercised in this pass.
+
+### Contextual editor generation actions — 2026-09-08
+
+Transcript, Summary, and Descriptions now show their own generation action at the far right of the editor controls. Descriptions places Generate/Regenerate Descriptions beside Add Segment; Summary and Transcript show their corresponding action in the same position. Labels switch to Regenerate whenever that content already exists. These buttons use the same scoped replacement confirmation and processing commands as the inspector. The inspector's Transcript, Summary, and Descriptions labels now follow the same Generate/Regenerate state so both surfaces stay consistent.
+
+Validation: `git diff --check` and `script/build_and_run.sh --verify` passed. In the launched Debug app, Transcript exposed Regenerate Transcript, Summary exposed Regenerate Summary, and Descriptions visibly placed Generate Descriptions and Add Segment together at the right edge. The accessibility tree reported each control with its complete dynamic name and replacement/generation hint. The inspector simultaneously showed Regenerate Transcript, Regenerate Summary, and Generate Descriptions for the same project state. No generation action was activated and no live Gemini call was made.
+
+### Reliable Read Frame Text processing — 2026-09-08
+
+Read Frame Text now pauses playback and captures the selected playhead position before starting AI processing. If the playhead is exactly at the video duration, the UI and engine independently normalize it to the final valid frame 100 milliseconds earlier instead of rejecting it with “Choose a frame inside the video.” Invalid out-of-range timestamps remain errors. While work is active, the existing processing bar and large progress indicator report “Processing text from the selected frame…”. Any frame-text-specific failure uses the alert title “Read Frame Text Processing” rather than the generic “VidiStudio needs attention”; successful completion opens the existing Screen Text review.
+
+Validation: the focused boundary and mocked end-to-end capture tests passed in the project Python environment. The latter submitted an exact-duration timestamp, verified normalization from `10.000` to `9.900` seconds, reached the mocked AI text-processing call, emitted the recognized screen text, and closed the client. `script/build_and_run.sh --verify` rebuilt the bundled engine and launched the Debug app, and `git diff --check` passed. The running accessibility tree exposed Read Frame Text in the rebuilt app. No live Gemini request was submitted during verification.
+
+### View-menu preview recovery and Format cleanup — 2026-09-08
+
+Moved the dynamic Hide Preview / Show Preview command to the standard View menu and retained Command-Shift-V. The command remains available after the preview and timeline are collapsed, while Project → Playback keeps the remaining playback controls without duplicating the preview action. Removed the unused top-level Format menu; because SwiftUI recreates empty standard menu shells during command rebuilding, a narrow AppKit observer removes only the main-menu item titled Format whenever it is reinserted.
+
+Validation: `script/build_and_run.sh --verify` completed with `BUILD SUCCEEDED` outside the restricted compiler sandbox, and `git diff --check` passed. In the rebuilt running app, the accessibility menu bar contained VidiStudio, File, Edit, View, Project, Window, and Help with no Format item. Opening View exposed Hide Preview. Command-Shift-V removed the preview and timeline and changed the surviving editor control to Show Preview; invoking the shortcut again restored the video timeline and its accessible slider.
+
+### Description segment action indicator — 2026-09-08
+
+The description-row Segment actions menu now hides SwiftUI's separate disclosure chevron and displays only the ellipsis action icon. The same contextual actions, disabled processing state, and Segment actions accessibility label are preserved.
+
+Validation: `script/build_and_run.sh --verify` completed with `BUILD SUCCEEDED`, and `git diff --check` passed. In the rebuilt running app, the populated Descriptions row exposed one Segment actions control without a separate disclosure control in the accessibility tree. No segment action was invoked and project data was unchanged.

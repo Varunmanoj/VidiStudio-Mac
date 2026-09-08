@@ -1,8 +1,41 @@
 import SwiftUI
 import AppKit
 
+final class VidiStudioAppDelegate: NSObject, NSApplicationDelegate {
+    private var menuObserver: NSObjectProtocol?
+
+    func applicationDidFinishLaunching(_ notification: Notification) {
+        menuObserver = NotificationCenter.default.addObserver(
+            forName: NSMenu.didAddItemNotification,
+            object: nil,
+            queue: .main
+        ) { [weak self] notification in
+            guard notification.object as? NSMenu === NSApp.mainMenu else { return }
+            DispatchQueue.main.async { self?.removeEmptyFormatMenu() }
+        }
+        DispatchQueue.main.async { self.removeEmptyFormatMenu() }
+    }
+
+    func applicationDidBecomeActive(_ notification: Notification) {
+        DispatchQueue.main.async { self.removeEmptyFormatMenu() }
+    }
+
+    func applicationWillTerminate(_ notification: Notification) {
+        if let menuObserver {
+            NotificationCenter.default.removeObserver(menuObserver)
+        }
+    }
+
+    private func removeEmptyFormatMenu() {
+        guard let menu = NSApp.mainMenu,
+              let formatItem = menu.items.first(where: { $0.title == "Format" }) else { return }
+        menu.removeItem(formatItem)
+    }
+}
+
 @main
 struct VidiStudioApp: App {
+    @NSApplicationDelegateAdaptor(VidiStudioAppDelegate.self) private var appDelegate
     @State private var studio = StudioModel()
     init() {
         NSWindow.allowsAutomaticWindowTabbing = false
