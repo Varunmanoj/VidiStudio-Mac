@@ -346,6 +346,48 @@ final class StudioModel {
             settings.models[stage] = preferred?.name
         }
     }
+    private func confirmAnalysisReplacement(_ command: String, project: StudioProject) -> Bool {
+        guard ["analyze", "regenerate-all", "transcribe", "generate-summary", "generate-ad-cues"].contains(command) else { return true }
+        // Read the saved project too, so results written since the last UI refresh are protected.
+        var current = project
+        if let folder = project.folder {
+            do {
+                current = try JSONDecoder().decode(StudioProject.self, from: Data(contentsOf: folder.appendingPathComponent("project.json")))
+                current.folder = folder
+            } catch {
+                self.error = "Could not check existing project content: \(error.localizedDescription)"
+                return false
+            }
+        }
+        var existing: [String] = []
+        let all = command == "analyze" || command == "regenerate-all"
+        if (all || command == "transcribe"), !current.transcript.isEmpty { existing.append("transcription") }
+        if (all || command == "generate-summary"), !current.summary.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty { existing.append("summary") }
+        if (all || command == "generate-ad-cues"), !current.cues.isEmpty { existing.append("audio description segments") }
+        let subtitleExtensions: Set<String> = ["srt", "vtt"]
+        let savedSubtitles = current.exports.contains { subtitleExtensions.contains(URL(fileURLWithPath: $0).pathExtension.lowercased()) }
+        let exportFiles = current.url("exports").flatMap { try? FileManager.default.contentsOfDirectory(at: $0, includingPropertiesForKeys: nil) } ?? []
+        if all && (savedSubtitles || exportFiles.contains(where: { subtitleExtensions.contains($0.pathExtension.lowercased()) })) {
+            existing.append("subtitles")
+        }
+        guard !existing.isEmpty || command == "regenerate-all" else { return true }
+        let impact: String
+        switch command {
+        case "regenerate-all": impact = "All generated content, including transcripts, summaries, AD segments, narration, subtitles, exports, thumbnails, and edit history, will be deleted. The transcript, summary, and AD segments will then be recreated. Your original video and project are kept. Generate narration and exports separately afterward. If analysis fails, deleted content will not be restored."
+        case "generate-summary": impact = "Only the summary will be overwritten. Other content will be kept."
+        case "generate-ad-cues": impact = "Only the AD segments will be overwritten. Other content will be kept."
+        case "transcribe": impact = "Only the transcription will be overwritten. Other content will be kept."
+        default: impact = "The transcript, summary, and AD segments will be regenerated. Narration files and existing exports will be kept."
+        }
+        let alert = NSAlert()
+        alert.messageText = command == "regenerate-all" ? "Regenerate all content in “\(current.name)”?" : "Replace existing content in “\(current.name)”?"
+        alert.informativeText = (existing.isEmpty ? "" : "This project already contains \(existing.joined(separator: ", ")). ") + impact + " Do you want to continue?"
+        alert.alertStyle = .warning
+        alert.addButton(withTitle: "Cancel")
+        alert.addButton(withTitle: "Continue Analysis")
+        return alert.runModal() == .alertSecondButtonReturn
+    }
+
     func execute(_ command: String, extra: [String] = [], project: StudioProject? = nil, configurationURL: URL? = nil, cleanupURL: URL? = nil) {
         guard !busy else { return }
         if command == "doctor" {
@@ -353,6 +395,7 @@ final class StudioModel {
             engineCheckStatus = .checking
         }
         let target = project ?? (["import-video", "import-youtube", "doctor", "validate-config", "list-models"].contains(command) ? nil : selected)
+        if let target, !confirmAnalysisReplacement(command, project: target) { return }
         guard let engine = Bundle.main.resourceURL?.appendingPathComponent("Engine/vidistudio-engine"), FileManager.default.isExecutableFile(atPath: engine.path) else {
             let message = "The bundled engine is missing. Reinstall VidiStudio and try again."
             if command == "doctor" { engineCheckStatus = .failed(message) }

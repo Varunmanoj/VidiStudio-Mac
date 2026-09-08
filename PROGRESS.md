@@ -161,6 +161,42 @@ Removed the visible Custom Gemini voice ID field from Settings → Narration. Th
 
 Processing now replaces the lower editor content with a large, continuously spinning native activity indicator so it remains visible beside the inspector and within the transcript area. Removed the small footer spinner and determinate progress bar; the footer retains the current status text and Cancel Processing action. VoiceOver exposes the large indicator as Processing and reads the current operation as its value. The Debug Xcode build passed.
 
+### Add Segment timing alignment and pause capture — 2026-09-08
+
+Redesigned the Add Segment timing section as one vertical column, with Start time followed by End time. Hours, Minutes, Seconds, and Milliseconds now appear once above consistently sized, aligned fields; the repeated labels, timecode summaries, and section footers below the controls were removed. A larger right-aligned duration readout sits between Start and End and updates in seconds with millisecond precision. The existing field-specific VoiceOver labels remain intact, and the duration has its own accessible label.
+
+Opening Add Segment now pauses native or YouTube playback, stops synchronized narration, captures the paused playhead as the default start, and sets the default end three seconds later (bounded by the video duration). Both the visible button and Command-Shift-N shortcut use the same path.
+
+Validation: `git diff --check` and `script/build_and_run.sh --verify` passed. In the running Debug app, native playback was started before Add Segment; the sheet opened at 00:00:06.398–00:00:09.398. After cancelling, waiting, and reopening the sheet, it remained at the same values, confirming playback had paused. Visual inspection confirmed the vertical layout and single row of unit headings; the accessibility tree exposed all eight time component fields with distinct Start/End labels.
+
+### Transcript playback and combined AD transcript — 2026-09-08
+
+Transcript and AD Transcript rows now have Material Symbols play buttons labeled with their segment type, precise start/end times, and text. Playback seeks to the selected start and plays the video; native playback waits for the precise seek to finish. Choosing an audio description also enables synchronized narration using the existing narration settings. Playback continues beyond the selected segment.
+
+AD Transcript combines dialogue and descriptions in chronological order using type-prefixed row identities. Blue Transcript labels with dialogue icons and purple Audio description labels with speaker icons distinguish the sources independently of color. Follow tracking uses the combined row identities.
+
+Validation: the Debug build and launch verification passed; the running transcript displayed play icons and the accessibility snapshot contained the dynamic segment labels. Full interactive playback and populated mixed AD rows were not verified in this pass; the inspected project had no descriptions. No live YouTube or Gemini calls were made.
+
+### Confirm replacement before analysis — 2026-09-08
+
+Superseded by the scoped regeneration behavior below: individual stages now preserve unrelated content and export listings.
+
+The shared analysis command handler now checks the saved project before Run All Analysis, transcription, summary generation, or AD generation. Existing transcription, summary, AD segments, or SRT/VTT exports trigger a native warning identifying the content and the command's replacement effects. Subtitle files remain on disk but the warning explains that export listings reset and old subtitles may no longer match. Cancel is the default; only Continue Analysis starts the engine. Empty projects bypass confirmation. A failure to read the current project prevents processing and reports the error.
+
+Validation: `script/build_and_run.sh --verify` and `git diff --check` passed. Native UI verification on the existing transcribed project confirmed the warning, content identification, Continue Analysis and default Cancel controls. Cancelling returned to the editor without starting analysis. No paid analysis was run; empty-project bypass and confirmed execution were checked in source.
+
+### Scoped regeneration and Regenerate All — 2026-09-08
+
+Individual transcription, summary, and AD generation replace only their own content. Other project content and exported files/listings remain intact. Confirmation checks only the selected stage's existing content. Run All Analysis replaces the three analysis outputs while retaining other generated files. Regenerate All is a separate inspector action with explicit destructive confirmation: it clears generated folders and edit history, retains the source/project, regenerates local metadata/thumbnails when available, and runs transcription, summary, and AD generation from the beginning. Narration and exports are generated separately, as stated in the inspector and warning. Failure after clearing does not restore old data.
+
+Validation: focused mocked analysis tests passed for all three individual stages, checking unrelated project fields, narration files, and subtitles. The Regenerate All ordering/reset test and source-preserving clear test passed. The bundled engine rebuilt and `script/build_and_run.sh --verify` passed; `git diff --check` passed. Native UI exposed Regenerate All and its explanation, and the transcription-only warning was inspected and cancelled. No live Gemini generation or destructive regeneration of user data was run.
+
+### Grouped menus and regeneration shortcuts — 2026-09-08
+
+Consolidated Playback and Project Editor into a Project menu containing Playback, Editor Sections, Segments, and Analysis & Regeneration submenus. Added Command-Option-Shift shortcuts: A for all analysis, T for transcript, S for summary, D for AD segments, and R for Regenerate All. These use the existing focused editor routing and confirmation handler, and are unavailable during processing or editing sheets. Existing shortcuts remain assigned; Help/Settings shortcut reference includes the new actions.
+
+Removed SwiftUI's default textEditing and textFormatting command groups and disabled Writing Tools behavior/affordances in the main editor. Undo/Redo and clipboard command groups remain. Build and launch verification and `git diff --check` passed. Live menu verification was blocked by repeated computer-use/AppleEvent timeouts, including after relaunch; rendered menu contents and shortcut activation remain unverified.
+
 ### Formatted summary — 2026-09-08
 
 Summary now uses Foundation Markdown parsing and native SwiftUI block rendering for headings, bullets, numbered lists, inline emphasis, links, and paragraph spacing. Headings expose the VoiceOver header trait and text remains selectable. Stored Markdown remains unchanged. `script/build_and_run.sh --verify` passed and launched the updated Debug app; visual and VoiceOver interaction were not separately verified in this pass.
@@ -172,3 +208,15 @@ List and grid context menus now offer Process Video for fresh projects or Reproc
 ### Settings and menu iconography — 2026-09-08
 
 Added native symbol labels to settings navigation and appearance/narration choices, app-owned File/View/Playback/Project Editor/Help commands, list and grid context actions, segment actions, and export menus. Rename, clear generated content, and delete project now have distinct symbols. Existing text, shortcuts, enabled states, and destructive roles remain intact. The Debug build and launch verification passed; menu visuals were not independently inspected in this pass.
+
+### Read Frame Text in Add Segment — 2026-09-08
+
+Added Read Frame Text directly above the Add Segment description editor. It captures the frame at the segment start time and places recognized screen text into the description automatically; an empty recognition result keeps the existing description and reports that no readable text was found. The existing editor-toolbar Read Frame Text review flow remains unchanged. The Add Segment toolbar action now stays at the far right of the same editor-controls line instead of moving with the horizontally scrolling controls.
+
+Validation: `git diff --check` and `script/build_and_run.sh --verify` passed. In the launched Debug app, visual inspection confirmed Add Segment at the right edge of the toolbar and Read Frame Text above the dialog's description field. The accessibility tree exposed Add Segment separately from the controls scroll area and exposed the dialog button as Read Frame Text with help text explaining that it replaces the description using text found at the segment start time. A live Gemini frame-recognition request was not submitted during verification.
+
+### Segment timing conflict validation — 2026-09-08
+
+The Add/Edit Segment dialog now validates timing continuously against the project's transcript and every other audio description. Transcript overlaps and AD-to-AD overlaps appear as blocking red Timing errors with the conflicting segment's millisecond-precision range and a concise text excerpt. Invalid ranges, including an end time equal to or earlier than the start time, display a direct error. Save Segment remains disabled until timing is valid; adjacent boundaries are allowed. The validation summary and repair guidance are combined into a VoiceOver-readable element, and the disabled Save button explains that timing errors must be resolved.
+
+Validation: `git diff --check`, the two focused engine boundary/overlap tests, and `script/build_and_run.sh --verify` passed. An isolated temporary project confirmed the running Debug UI reports transcript overlap at 00:00:01.000–00:00:03.000, reports overlap with an existing AD at 00:00:03.000–00:00:06.000, and reports “End time must be after start time” when Start is 00:00:04.000 and End is 00:00:03.000. The final check used a non-empty description and confirmed Save Segment remained disabled specifically because of the invalid timing. Moving the segment to the clear 00:00:03.000–00:00:06.000 range removed the transcript warning and enabled Save after text was entered. The temporary test profile was removed without modifying the user's project library.

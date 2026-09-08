@@ -1,9 +1,64 @@
 import importlib.util, json, os, subprocess, sys, tempfile, unittest
 from pathlib import Path
+from unittest.mock import Mock, patch
+from copy import deepcopy
+from types import SimpleNamespace
 ENGINE=Path(__file__).resolve().parents[1]/'engine/vidistudio_engine.py'
 sys.path.insert(0,str(ENGINE.parent))
 spec=importlib.util.spec_from_file_location('engine',ENGINE); engine=importlib.util.module_from_spec(spec); spec.loader.exec_module(engine)
 class Validation(unittest.TestCase):
+    def test_regenerate_all_clears_then_recreates_analysis(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root=Path(temp)
+            for folder in ('metadata','thumbnails','transcript','audio-description','exports'):
+                (root/folder).mkdir()
+                (root/folder/'old').write_text('old generated data')
+            p=dict(id='keep',name='Keep',source='',sourceType='youtube',youtubeURL='original link',
+                   transcript=[1],summary='old',cues=[2],exports=['old'],undoStack=[3])
+            stages=[]
+            def generate(root,p,stage):
+                stages.append(stage)
+                if stage=='transcribe':
+                    self.assertEqual(p['transcript'],[])
+                    self.assertEqual(p['summary'],'')
+                    self.assertEqual(p['cues'],[])
+                    self.assertEqual(p['exports'],[])
+                    self.assertEqual(p['undoStack'],[])
+                    self.assertFalse((root/'exports/old').exists())
+                    p['transcript']=['new transcript']
+                elif stage=='generate-summary': p['summary']='new summary'
+                else: p['cues']=['new AD']
+            with patch.object(engine,'ai_video',side_effect=generate):
+                engine.parity.execute(SimpleNamespace(command='regenerate-all',start_stage='generate-summary'),root,p,engine)
+            self.assertEqual(stages,['transcribe','generate-summary','generate-ad-cues'])
+            self.assertEqual((p['id'],p['youtubeURL']),('keep','original link'))
+            self.assertEqual(p['summary'],'new summary')
+            self.assertEqual(p['cues'],['new AD'])
+
+    def test_individual_analysis_preserves_other_content(self):
+        original = dict(source='', sourceType='youtube', youtubeURL='https://www.youtube.com/watch?v=abcdefghijk', duration=10,
+                        transcript=[dict(id='t', start=1, end=2, text='Old dialogue')], summary='Old summary',
+                        cues=[dict(id='ad', start=4, end=5, text='Old AD', audio='audio-description/old.wav')],
+                        exports=['exports/old.srt'], undoStack=[[{'text':'prior AD'}]])
+        cases = [('transcribe', 'transcript', '[{"start":1,"end":2,"text":"New dialogue"}]'),
+                 ('generate-summary', 'summary', 'New summary'),
+                 ('generate-ad-cues', 'cues', '[{"start":4,"end":5,"text":"New AD"}]')]
+        for stage, changed, response in cases:
+            with self.subTest(stage=stage), tempfile.TemporaryDirectory() as temp:
+                root=Path(temp)
+                for folder in ('transcript','metadata','audio-description','exports'): (root/folder).mkdir()
+                (root/'exports/old.srt').write_text('saved subtitles')
+                (root/'audio-description/old.wav').write_bytes(b'saved narration')
+                p=deepcopy(original)
+                prompts={key:dict(user_prompt='Generate',system_instruction='') for key in ('transcript','youtube_transcript','summary','audio_descriptions')}
+                with patch.object(engine,'config',return_value={'prompts':prompts}), patch.object(engine,'client_and_model',return_value=(Mock(),'gemini-video')), patch.object(engine.gemini_adapter,'video_interaction',return_value=response):
+                    engine.ai_video(root,p,stage)
+                self.assertNotEqual(p[changed], original[changed])
+                for key in original:
+                    if key != changed: self.assertEqual(p[key], original[key], key)
+                self.assertEqual((root/'exports/old.srt').read_text(),'saved subtitles')
+                self.assertEqual((root/'audio-description/old.wav').read_bytes(),b'saved narration')
+
     def test_clear_generated_preserves_source(self):
         with tempfile.TemporaryDirectory() as temp:
             root = Path(temp)

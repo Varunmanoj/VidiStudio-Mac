@@ -10,6 +10,8 @@ struct VidiStudioApp: App {
     var body: some Scene {
         Window("VidiStudio", id: "studio") {
             ContentView(studio: studio)
+                .writingToolsBehavior(.disabled)
+                .writingToolsAffordanceVisibility(.hidden)
                 .frame(minWidth: 760, minHeight: 560)
         }
         .defaultSize(width: 1200, height: 780)

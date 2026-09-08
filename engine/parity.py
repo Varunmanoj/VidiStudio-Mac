@@ -6,7 +6,7 @@ from urllib.request import urlopen
 import gemini_adapter
 import ssl
 import certifi
-COMMANDS=['import-youtube','validate-config','analyze','capture-frame','rewrite-cue','export-subtitles','export-audio','rename-project','undo-cues','redo-cues','update-metadata','attach-video','delete-export']
+COMMANDS=['import-youtube','validate-config','analyze','regenerate-all','capture-frame','rewrite-cue','export-subtitles','export-audio','rename-project','undo-cues','redo-cues','update-metadata','attach-video','delete-export']
 
 def youtube_url(raw):
     parsed=urlparse(raw)
@@ -64,9 +64,17 @@ def execute(args,root,p,e):
         for folder in ('source','metadata','thumbnails','transcript','audio-description','exports'):(root/folder).mkdir(parents=True,exist_ok=True)
         p=dict(schemaVersion=1,id=str(uuid.uuid4()),name=name,source='',sourceType='youtube',youtubeURL=url,duration=args.duration or 0,width=0,height=0,hasAudio=True,createdAt=time.time(),updatedAt=time.time(),thumbnails=[],transcript=[],summary='',cues=[],exports=[],status='Imported')
         e.save(root,p);e.emit('YouTube project imported',project=str(root));return
-    if command=='analyze':
+    if command in ('analyze', 'regenerate-all'):
         stages=['transcribe','generate-summary','generate-ad-cues']
         if args.start_stage not in stages:raise ValueError('Unknown analysis stage.')
+        if command == 'regenerate-all':
+            e.clear_generated(root,p)
+            e.save(root,p)
+            if p.get('source'):
+                e.atomic_json(root/'metadata/probe.json',e.probe(e.local(root,p['source'])))
+                e.thumbnails(root,p)
+            args.start_stage = 'transcribe'
+        p['hasProcessed'] = True
         for stage in stages[stages.index(args.start_stage):]:
             p['status']='Processing '+stage;e.save(root,p);e.ai_video(root,p,stage);e.save(root,p)
     elif command=='update-metadata':

@@ -256,6 +256,11 @@ struct ProcessingInspector: View {
                     Divider()
                     Text("PROCESSING").font(.caption).foregroundStyle(.secondary)
                     Button("Run All Analysis", systemImage: "sparkles") { studio.execute("analyze") }.disabled(studio.busy)
+                    Button { studio.execute("regenerate-all") } label: {
+                        HStack { MaterialIcon(glyph: "\u{e86a}"); Text("Regenerate All…") }
+                    }.disabled(studio.busy)
+                    Text("Individual actions replace only their own content. Regenerate All deletes generated content and recreates the transcript, summary, and AD segments. Narration and exports can then be generated separately.")
+                        .font(.caption).foregroundStyle(.secondary)
                     ForEach(stages, id: \.0) { stage in
                         Button { studio.execute(stage.0) } label: { HStack { MaterialIcon(glyph: stage.0 == "transcribe" ? "\u{e8af}" : stage.0 == "synthesize-tts" ? "\u{e050}" : "\u{e037}"); Text(stage.1) }.frame(maxWidth: .infinity, alignment: .leading) }
                             .disabled(studio.busy || (p.source.isEmpty && ["probe-video", "generate-thumbnails", "extract-audio"].contains(stage.0))).controlSize(.large)
@@ -287,6 +292,17 @@ struct ProcessingInspector: View {
     }
 }
 
+private struct TranscriptRow: Identifiable {
+    let segment: Segment
+    let isDescription: Bool
+    var id: String { (isDescription ? "ad:" : "transcript:") + segment.id }
+    var kind: String { isDescription ? "Audio description" : "Transcript" }
+    var color: Color { isDescription ? .purple : .blue }
+    var playbackLabel: String {
+        "Play \(kind.lowercased()) from \(String(format: "%.3f", segment.start)) to \(String(format: "%.3f", segment.end)) seconds: \(segment.text)"
+    }
+}
+
 struct ProjectEditor: View {
     var shortcutsBlocked = false
     @Bindable var studio: StudioModel
@@ -298,6 +314,142 @@ struct ProjectEditor: View {
     @State private var previewHidden = false
     @State private var cueToEdit: Segment?
     @State private var audioPreview: AVAudioPlayer?
+    @State private var segmentScreenText: String?
+    @State private var readingFrameForSegment = false
+    private var transcriptRows: [TranscriptRow] {
+        let dialogue = project.transcript.map { TranscriptRow(segment: $0, isDescription: false) }
+        let descriptions = project.cues.map { TranscriptRow(segment: $0, isDescription: true) }
+        let rows = tab == "descriptions" ? descriptions : tab == "ad-transcript" ? dialogue + descriptions : dialogue
+        return rows.sorted {
+            if $0.segment.start != $1.segment.start { return $0.segment.start < $1.segment.start }
+            return $0.id < $1.id
+        }
+    }
+
+    private var editorToolbar: some View {
+        HStack(spacing: 10) {
+            ScrollView(.horizontal, showsIndicators: false) {
+                HStack(spacing: 8) {
+                    Picker("Editor section", selection: $tab) {
+                        Text("Descriptions").tag("descriptions")
+                        Text("Transcript").tag("transcript")
+                        Text("Summary").tag("summary")
+                        Text("AD Transcript").tag("ad-transcript")
+                        Text("AD Overview").tag("ad-overview")
+                    }
+                    .pickerStyle(.menu)
+                    .labelsHidden()
+                    .frame(maxWidth: 200)
+                    Button(previewHidden ? "Show Preview" : "Hide Preview", systemImage: previewHidden ? "video" : "video.slash") {
+                        playback.exitVideoFullScreen()
+                        previewHidden.toggle()
+                    }
+                    .labelStyle(.iconOnly)
+                    .help(previewHidden ? "Show video preview" : "Hide video preview to focus on editing")
+                    Button("Full-Screen Video", systemImage: "arrow.up.left.and.arrow.down.right") {
+                        previewHidden = false
+                        DispatchQueue.main.async { playback.toggleVideoFullScreen() }
+                    }
+                    .labelStyle(.iconOnly)
+                    .help("View video full screen; press Escape to return")
+                    Button("Read Frame Text", systemImage: "text.viewfinder") {
+                        studio.execute("capture-frame", extra: ["--timestamp", String(playback.time)])
+                    }
+                    .labelStyle(.iconOnly)
+                    .help("Extract text from the current video frame")
+                    .disabled(studio.busy)
+                    Toggle("Narration", isOn: $playback.narrationEnabled)
+                        .toggleStyle(.button)
+                        .help("Play generated descriptions in sync with video")
+                    Toggle("Follow", isOn: $studio.settings.followTranscript)
+                        .toggleStyle(.button)
+                        .help("Follow the active transcript or description")
+                }
+            }
+            if tab == "descriptions" {
+                Button("Add Segment", systemImage: "plus") { presentNewSegment() }
+                    .disabled(studio.busy)
+                    .fixedSize()
+            }
+        }
+        .controlSize(.small)
+        .padding(12)
+        .fixedSize(horizontal: false, vertical: true)
+    }
+
+    private var screenTextPresented: Binding<Bool> {
+        Binding(
+            get: { studio.screenText != nil && !readingFrameForSegment },
+            set: { if !$0 { studio.screenText = nil } }
+        )
+    }
+
+    private var screenTextReview: some View {
+        VStack(alignment: .leading, spacing: 20) {
+            Text("Screen Text").font(.title2)
+            ScrollView {
+                Text(studio.screenText?.isEmpty == false ? studio.screenText! : "No readable text in this frame.")
+                    .textSelection(.enabled)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+            }
+            .frame(height: 200)
+            HStack {
+                Button("Close") { studio.screenText = nil }
+                Spacer()
+                Button("Add as Description", systemImage: "text.badge.plus") {
+                    cueToEdit = Segment(id: UUID().uuidString, start: studio.screenTimestamp, end: min(project.duration, studio.screenTimestamp + 3), text: studio.screenText ?? "")
+                    studio.screenText = nil
+                }
+                .disabled(studio.screenText?.isEmpty != false)
+            }
+        }
+        .padding(24)
+        .frame(width: 540)
+    }
+
+    private func cueEditor(for cue: Segment) -> some View {
+        CueEditor(
+            cue: cue,
+            duration: project.duration,
+            transcript: project.transcript,
+            otherDescriptions: project.cues.filter { $0.id != cue.id },
+            capturedScreenText: $segmentScreenText,
+            isReadingFrame: readingFrameForSegment,
+            readFrame: readFrameForSegment
+        ) { updated in
+            var cues = project.cues.filter { $0.id != updated.id }
+            cues.append(updated)
+            studio.saveCues(cues)
+        }
+    }
+
+    private func preparePlayback() {
+        playback.observe()
+        guard !project.source.isEmpty, let url = project.url(project.source) else { return }
+        playback.player.replaceCurrentItem(with: AVPlayerItem(url: url))
+    }
+
+    private func handleBusyChange(_ busy: Bool) {
+        if !busy, readingFrameForSegment, studio.screenText == nil { readingFrameForSegment = false }
+        guard !busy else { return }
+        updateYouTubeTitleIfNeeded(playback.videoTitle)
+    }
+
+    private func updateYouTubeTitleIfNeeded(_ title: String) {
+        let youtubeID = project.youtubeURL?.components(separatedBy: "v=").last ?? ""
+        let isPlaceholder = project.name == "YouTube video" || project.name == "YouTube Project" || project.name == "YouTube " + youtubeID
+        guard !studio.busy, !title.isEmpty, requestedTitle != title, isPlaceholder else { return }
+        requestedTitle = title
+        studio.execute("update-metadata", extra: ["--name", title])
+    }
+
+    private func handleScreenText(_ text: String?) {
+        guard readingFrameForSegment, let text else { return }
+        segmentScreenText = text
+        studio.screenText = nil
+        readingFrameForSegment = false
+    }
+
     var body: some View {
         VSplitView {
             VStack(spacing: 0) {
@@ -308,28 +460,7 @@ struct ProjectEditor: View {
                 TimelineView(project: project, playback: playback).frame(height: previewHidden ? 0 : nil).clipped()
             }.frame(minHeight: previewHidden ? 0 : 220, maxHeight: previewHidden ? 0 : .infinity).clipped().accessibilityHidden(previewHidden).allowsHitTesting(!previewHidden)
             VStack(spacing: 0) {
-                ScrollView(.horizontal) { HStack {
-                    Picker("Editor section", selection: $tab) {
-                        Text("Descriptions").tag("descriptions"); Text("Transcript").tag("transcript"); Text("Summary").tag("summary"); Text("AD Transcript").tag("ad-transcript"); Text("AD Overview").tag("ad-overview")
-                    }.pickerStyle(.menu).labelsHidden().frame(maxWidth: 200)
-                    Spacer()
-                    Button(previewHidden ? "Show Preview" : "Hide Preview", systemImage: previewHidden ? "video" : "video.slash") {
-                        playback.exitVideoFullScreen(); previewHidden.toggle()
-                    }.labelStyle(.iconOnly).help(previewHidden ? "Show video preview" : "Hide video preview to focus on editing")
-                    Button("Full-Screen Video", systemImage: "arrow.up.left.and.arrow.down.right") {
-                        previewHidden = false
-                        DispatchQueue.main.async { playback.toggleVideoFullScreen() }
-                    }.labelStyle(.iconOnly).help("View video full screen; press Escape to return")
-                    Button("Read Frame Text", systemImage: "text.viewfinder") { studio.execute("capture-frame", extra: ["--timestamp", String(playback.time)]) }.labelStyle(.iconOnly).help("Extract text from the current video frame").disabled(studio.busy)
-                    Toggle("Narration", isOn: $playback.narrationEnabled).toggleStyle(.button).help("Play generated descriptions in sync with video")
-                    Toggle("Follow", isOn: $studio.settings.followTranscript).toggleStyle(.button).help("Follow the active transcript or description")
-                    if tab == "descriptions" {
-                        Button("Add Segment", systemImage: "plus") {
-                            let start = max(0, min(playback.time, project.duration - 0.1))
-                            cueToEdit = Segment(id: UUID().uuidString, start: start, end: min(start+3,project.duration), text: "")
-                        }.disabled(studio.busy)
-                    }
-                }.controlSize(.small).padding(12) }.fixedSize(horizontal: false, vertical: true)
+                editorToolbar
                 if let error = playback.speechError { Text(error).foregroundStyle(.red).padding(8) }
                 Divider()
                 if studio.busy {
@@ -350,17 +481,38 @@ struct ProjectEditor: View {
                 } else if tab == "summary" {
                     MarkdownSummaryView(markdown: project.summary.isEmpty ? "Generate a summary after transcription to capture the story and visual context." : project.summary)
                 } else {
-                    let segments = (tab == "descriptions" || tab == "ad-transcript") ? project.cues : project.transcript
+                    let segments = transcriptRows
                     if segments.isEmpty {
-                        ContentUnavailableView((tab == "descriptions" || tab == "ad-transcript") ? "Describe what matters" : "Your transcript appears here", systemImage: (tab == "descriptions" || tab == "ad-transcript") ? "text.below.photo" : "text.bubble", description: Text((tab == "descriptions" || tab == "ad-transcript") ? "Generate descriptions from the inspector or add a segment manually." : "Use Transcribe Video in the inspector to begin."))
+                        ContentUnavailableView(tab == "descriptions" ? "Describe what matters" : "Your transcript appears here", systemImage: tab == "descriptions" ? "text.below.photo" : "text.bubble", description: Text(tab == "descriptions" ? "Generate descriptions from the inspector or add a segment manually." : tab == "ad-transcript" ? "Transcribe the video or add audio descriptions to see them together here." : "Use Transcribe Video in the inspector to begin."))
                     } else {
                         ScrollViewReader { reader in
-                        List(segments) { cue in
+                        List(segments) { row in
+                            let cue = row.segment
                             HStack(alignment: .top, spacing: 16) {
+                                if tab == "transcript" || tab == "ad-transcript" {
+                                    Button {
+                                        if row.isDescription { playback.narrationEnabled = true }
+                                        playback.play(from: cue.start)
+                                    } label: {
+                                        MaterialIcon(glyph: "\u{e037}")
+                                    }
+                                    .buttonStyle(.borderless)
+                                    .accessibilityLabel(row.playbackLabel)
+                                    .help(row.playbackLabel)
+                                }
                                 Button { playback.seek(cue.start) } label: {
                                     VStack { Text(timecode(cue.start)); Text(timecode(cue.end)).foregroundStyle(.secondary) }.monospacedDigit().font(.caption)
                                 }.buttonStyle(.plain).help("Seek to \(timecode(cue.start))")
-                                Text(cue.text).textSelection(.enabled).frame(maxWidth: .infinity, alignment: .leading)
+                                VStack(alignment: .leading, spacing: 6) {
+                                    if tab == "ad-transcript" {
+                                        HStack(spacing: 6) {
+                                            MaterialIcon(glyph: row.isDescription ? "\u{e050}" : "\u{e0b7}")
+                                            Text(row.kind).font(.caption.bold())
+                                        }
+                                        .foregroundStyle(row.color)
+                                    }
+                                    Text(cue.text).textSelection(.enabled)
+                                }.frame(maxWidth: .infinity, alignment: .leading)
                                 if tab == "descriptions" {
                                     if cue.audio != nil && cue.audioText == cue.text && cue.audioSettings == studio.settings.narrationSignature { Image(systemName: "waveform.circle.fill").foregroundStyle(.green).accessibilityLabel("Narration ready") }
                                     Button("Edit", systemImage: "pencil") { cueToEdit = cue }.labelStyle(.iconOnly).disabled(studio.busy)
@@ -372,10 +524,11 @@ struct ProjectEditor: View {
                                     } label: { Image(systemName: "ellipsis") }.menuStyle(.borderlessButton).fixedSize().disabled(studio.busy).accessibilityLabel("Segment actions")
                                 }
                             }.padding(.vertical, 8)
-                                .id(cue.id)
+                                .accessibilityElement(children: .contain)
+                                .id(row.id)
                                 .listRowBackground(playback.time >= cue.start && playback.time < cue.end ? Color.accentColor.opacity(0.15) : Color.clear)
                         }.listStyle(.inset)
-                        .onChange(of: segments.first(where: { playback.time >= $0.start && playback.time < $0.end })?.id) { _, id in
+                        .onChange(of: segments.first(where: { playback.time >= $0.segment.start && playback.time < $0.segment.end })?.id) { _, id in
                             if studio.settings.followTranscript, let id { if reduceMotion { reader.scrollTo(id, anchor: .center) } else { withAnimation { reader.scrollTo(id, anchor: .center) } } }
                         }
                         }
@@ -396,26 +549,17 @@ struct ProjectEditor: View {
             case "follow": studio.settings.followTranscript.toggle()
             case "descriptions", "transcript", "summary", "ad-transcript", "ad-overview": tab = action
             case "add":
-                let start = max(0, min(playback.time, project.duration - 0.1))
-                cueToEdit = Segment(id: UUID().uuidString, start: start, end: min(start + 3, project.duration), text: "")
+                presentNewSegment()
             case "undo": studio.execute("undo-cues")
             case "redo": studio.execute("redo-cues")
+            case "analyze", "transcribe", "generate-summary", "generate-ad-cues", "regenerate-all": studio.execute(action)
             default: break
             }
         }))
         .navigationTitle(project.name)
-        .onChange(of: studio.busy) { _, busy in
-            if !busy, !playback.videoTitle.isEmpty, requestedTitle != playback.videoTitle, project.name == "YouTube video" || project.name == "YouTube Project" || project.name == "YouTube " + (project.youtubeURL?.components(separatedBy: "v=").last ?? "") {
-                requestedTitle = playback.videoTitle
-                studio.execute("update-metadata", extra: ["--name", playback.videoTitle])
-            }
-        }
-        .onChange(of: playback.videoTitle) { _, title in
-            if !studio.busy, !title.isEmpty, requestedTitle != title, project.name == "YouTube video" || project.name == "YouTube Project" || project.name == "YouTube " + (project.youtubeURL?.components(separatedBy: "v=").last ?? "") {
-                requestedTitle = title
-                studio.execute("update-metadata", extra: ["--name", title])
-            }
-        }
+        .onChange(of: studio.busy) { _, busy in handleBusyChange(busy) }
+        .onChange(of: studio.screenText) { _, text in handleScreenText(text) }
+        .onChange(of: playback.videoTitle) { _, title in updateYouTubeTitleIfNeeded(title) }
         .onChange(of: playback.duration) { _, duration in
             if !studio.busy, duration > 0, abs(duration - project.duration) > 0.5 { studio.execute("update-metadata", extra: ["--duration", String(duration)]) }
         }
@@ -427,27 +571,32 @@ struct ProjectEditor: View {
         .onChange(of: studio.settings.systemSpeechPitch) { _, _ in playback.syncNarration(project, settings: studio.settings) }
         .onChange(of: studio.settings.systemSpeechVolume) { _, _ in playback.syncNarration(project, settings: studio.settings) }
         .onChange(of: playback.narrationEnabled) { _, _ in playback.syncNarration(project, settings: studio.settings) }
-        .onAppear { playback.observe(); if !project.source.isEmpty, let url = project.url(project.source) { playback.player.replaceCurrentItem(with: AVPlayerItem(url: url)) } }
+        .onAppear(perform: preparePlayback)
         .onDisappear { playback.stop(); audioPreview?.stop() }
-        .sheet(isPresented: Binding(get: { studio.screenText != nil }, set: { if !$0 { studio.screenText = nil } })) {
-            VStack(alignment: .leading, spacing: 20) {
-                Text("Screen Text").font(.title2)
-                ScrollView { Text(studio.screenText?.isEmpty == false ? studio.screenText! : "No readable text in this frame.").textSelection(.enabled).frame(maxWidth: .infinity, alignment: .leading) }.frame(height: 200)
-                HStack {
-                    Button("Close") { studio.screenText = nil }
-                    Spacer()
-                    Button("Add as Description", systemImage: "text.badge.plus") {
-                        cueToEdit = Segment(id: UUID().uuidString, start: studio.screenTimestamp, end: min(project.duration, studio.screenTimestamp + 3), text: studio.screenText ?? "")
-                        studio.screenText = nil
-                    }.disabled(studio.screenText?.isEmpty != false)
-                }
-            }.padding(24).frame(width: 540)
+        .sheet(isPresented: screenTextPresented) { screenTextReview }
+        .sheet(item: $cueToEdit, onDismiss: {
+            readingFrameForSegment = false
+            segmentScreenText = nil
+        }) { cue in cueEditor(for: cue) }
+    }
+
+    private func presentNewSegment() {
+        playback.pauseAndCaptureTime { capturedTime in
+            let latestStart = max(0, project.duration - 0.1)
+            let start = max(0, min(capturedTime, latestStart))
+            cueToEdit = Segment(
+                id: UUID().uuidString,
+                start: start,
+                end: min(start + 3, project.duration),
+                text: ""
+            )
         }
-        .sheet(item: $cueToEdit) { cue in
-            CueEditor(cue: cue, duration: project.duration) { updated in
-                var cues = project.cues.filter { $0.id != updated.id }; cues.append(updated); studio.saveCues(cues)
-            }
-        }
+    }
+
+    private func readFrameForSegment(at timestamp: Double) {
+        segmentScreenText = nil
+        readingFrameForSegment = true
+        studio.execute("capture-frame", extra: ["--timestamp", String(timestamp)])
     }
 }
 
@@ -516,88 +665,234 @@ private struct TimecodeInput: View {
         }
     }
 
-    private var formattedValue: String {
-        let totalMilliseconds = max(0, Int((value * 1000).rounded()))
-        let hours = totalMilliseconds / 3_600_000
-        let minutes = totalMilliseconds / 60_000 % 60
-        let seconds = totalMilliseconds / 1_000 % 60
-        let milliseconds = totalMilliseconds % 1_000
-        return String(format: "%02d:%02d:%02d.%03d", hours, minutes, seconds, milliseconds)
-    }
-
     var body: some View {
-        VStack(alignment: .leading, spacing: 8) {
+        VStack(alignment: .leading, spacing: 10) {
             Text(label).font(.headline).accessibilityAddTraits(.isHeader)
-            HStack(alignment: .firstTextBaseline, spacing: 8) {
-                timePart("Hours", value: componentBinding(divisor: 3600, allowed: 0...99), width: 54, digits: 2)
-                Text(":").accessibilityHidden(true)
-                timePart("Minutes", value: componentBinding(divisor: 60, modulus: 60, allowed: 0...59), width: 48, digits: 2)
-                Text(":").accessibilityHidden(true)
-                timePart("Seconds", value: componentBinding(divisor: 1, modulus: 60, allowed: 0...59), width: 48, digits: 2)
-                Text(".").accessibilityHidden(true)
-                timePart("Milliseconds", value: milliseconds, width: 62, digits: 3)
+            Grid(alignment: .leading, horizontalSpacing: 8, verticalSpacing: 6) {
+                GridRow {
+                    unitHeading("Hours", width: 60)
+                    separatorSpace()
+                    unitHeading("Minutes", width: 72)
+                    separatorSpace()
+                    unitHeading("Seconds", width: 72)
+                    separatorSpace()
+                    unitHeading("Milliseconds", width: 104)
+                }
+                GridRow {
+                    timePart("Hours", value: componentBinding(divisor: 3600, allowed: 0...99), width: 60, digits: 2)
+                    Text(":").accessibilityHidden(true)
+                    timePart("Minutes", value: componentBinding(divisor: 60, modulus: 60, allowed: 0...59), width: 72, digits: 2)
+                    Text(":").accessibilityHidden(true)
+                    timePart("Seconds", value: componentBinding(divisor: 1, modulus: 60, allowed: 0...59), width: 72, digits: 2)
+                    Text(".").accessibilityHidden(true)
+                    timePart("Milliseconds", value: milliseconds, width: 104, digits: 3)
+                }
             }
-            Text("Timecode: \(formattedValue)")
-                .font(.caption)
-                .foregroundStyle(.secondary)
-                .accessibilityLabel("\(label): \(formattedValue)")
         }
         .accessibilityElement(children: .contain)
     }
 
     private func timePart(_ name: String, value: Binding<Int>, width: CGFloat, digits: Int) -> some View {
-        VStack(spacing: 4) {
-            TextField(name, value: value, format: .number.precision(.integerLength(digits)))
-                .textFieldStyle(.roundedBorder)
-                .multilineTextAlignment(.trailing)
-                .monospacedDigit()
-                .frame(width: width)
-                .accessibilityLabel("\(label) \(name.lowercased())")
-            Text(name).font(.caption2).foregroundStyle(.secondary)
-        }
+        TextField(name, value: value, format: .number.precision(.integerLength(digits)))
+            .textFieldStyle(.roundedBorder)
+            .labelsHidden()
+            .multilineTextAlignment(.trailing)
+            .monospacedDigit()
+            .frame(width: width)
+            .accessibilityLabel("\(label) \(name.lowercased())")
+    }
+
+    private func unitHeading(_ name: String, width: CGFloat) -> some View {
+        Text(name)
+            .font(.caption)
+            .foregroundStyle(.secondary)
+            .frame(width: width, alignment: .leading)
+            .accessibilityHidden(true)
+    }
+
+    private func separatorSpace() -> some View {
+        Color.clear.frame(width: 5, height: 1).accessibilityHidden(true)
     }
 }
 
 struct CueEditor: View {
     @Environment(\.dismiss) private var dismiss
     @State private var cue: Segment
+    @State private var frameTextStatus: String?
     let duration: Double
+    let transcript: [Segment]
+    let otherDescriptions: [Segment]
+    @Binding var capturedScreenText: String?
+    let isReadingFrame: Bool
+    let readFrame: (Double) -> Void
     let save: (Segment) -> Void
-    init(cue: Segment, duration: Double, save: @escaping (Segment) -> Void) {
-        _cue = State(initialValue: cue); self.duration = duration; self.save = save
+    init(cue: Segment, duration: Double, transcript: [Segment], otherDescriptions: [Segment], capturedScreenText: Binding<String?>, isReadingFrame: Bool, readFrame: @escaping (Double) -> Void, save: @escaping (Segment) -> Void) {
+        _cue = State(initialValue: cue)
+        self.duration = duration
+        self.transcript = transcript
+        self.otherDescriptions = otherDescriptions
+        _capturedScreenText = capturedScreenText
+        self.isReadingFrame = isReadingFrame
+        self.readFrame = readFrame
+        self.save = save
+    }
+    private var segmentDuration: String {
+        String(format: "%.3f seconds", max(0, cue.end - cue.start))
+    }
+    private var hasInvalidRange: Bool {
+        !cue.start.isFinite || !cue.end.isFinite || cue.start < 0 || cue.end <= cue.start || cue.end > duration
+    }
+    private var transcriptOverlaps: [Segment] {
+        transcript.filter(overlapsCurrentCue).sorted { $0.start < $1.start }
+    }
+    private var descriptionOverlaps: [Segment] {
+        otherDescriptions.filter(overlapsCurrentCue).sorted { $0.start < $1.start }
+    }
+    private var timingErrors: [String] {
+        var errors: [String] = []
+        if !cue.start.isFinite || !cue.end.isFinite {
+            errors.append("Start and end times must be valid numbers.")
+        } else if cue.start < 0 || cue.end > duration {
+            errors.append("The segment must remain inside the video duration.")
+        } else if cue.end <= cue.start {
+            errors.append("End time must be after start time.")
+        }
+        errors += descriptionOverlaps.map {
+            "Overlaps audio description \(preciseRange($0)): \(excerpt($0.text))"
+        }
+        errors += transcriptOverlaps.map {
+            "Overlaps transcript \(preciseRange($0)): \(excerpt($0.text))"
+        }
+        return errors
+    }
+    private var saveDisabled: Bool {
+        cue.text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+            || hasInvalidRange
+            || !transcriptOverlaps.isEmpty
+            || !descriptionOverlaps.isEmpty
     }
     var body: some View {
         Form {
             Section {
-                HStack(alignment: .top, spacing: 28) {
+                VStack(alignment: .leading, spacing: 22) {
                     TimecodeInput(label: "Start time", value: $cue.start, range: 0...max(0, duration))
+                    HStack {
+                        Spacer()
+                        Text("Duration \(segmentDuration)")
+                            .font(.title3.bold())
+                            .monospacedDigit()
+                            .foregroundStyle(.secondary)
+                            .accessibilityLabel("Segment duration: \(segmentDuration)")
+                    }
                     TimecodeInput(label: "End time", value: $cue.end, range: 0...max(0, duration))
+                    if !timingErrors.isEmpty {
+                        timingValidationView
+                    }
                 }
             } header: {
                 Text("Timing")
-            } footer: {
-                Text("Enter hours, minutes, seconds, and milliseconds. End time must be after start time and within the video.")
             }
             Section {
+                HStack {
+                    Spacer()
+                    Button {
+                        frameTextStatus = nil
+                        readFrame(cue.start)
+                    } label: {
+                        if isReadingFrame {
+                            Label("Reading Frame Text…", systemImage: "text.viewfinder")
+                        } else {
+                            Label("Read Frame Text", systemImage: "text.viewfinder")
+                        }
+                    }
+                    .disabled(isReadingFrame)
+                    .help("Read text from the video frame at the segment start time and use it as the description")
+                    .accessibilityHint("Replaces the description with text found at the segment start time.")
+                }
                 TextEditor(text: $cue.text)
                     .frame(height: 140)
                     .accessibilityLabel("Audio description text")
+                if let frameTextStatus {
+                    Text(frameTextStatus)
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                        .accessibilityLabel(frameTextStatus)
+                }
             } header: {
                 Text("Description")
-            } footer: {
-                Text("Keep narration concise and inside a gap in dialogue. Available time: \(max(0,cue.end-cue.start), specifier: "%.3f") seconds.")
             }
             Section {
                 HStack {
                     Spacer()
                     Button("Cancel", role: .cancel) { dismiss() }.keyboardShortcut(.cancelAction)
                     Button("Save Segment", systemImage: "checkmark") { save(cue); dismiss() }.keyboardShortcut(.defaultAction)
-                    .disabled(cue.text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || cue.start < 0 || cue.end <= cue.start || cue.end > duration)
+                    .disabled(saveDisabled)
+                    .help(saveDisabled && !timingErrors.isEmpty ? "Resolve timing errors before saving this segment" : "Save this audio description segment")
                 }
             }
         }
         .formStyle(.grouped)
+        .onChange(of: capturedScreenText) { _, text in
+            guard let text else { return }
+            if text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                frameTextStatus = "No readable text was found at the segment start time."
+            } else {
+                cue.text = text
+                frameTextStatus = "Screen text added to the description."
+            }
+            capturedScreenText = nil
+        }
         .navigationTitle(cue.text.isEmpty ? "Add Audio Description Segment" : "Edit Audio Description Segment")
-        .frame(width: 720, height: 520)
+        .frame(width: 560, height: 590)
+    }
+
+    private var timingValidationView: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            HStack(spacing: 8) {
+                MaterialIcon(glyph: "\u{e000}")
+                    .foregroundStyle(.red)
+                Text(timingErrors.count == 1 ? "Timing error" : "\(timingErrors.count) timing errors")
+                    .font(.headline)
+                    .foregroundStyle(.red)
+            }
+            ForEach(Array(timingErrors.enumerated()), id: \.offset) { _, error in
+                Text(error)
+                    .font(.callout)
+                    .foregroundStyle(.primary)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+            Text("Adjust the start or end time so the audio description plays only in a clear gap.")
+                .font(.caption)
+                .foregroundStyle(.secondary)
+        }
+        .padding(12)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(.red.opacity(0.1), in: .rect(cornerRadius: 8))
+        .accessibilityElement(children: .combine)
+        .accessibilityLabel("Timing validation error. \(timingErrors.joined(separator: " "))")
+        .accessibilityHint("Adjust the start or end time before saving the segment.")
+    }
+
+    private func overlapsCurrentCue(_ segment: Segment) -> Bool {
+        cue.start < segment.end && cue.end > segment.start
+    }
+
+    private func preciseRange(_ segment: Segment) -> String {
+        "\(preciseTimecode(segment.start)) to \(preciseTimecode(segment.end))"
+    }
+
+    private func preciseTimecode(_ seconds: Double) -> String {
+        let milliseconds = Int((max(0, seconds) * 1000).rounded())
+        let hours = milliseconds / 3_600_000
+        let minutes = (milliseconds / 60_000) % 60
+        let wholeSeconds = (milliseconds / 1000) % 60
+        let remainder = milliseconds % 1000
+        return String(format: "%02d:%02d:%02d.%03d", hours, minutes, wholeSeconds, remainder)
+    }
+
+    private func excerpt(_ text: String) -> String {
+        let collapsed = text.split(whereSeparator: { $0.isWhitespace }).joined(separator: " ")
+        guard collapsed.count > 80 else { return collapsed }
+        return String(collapsed.prefix(77)) + "…"
     }
 }

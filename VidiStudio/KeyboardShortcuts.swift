@@ -35,7 +35,7 @@ struct StudioShortcut: Identifiable {
         case "follow": return "text.line.first.and.arrowtriangle.forward"
         case "undo": return "arrow.uturn.backward"
         case "redo": return "arrow.uturn.forward"
-        default: return "circle"
+        default: return "arrow.clockwise"
         }
     }
     static let editor: [StudioShortcut] = [
@@ -53,7 +53,12 @@ struct StudioShortcut: Identifiable {
         .init(id: "add", title: "Add Description Segment", key: "n", modifiers: [.command, .shift], spoken: "Command + Shift + N", group: "Editor"),
         .init(id: "follow", title: "Toggle Transcript Follow", key: "f", modifiers: [.command, .shift], spoken: "Command + Shift + F", group: "Editor"),
         .init(id: "undo", title: "Undo Segment Edit", key: "z", modifiers: [.command, .option], spoken: "Command + Option + Z", group: "Editor"),
-        .init(id: "redo", title: "Redo Segment Edit", key: "z", modifiers: [.command, .option, .shift], spoken: "Command + Option + Shift + Z", group: "Editor")
+        .init(id: "redo", title: "Redo Segment Edit", key: "z", modifiers: [.command, .option, .shift], spoken: "Command + Option + Shift + Z", group: "Editor"),
+        .init(id: "analyze", title: "Run All Analysis", key: "a", modifiers: [.command, .option, .shift], spoken: "Command + Option + Shift + A", group: "Analysis"),
+        .init(id: "transcribe", title: "Generate / Regenerate Transcript…", key: "t", modifiers: [.command, .option, .shift], spoken: "Command + Option + Shift + T", group: "Analysis"),
+        .init(id: "generate-summary", title: "Generate / Regenerate Summary…", key: "s", modifiers: [.command, .option, .shift], spoken: "Command + Option + Shift + S", group: "Analysis"),
+        .init(id: "generate-ad-cues", title: "Generate / Regenerate AD Segments…", key: "d", modifiers: [.command, .option, .shift], spoken: "Command + Option + Shift + D", group: "Analysis"),
+        .init(id: "regenerate-all", title: "Regenerate All…", key: "r", modifiers: [.command, .option, .shift], spoken: "Command + Option + Shift + R", group: "Analysis")
     ]
 }
 struct StudioCommands: Commands {
@@ -77,14 +82,28 @@ struct StudioCommands: Commands {
                 NSApplication.shared.orderFrontStandardAboutPanel(nil)
             }
         }
-        CommandMenu("Playback") { entries("Playback") }
-        CommandMenu("Project Editor") { entries("Editor") }
+        CommandGroup(replacing: .textEditing) { }
+        CommandGroup(replacing: .textFormatting) { }
+        CommandMenu("Project") {
+            Menu("Playback") { entries("Playback") }
+            Menu("Editor Sections") {
+                shortcutEntries(StudioShortcut.editor.filter { ["descriptions", "transcript", "summary", "ad-transcript", "ad-overview"].contains($0.id) })
+            }
+            Menu("Segments") {
+                shortcutEntries(StudioShortcut.editor.filter { ["add", "follow", "undo", "redo"].contains($0.id) })
+            }
+            Divider()
+            Menu("Analysis & Regeneration") { entries("Analysis") }
+        }
         CommandGroup(replacing: .help) {
             Button("VidiStudio Help", systemImage: "questionmark.circle") { openWindow(id: "help") }.keyboardShortcut("/", modifiers: [.command, .option])
         }
     }
     @ViewBuilder private func entries(_ group: String) -> some View {
-        ForEach(StudioShortcut.editor.filter { $0.group == group }) { shortcut in
+        shortcutEntries(StudioShortcut.editor.filter { $0.group == group })
+    }
+    @ViewBuilder private func shortcutEntries(_ shortcuts: [StudioShortcut]) -> some View {
+        ForEach(shortcuts) { shortcut in
             Button(shortcut.title, systemImage: shortcut.icon) { editor?.run(shortcut.id) }
                 .keyboardShortcut(shortcut.key, modifiers: shortcut.modifiers)
                 .disabled(editor == nil)
@@ -106,6 +125,7 @@ struct ShortcutReferenceView: View {
         VStack(alignment: .leading, spacing: 14) {
             Text("Keyboard Shortcuts").font(.title2).accessibilityAddTraits(.isHeader)
             Text("These shortcuts apply to the native macOS app. Editor commands are available with a project open and no editing sheet or processing operation active.")
+            Text("The Project menu groups Playback, Editor Sections, Segments, and Analysis & Regeneration. Generation shortcuts use Command + Option + Shift. Existing content is replaced only after confirmation; Regenerate All asks before deleting generated content.")
             shortcutRow("New Project", value: "Command + N")
             shortcutRow("Open Project Folder", value: "Command + O")
             shortcutRow("Settings", value: "Command + Comma")

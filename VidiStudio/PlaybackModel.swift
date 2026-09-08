@@ -120,6 +120,42 @@ final class PlaybackModel {
         else if player.timeControlStatus == .playing { player.pause() }
         else { player.play() }
     }
+    func pauseAndCaptureTime(_ completion: @escaping (Double) -> Void) {
+        stopDeviceSpeech()
+        narration?.stop(); narrationID = nil
+        playing = false
+        if let webView {
+            webView.evaluateJavaScript("player ? (player.pauseVideo(), player.getCurrentTime()) : null") { [weak self] result, _ in
+                Task { @MainActor in
+                    guard let self else { return }
+                    let captured = (result as? NSNumber)?.doubleValue ?? self.time
+                    if captured.isFinite { self.time = max(0, captured) }
+                    completion(self.time)
+                }
+            }
+        } else {
+            let current = player.currentTime().seconds
+            player.pause()
+            if current.isFinite { time = max(0, current) }
+            completion(time)
+        }
+    }
+    func play(from seconds: Double) {
+        guard seconds.isFinite else { return }
+        stopDeviceSpeech()
+        narration?.stop(); narrationID = nil
+        time = max(0, seconds)
+        if let webView {
+            webView.evaluateJavaScript("player && (player.seekTo(\(time), true), player.playVideo())", completionHandler: nil)
+        } else {
+            player.seek(to: CMTime(seconds: time, preferredTimescale: 600), toleranceBefore: .zero, toleranceAfter: .zero) { [weak self] finished in
+                Task { @MainActor in
+                    guard finished, let self else { return }
+                    self.player.play()
+                }
+            }
+        }
+    }
     func seek(_ seconds: Double) {
         guard seconds.isFinite else { return }
         time = max(0, seconds)

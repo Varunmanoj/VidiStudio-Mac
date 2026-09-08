@@ -188,15 +188,14 @@ def ai_video(root, p, stage):
                 if not math.isfinite(a+b) or not 0<=a<b<=p['duration']+.1: raise ValueError('Transcript timestamps are outside the video. Existing results were preserved.')
                 transcript.append(dict(id=str(uuid.uuid4()),start=a,end=b,text=t['text'],speaker=t.get('speaker','')))
             if not transcript and p.get('hasAudio') and data: raise ValueError('No usable transcript returned.')
-            p['transcript']=sorted(transcript,key=lambda t:t['start']);p['summary']='';p['cues']=[]
+            p['transcript']=sorted(transcript,key=lambda t:t['start'])
             atomic_json(root/'transcript/transcript.json',p['transcript'])
         elif stage=='generate-summary':
-            p['summary']=data['summary'];p['cues']=[];atomic_json(root/'metadata/summary.json',data)
+            p['summary']=data['summary'];atomic_json(root/'metadata/summary.json',data)
         else:
             cues=data.get('audioDescriptions',data.get('cues',[])) if isinstance(data,dict) else data
             for c in cues: c['start']=parity.timestamp(c['start']);c['end']=parity.timestamp(c['end'])
             p['cues']=validate_cues(cues,p['duration'],p['transcript']);atomic_json(root/'audio-description/cues.json',p['cues'])
-        p['exports']=[]
     finally:
         if uploaded:
             try: client.files.delete(name=uploaded.name)
