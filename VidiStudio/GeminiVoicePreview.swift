@@ -77,7 +77,6 @@ struct GeminiVoiceBrowser: View {
                 ForEach(voices, id: \.self) { Text($0).tag($0) }
                 if !voices.contains(studio.settings.geminiVoice) { Text(studio.settings.geminiVoice).tag(studio.settings.geminiVoice) }
             }
-            TextField("Custom Gemini voice ID", text: $studio.settings.geminiVoice)
             TextField("Sample text", text: $sample, axis: .vertical).lineLimit(2...4)
             HStack {
                 Button(preview.loading ? "Generating Sample…" : "Play Voice Sample", systemImage: "play.circle") { preview.play(settings: studio.settings, text: sample) }

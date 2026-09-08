@@ -7,6 +7,7 @@ struct WindowFitter: NSViewRepresentable {
     final class FittingView: NSView {
         override func viewDidMoveToWindow() {
             super.viewDidMoveToWindow()
+            window?.tabbingMode = .disallowed
             fitWindow()
         }
         func fitWindow() {

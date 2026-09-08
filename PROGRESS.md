@@ -1,5 +1,9 @@
 # Build and validation — 8 September 2026
 
+## Icon Composer appearances — 8 September 2026
+
+Created `VidiStudio/StudioIcon.icon` in Apple's bundled Icon Composer with the original transparent 1024-pixel artwork as a foreground layer. Default appearance uses System Light and the dark specialization uses System Dark. Both previews were visually inspected in Icon Composer. Debug and Release target settings now select StudioIcon; the Release asset compiler processed the .icon document and emitted StudioIcon.icns plus the asset catalog. Release packaging, strict signature verification, and DMG checksum verification passed. Icon appearance follows macOS icon appearance preferences; the app's own theme selector does not override the Dock icon.
+
 Implemented the native macOS 26 SwiftUI app in the existing plain-app Xcode project. The live logged-in website was reviewed read-only for the project list, video preview, timed description editor, narration status and export workflow. The website repository was not modified.
 
 ## Delivered
@@ -92,3 +96,63 @@ Validation: `git diff --check` and the Debug Xcode build passed. Native accessib
 Replaced separate desktop creation actions with a native New Project sheet available from the empty state, toolbar, File menu, and Command-N. The sheet clearly selects either Video File or YouTube Video. Video File requires a chosen local movie; YouTube Video presents a labeled URL field. Create Project remains disabled until the selected source has the required input, and both paths continue through the existing local engine and configured project folder.
 
 Validation: the Debug Xcode build passed. Native accessibility inspection confirmed the New Project heading, both radio choices, source-specific file and URL controls, and disabled/enabled Create Project validation. Command-N reopened the same chooser.
+
+### Gemini model menus — 2026-09-08
+
+Simplified Settings → Gemini API by removing the editable API version and video-processing implementation choices. The required Gemini API version remains an internal engine setting. Replaced every free-form model ID field with a labeled native menu for speech transcription, YouTube transcription, summaries, audio descriptions, on-screen text, rewrites, and Gemini narration.
+
+Added the project-independent `list-models` engine command. It calls Gemini's authenticated models endpoint, keeps Gemini models that support content generation, and returns display names plus stable API IDs to SwiftUI. The app filters transcription and TTS choices by purpose, preserves valid saved selections, and replaces unavailable selections with an available compatible model. Catalog requests use a unique owner-only temporary configuration file that is deleted when the request finishes.
+
+Validation: all 13 source engine tests passed, including the model-catalog contract and real macOS speech/media pipeline; the Debug and Release Xcode builds passed. Native accessibility inspection confirmed the concise copy, API key field, catalog-loading control, and seven disabled native model menus before credentials are provided. The Release ZIP and DMG were rebuilt, strict deep code-signature verification passed, and the DMG checksum verified successfully. Live catalog retrieval remains pending a user-provided Gemini API key.
+
+### Simplified project sidebar footer — 2026-09-08
+
+Removed the permanent On this Mac and local-workspace status copy, leaving only the accessible Settings gear in the project sidebar footer. Processing messages, progress, and Cancel remain available only while an operation is running. Debug and Release builds passed; native accessibility inspection confirmed the two idle labels are absent and Settings remains exposed. The signed ZIP and verified DMG were rebuilt.
+
+### Empty-project inspector behavior — 2026-09-08
+
+The Project Inspector and its toolbar control are now hidden whenever no project is selected, allowing the welcome view to use the full available editor width. Selecting a project restores the inspector according to the user's previous open or closed preference. Debug and Release builds passed; native accessibility inspection confirmed that neither the inspector content nor its toolbar button exists in the empty-project state. The signed ZIP and verified DMG were rebuilt.
+
+### Engine health indicator — 2026-09-08
+
+Check Engine now tests the paths currently displayed in Storage through an owner-only temporary configuration, so unsaved FFmpeg and FFprobe overrides can be verified. The button shows progress while checking, a green checkmark and Engine ready on success, or a red attention state with the exact configuration error on failure. Changing either override clears the previous result. Debug and Release builds passed; the native success state and VoiceOver description were verified, and the signed ZIP and verified DMG were rebuilt.
+
+### App version and About menu — 2026-09-08
+
+Added bundle-backed version information to Settings → Help and the separate VidiStudio Help window. Replaced the application-info command with an explicit About VidiStudio menu item that opens the native macOS About panel, including the app icon, marketing version, and build number from the Xcode bundle. Debug and Release builds passed; native accessibility inspection confirmed App version, Version 1.0 (1) and the About VidiStudio application-menu command. The signed ZIP and verified DMG were rebuilt.
+
+### Removed automatic window tabs — 2026-09-08
+
+Changed the main editor scene to a single Window and disabled AppKit automatic tabbing, including the main window's tabbing mode. Projects continue to open through the list/grid browser. Native UI inspection confirmed that Show Tab Bar and Show All Tabs are absent from View and that the main toolbar retains New Project without a tab bar. Debug build passed; Release packaging refreshed.
+
+### Project browser layouts and panel shortcuts — 2026-09-08
+
+Added View-menu commands for Command-B (project sidebar), Command-Shift-B (inspector), Command-Option-1 (list), and Command-Option-2 (grid). Commands use the focused main window and inspector controls require a selected project. The toolbar offers a persistent list/grid choice. The adaptive thumbnail grid opens projects and retains Rename, Open in Project Folder, and Delete actions. It uses saved local thumbnails, YouTube preview images, and a movie placeholder when no thumbnail exists. Help documents all four shortcuts.
+
+Debug and Release builds passed. Native UI verified sidebar toggling, both layout shortcuts, the empty grid state, toolbar selection, and View-menu commands. No populated project was available during the UI check, so thumbnail rendering and the selected-project inspector shortcut were not exercised live in this pass. Release installers were rebuilt.
+
+### FFmpeg and FFprobe path choosers — 2026-09-08
+
+Settings → Storage now provides aligned native path fields and Choose buttons for the FFmpeg and FFprobe executables. Each picker starts in the saved executable's folder, or Homebrew's binary folder when available, and rejects non-executable files. Empty overrides continue to use the media tools bundled with VidiStudio. Debug and Release builds passed, the Storage layout was inspected visually, and the signed ZIP and verified DMG were rebuilt.
+
+### Google AI Studio API-key link — 2026-09-08
+
+Settings → Gemini API now includes an accessible Open API Keys in Google AI Studio button beneath the key field. It opens the general `https://aistudio.google.com/api-keys` page so each user can create or manage keys for their own Google project; no VidiStudio or developer project is preselected. Debug and Release builds passed, native accessibility inspection confirmed the button and browser-destination hint, and the signed ZIP and verified DMG were rebuilt.
+
+### Offline narration voice controls — 2026-09-08
+
+Settings → Narration now shows native Speech rate, Pitch, and Speech volume sliders plus Restore Defaults whenever Apple on-device voices are selected. The controls disappear when Gemini TTS is selected. Apple voice samples and synchronized on-device narration use AVSpeechSynthesizer with the selected controls. Saved offline narration uses the chosen rate during system synthesis and applies pitch and volume through the bundled FFmpeg, with matching support in the Windows System.Speech path. Narration now records its engine, voice, model, and voice-control signature so changing any of them marks previous audio for regeneration.
+
+Validation: all 13 source and all 13 packaged Release engine tests passed, including real macOS speech synthesized with non-default rate, pitch, and volume. Debug and Release Xcode builds passed. Native accessibility inspection confirmed all three named sliders at 100 percent, Restore Defaults and its help text, voice browsing and samples, and verified that the controls are absent under Gemini TTS. The Release app passed strict deep signature verification; the ZIP and DMG were rebuilt. DMG SHA-256: `bc4daf9189582f1282b1423f60f7a542a2e59455a2a6ac10cdd66905527cf032`.
+
+### Voice search field — 2026-09-08
+
+Redesigned Settings → Narration voice search as a compact native search bar with a magnifying-glass icon, an explanatory Search by voice or language placeholder, Escape-to-clear behavior, and a clear button that appears only while a query is present. VoiceOver announces the field as Search voices, describes what it filters, and exposes the clear action separately. Debug and Release builds passed; native visual and accessibility inspection verified live filtering and clearing. The signed Release app, ZIP, and DMG were rebuilt. DMG SHA-256: `c85f586503fbe0823600808553f3d4f36daa39074ca5d9c9236b40ec21e40727`.
+
+### Clearer narration playback choices — 2026-09-08
+
+Renamed the Narration during playback choices to Play synthesized narration and Preview segment text with Apple Speech. Updated the supporting description to explain that synthesized narration uses saved audio for timing and exports, while Apple Speech provides an immediate preview without creating audio files. Debug and Release builds passed; native accessibility inspection confirmed both renamed menu choices and the updated explanation. The Release ZIP and DMG were rebuilt.
+
+### Simplified Gemini voice settings — 2026-09-08
+
+Removed the visible Custom Gemini voice ID field from Settings → Narration. The saved voice identifier and engine support remain intact, including compatibility with previously stored custom identifiers; users now choose from the supported Gemini voice menu. Debug and Release builds passed. Native accessibility inspection confirmed Gemini voice, Sample text, and preview controls remain while Custom Gemini voice ID is absent. The signed Release ZIP and DMG were rebuilt.

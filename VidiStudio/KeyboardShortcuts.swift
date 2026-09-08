@@ -1,4 +1,5 @@
 import SwiftUI
+import AppKit
 
 struct EditorShortcutActions {
     var run: (String) -> Void
@@ -36,9 +37,26 @@ struct StudioShortcut: Identifiable {
     ]
 }
 struct StudioCommands: Commands {
+    @FocusedValue(\.projectBrowser) private var browser
     @FocusedValue(\.editorShortcuts) private var editor
     @Environment(\.openWindow) private var openWindow
     var body: some Commands {
+        CommandGroup(after: .sidebar) {
+            Button(browser?.showProjects.wrappedValue == true ? "Hide Project List" : "Show Project List") { browser?.showProjects.wrappedValue.toggle() }
+                .keyboardShortcut("b", modifiers: .command).disabled(browser == nil)
+            Button(browser?.hasProject == true && browser?.showInspector.wrappedValue == true ? "Hide Inspector" : "Show Inspector") { browser?.showInspector.wrappedValue.toggle() }
+                .keyboardShortcut("b", modifiers: [.command, .shift]).disabled(browser?.hasProject != true)
+            Divider()
+            Button("Project List View") { browser?.grid.wrappedValue = false; browser?.showProjects.wrappedValue = true }
+                .keyboardShortcut("1", modifiers: [.command, .option]).disabled(browser == nil)
+            Button("Project Grid View") { browser?.grid.wrappedValue = true; browser?.showProjects.wrappedValue = true }
+                .keyboardShortcut("2", modifiers: [.command, .option]).disabled(browser == nil)
+        }
+        CommandGroup(replacing: .appInfo) {
+            Button("About VidiStudio") {
+                NSApplication.shared.orderFrontStandardAboutPanel(nil)
+            }
+        }
         CommandMenu("Playback") { entries("Playback") }
         CommandMenu("Project Editor") { entries("Editor") }
         CommandGroup(replacing: .help) {
@@ -71,6 +89,10 @@ struct ShortcutReferenceView: View {
             shortcutRow("New Project", value: "Command + N")
             shortcutRow("Open Project Folder", value: "Command + O")
             shortcutRow("Settings", value: "Command + Comma")
+            shortcutRow("Show or Hide Project List", value: "Command + B")
+            shortcutRow("Show or Hide Inspector", value: "Command + Shift + B; requires a selected project")
+            shortcutRow("Project List View", value: "Command + Option + 1")
+            shortcutRow("Project Grid View", value: "Command + Option + 2")
             shortcutRow("VidiStudio Help", value: "Command + Option + Slash")
             ForEach(StudioShortcut.editor) { shortcut in
                 shortcutRow(shortcut.title, value: shortcut.spoken)
@@ -89,8 +111,11 @@ struct StudioHelpView: View {
         ScrollView {
             VStack(alignment: .leading, spacing: 20) {
                 Text("VidiStudio Help").font(.largeTitle).accessibilityAddTraits(.isHeader)
+                Text(AppVersionInfo.display)
+                    .foregroundStyle(.secondary)
+                    .accessibilityLabel("VidiStudio \(AppVersionInfo.display)")
                 Text("Import a local video or create a YouTube project, run analysis from the inspector, review descriptions, synthesize narration, and export. Your project files and completed results are saved locally.")
-                Text("Editor sections include Transcript, Summary, AD Transcript, and AD Overview. AD Overview shows segment and narration counts and generates audio with Apple voices or Gemini TTS. Settings → Narration contains the language/voice browser, samples, and the choice between saved audio playback and speaking on device without files.")
+                Text("Editor sections include Transcript, Summary, AD Transcript, and AD Overview. AD Overview shows segment and narration counts and generates audio with Apple voices or Gemini TTS. Settings → Narration contains the language and voice browser, voice samples, offline speech rate, pitch and volume controls, Restore Defaults, and the choice between saved audio playback and speaking on device without files.")
                 ShortcutReferenceView()
                 Button("Close Help") { dismiss() }.keyboardShortcut(.cancelAction)
             }.padding(24)

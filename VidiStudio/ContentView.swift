@@ -120,12 +120,19 @@ struct ContentView: View {
     @State private var search = ""
     @State private var rename = ""
     @State private var renaming = false
+    @AppStorage("projectBrowserGrid") private var projectGrid = false
     var body: some View {
         GeometryReader { geometry in
+        let inspectorVisible = showInspector && studio.selected != nil
         HStack(spacing: 0) {
         if showProjects {
           VStack(spacing: 0) {
             TextField("Search projects", text: $search).textFieldStyle(.roundedBorder).padding(12)
+            if projectGrid {
+                ProjectGridView(projects: studio.projects.filter { search.isEmpty || $0.name.localizedStandardContains(search) }, selection: $studio.selectedID, busy: studio.busy, rename: { p in
+                    studio.selectedID = p.id; rename = p.name; renaming = true
+                }, delete: { studio.trashProject($0) })
+            } else {
             List(selection: $studio.selectedID) {
                 Section("Local Projects") {
                     ForEach(studio.projects.filter { search.isEmpty || $0.name.localizedStandardContains(search) }) { p in
@@ -145,11 +152,20 @@ struct ContentView: View {
                 }
             }
             .listStyle(.sidebar)
-            .safeAreaInset(edge: .bottom) {
-                HStack { Label("On this Mac", systemImage: "internaldrive"); Spacer(); SettingsLink { Image(systemName: "gearshape") }.help("Settings").accessibilityLabel("Settings") }
-                    .font(.caption).foregroundStyle(.secondary).padding()
             }
-          }.frame(width: 252).frame(maxHeight: .infinity).background(.bar)
+            Spacer(minLength: 0)
+            .safeAreaInset(edge: .bottom) {
+                HStack {
+                    Spacer()
+                    SettingsLink { Image(systemName: "gearshape") }
+                        .help("Settings")
+                        .accessibilityLabel("Settings")
+                }
+                .font(.caption)
+                .foregroundStyle(.secondary)
+                .padding()
+            }
+          }.frame(width: projectGrid ? min(440, geometry.size.width * 0.48) : 252).frame(maxHeight: .infinity).background(.bar)
           Divider()
         }
         Group {
@@ -165,14 +181,15 @@ struct ContentView: View {
                     Button("Open Project Folder…") { studio.openProject() }
                 }
             }
-        }.frame(width: max(0, geometry.size.width - (showProjects ? 253 : 0) - (showInspector ? 273 : 0)), height: geometry.size.height).clipped()
-        if showInspector {
+        }.frame(width: max(0, geometry.size.width - (showProjects ? (projectGrid ? min(440, geometry.size.width * 0.48) : 252) + 1 : 0) - (inspectorVisible ? 273 : 0)), height: geometry.size.height).clipped()
+        if inspectorVisible {
             Divider()
             ProcessingInspector(studio: studio).frame(width: 272, height: geometry.size.height).background(.bar)
         }
         }.frame(width: geometry.size.width, height: geometry.size.height, alignment: .leading)
         }
         .background(WindowFitter().frame(width: 0, height: 0))
+        .focusedSceneValue(\.projectBrowser, ProjectBrowserActions(showProjects: $showProjects, showInspector: $showInspector, grid: $projectGrid, hasProject: studio.selected != nil))
         .preferredColorScheme(studio.settings.theme == "dark" ? .dark : studio.settings.theme == "light" ? .light : nil)
         .sheet(isPresented: $renaming) {
             VStack(spacing: 20) {
@@ -185,20 +202,31 @@ struct ContentView: View {
         }
         .toolbar {
             ToolbarItem(placement: .navigation) { Button(showProjects ? "Hide Project List" : "Show Project List", systemImage: "sidebar.left") { showProjects.toggle() } }
+            ToolbarItem(placement: .navigation) {
+                Picker("Project layout", selection: $projectGrid) {
+                    Label("List View", systemImage: "list.bullet").tag(false)
+                    Label("Grid View", systemImage: "square.grid.2x2").tag(true)
+                }.pickerStyle(.segmented).onChange(of: projectGrid) { _, _ in showProjects = true }
+            }
             ToolbarItem(placement: .primaryAction) { Button("New Project", systemImage: "plus") { studio.isCreatingProject = true }.disabled(studio.busy) }
             ToolbarItem(placement: .primaryAction) { Button("Open Project", systemImage: "folder") { studio.openProject() }.disabled(studio.busy) }
-            ToolbarSpacer(.fixed, placement: .primaryAction)
-            ToolbarItem(placement: .primaryAction) { Button(showInspector ? "Hide Inspector" : "Show Inspector", systemImage: "sidebar.right") { showInspector.toggle() } }
+            if studio.selected != nil {
+                ToolbarSpacer(.fixed, placement: .primaryAction)
+                ToolbarItem(placement: .primaryAction) { Button(showInspector ? "Hide Inspector" : "Show Inspector", systemImage: "sidebar.right") { showInspector.toggle() } }
+            }
         }
         .safeAreaInset(edge: .bottom) {
-            HStack(spacing: 12) {
-                if studio.busy { ProgressView().controlSize(.small) }
-                Text(studio.message).lineLimit(2).font(.caption)
-                Spacer()
-                if studio.busy { Button("Cancel Processing") { studio.process?.terminate() } }
-                if studio.busy { ProgressView(value: studio.progress).frame(width: 120).accessibilityLabel("Processing progress") }
-                Label("Local workspace", systemImage: "externaldrive").font(.caption).foregroundStyle(.secondary)
-            }.padding(.horizontal, 18).padding(.vertical, 10)
+            if studio.busy {
+                HStack(spacing: 12) {
+                    ProgressView().controlSize(.small)
+                    Text(studio.message).lineLimit(2).font(.caption)
+                    Spacer()
+                    Button("Cancel Processing") { studio.process?.terminate() }
+                    ProgressView(value: studio.progress).frame(width: 120).accessibilityLabel("Processing progress")
+                }
+                .padding(.horizontal, 18)
+                .padding(.vertical, 10)
+            }
         }
         .alert("VidiStudio needs attention", isPresented: Binding(get: { studio.error != nil }, set: { if !$0 { studio.error = nil } })) {
             Button("OK", role: .cancel) { studio.error = nil }
@@ -317,7 +345,7 @@ struct ProjectEditor: View {
                                 }.buttonStyle(.plain).help("Seek to \(timecode(cue.start))")
                                 Text(cue.text).textSelection(.enabled).frame(maxWidth: .infinity, alignment: .leading)
                                 if tab == "descriptions" {
-                                    if cue.audio != nil && cue.audioText == cue.text { Image(systemName: "waveform.circle.fill").foregroundStyle(.green).accessibilityLabel("Narration ready") }
+                                    if cue.audio != nil && cue.audioText == cue.text && cue.audioSettings == studio.settings.narrationSignature { Image(systemName: "waveform.circle.fill").foregroundStyle(.green).accessibilityLabel("Narration ready") }
                                     Button("Edit", systemImage: "pencil") { cueToEdit = cue }.labelStyle(.iconOnly).disabled(studio.busy)
                                     Menu {
                                         if let audio = cue.audio, let url = project.url(audio) { Button("Preview Narration") { audioPreview = try? AVAudioPlayer(contentsOf: url); audioPreview?.play() } }
@@ -378,6 +406,9 @@ struct ProjectEditor: View {
         .onChange(of: playback.playing) { _, _ in playback.syncNarration(project, settings: studio.settings) }
         .onChange(of: studio.settings.narrationPlayback) { _, _ in playback.syncNarration(project, settings: studio.settings) }
         .onChange(of: studio.settings.systemVoice) { _, _ in playback.syncNarration(project, settings: studio.settings) }
+        .onChange(of: studio.settings.systemSpeechRate) { _, _ in playback.syncNarration(project, settings: studio.settings) }
+        .onChange(of: studio.settings.systemSpeechPitch) { _, _ in playback.syncNarration(project, settings: studio.settings) }
+        .onChange(of: studio.settings.systemSpeechVolume) { _, _ in playback.syncNarration(project, settings: studio.settings) }
         .onChange(of: playback.narrationEnabled) { _, _ in playback.syncNarration(project, settings: studio.settings) }
         .onAppear { playback.observe(); if !project.source.isEmpty, let url = project.url(project.source) { playback.player.replaceCurrentItem(with: AVPlayerItem(url: url)) } }
         .onDisappear { playback.stop(); audioPreview?.stop() }

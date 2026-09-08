@@ -63,11 +63,11 @@ final class PlaybackModel {
     var speechError: String?
     private var narration: AVAudioPlayer?
     private var narrationID: String?
-    private var deviceSpeech: Process?
+    private let deviceSpeech = AVSpeechSynthesizer()
     private var deviceCue: String?
     private var deviceTime = 0.0
     private func stopDeviceSpeech() {
-        if deviceSpeech?.isRunning == true { deviceSpeech?.terminate() }; deviceSpeech = nil; deviceCue = nil
+        deviceSpeech.stopSpeaking(at: .immediate); deviceCue = nil
     }
     var webView: WKWebView?
     private var observer: Any?
@@ -81,13 +81,12 @@ final class PlaybackModel {
         if settings.narrationPlayback == "device" {
             narration?.stop(); narrationID = nil
             guard narrationEnabled, playing, let cue = project.cues.first(where: { time >= $0.start && time < $0.end }) else { stopDeviceSpeech(); return }
-            let identity = cue.id + cue.text + settings.systemVoice
+            let identity = cue.id + cue.text + settings.narrationSignature
             if deviceCue != identity || abs(time - deviceTime) > 0.8 {
                 stopDeviceSpeech()
-                let speech = Process()
-                speech.executableURL = URL(fileURLWithPath: "/usr/bin/say")
-                speech.arguments = (settings.systemVoice.isEmpty ? [] : ["-v", settings.systemVoice]) + ["--", cue.text]
-                do { try speech.run(); deviceSpeech = speech; deviceCue = identity; speechError = nil } catch { deviceCue = identity; speechError = "On-device narration could not start: " + error.localizedDescription }
+                deviceSpeech.speak(SystemSpeechUtterance.make(text: cue.text, settings: settings))
+                deviceCue = identity
+                speechError = nil
             }
             deviceTime = time
             return
@@ -95,7 +94,8 @@ final class PlaybackModel {
         stopDeviceSpeech()
         guard narrationEnabled, playing,
               let cue = project.cues.first(where: { time >= $0.start && time < $0.end }),
-              cue.audioText == cue.text, let path = cue.audio, let url = project.url(path) else {
+              cue.audioText == cue.text, cue.audioSettings == settings.narrationSignature,
+              let path = cue.audio, let url = project.url(path) else {
             narration?.stop(); narrationID = nil; return
         }
         let offset = max(0, time - cue.start)

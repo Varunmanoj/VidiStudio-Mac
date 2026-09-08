@@ -6,10 +6,6 @@ struct SettingsView: View {
     @State private var saved = false
     @State private var section = "Appearance"
     private let sections = ["Appearance", "Narration", "Gemini API", "Developer prompts", "Storage", "Help"]
-    private let stages = ["transcript", "youtube_transcript", "summary", "audio_descriptions", "screen_text", "text_rewrite", "tts_audio"]
-    private func model(_ key: String) -> Binding<String> {
-        Binding(get: { studio.settings.models[key] ?? "" }, set: { studio.settings.models[key] = $0 })
-    }
     private func prompt(_ stage: String, _ key: String) -> Binding<String> {
         Binding(get: { studio.settings.prompts[stage]?[key] ?? "" }, set: { studio.settings.prompts[stage, default: [:]][key] = $0 })
     }
@@ -22,6 +18,9 @@ struct SettingsView: View {
         Form {
             if section == "Help" { Section("Help and keyboard shortcuts") {
                 Button("Open VidiStudio Help") { openWindow(id: "help") }
+                LabeledContent("App version", value: AppVersionInfo.display)
+                    .accessibilityElement(children: .ignore)
+                    .accessibilityLabel("App version, \(AppVersionInfo.display)")
                 DisclosureGroup("Keyboard shortcut reference") { ShortcutReferenceView() }
             }
             }
@@ -32,30 +31,32 @@ struct SettingsView: View {
                 Toggle("Follow transcript during playback", isOn: $studio.settings.followTranscript)
             }
             }
-            if section == "Gemini API" { Section("Gemini API") {
-                SecureField("API key", text: $studio.settings.apiKey)
-                TextField("API version", text: $studio.settings.apiVersion)
-                Picker("Video understanding", selection: $studio.settings.videoProcessing) {
-                    Text("Agentic").tag("agentic"); Text("Standard").tag("standard")
-                }
-                ForEach(stages, id: \.self) { stage in TextField(stage.replacingOccurrences(of: "_", with: " ").capitalized, text: model(stage)) }
-                Text("The speech transcription model accepts extracted audio. YouTube uses the separately configured video model. Model IDs can be updated here as Gemini versions change.").font(.caption).foregroundStyle(.secondary)
-                Button("Validate API Key and Models") { studio.saveSettings(); studio.execute("validate-config") }.disabled(studio.busy)
-            }
-            }
+            if section == "Gemini API" { GeminiAPISettingsView(studio: studio) }
             if section == "Narration" { Section("Narration") {
                 Picker("Speech engine", selection: $studio.settings.ttsMode) {
                     Text("Apple on-device voices · offline").tag("system"); Text("Gemini TTS").tag("gemini")
                 }
                 Picker("Narration during playback", selection: $studio.settings.narrationPlayback) {
-                    Text("Play generated audio").tag("generated")
-                    Text("Speak on device without audio files").tag("device")
+                    Text("Play synthesized narration").tag("generated")
+                    Text("Preview segment text with Apple Speech").tag("device")
                 }
-                Text("Generate audio with the selected speech engine for consistent timing and exports. On-device playback speaks each active cue using the selected Apple voice; seeking or resuming restarts its text.").font(.caption).foregroundStyle(.secondary)
+                Text("Play synthesized narration to hear the saved audio used for timing and exports. Apple Speech previews segment text immediately without creating audio files; seeking or resuming restarts the active segment.").font(.caption).foregroundStyle(.secondary)
                 if studio.settings.ttsMode == "gemini" {
                     GeminiVoiceBrowser(studio: studio)
                 } else {
-                    SystemVoiceBrowser(selectedVoice: $studio.settings.systemVoice)
+                    GroupBox("Voice controls") {
+                        VStack(alignment: .leading, spacing: 14) {
+                            speechSlider("Speech rate", value: $studio.settings.systemSpeechRate, range: 0.5...2.0)
+                            speechSlider("Pitch", value: $studio.settings.systemSpeechPitch, range: 0.5...2.0)
+                            speechSlider("Speech volume", value: $studio.settings.systemSpeechVolume, range: 0...1.0)
+                            Button("Restore Defaults", systemImage: "arrow.counterclockwise") {
+                                studio.settings.restoreSystemSpeechDefaults()
+                            }
+                            .accessibilityHint("Restores speech rate, pitch, and volume to their original values")
+                        }
+                        .padding(.vertical, 4)
+                    }
+                    SystemVoiceBrowser(settings: $studio.settings)
                 }
             }
             }
@@ -84,12 +85,52 @@ struct SettingsView: View {
                 Text("New projects are created here. The project list scans this folder and any project folders you open directly.")
                     .font(.caption)
                     .foregroundStyle(.secondary)
-                TextField("FFmpeg override", text: $studio.settings.ffmpegPath)
-                TextField("FFprobe override", text: $studio.settings.ffprobePath)
-                Button("Check Engine") { studio.execute("doctor") }.disabled(studio.busy)
+                LabeledContent("FFmpeg") {
+                    HStack {
+                        TextField("FFmpeg path", text: $studio.settings.ffmpegPath)
+                            .accessibilityLabel("FFmpeg executable path")
+                        Button("Choose…", systemImage: "folder") { studio.chooseFFmpeg() }
+                            .disabled(studio.busy)
+                    }
+                }
+                LabeledContent("FFprobe") {
+                    HStack {
+                        TextField("FFprobe path", text: $studio.settings.ffprobePath)
+                            .accessibilityLabel("FFprobe executable path")
+                        Button("Choose…", systemImage: "folder") { studio.chooseFFprobe() }
+                            .disabled(studio.busy)
+                    }
+                }
+                Text("Leave these paths empty to use the media tools included with VidiStudio.")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                HStack(spacing: 10) {
+                    Button("Check Engine") { studio.checkEngine() }.disabled(studio.busy)
+                    switch studio.engineCheckStatus {
+                    case .unchecked:
+                        EmptyView()
+                    case .checking:
+                        ProgressView().controlSize(.small)
+                        Text("Checking…").foregroundStyle(.secondary)
+                    case .ready:
+                        Label("Engine ready", systemImage: "checkmark.circle.fill")
+                            .foregroundStyle(.green)
+                    case .failed:
+                        Label("Engine needs attention", systemImage: "xmark.circle.fill")
+                            .foregroundStyle(.red)
+                    }
+                }
+                .accessibilityElement(children: .combine)
+                if case .failed(let message) = studio.engineCheckStatus {
+                    Text(message)
+                        .font(.caption)
+                        .foregroundStyle(.red)
+                }
             }
             }
-            Text("API credentials are saved outside projects with owner-only file permissions.").font(.caption).foregroundStyle(.secondary)
+            if section == "Gemini API" {
+                Text("Your Gemini key stays on this Mac and is never saved inside a project.").font(.caption).foregroundStyle(.secondary)
+            }
         }.formStyle(.grouped).navigationTitle(section)
         }
         .background(SettingsWindowChrome().frame(width: 0, height: 0))
@@ -101,6 +142,23 @@ struct SettingsView: View {
         }
         .frame(minWidth: 850, idealWidth: 940, minHeight: 650, idealHeight: 740)
         .onChange(of: section) { _, _ in saved = false }
+        .onChange(of: studio.settings.ffmpegPath) { _, _ in studio.engineCheckStatus = .unchecked }
+        .onChange(of: studio.settings.ffprobePath) { _, _ in studio.engineCheckStatus = .unchecked }
         .preferredColorScheme(studio.settings.theme == "dark" ? .dark : studio.settings.theme == "light" ? .light : nil)
+    }
+
+    private func speechSlider(_ title: String, value: Binding<Double>, range: ClosedRange<Double>) -> some View {
+        VStack(alignment: .leading, spacing: 5) {
+            HStack {
+                Text(title)
+                Spacer()
+                Text(value.wrappedValue, format: .percent.precision(.fractionLength(0)))
+                    .foregroundStyle(.secondary)
+                    .monospacedDigit()
+            }
+            Slider(value: value, in: range, step: 0.05)
+                .accessibilityLabel(title)
+                .accessibilityValue(value.wrappedValue.formatted(.percent.precision(.fractionLength(0))))
+        }
     }
 }

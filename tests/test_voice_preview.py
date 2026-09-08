@@ -1,13 +1,33 @@
+import io
 import json
 import tempfile
 import unittest
 import wave
+from contextlib import redirect_stdout
 from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import patch, Mock
 from test_engine import engine
 
 class VoicePreview(unittest.TestCase):
+    def test_model_catalog_comes_from_available_generate_content_models(self):
+        client = Mock()
+        client.models.list.return_value = [
+            SimpleNamespace(name='models/gemini-3.8-flash', display_name='Gemini 3.8 Flash', supported_actions=['generateContent', 'countTokens']),
+            SimpleNamespace(name='models/gemini-2.5-flash-preview-tts', display_name='Gemini 2.5 Flash TTS', supported_actions=['generateContent']),
+            SimpleNamespace(name='models/gemini-embedding-001', display_name='Gemini Embedding', supported_actions=['embedContent']),
+            SimpleNamespace(name='models/imagen-4.0-generate-001', display_name='Imagen 4', supported_actions=['predict']),
+        ]
+        output = io.StringIO()
+        with patch.object(engine, 'gemini_client', return_value=client), redirect_stdout(output):
+            engine.list_models()
+        event = json.loads(output.getvalue())
+        self.assertEqual([model['name'] for model in event['models']], [
+            'gemini-2.5-flash-preview-tts',
+            'gemini-3.8-flash',
+        ])
+        client.close.assert_called_once()
+
     def test_preview_uses_tts_model_and_voice_without_project(self):
         with tempfile.TemporaryDirectory() as directory:
             output = Path(directory) / 'sample.wav'

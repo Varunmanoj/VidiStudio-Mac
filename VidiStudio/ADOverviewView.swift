@@ -4,9 +4,9 @@ struct ADOverviewView: View {
     @Bindable var studio: StudioModel
     let project: StudioProject
     private var ready: Int { project.cues.filter { cue in
-        cue.audioText == cue.text && cue.audio.flatMap { project.url($0) }.map { FileManager.default.fileExists(atPath: $0.path) } == true
+        cue.audioText == cue.text && cue.audioSettings == studio.settings.narrationSignature && cue.audio.flatMap { project.url($0) }.map { FileManager.default.fileExists(atPath: $0.path) } == true
     }.count }
-    private var stale: Int { project.cues.filter { $0.audio != nil && $0.audioText != $0.text }.count }
+    private var stale: Int { project.cues.filter { $0.audio != nil && ($0.audioText != $0.text || $0.audioSettings != studio.settings.narrationSignature) }.count }
     private func statistic(_ title: String, value: String) -> some View {
         HStack { Text(title); Spacer(); Text(value).monospacedDigit() }
             .accessibilityElement(children: .ignore)

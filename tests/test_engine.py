@@ -17,7 +17,11 @@ class Validation(unittest.TestCase):
             root=Path(temp); source=root/'sample video.mp4'
             engine.run([engine.tool('ffmpeg'),'-y','-v','error','-f','lavfi','-i','testsrc2=size=640x360:rate=24','-f','lavfi','-i','sine=frequency=440:sample_rate=48000','-t','8','-c:v','libx264','-c:a','aac',source])
             env=os.environ | {'VIDISTUDIO_CONFIG':str(root/'settings.json')}
-            (root/'settings.json').write_text('{}')
+            (root/'settings.json').write_text(json.dumps({
+                'systemSpeechRate': 1.1,
+                'systemSpeechPitch': 1.15,
+                'systemSpeechVolume': 0.7,
+            }))
             def cli(*args,success=True):
                 prefix=[os.environ['VIDISTUDIO_TEST_ENGINE']] if os.environ.get('VIDISTUDIO_TEST_ENGINE') else [sys.executable,str(ENGINE)]
                 result=subprocess.run([*prefix,*map(str,args)],capture_output=True,text=True,env=env)
@@ -33,6 +37,7 @@ class Validation(unittest.TestCase):
             cli('save-cues','--project',folder,'--input',cues)
             cli('synthesize-tts','--project',folder)
             self.assertTrue((folder/project()['cues'][0]['audio']).exists())
+            self.assertEqual(project()['cues'][0]['audioSettings'], 'system||1.100|1.150|0.700')
             cli('export-final-video','--project',folder)
             output=folder/project()['exports'][0]
             self.assertAlmostEqual(float(engine.probe(output)['format']['duration']),8,delta=.2)

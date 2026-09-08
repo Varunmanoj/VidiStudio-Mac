@@ -11,6 +11,32 @@ struct Segment: Codable, Identifiable, Hashable {
     var audio: String?
     var audioText: String?
     var audioDuration: Double?
+    var audioSettings: String?
+}
+struct GeminiModelOption: Identifiable, Hashable {
+    let name: String
+    let displayName: String
+    let supportedActions: [String]
+    var id: String { name }
+
+    init?(dictionary: [String: Any]) {
+        guard let name = dictionary["name"] as? String, !name.isEmpty else { return nil }
+        self.name = name
+        displayName = dictionary["displayName"] as? String ?? name
+        supportedActions = dictionary["supportedActions"] as? [String] ?? []
+    }
+
+    init(name: String) {
+        self.name = name
+        displayName = name
+        supportedActions = []
+    }
+}
+enum EngineCheckStatus: Equatable {
+    case unchecked
+    case checking
+    case ready
+    case failed(String)
 }
 struct StudioProject: Codable, Identifiable {
     var schemaVersion: Int
@@ -55,11 +81,34 @@ struct StudioSettings: Codable {
     var ttsMode = "system"
     var narrationPlayback = "generated"
     var systemVoice = ""
+    var systemSpeechRate = 1.0
+    var systemSpeechPitch = 1.0
+    var systemSpeechVolume = 1.0
     var geminiVoice = "Kore"
     var ffmpegPath = ""
     var ffprobePath = ""
     var libraryPath = StudioSettings.defaultLibraryURL.path
     static var url: URL { FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent("Library/Application Support/VidiStudio/config.json") }
+
+    var narrationSignature: String {
+        if ttsMode == "gemini" {
+            return "gemini|\(geminiVoice)|\(models["tts_audio"] ?? "")"
+        }
+        return String(
+            format: "system|%@|%.3f|%.3f|%.3f",
+            locale: Locale(identifier: "en_US_POSIX"),
+            systemVoice,
+            systemSpeechRate,
+            systemSpeechPitch,
+            systemSpeechVolume
+        )
+    }
+
+    mutating func restoreSystemSpeechDefaults() {
+        systemSpeechRate = 1.0
+        systemSpeechPitch = 1.0
+        systemSpeechVolume = 1.0
+    }
 }
 
 @MainActor @Observable
@@ -76,6 +125,9 @@ final class StudioModel {
     var screenTimestamp = 0.0
     var process: Process?
     var isCreatingProject = false
+    var availableGeminiModels: [GeminiModelOption] = []
+    var geminiModelsLoaded = false
+    var engineCheckStatus: EngineCheckStatus = .unchecked
     var selected: StudioProject? { projects.first { $0.id == selectedID } }
     init() {
         var merged = (try? JSONSerialization.jsonObject(with: JSONEncoder().encode(settings))) as? [String: Any] ?? [:]
@@ -148,6 +200,54 @@ final class StudioModel {
             settings.libraryPath = url.standardizedFileURL.path
         }
     }
+    func chooseFFmpeg() {
+        chooseMediaTool(named: "FFmpeg", currentPath: settings.ffmpegPath) {
+            settings.ffmpegPath = $0
+        }
+    }
+    func chooseFFprobe() {
+        chooseMediaTool(named: "FFprobe", currentPath: settings.ffprobePath) {
+            settings.ffprobePath = $0
+        }
+    }
+    func checkEngine() {
+        guard !busy else { return }
+        let directory = FileManager.default.temporaryDirectory.appendingPathComponent("vidistudio-engine-check-\(UUID().uuidString)")
+        let configuration = directory.appendingPathComponent("config.json")
+        do {
+            try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true, attributes: [.posixPermissions: 0o700])
+            try JSONEncoder().encode(settings).write(to: configuration, options: .atomic)
+            try FileManager.default.setAttributes([.posixPermissions: 0o600], ofItemAtPath: configuration.path)
+            execute("doctor", configurationURL: configuration, cleanupURL: directory)
+        } catch {
+            try? FileManager.default.removeItem(at: directory)
+            let message = "Could not check the engine: \(error.localizedDescription)"
+            engineCheckStatus = .failed(message)
+            self.error = message
+        }
+    }
+    private func chooseMediaTool(named name: String, currentPath: String, assign: (String) -> Void) {
+        guard !busy else { return }
+        let panel = NSOpenPanel()
+        panel.canChooseDirectories = false
+        panel.canChooseFiles = true
+        panel.allowsMultipleSelection = false
+        panel.prompt = "Choose \(name)"
+        panel.message = "Choose the \(name) executable. Leave this setting empty to use the copy bundled with VidiStudio."
+        if !currentPath.isEmpty {
+            let current = URL(fileURLWithPath: currentPath)
+            panel.directoryURL = current.deletingLastPathComponent()
+        } else if FileManager.default.fileExists(atPath: "/opt/homebrew/bin") {
+            panel.directoryURL = URL(fileURLWithPath: "/opt/homebrew/bin", isDirectory: true)
+        }
+        if panel.runModal() == .OK, let url = panel.url {
+            guard FileManager.default.isExecutableFile(atPath: url.path) else {
+                error = "Choose an executable \(name) file."
+                return
+            }
+            assign(url.standardizedFileURL.path)
+        }
+    }
     func attachVideo() {
         guard !busy else { return }
         let panel = NSOpenPanel(); panel.allowedContentTypes = [.movie, .video]
@@ -174,16 +274,78 @@ final class StudioModel {
             } catch { self.error = "Could not open this project: \(error.localizedDescription)" }
         }
     }
-    func execute(_ command: String, extra: [String] = [], project: StudioProject? = nil) {
+    func loadGeminiModels() {
         guard !busy else { return }
-        let target = project ?? (["import-video", "import-youtube", "doctor", "validate-config"].contains(command) ? nil : selected)
+        guard !settings.apiKey.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
+            error = "Enter your Gemini API key first."
+            return
+        }
+        let directory = FileManager.default.temporaryDirectory.appendingPathComponent("vidistudio-models-\(UUID().uuidString)")
+        let configuration = directory.appendingPathComponent("config.json")
+        do {
+            try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true, attributes: [.posixPermissions: 0o700])
+            try JSONEncoder().encode(settings).write(to: configuration, options: .atomic)
+            try FileManager.default.setAttributes([.posixPermissions: 0o600], ofItemAtPath: configuration.path)
+            availableGeminiModels = []
+            geminiModelsLoaded = false
+            execute("list-models", configurationURL: configuration, cleanupURL: directory)
+        } catch {
+            try? FileManager.default.removeItem(at: directory)
+            self.error = "Could not load available Gemini models: \(error.localizedDescription)"
+        }
+    }
+    func geminiModels(for stage: String) -> [GeminiModelOption] {
+        guard geminiModelsLoaded else {
+            return settings.models[stage].map { [GeminiModelOption(name: $0)] } ?? []
+        }
+        let specializedTerms = ["tts", "transcribe", "image", "embedding", "live", "computer-use", "robotics", "research"]
+        let general = availableGeminiModels.filter { option in
+            !specializedTerms.contains { option.name.localizedCaseInsensitiveContains($0) }
+        }
+        if stage == "tts_audio" {
+            return availableGeminiModels.filter { $0.name.localizedCaseInsensitiveContains("tts") }
+        }
+        if stage == "transcript" {
+            let transcription = availableGeminiModels.filter { $0.name.localizedCaseInsensitiveContains("transcribe") }
+            return transcription.isEmpty ? general : transcription
+        }
+        return general
+    }
+    private func chooseAvailableGeminiModels() {
+        let priorities: [String: [String]] = [
+            "transcript": ["gemini-3.5-transcribe"],
+            "tts_audio": ["gemini-3.1-flash-tts-preview", "gemini-2.5-flash-preview-tts"],
+        ]
+        for stage in ["transcript", "youtube_transcript", "summary", "audio_descriptions", "screen_text", "text_rewrite", "tts_audio"] {
+            let options = geminiModels(for: stage)
+            guard !options.isEmpty else { continue }
+            let current = settings.models[stage] ?? ""
+            guard !options.contains(where: { $0.name == current }) else { continue }
+            let preferred = priorities[stage]?.compactMap { name in options.first { $0.name == name } }.first
+                ?? options.first(where: { $0.name == "gemini-3.8-flash" })
+                ?? options.first(where: { $0.name == "gemini-3.5-flash" })
+                ?? options.first(where: { $0.name == "gemini-2.5-flash" })
+                ?? options.first
+            settings.models[stage] = preferred?.name
+        }
+    }
+    func execute(_ command: String, extra: [String] = [], project: StudioProject? = nil, configurationURL: URL? = nil, cleanupURL: URL? = nil) {
+        guard !busy else { return }
+        if command == "doctor" {
+            error = nil
+            engineCheckStatus = .checking
+        }
+        let target = project ?? (["import-video", "import-youtube", "doctor", "validate-config", "list-models"].contains(command) ? nil : selected)
         guard let engine = Bundle.main.resourceURL?.appendingPathComponent("Engine/vidistudio-engine"), FileManager.default.isExecutableFile(atPath: engine.path) else {
-            error = "The bundled engine is missing. Run script/build_and_run.sh to prepare the app."; return
+            let message = "The bundled engine is missing. Reinstall VidiStudio and try again."
+            if command == "doctor" { engineCheckStatus = .failed(message) }
+            error = message
+            return
         }
         busy = true; progress = 0; message = command.replacingOccurrences(of: "-", with: " ").capitalized
         let task = Process(); task.executableURL = engine
         task.arguments = [command] + (target?.folder.map { ["--project", $0.path] } ?? []) + extra
-        task.environment = ProcessInfo.processInfo.environment.merging(["VIDISTUDIO_CONFIG": StudioSettings.url.path]) { _, new in new }
+        task.environment = ProcessInfo.processInfo.environment.merging(["VIDISTUDIO_CONFIG": (configurationURL ?? StudioSettings.url).path]) { _, new in new }
         let output = Pipe(); task.standardOutput = output
         let stderr = Pipe(); task.standardError = stderr
         // Drain stderr independently so verbose native libraries cannot block the engine.
@@ -191,7 +353,10 @@ final class StudioModel {
         process = task
         do { try task.run() } catch {
             stderr.fileHandleForReading.readabilityHandler = nil
-            busy = false; process = nil; self.error = error.localizedDescription; return
+            if let cleanupURL { try? FileManager.default.removeItem(at: cleanupURL) }
+            let message = error.localizedDescription
+            if command == "doctor" { engineCheckStatus = .failed(message) }
+            busy = false; process = nil; self.error = message; return
         }
         Task {
             do {
@@ -199,8 +364,16 @@ final class StudioModel {
                     guard let data = line.data(using: .utf8), let event = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else { continue }
                     if let text = event["message"] as? String { message = text; logs.append(text); if logs.count > 200 { logs.removeFirst() } }
                     if let text = event["screenText"] as? String { screenText = text; screenTimestamp = event["timestamp"] as? Double ?? 0 }
+                    if let rawModels = event["models"] as? [[String: Any]] {
+                        availableGeminiModels = rawModels.compactMap(GeminiModelOption.init(dictionary:))
+                        geminiModelsLoaded = true
+                        chooseAvailableGeminiModels()
+                    }
                     if let value = event["progress"] as? Double { progress = value }
-                    if event["error"] as? Bool == true { self.error = message }
+                    if event["error"] as? Bool == true {
+                        self.error = message
+                        if command == "doctor" { engineCheckStatus = .failed(message) }
+                    }
                     if let path = event["project"] as? String {
                         reload()
                         if let p = projects.first(where: { $0.folder?.path == path }) { selectedID = p.id }
@@ -209,8 +382,14 @@ final class StudioModel {
             } catch { self.error = error.localizedDescription }
             task.waitUntilExit()
             stderr.fileHandleForReading.readabilityHandler = nil
+            if let cleanupURL { try? FileManager.default.removeItem(at: cleanupURL) }
             busy = false; process = nil; reload()
             if task.terminationStatus != 0 && self.error == nil { self.error = "Processing stopped. Your previously completed results are saved." }
+            if command == "doctor" {
+                engineCheckStatus = task.terminationStatus == 0
+                    ? .ready
+                    : .failed(self.error ?? "The engine is not configured correctly.")
+            }
         }
     }
     func saveCues(_ cues: [Segment]) {

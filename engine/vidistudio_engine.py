@@ -112,14 +112,42 @@ def thumbnails(root, p):
     p['thumbnails'] = paths
 
 
-def client_and_model(kind):
+def gemini_client():
     from google import genai
     cfg = config()
     if not cfg.get('apiKey'): raise ValueError('Add a Gemini API key in Settings first.')
+    return genai.Client(api_key=cfg['apiKey'], http_options={'timeout': 300000, 'api_version':cfg.get('apiVersion','v1beta')})
+
+
+def client_and_model(kind):
+    cfg = config()
     key = {'tts':'tts_audio','transcribe':'transcript','generate-summary':'summary','generate-ad-cues':'audio_descriptions'}.get(kind,kind)
     model = cfg['models'].get(key)
     if not model: raise ValueError('Choose a Gemini model in Settings first.')
-    return genai.Client(api_key=cfg['apiKey'], http_options={'timeout': 300000, 'api_version':cfg.get('apiVersion','v1beta')}), model
+    return gemini_client(), model
+
+
+def list_models():
+    client = gemini_client()
+    try:
+        available = []
+        for model in client.models.list():
+            name = str(getattr(model, 'name', '') or '').removeprefix('models/')
+            actions = [str(action) for action in (getattr(model, 'supported_actions', None) or [])]
+            normalized_actions = {action.replace('_', '').lower() for action in actions}
+            if not name.startswith('gemini-') or 'generatecontent' not in normalized_actions:
+                continue
+            available.append({
+                'name': name,
+                'displayName': str(getattr(model, 'display_name', '') or name),
+                'supportedActions': actions,
+            })
+        available.sort(key=lambda model: (model['displayName'].lower(), model['name']))
+        if not available:
+            raise ValueError('No compatible Gemini models are available for this API key.')
+        emit('Available Gemini models loaded', models=available)
+    finally:
+        client.close()
 
 
 def ai_video(root, p, stage):
@@ -200,13 +228,47 @@ def preview_tts(output, text):
     emit('Voice sample ready', audio=str(output))
 
 
+def speech_controls(cfg):
+    def bounded(name, default, low, high):
+        try: value = float(cfg.get(name, default))
+        except (TypeError, ValueError): value = default
+        return min(max(value, low), high)
+    return (
+        bounded('systemSpeechRate', 1.0, 0.5, 2.0),
+        bounded('systemSpeechPitch', 1.0, 0.5, 2.0),
+        bounded('systemSpeechVolume', 1.0, 0.0, 1.0),
+    )
+
+
+def narration_signature(cfg):
+    if cfg.get('ttsMode', 'system') == 'gemini':
+        return f"gemini|{cfg.get('geminiVoice', 'Kore')}|{cfg.get('models', {}).get('tts_audio', '')}"
+    rate, pitch, volume = speech_controls(cfg)
+    return f"system|{cfg.get('systemVoice', '')}|{rate:.3f}|{pitch:.3f}|{volume:.3f}"
+
+
+def finish_system_speech(raw, output, cfg):
+    _, pitch, volume = speech_controls(cfg)
+    stream = next((item for item in probe(raw).get('streams', []) if item.get('codec_type') == 'audio'), {})
+    sample_rate = int(stream.get('sample_rate') or 24000)
+    filters = []
+    if abs(pitch - 1.0) > .0001:
+        filters += [f'asetrate={sample_rate}*{pitch:.4f}', f'atempo={1.0 / pitch:.4f}', f'aresample={sample_rate}']
+    if abs(volume - 1.0) > .0001:
+        filters.append(f'volume={volume:.4f}')
+    args = [tool('ffmpeg'), '-y', '-v', 'error', '-i', raw]
+    if filters: args += ['-af', ','.join(filters)]
+    run([*args, output])
+
+
 def synthesize(root,p,segment=None,changed=False):
     cues = validate_cues(p['cues'],p['duration'],p['transcript'])
     if not cues: raise ValueError('Create audio description cues first.')
     cfg = config()
+    signature = narration_signature(cfg)
     for i,c in enumerate(cues):
         if segment and c['id']!=segment: continue
-        if changed and c.get('audioText')==c['text'] and c.get('audio') and local(root,c['audio']).exists(): continue
+        if changed and c.get('audioText')==c['text'] and c.get('audioSettings')==signature and c.get('audio') and local(root,c['audio']).exists(): continue
         emit(f'Synthesizing cue {i+1} of {len(cues)}', progress=i/len(cues))
         name = 'audio-description/' + str(uuid.uuid4()) + '.wav'
         output = root/name
@@ -217,14 +279,19 @@ def synthesize(root,p,segment=None,changed=False):
         elif sys.platform == 'darwin':
             raw = output.with_suffix('.aiff')
             args = ['/usr/bin/say', '-f', textfile, '-o', raw]
+            rate, _, _ = speech_controls(cfg)
+            args += ['-r', str(round(180 * rate))]
             if cfg.get('systemVoice'): args += ['-v', cfg['systemVoice']]
             run(args)
-            run([tool('ffmpeg'),'-y','-v','error','-i',raw,output]); raw.unlink()
+            finish_system_speech(raw, output, cfg); raw.unlink()
         elif os.name == 'nt':
-            script = "$ErrorActionPreference='Stop'; Add-Type -AssemblyName System.Speech; $s=New-Object System.Speech.Synthesis.SpeechSynthesizer; if ($env:VDS_VOICE) { $s.SelectVoice($env:VDS_VOICE) }; $s.SetOutputToWaveFile($env:VDS_OUT); $s.Speak([IO.File]::ReadAllText($env:VDS_TEXT)); $s.Dispose()"
-            env = os.environ | {'VDS_OUT':str(output),'VDS_TEXT':str(textfile),'VDS_VOICE':cfg.get('systemVoice','')}
+            raw = output.with_name(output.stem + '-raw.wav')
+            rate, _, volume = speech_controls(cfg)
+            script = "$ErrorActionPreference='Stop'; Add-Type -AssemblyName System.Speech; $s=New-Object System.Speech.Synthesis.SpeechSynthesizer; if ($env:VDS_VOICE) { $s.SelectVoice($env:VDS_VOICE) }; $s.Rate=[int]$env:VDS_RATE; $s.Volume=[int]$env:VDS_VOLUME; $s.SetOutputToWaveFile($env:VDS_OUT); $s.Speak([IO.File]::ReadAllText($env:VDS_TEXT)); $s.Dispose()"
+            env = os.environ | {'VDS_OUT':str(raw),'VDS_TEXT':str(textfile),'VDS_VOICE':cfg.get('systemVoice',''),'VDS_RATE':str(round((rate-1.0)*10)),'VDS_VOLUME':str(round(volume*100))}
             result = subprocess.run(['powershell','-NoProfile','-NonInteractive','-Command',script],env=env,capture_output=True,text=True)
             if result.returncode: raise ValueError('Windows system speech failed: '+result.stderr[-500:])
+            finish_system_speech(raw, output, cfg); raw.unlink()
         else: raise ValueError('System voices are supported on macOS and Windows.')
         actual = float(probe(output)['format'].get('duration', 0))
         if actual <= 0:
@@ -233,7 +300,7 @@ def synthesize(root,p,segment=None,changed=False):
         if actual > c['end']-c['start']:
             output.unlink(missing_ok=True)
             raise ValueError(f'Cue {i+1} takes {actual:.1f}s but has {c["end"]-c["start"]:.1f}s. Shorten its text or extend its gap.')
-        c['audio'] = name; c['audioText'] = c['text']; c['audioDuration'] = actual
+        c['audio'] = name; c['audioText'] = c['text']; c['audioDuration'] = actual; c['audioSettings'] = signature
         p['cues'] = cues; save(root,p)
     atomic_json(root/'audio-description/cues.json',cues)
 
@@ -241,13 +308,14 @@ def synthesize(root,p,segment=None,changed=False):
 def export(root,p,audio_only=False):
     cues = validate_cues(p['cues'],p['duration'],p['transcript'])
     if not cues: raise ValueError('Create and synthesize cues before exporting.')
+    signature = narration_signature(config())
     args = [tool('ffmpeg'),'-y','-v','error']
     if p.get('source'): args += ['-i',local(root,p['source'])]
     elif audio_only: args += ['-f','lavfi','-i','anullsrc=r=48000:cl=stereo']
     else: raise ValueError('Attach a local copy of this YouTube video to render a final video. Narration-only export is available now.')
     filters=[]; tracks=[]
     for i,c in enumerate(cues,1):
-        if not c.get('audio') or c.get('audioText') != c['text']: raise ValueError('Synthesize all changed cues before exporting.')
+        if not c.get('audio') or c.get('audioText') != c['text'] or c.get('audioSettings') != signature: raise ValueError('Synthesize all changed cues before exporting.')
         audio = local(root,c['audio'])
         if float(probe(audio)['format']['duration']) > c['end']-c['start']+.02: raise ValueError('Narration exceeds its cue. Adjust timing or regenerate.')
         args += ['-i',audio]
@@ -284,13 +352,15 @@ def project_lock(root):
 
 def main():
     parser=argparse.ArgumentParser(description=__doc__)
-    parser.add_argument('command',choices=['preview-tts','import-video','probe-video','generate-thumbnails','extract-audio','transcribe','generate-summary','generate-ad-cues','synthesize-tts','export-final-video','save-cues','doctor',*parity.COMMANDS])
+    parser.add_argument('command',choices=['list-models','preview-tts','import-video','probe-video','generate-thumbnails','extract-audio','transcribe','generate-summary','generate-ad-cues','synthesize-tts','export-final-video','save-cues','doctor',*parity.COMMANDS])
     parser.add_argument('--project',type=Path); parser.add_argument('--video',type=Path); parser.add_argument('--library',type=Path); parser.add_argument('--input',type=Path)
     parser.add_argument('--content',choices=['transcript','descriptions','combined'],default='descriptions'); parser.add_argument('--url'); parser.add_argument('--name'); parser.add_argument('--timestamp',type=float,default=0); parser.add_argument('--duration',type=float); parser.add_argument('--segment'); parser.add_argument('--format',choices=['srt','vtt','txt','json'],default='srt'); parser.add_argument('--changed',action='store_true'); parser.add_argument('--start-stage',default='transcribe')
     parser.add_argument('--output', type=Path); parser.add_argument('--text')
     args=parser.parse_args()
     if args.command == 'preview-tts':
         preview_tts(args.output, args.text); return
+    if args.command == 'list-models':
+        list_models(); return
     core=SimpleNamespace(**globals())
     if args.command in ('import-youtube','validate-config'):
         parity.execute(args,None,None,core);return

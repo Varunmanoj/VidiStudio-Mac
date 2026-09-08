@@ -1,5 +1,6 @@
 import SwiftUI
 import AppKit
+import AVFoundation
 
 struct SystemVoice: Identifiable, Sendable {
     var name: String
@@ -11,7 +12,7 @@ struct SystemVoice: Identifiable, Sendable {
 @MainActor @Observable final class SystemVoiceCatalog {
     var voices: [SystemVoice] = []
     var error: String?
-    private var sampleProcess: Process?
+    @ObservationIgnored private let sampleSynthesizer = AVSpeechSynthesizer()
     func refresh() async {
         let result = await Task.detached { () -> [SystemVoice] in
             let process = Process(), pipe = Pipe()
@@ -35,18 +36,33 @@ struct SystemVoice: Identifiable, Sendable {
         voices = result
         error = result.isEmpty ? "No system voices were available. Install a voice in macOS Accessibility settings, then refresh." : nil
     }
-    func preview(_ voice: SystemVoice) {
+    func preview(_ voice: SystemVoice, settings: StudioSettings) {
         stop()
-        let process = Process()
-        process.executableURL = URL(fileURLWithPath: "/usr/bin/say")
-        process.arguments = (voice.name.isEmpty ? [] : ["-v", voice.name]) + ["--", voice.sample]
-        do { try process.run(); sampleProcess = process } catch { self.error = error.localizedDescription }
+        sampleSynthesizer.speak(SystemSpeechUtterance.make(text: voice.sample, settings: settings, voiceName: voice.name))
     }
-    func stop() { if sampleProcess?.isRunning == true { sampleProcess?.terminate() }; sampleProcess = nil }
+    func stop() { sampleSynthesizer.stopSpeaking(at: .immediate) }
+}
+
+enum SystemSpeechUtterance {
+    static func make(text: String, settings: StudioSettings, voiceName: String? = nil) -> AVSpeechUtterance {
+        let utterance = AVSpeechUtterance(string: text)
+        let scaledRate = AVSpeechUtteranceDefaultSpeechRate * Float(settings.systemSpeechRate)
+        utterance.rate = min(max(scaledRate, AVSpeechUtteranceMinimumSpeechRate), AVSpeechUtteranceMaximumSpeechRate)
+        utterance.pitchMultiplier = Float(min(max(settings.systemSpeechPitch, 0.5), 2.0))
+        utterance.volume = Float(min(max(settings.systemSpeechVolume, 0), 1.0))
+        let requested = (voiceName ?? settings.systemVoice).trimmingCharacters(in: .whitespacesAndNewlines)
+        if !requested.isEmpty {
+            let baseName = requested.replacingOccurrences(of: " (Enhanced)", with: "")
+            utterance.voice = AVSpeechSynthesisVoice.speechVoices().first {
+                $0.identifier == requested || $0.name == requested || $0.name == baseName
+            }
+        }
+        return utterance
+    }
 }
 
 struct SystemVoiceBrowser: View {
-    @Binding var selectedVoice: String
+    @Binding var settings: StudioSettings
     @State private var catalog = SystemVoiceCatalog()
     @State private var language = "all"
     @State private var search = ""
@@ -58,23 +74,23 @@ struct SystemVoiceBrowser: View {
                     Text(Locale.current.localizedString(forIdentifier: code) ?? code).tag(code)
                 }
             }
-            TextField("Search voices", text: $search).textFieldStyle(.roundedBorder)
+            voiceSearchField
             HStack {
-                Button("Use system default voice") { selectedVoice = "" }
+                Button("Use system default voice") { settings.systemVoice = "" }
                 Button("Play Selected Voice", systemImage: "play.circle") {
-                    catalog.preview(catalog.voices.first { $0.name == selectedVoice } ?? SystemVoice(name: selectedVoice, language: "", sample: "This is a sample of audio description narration in VidiStudio."))
+                    catalog.preview(catalog.voices.first { $0.name == settings.systemVoice } ?? SystemVoice(name: settings.systemVoice, language: "", sample: "This is a sample of audio description narration in VidiStudio."), settings: settings)
                 }
             }
-            Text("Selected: \(selectedVoice.isEmpty ? "System default" : selectedVoice)").font(.callout)
+            Text("Selected: \(settings.systemVoice.isEmpty ? "System default" : settings.systemVoice)").font(.callout)
             ScrollView {
                 LazyVStack(alignment: .leading, spacing: 12) {
                     ForEach(catalog.voices.filter { (language == "all" || $0.language == language) && (search.isEmpty || $0.name.localizedStandardContains(search) || $0.languageName.localizedStandardContains(search)) }) { voice in
                         HStack {
-                            Button { selectedVoice = voice.name } label: {
-                                HStack { Image(systemName: selectedVoice == voice.name ? "checkmark.circle.fill" : "circle"); VStack(alignment: .leading) { Text(voice.name); Text(voice.languageName).font(.caption).foregroundStyle(.secondary) } }
-                            }.buttonStyle(.plain).accessibilityLabel("Select \(voice.name), \(voice.languageName)").accessibilityAddTraits(selectedVoice == voice.name ? .isSelected : [])
+                            Button { settings.systemVoice = voice.name } label: {
+                                HStack { Image(systemName: settings.systemVoice == voice.name ? "checkmark.circle.fill" : "circle"); VStack(alignment: .leading) { Text(voice.name); Text(voice.languageName).font(.caption).foregroundStyle(.secondary) } }
+                            }.buttonStyle(.plain).accessibilityLabel("Select \(voice.name), \(voice.languageName)").accessibilityAddTraits(settings.systemVoice == voice.name ? .isSelected : [])
                             Spacer()
-                            Button("Speak Sample", systemImage: "play.circle") { catalog.preview(voice) }.labelStyle(.iconOnly).accessibilityLabel("Speak sample of \(voice.name), \(voice.languageName)")
+                            Button("Speak Sample", systemImage: "play.circle") { catalog.preview(voice, settings: settings) }.labelStyle(.iconOnly).accessibilityLabel("Speak sample of \(voice.name), \(voice.languageName)")
                         }
                         Divider()
                     }
@@ -90,5 +106,32 @@ struct SystemVoiceBrowser: View {
             Text("Lists voices available to macOS speech on this Mac. Download additional languages and enhanced voices in System Settings → Accessibility → Read & Speak, then refresh.").font(.caption).foregroundStyle(.secondary)
             if let error = catalog.error { Text(error).foregroundStyle(.red) }
         }.task { await catalog.refresh() }.onDisappear { catalog.stop() }
+    }
+
+    private var voiceSearchField: some View {
+        HStack(spacing: 8) {
+            Image(systemName: "magnifyingglass")
+                .foregroundStyle(.secondary)
+                .accessibilityHidden(true)
+            TextField("Search voices", text: $search, prompt: Text("Search by voice or language"))
+                .textFieldStyle(.plain)
+                .accessibilityLabel("Search voices")
+                .accessibilityHint("Filters the available voices by voice name or language")
+                .onExitCommand { search = "" }
+            if !search.isEmpty {
+                Button("Clear voice search", systemImage: "xmark.circle.fill") { search = "" }
+                    .buttonStyle(.plain)
+                    .labelStyle(.iconOnly)
+                    .foregroundStyle(.secondary)
+                    .accessibilityHint("Shows all available voices")
+            }
+        }
+        .padding(.horizontal, 10)
+        .frame(height: 30)
+        .background(.quaternary, in: RoundedRectangle(cornerRadius: 8, style: .continuous))
+        .overlay {
+            RoundedRectangle(cornerRadius: 8, style: .continuous)
+                .stroke(.separator.opacity(0.65), lineWidth: 0.5)
+        }
     }
 }

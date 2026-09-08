@@ -1,10 +1,14 @@
 import SwiftUI
+import AppKit
 
 @main
 struct VidiStudioApp: App {
     @State private var studio = StudioModel()
+    init() {
+        NSWindow.allowsAutomaticWindowTabbing = false
+    }
     var body: some Scene {
-        WindowGroup {
+        Window("VidiStudio", id: "studio") {
             ContentView(studio: studio)
                 .frame(minWidth: 760, minHeight: 560)
         }
