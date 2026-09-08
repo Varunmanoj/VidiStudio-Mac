@@ -85,3 +85,7 @@ Settings → Narration shows samples for the selected speech engine. Apple voice
 ### Preview workspace
 
 Use Show/Hide Preview in the editor or Command+Shift+V to collapse the video and timeline while keeping the player loaded. Full-Screen Video (Command+Option+F) presents the video separately from the editor; Escape restores it. Both controls are also in the Playback menu and keyboard reference.
+
+### Fixed project list and inspector
+
+The project list (252 points) and inspector (272 points) have fixed widths and no resize handles. Their toolbar buttons show or hide them independently; the center editor takes the remaining width. Long project names wrap. Right-click a project for Open in Project Folder, Rename, and Delete; Delete moves the folder to macOS Trash. The center preview/editor divider remains adjustable.

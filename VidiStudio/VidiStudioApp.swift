@@ -6,7 +6,7 @@ struct VidiStudioApp: App {
     var body: some Scene {
         WindowGroup {
             ContentView(studio: studio)
-                .frame(minWidth: 1000, minHeight: 680)
+                .frame(minWidth: 760, minHeight: 560)
         }
         .defaultSize(width: 1200, height: 780)
         .windowToolbarStyle(.unifiedCompact)

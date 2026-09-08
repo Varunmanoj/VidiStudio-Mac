@@ -5,37 +5,45 @@ import AVFoundation
 struct ContentView: View {
     @Bindable var studio: StudioModel
     @State private var showInspector = true
+    @State private var showProjects = true
     @State private var importYouTube = false
     @State private var youtubeURL = ""
     @State private var search = ""
     @State private var rename = ""
     @State private var renaming = false
     var body: some View {
-        NavigationSplitView {
+        GeometryReader { geometry in
+        HStack(spacing: 0) {
+        if showProjects {
+          VStack(spacing: 0) {
+            TextField("Search projects", text: $search).textFieldStyle(.roundedBorder).padding(12)
             List(selection: $studio.selectedID) {
                 Section("Local Projects") {
                     ForEach(studio.projects.filter { search.isEmpty || $0.name.localizedStandardContains(search) }) { p in
-                        Label {
+                        HStack(alignment: .top, spacing: 8) {
+                            MaterialIcon(glyph: "\u{e02c}").accessibilityHidden(true)
                             VStack(alignment: .leading, spacing: 5) {
-                                Text(p.name).lineLimit(1)
+                                Text(p.name).lineLimit(nil).fixedSize(horizontal: false, vertical: true).frame(width: 178, alignment: .leading)
                                 Text("\(timecode(p.duration)) · \(p.cues.count) descriptions").font(.caption).foregroundStyle(.secondary)
                             }.padding(.vertical, 5)
-                        } icon: { MaterialIcon(glyph: "\u{e02c}") }.tag(p.id)
+                        }.tag(p.id)
                         .contextMenu {
                             Button("Rename") { studio.selectedID = p.id; rename = p.name; renaming = true }
-                            Button("Move Project to Trash", role: .destructive) { studio.trashProject(p) }
+                            Button("Open in Project Folder", systemImage: "folder") { if let folder = p.folder { NSWorkspace.shared.open(folder) } }
+                            Button("Delete", role: .destructive) { studio.trashProject(p) }.help("Move this project to the Mac Trash").disabled(studio.busy)
                         }
                     }
                 }
             }
-            .searchable(text: $search, placement: .sidebar, prompt: "Search projects")
-            .navigationTitle("VidiStudio")
-            .navigationSplitViewColumnWidth(min: 200, ideal: 240, max: 300)
+            .listStyle(.sidebar)
             .safeAreaInset(edge: .bottom) {
                 HStack { Label("On this Mac", systemImage: "internaldrive"); Spacer(); SettingsLink { Image(systemName: "gearshape") }.help("Settings").accessibilityLabel("Settings") }
                     .font(.caption).foregroundStyle(.secondary).padding()
             }
-        } detail: {
+          }.frame(width: 252).frame(maxHeight: .infinity).background(.bar)
+          Divider()
+        }
+        Group {
             if let p = studio.selected {
                 ProjectEditor(shortcutsBlocked: renaming || importYouTube || studio.error != nil, studio: studio, project: p).id(p.id)
             } else {
@@ -48,8 +56,13 @@ struct ContentView: View {
                     Button("Open Project Folder…") { studio.openProject() }
                 }
             }
+        }.frame(width: max(0, geometry.size.width - (showProjects ? 253 : 0) - (showInspector ? 273 : 0)), height: geometry.size.height).clipped()
+        if showInspector {
+            Divider()
+            ProcessingInspector(studio: studio).frame(width: 272, height: geometry.size.height).background(.bar)
         }
-        .navigationSplitViewStyle(.balanced)
+        }.frame(width: geometry.size.width, height: geometry.size.height, alignment: .leading)
+        }
         .background(WindowFitter().frame(width: 0, height: 0))
         .preferredColorScheme(studio.settings.theme == "dark" ? .dark : studio.settings.theme == "light" ? .light : nil)
         .sheet(isPresented: $renaming) {
@@ -73,8 +86,8 @@ struct ContentView: View {
                 }
             }.padding(24).frame(width: 520)
         }
-        .inspector(isPresented: $showInspector) { ProcessingInspector(studio: studio).inspectorColumnWidth(min: 240, ideal: 270, max: 350) }
         .toolbar {
+            ToolbarItem(placement: .navigation) { Button(showProjects ? "Hide Project List" : "Show Project List", systemImage: "sidebar.left") { showProjects.toggle() } }
             ToolbarItem(placement: .primaryAction) { Button("Import Video", systemImage: "plus") { studio.importVideo() }.disabled(studio.busy) }
             ToolbarItem(placement: .primaryAction) { Button("YouTube Project", systemImage: "link") { importYouTube = true }.disabled(studio.busy) }
             ToolbarItem(placement: .primaryAction) { Button("Open Project", systemImage: "folder") { studio.openProject() }.disabled(studio.busy) }
@@ -163,11 +176,11 @@ struct ProjectEditor: View {
                 Group {
                     if let url = project.youtubeURL, project.source.isEmpty { YouTubePlayer(url: url, playback: playback) }
                     else { NativeVideoPlayer(player: playback.player, playback: playback) }
-                }.frame(minWidth: 0, idealWidth: 700, maxWidth: .infinity, minHeight: previewHidden ? 0 : 220, idealHeight: previewHidden ? 0 : 340, maxHeight: previewHidden ? 0 : .infinity).background(.black)
+                }.frame(minWidth: 0, idealWidth: 700, maxWidth: .infinity, minHeight: previewHidden ? 0 : 120, idealHeight: previewHidden ? 0 : 340, maxHeight: previewHidden ? 0 : .infinity).background(.black)
                 TimelineView(project: project, playback: playback).frame(height: previewHidden ? 0 : nil).clipped()
-            }.frame(minHeight: previewHidden ? 0 : 310, maxHeight: previewHidden ? 0 : .infinity).clipped().accessibilityHidden(previewHidden).allowsHitTesting(!previewHidden)
+            }.frame(minHeight: previewHidden ? 0 : 220, maxHeight: previewHidden ? 0 : .infinity).clipped().accessibilityHidden(previewHidden).allowsHitTesting(!previewHidden)
             VStack(spacing: 0) {
-                HStack {
+                ScrollView(.horizontal) { HStack {
                     Picker("Editor section", selection: $tab) {
                         Text("Descriptions").tag("descriptions"); Text("Transcript").tag("transcript"); Text("Summary").tag("summary"); Text("AD Transcript").tag("ad-transcript"); Text("AD Overview").tag("ad-overview")
                     }.pickerStyle(.menu).labelsHidden().frame(maxWidth: 200)
@@ -188,7 +201,7 @@ struct ProjectEditor: View {
                             cueToEdit = Segment(id: UUID().uuidString, start: start, end: min(start+3,project.duration), text: "")
                         }.disabled(studio.busy)
                     }
-                }.controlSize(.small).padding(12)
+                }.controlSize(.small).padding(12) }.fixedSize(horizontal: false, vertical: true)
                 if let error = playback.speechError { Text(error).foregroundStyle(.red).padding(8) }
                 Divider()
                 if tab == "ad-overview" {
@@ -227,7 +240,7 @@ struct ProjectEditor: View {
                         }
                     }
                 }
-            }.frame(minHeight: 220)
+            }.frame(minHeight: 180)
         }
         .focusedSceneValue(\.editorShortcuts, shortcutsBlocked || studio.busy || cueToEdit != nil || studio.screenText != nil ? nil : EditorShortcutActions(run: { action in
             switch action {

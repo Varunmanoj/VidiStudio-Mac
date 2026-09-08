@@ -74,3 +74,7 @@ Desktop import uses the oEmbed display title and a generic offline placeholder w
 ### Collapsible and full-screen preview — 2026-09-08
 
 Added Show/Hide Preview and Full-Screen Video controls, Playback menu commands and shortcut documentation. Hidden preview remains loaded and is excluded from accessibility navigation. Fullscreen uses an isolated native container and prevents editor layout from resizing its video surface; Escape restores the original parent and frame. Native YouTube UI verified: collapse expands editor, full-screen fills the display, and Escape restores the embedded player. Local AVKit uses the same presentation mechanism.
+
+### Fixed side panels — 2026-09-08
+
+Replaced the resizable NavigationSplitView/inspector with fixed-width project and inspector panels around a geometry-constrained editor. Removed horizontal panel splitters and added independent show/hide toolbar controls. Long project names wrap in explicit multiline rows. Added Open in Project Folder and Delete context actions; deletion uses existing macOS Trash implementation and is disabled during processing. Reduced minimum window size and allowed central tools to scroll on narrow layouts without pushing panels outside the window. Native screenshots confirmed full side panels and the full project name; accessibility inspection confirmed no side resize handles and both show/hide transitions.
