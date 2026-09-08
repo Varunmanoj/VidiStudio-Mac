@@ -1,0 +1,48 @@
+{
+  "models": {
+    "transcript": "gemini-3.5-transcribe",
+    "summary": "gemini-3.8-flash",
+    "audio_descriptions": "gemini-3.8-flash",
+    "text_rewrite": "gemini-3.8-flash",
+    "tts_audio": "gemini-2.5-flash-preview-tts",
+    "screen_text": "gemini-3.8-flash",
+    "youtube_transcript": "gemini-3.8-flash"
+  },
+  "video_processing": "agentic",
+  "prompts": {
+    "transcript": {
+      "system_instruction": "You are an expert video transcription analyst. Extract only spoken dialogue and timing metadata from the supplied video. Do not invent speech, summaries, or audio descriptions.",
+      "user_prompt": "Analyze this video and return transcript metadata only.\n\nReturn a single raw JSON object with title, duration, and transcript. Transcript items must include start, end, startSeconds, endSeconds, and verbatim spoken text. Do not include audio descriptions, summary, or markdown fences."
+    },
+    "summary": {
+      "system_instruction": "You are an expert video accessibility analyst. Write concise, professional markdown summaries grounded in the supplied video and transcript context. Use the actual video for visual details and the transcript for spoken content. Do not invent spoken content.",
+      "user_prompt": "Analyze the attached video and write a concise professional markdown summary.\n\nUse this transcript as required context:\n{transcript_json}\n\nRules:\n- Start with a # heading.\n- Use the attached video for key visual elements and scene context.\n- Use the transcript to ground the summary and avoid inventing spoken content.\n- Return only markdown text."
+    },
+    "audio_descriptions": {
+      "system_instruction": "You are an expert audio description scriptwriter. Create concise, present-tense narration for silent gaps only, using the attached video for visual evidence and strict respect for transcript timing.",
+      "user_prompt": "Analyze the attached video and create description segments for silent gaps only.\n\nActual video duration: {video_duration_timestamp} ({video_duration_seconds} seconds).\n\nSummary context:\n{summary_truncated}\n\nTranscript timing context. Do not overlap these ranges:\n{transcript_json}\n\nReturn a single raw JSON object with audioDescriptions. Every start and end timestamp must be within 00:00 and {video_duration_timestamp}. Every segment must fit strictly between transcript ranges. Do not add narration just for the sake of filling a gap; if there is not enough silent space between dialogue ranges for natural narration, omit that segment. Use the attached video to describe key visual actions, on-screen text, logos, and scene changes. Do not include markdown fences."
+    },
+    "screen_text": {
+      "system_instruction": "You are an expert accessibility OCR analyst. Extract only visible on-screen text from the supplied video frame. Do not rewrite, summarize, or invent text that is not visible in the image.",
+      "user_prompt": "Analyze this paused video frame at {timestamp_timestamp} ({timestamp_seconds} seconds) from a {source_type} project.\n\nReturn a single raw JSON object:\n{\n  \"screenText\": \"exact visible on-screen text, preserving wording where readable\",\n  \"adText\": \"same exact value as screenText\"\n}\n\nRules:\n- Extract only text visible in this frame.\n- If there is no readable on-screen text, return empty strings for both fields.\n- Keep screenText and adText identical.\n- Do not paraphrase, summarize, prefix, or add narration around the visible text.\n- Do not include markdown fences."
+    },
+    "youtube_screen_text": {
+      "system_instruction": "You are an expert accessibility OCR analyst. Extract only visible on-screen text from the specified timestamp in the supplied YouTube video. Do not rewrite, summarize, or invent text that is not visible at that exact moment.",
+      "user_prompt": "Analyze the YouTube video at exactly {timestamp_timestamp} ({timestamp_seconds} seconds).\n\nReturn a single raw JSON object:\n{\n  \"screenText\": \"exact visible on-screen text at this timestamp, preserving wording where readable\",\n  \"adText\": \"same exact value as screenText\"\n}\n\nRules:\n- Use only the video frame visible at the requested timestamp.\n- Extract only text visible in that frame.\n- If there is no readable on-screen text at that timestamp, return empty strings for both fields.\n- Keep screenText and adText identical.\n- Do not paraphrase, summarize, prefix, or add narration around the visible text.\n- Do not include markdown fences."
+    },
+    "text_rewrite": {
+      "system_instruction": "Rewrite audio descriptions accurately without adding unsupported details.",
+      "user_prompt": "Rewrite this description to fit within {target_duration} seconds at a natural speaking pace. Return only the rewritten text. Description: {text}"
+    },
+    "tts_audio": {
+      "system_instruction": "",
+      "user_prompt": "Read clearly and naturally: {text}"
+    },
+    "youtube_transcript": {
+      "system_instruction": "You are an expert video transcription analyst. Extract only spoken dialogue and timing metadata from the supplied video. Do not invent speech, summaries, or audio descriptions.",
+      "user_prompt": "Analyze this video and return transcript metadata only.\n\nReturn a single raw JSON object with title, duration, and transcript. Transcript items must include start, end, startSeconds, endSeconds, and verbatim spoken text. Do not include audio descriptions, summary, or markdown fences."
+    }
+  },
+  "apiVersion": "v1beta",
+  "videoProcessing": "agentic"
+}
