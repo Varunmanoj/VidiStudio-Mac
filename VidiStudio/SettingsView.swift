@@ -45,9 +45,9 @@ struct SettingsView: View {
                 }
                 Text("Play synthesized narration to hear the saved audio used for timing and exports. Apple Speech previews segment text immediately without creating audio files; seeking or resuming restarts the active segment.").font(.caption).foregroundStyle(.secondary)
                 Toggle("Sound when narration is off", isOn: $studio.settings.soundWhenNarrationOff)
-                Text("Play Boink3 once when entering an AD segment while Narration is off.").font(.caption).foregroundStyle(.secondary)
+                Text("Play a player sound once when entering an AD segment while Narration is off.").font(.caption).foregroundStyle(.secondary)
                 Toggle("Sound when synthesized audio is unavailable", isOn: $studio.settings.soundWhenNarrationMissing)
-                Text("Play ascend when Narration is on and synthesized playback is selected, but the segment's saved audio is missing or outdated. No extra sound accompanies live Apple Speech. Turn both options off for no AD indication sounds.").font(.caption).foregroundStyle(.secondary)
+                Text("Play a player sound when Narration is on and synthesized playback is selected, but the segment's saved audio is missing or outdated. No extra sound accompanies live Apple Speech. Turn both options off for no AD indication sounds.").font(.caption).foregroundStyle(.secondary)
                 if studio.settings.ttsMode == "gemini" {
                     GeminiVoiceBrowser(studio: studio)
                 }

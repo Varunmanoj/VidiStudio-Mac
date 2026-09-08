@@ -655,9 +655,9 @@ struct ProjectEditor: View {
         }
     }
 
-    var body: some View {
-        editorLayout
-        .focusedSceneValue(\.editorShortcuts, shortcutsBlocked || studio.busy || cueToEdit != nil || studio.screenText != nil ? nil : EditorShortcutActions(run: { action in
+    private var editorShortcutActions: EditorShortcutActions? {
+        guard !shortcutsBlocked, !studio.busy, cueToEdit == nil, studio.screenText == nil else { return nil }
+        return EditorShortcutActions(run: { action in
             switch action {
             case "preview": playback.exitVideoFullScreen(); previewHidden.toggle()
             case "fullscreen":
@@ -676,7 +676,12 @@ struct ProjectEditor: View {
             case "analyze", "transcribe", "generate-summary", "generate-ad-cues", "regenerate-all": studio.execute(action)
             default: break
             }
-        }, previewHidden: previewHidden))
+        }, previewHidden: previewHidden)
+    }
+
+    private var editorWithProjectUpdates: some View {
+        editorLayout
+        .focusedSceneValue(\.editorShortcuts, editorShortcutActions)
         .navigationTitle(project.name)
         .onChange(of: studio.busy) { _, busy in handleBusyChange(busy) }
         .onChange(of: studio.screenText) { _, text in handleScreenText(text) }
@@ -684,16 +689,28 @@ struct ProjectEditor: View {
         .onChange(of: playback.duration) { _, duration in
             if !studio.busy, duration > 0, abs(duration - project.duration) > 0.5 { studio.execute("update-metadata", extra: ["--duration", String(duration)]) }
         }
+    }
+
+    private var editorWithPlaybackUpdates: some View {
+        editorWithProjectUpdates
         .onChange(of: playback.time) { _, _ in playback.syncNarration(project, settings: studio.settings) }
         .onChange(of: playback.playing) { _, _ in playback.syncNarration(project, settings: studio.settings) }
         .onChange(of: studio.settings.narrationPlayback) { _, _ in playback.syncNarration(project, settings: studio.settings) }
         .onChange(of: studio.settings.soundWhenNarrationOff) { _, _ in playback.syncNarration(project, settings: studio.settings) }
         .onChange(of: studio.settings.soundWhenNarrationMissing) { _, _ in playback.syncNarration(project, settings: studio.settings) }
+        .onChange(of: playback.narrationEnabled) { _, _ in playback.syncNarration(project, settings: studio.settings) }
+    }
+
+    private var editorWithVoiceUpdates: some View {
+        editorWithPlaybackUpdates
         .onChange(of: studio.settings.systemVoice) { _, _ in playback.syncNarration(project, settings: studio.settings) }
         .onChange(of: studio.settings.systemSpeechRate) { _, _ in playback.syncNarration(project, settings: studio.settings) }
         .onChange(of: studio.settings.systemSpeechPitch) { _, _ in playback.syncNarration(project, settings: studio.settings) }
         .onChange(of: studio.settings.systemSpeechVolume) { _, _ in playback.syncNarration(project, settings: studio.settings) }
-        .onChange(of: playback.narrationEnabled) { _, _ in playback.syncNarration(project, settings: studio.settings) }
+    }
+
+    var body: some View {
+        editorWithVoiceUpdates
         .onAppear(perform: preparePlayback)
         .onDisappear { playback.stop(); audioPreview?.stop() }
         .sheet(isPresented: screenTextPresented) { screenTextReview }

@@ -332,3 +332,19 @@ Bundled the two user-supplied WAV files in VidiStudio/Sounds. Narration settings
 AD Overview's Voice and Narration Settings action now sets shared settings navigation to Narration before opening the native Settings scene, including when the settings window already exists. Native controls and explicit shared section selection follow the macOS SwiftUI settings guidance.
 
 Code and asset changes only. No tests, builds, app launches, or listening checks were run, as requested.
+
+### Generic player sound wording — 2026-09-08
+
+Replaced the two indication sound names in Narration settings descriptions with "player sound". Sound assets, distinct conditions, and speech voice selection remain unchanged. No tests or builds run.
+
+### Duck video for AD player sounds — 2026-09-08
+
+Both short AD indication sounds now request the same relative soundtrack ducking as narration: the native or web video volume falls to 20% of the user's current level only while the indication is playing, then returns to the prior level. Separate narration and indication duck requests prevent one audio path from prematurely restoring the soundtrack while the other remains active. Stopping playback, leaving the segment, or disabling the applicable sound restores the video volume.
+
+Validated with `./script/build_and_run.sh --verify`: the Debug app compiled, signed, launched, and passed process verification. The only build diagnostic was the expected App Intents metadata skip because the target does not link AppIntents. Both PCM WAV resources were present in the built app. Exercised the current saved project at its 05:00 AD segment with Narration off; playback entered the cue without a crash. Accessibility automation cannot capture or quantify physical speaker output, so the perceived loudness balance remains a manual listening check.
+
+### Address Xcode editor type-check and playback capture diagnostics — 2026-09-08
+
+Split ProjectEditor's long body modifier chain into opaque view expressions for project, playback, and voice updates, and extracted the focused shortcut action construction into a separately typed property. This reduces the expression complexity reported by Xcode while preserving the handlers. Nested main-actor tasks in the periodic time observer, frame-time capture, and seek completion now explicitly capture weak self rather than referencing the enclosing callback's captured variable, addressing the reported Swift concurrency warnings.
+
+Source changes only; no builds, tests, or launches were run under the user's manual-testing preference. Compiler success remains unverified pending the next Xcode build.

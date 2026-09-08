@@ -74,6 +74,7 @@ final class PlaybackModel {
         guard let cue = project.cues.first(where: { time >= $0.start && time < $0.end }) else {
             indicatedSegment = nil
             indicationSound?.stop()
+            setIndicationDucking(false)
             return
         }
         let sound: String?
@@ -86,18 +87,22 @@ final class PlaybackModel {
         } else {
             sound = nil
         }
-        guard playing else { indicationSound?.stop(); return }
+        guard playing else { indicationSound?.stop(); setIndicationDucking(false); return }
         // Track entries even when disabled, so toggling a setting mid-segment
         // does not produce a delayed cue or repeat a cue on pause/resume.
         let entering = indicatedSegment != cue.id
         indicatedSegment = cue.id
-        guard let sound else { indicationSound?.stop(); return }
-        guard entering else { return }
+        guard let sound else { indicationSound?.stop(); setIndicationDucking(false); return }
+        guard entering else {
+            setIndicationDucking(indicationSound?.isPlaying == true)
+            return
+        }
         indicationSound?.stop()
-        guard let url = Bundle.main.url(forResource: sound, withExtension: "wav") else { return }
+        guard let url = Bundle.main.url(forResource: sound, withExtension: "wav") else { setIndicationDucking(false); return }
         indicationSound = try? AVAudioPlayer(contentsOf: url)
         indicationSound?.volume = 1
         indicationSound?.play()
+        setIndicationDucking(indicationSound?.isPlaying == true)
     }
     private let deviceSpeech = AVSpeechSynthesizer()
     private var deviceCue: String?
@@ -105,9 +110,13 @@ final class PlaybackModel {
     private var unduckedVolume: Float?
     private var appliedDuckedVolume: Float?
     private var webVolumeDucked = false
+    private var narrationDuckingRequested = false
+    private var indicationDuckingRequested = false
 
-    // Attenuate the soundtrack relative to the user's volume, never the AD voice.
-    private func setNarrationDucking(_ active: Bool) {
+    // Attenuate the soundtrack relative to the user's volume, never narration
+    // or the short AD indication sounds.
+    private func applyDucking() {
+        let active = narrationDuckingRequested || indicationDuckingRequested
         if let webView {
             if active != webVolumeDucked {
                 webVolumeDucked = active
@@ -129,8 +138,19 @@ final class PlaybackModel {
         }
     }
 
+    private func setNarrationDucking(_ active: Bool) {
+        narrationDuckingRequested = active
+        applyDucking()
+    }
+
+    private func setIndicationDucking(_ active: Bool) {
+        indicationDuckingRequested = active
+        applyDucking()
+    }
+
     private func stopNarration() {
         indicationSound?.stop()
+        setIndicationDucking(false)
         stopDeviceSpeech()
         narration?.stop(); narrationID = nil
         setNarrationDucking(false)
@@ -143,7 +163,11 @@ final class PlaybackModel {
     func observe() {
         guard observer == nil else { return }
         observer = player.addPeriodicTimeObserver(forInterval: CMTime(seconds: 0.15, preferredTimescale: 600), queue: .main) { [weak self] time in
-            Task { @MainActor in if time.seconds.isFinite, self?.webView == nil { self?.time = time.seconds; self?.playing = self?.player.timeControlStatus == .playing } }
+            Task { @MainActor [weak self] in
+                guard let self, time.seconds.isFinite, self.webView == nil else { return }
+                self.time = time.seconds
+                self.playing = self.player.timeControlStatus == .playing
+            }
         }
     }
     func syncNarration(_ project: StudioProject, settings: StudioSettings) {
@@ -203,7 +227,7 @@ final class PlaybackModel {
         playing = false
         if let webView {
             webView.evaluateJavaScript("player ? (player.pauseVideo(), player.getCurrentTime()) : null") { [weak self] result, _ in
-                Task { @MainActor in
+                Task { @MainActor [weak self] in
                     guard let self else { return }
                     let captured = (result as? NSNumber)?.doubleValue ?? self.time
                     if captured.isFinite { self.time = max(0, captured) }
@@ -226,7 +250,7 @@ final class PlaybackModel {
             webView.evaluateJavaScript("player && (player.seekTo(\(time), true), player.playVideo())", completionHandler: nil)
         } else {
             player.seek(to: CMTime(seconds: time, preferredTimescale: 600), toleranceBefore: .zero, toleranceAfter: .zero) { [weak self] finished in
-                Task { @MainActor in
+                Task { @MainActor [weak self] in
                     guard finished, let self else { return }
                     self.player.play()
                 }
