@@ -166,8 +166,8 @@ struct ProjectEditor: View {
             VStack(spacing: 0) {
                 HStack {
                     Picker("Editor section", selection: $tab) {
-                        Text("Descriptions").tag("descriptions"); Text("Transcript").tag("transcript"); Text("Summary").tag("summary")
-                    }.pickerStyle(.segmented).labelsHidden().frame(maxWidth: 410)
+                        Text("Descriptions").tag("descriptions"); Text("Transcript").tag("transcript"); Text("Summary").tag("summary"); Text("AD Transcript").tag("ad-transcript"); Text("AD Overview").tag("ad-overview")
+                    }.pickerStyle(.menu).frame(maxWidth: 240)
                     Spacer()
                     Button("Read Frame Text", systemImage: "text.viewfinder") { studio.execute("capture-frame", extra: ["--timestamp", String(playback.time)]) }.labelStyle(.iconOnly).help("Extract text from the current video frame").disabled(studio.busy)
                     Toggle("Narration", isOn: $playback.narrationEnabled).toggleStyle(.button).help("Play generated descriptions in sync with video")
@@ -179,13 +179,16 @@ struct ProjectEditor: View {
                         }.disabled(studio.busy)
                     }
                 }.padding(12)
+                if let error = playback.speechError { Text(error).foregroundStyle(.red).padding(8) }
                 Divider()
-                if tab == "summary" {
+                if tab == "ad-overview" {
+                    ADOverviewView(studio: studio, project: project)
+                } else if tab == "summary" {
                     ScrollView { Text(project.summary.isEmpty ? "Generate a summary after transcription to capture the story and visual context." : project.summary).textSelection(.enabled).frame(maxWidth: .infinity, alignment: .leading).padding(20) }
                 } else {
-                    let segments = tab == "descriptions" ? project.cues : project.transcript
+                    let segments = (tab == "descriptions" || tab == "ad-transcript") ? project.cues : project.transcript
                     if segments.isEmpty {
-                        ContentUnavailableView(tab == "descriptions" ? "Describe what matters" : "Your transcript appears here", systemImage: tab == "descriptions" ? "text.below.photo" : "text.bubble", description: Text(tab == "descriptions" ? "Generate descriptions from the inspector or add a cue manually." : "Use Transcribe Video in the inspector to begin."))
+                        ContentUnavailableView((tab == "descriptions" || tab == "ad-transcript") ? "Describe what matters" : "Your transcript appears here", systemImage: (tab == "descriptions" || tab == "ad-transcript") ? "text.below.photo" : "text.bubble", description: Text((tab == "descriptions" || tab == "ad-transcript") ? "Generate descriptions from the inspector or add a cue manually." : "Use Transcribe Video in the inspector to begin."))
                     } else {
                         ScrollViewReader { reader in
                         List(segments) { cue in
@@ -223,7 +226,7 @@ struct ProjectEditor: View {
             case "forward": playback.seek(min(project.duration, playback.time + 5))
             case "narration": playback.narrationEnabled.toggle()
             case "follow": studio.settings.followTranscript.toggle()
-            case "descriptions", "transcript", "summary": tab = action
+            case "descriptions", "transcript", "summary", "ad-transcript", "ad-overview": tab = action
             case "add":
                 let start = max(0, min(playback.time, project.duration - 0.1))
                 cueToEdit = Segment(id: UUID().uuidString, start: start, end: min(start + 3, project.duration), text: "")
@@ -236,9 +239,11 @@ struct ProjectEditor: View {
         .onChange(of: playback.duration) { _, duration in
             if !studio.busy, duration > 0, abs(duration - project.duration) > 0.5 { studio.execute("update-metadata", extra: ["--duration", String(duration)]) }
         }
-        .onChange(of: playback.time) { _, _ in playback.syncNarration(project) }
-        .onChange(of: playback.playing) { _, _ in playback.syncNarration(project) }
-        .onChange(of: playback.narrationEnabled) { _, _ in playback.syncNarration(project) }
+        .onChange(of: playback.time) { _, _ in playback.syncNarration(project, settings: studio.settings) }
+        .onChange(of: playback.playing) { _, _ in playback.syncNarration(project, settings: studio.settings) }
+        .onChange(of: studio.settings.narrationPlayback) { _, _ in playback.syncNarration(project, settings: studio.settings) }
+        .onChange(of: studio.settings.systemVoice) { _, _ in playback.syncNarration(project, settings: studio.settings) }
+        .onChange(of: playback.narrationEnabled) { _, _ in playback.syncNarration(project, settings: studio.settings) }
         .onAppear { playback.observe(); if !project.source.isEmpty, let url = project.url(project.source) { playback.player.replaceCurrentItem(with: AVPlayerItem(url: url)) } }
         .onDisappear { playback.stop(); audioPreview?.stop() }
         .sheet(isPresented: Binding(get: { studio.screenText != nil }, set: { if !$0 { studio.screenText = nil } })) {

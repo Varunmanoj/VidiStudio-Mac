@@ -9,8 +9,15 @@ final class PlaybackModel {
     var duration = 0.0
     var playing = false
     var narrationEnabled = false
+    var speechError: String?
     private var narration: AVAudioPlayer?
     private var narrationID: String?
+    private var deviceSpeech: Process?
+    private var deviceCue: String?
+    private var deviceTime = 0.0
+    private func stopDeviceSpeech() {
+        if deviceSpeech?.isRunning == true { deviceSpeech?.terminate() }; deviceSpeech = nil; deviceCue = nil
+    }
     var webView: WKWebView?
     private var observer: Any?
     func observe() {
@@ -19,7 +26,22 @@ final class PlaybackModel {
             Task { @MainActor in if time.seconds.isFinite, self?.webView == nil { self?.time = time.seconds; self?.playing = self?.player.timeControlStatus == .playing } }
         }
     }
-    func syncNarration(_ project: StudioProject) {
+    func syncNarration(_ project: StudioProject, settings: StudioSettings) {
+        if settings.narrationPlayback == "device" {
+            narration?.stop(); narrationID = nil
+            guard narrationEnabled, playing, let cue = project.cues.first(where: { time >= $0.start && time < $0.end }) else { stopDeviceSpeech(); return }
+            let identity = cue.id + cue.text + settings.systemVoice
+            if deviceCue != identity || abs(time - deviceTime) > 0.8 {
+                stopDeviceSpeech()
+                let speech = Process()
+                speech.executableURL = URL(fileURLWithPath: "/usr/bin/say")
+                speech.arguments = (settings.systemVoice.isEmpty ? [] : ["-v", settings.systemVoice]) + ["--", cue.text]
+                do { try speech.run(); deviceSpeech = speech; deviceCue = identity; speechError = nil } catch { deviceCue = identity; speechError = "On-device narration could not start: " + error.localizedDescription }
+            }
+            deviceTime = time
+            return
+        }
+        stopDeviceSpeech()
         guard narrationEnabled, playing,
               let cue = project.cues.first(where: { time >= $0.start && time < $0.end }),
               cue.audioText == cue.text, let path = cue.audio, let url = project.url(path) else {
@@ -35,6 +57,7 @@ final class PlaybackModel {
         }
     }
     func stop() {
+        stopDeviceSpeech()
         narration?.stop(); narrationID = nil
         player.pause()
         if let observer { player.removeTimeObserver(observer); self.observer = nil }

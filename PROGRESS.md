@@ -52,3 +52,17 @@ Live Gemini calls from the desktop remain unverified because its personal key is
 Added native Playback/Project Editor menu commands using focused scene actions, Help window, and full shortcut reference in Settings. Editor actions are disabled during processing and editing sheets. Debug build passed and Command+2 was verified through the native accessibility tree. Help uses Command+Option+/ to avoid the macOS Help-search binding. Release package rebuilt for local installation.
 
 Final packaged-app accessibility verification: Command+Option+/ opens Help; each shortcut exposes its action and key combination; Escape closes Help; Command+Comma opens Settings with the shortcut reference.
+
+### AD views and native narration settings — 2026-09-08
+
+Added AD Transcript and AD Overview with counts and audio-generation actions; Command+4/5 and Help reference updated. Replaced the single settings form with a native sidebar and detail layout. Voice selection now uses the same macOS speech inventory as engine synthesis, preserves enhanced voice names, filters language/region, searches, previews, and refreshes. Added on-device live narration without saved audio alongside generated-audio playback.
+
+Debug build passed. Native accessibility inspection verified Settings categories, voice names and language labels, AD Overview and generation actions. Actual Allison (Enhanced) synthesis produced a valid 2.308-second AIFF. Gemini premium calls remain untested without a personal key. Deployment/public distribution remains deferred.
+
+Final verification: six packaged engine regression tests passed (real media, system speech, export, subtitles/history, URL/path guardrails). Release build, DMG/ZIP creation, strict deep signature check passed. Final accessibility tree exposes overview metric names with their values.
+
+### Engine-specific Settings voice previews — 2026-09-08
+
+Added Gemini sample generation through project-independent Python `preview-tts`, sharing the same synthesis routine as AD generation. Native preview handles loading, stop/cancel, empty/error responses, session caching, and temporary credential cleanup. Settings switches between offline and Gemini sample controls; offline now also previews the selected/default voice. Gemini list mirrors the nine online voice choices and allows a custom ID. Three preview contract tests passed for model/voice routing, WAV output without a project, validation, and no-audio failure cleanup. CLAR was explicitly withdrawn by the user.
+
+Final validation: Release build, installer packaging and strict signature verification passed. Nine tests passed, including packaged media/system-speech integration and three mocked Gemini preview contract tests. Native UI verified offline Play/Stop controls, conditional Gemini controls, and an accessible missing-key message. No live Gemini preview was generated because desktop Settings has no API key; original offline-engine selection was restored after UI testing.

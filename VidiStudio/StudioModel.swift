@@ -49,6 +49,7 @@ struct StudioSettings: Codable {
     var theme = "system"
     var followTranscript = true
     var ttsMode = "system"
+    var narrationPlayback = "generated"
     var systemVoice = ""
     var geminiVoice = "Kore"
     var ffmpegPath = ""

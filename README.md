@@ -69,3 +69,15 @@ Current delivery evidence and known feature/validation limits are recorded in `P
 Open **Help → VidiStudio Help** (Command+Option+/), or **Settings → Help and keyboard shortcuts** for the complete reference. Native Playback and Project Editor menus show available commands and their key equivalents. Import: Command+N; open folder: Command+O; Settings: Command+Comma; play/pause: Command+Shift+Space; seek five seconds: Command+Option+Left/Right; descriptions/transcript/summary: Command+1/2/3; add cue: Command+Shift+N; follow: Command+Shift+F; narration: Command+Shift+D; cue undo/redo: Command+Option+Z / Command+Option+Shift+Z. Save Settings with Command+S and Save Cue with Return in their respective views. Escape cancels a sheet or closes Help.
 
 Editor commands disable during processing and editing sheets. Standard text undo and VoiceOver Control+Option commands are preserved. Enable macOS Keyboard navigation to Tab through all controls. Windows web shortcuts are documented in the online application; a Windows desktop UI is not yet shipped.
+
+## AD views and narration settings
+
+Use the Editor section menu for Descriptions, Transcript, Summary, AD Transcript (Command+4), and AD Overview (Command+5). The AD transcript lists timed description text; AD Overview reports segment counts, ready/stale/missing audio, and description time, with actions to generate all or missing/changed narration.
+
+Settings now has a native sidebar: Appearance, Narration, Gemini API, Developer prompts, Storage, Help. Narration offers Apple on-device voices or Gemini TTS for saved audio generation. Its language/region filter and search list all voices exposed by macOS speech, including installed enhanced voices; each has a Speak Sample action. Download more voices through macOS Accessibility → Read & Speak, then Refresh Voices. Save Settings preserves the chosen voice and engine.
+
+For playback, choose generated audio or on-device speech without audio files, then enable Narration in the editor. On-device speech restarts the active cue after seeking/resuming and stops at its end; use generated audio for precise timing and final exports. No additional local LLM is required. Gemini premium generation still requires a configured personal API key.
+
+### Voice samples in Settings
+
+Settings → Narration shows samples for the selected speech engine. Apple voices offer Play Selected Voice (including the system default), individual Speak Sample buttons, and Stop Sample. Gemini offers the online voice list plus a custom voice ID, editable sample text, Play Voice Sample, Stop Sample, and Cancel Generation. Gemini previews use current unsaved settings through an owner-only temporary config; they do not change projects or save settings. Samples are cached within the Settings session and removed when leaving the Gemini section. Changing voice or sample stops playback. A Gemini API key is required; requests use the configured TTS model and prompt.

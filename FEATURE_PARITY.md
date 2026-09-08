@@ -13,14 +13,15 @@ Reference: the authenticated accessivideo.pages.dev application and its React/Py
 | Dedicated speech model | Extracted mono WAV chunks, word timestamps, speaker grouping |
 | YouTube analysis | Separate configured video-understanding model; no audio-only request sent a YouTube URI |
 | Transcript synchronization | Active-row highlighting, seek from timestamp, follow toggle |
+| AD transcript and overview | Timed AD text, segment/audio counts, narration generation; Command+4/5 |
 | Description editing | Add, edit, delete, rewrite to fit, undo and redo |
 | Screen-text OCR | Current timestamp for YouTube, captured image for local source; review and add as cue |
-| Narration | Offline system voices, optional Gemini TTS; one cue, all, or changed cues |
+| Narration | Offline system voices, optional Gemini TTS; one cue, all, or changed cues; optional live on-device playback without files |
 | Narration preview | Individual audio preview and synchronized description playback |
 | Exports | SRT, VTT, text, JSON; narration M4A; final MP4 with original audio |
 | YouTube final video | Attach a matching local copy before muxing; narration/subtitles do not require a copy |
 | Appearance | Light, dark, system; standard macOS controls and typography; bundled Material Symbols |
-| Settings | Personal key, per-stage model IDs, API version, processing mode, prompt pairs, voice and tool paths |
+| Settings | Two-column native sidebar; searchable language/region voice browser with samples and refresh; personal key, per-stage model IDs, API version, processing mode, prompt pairs, voice and tool paths |
 | Accessibility | Named native controls, keyboard access, standard menus, reduced-motion-aware transcript scrolling |
 | Storage/auth | Local JSON and files; no desktop Firebase, Firestore, R2, account or sign-in dependency |
 

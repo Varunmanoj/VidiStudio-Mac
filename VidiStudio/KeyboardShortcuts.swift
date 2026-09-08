@@ -25,6 +25,8 @@ struct StudioShortcut: Identifiable {
         .init(id: "descriptions", title: "Show Descriptions", key: "1", modifiers: .command, spoken: "Command + 1", group: "Editor"),
         .init(id: "transcript", title: "Show Transcript", key: "2", modifiers: .command, spoken: "Command + 2", group: "Editor"),
         .init(id: "summary", title: "Show Summary", key: "3", modifiers: .command, spoken: "Command + 3", group: "Editor"),
+        .init(id: "ad-transcript", title: "Show AD Transcript", key: "4", modifiers: .command, spoken: "Command + 4", group: "Editor"),
+        .init(id: "ad-overview", title: "Show AD Overview", key: "5", modifiers: .command, spoken: "Command + 5", group: "Editor"),
         .init(id: "add", title: "Add Description Cue", key: "n", modifiers: [.command, .shift], spoken: "Command + Shift + N", group: "Editor"),
         .init(id: "follow", title: "Toggle Transcript Follow", key: "f", modifiers: [.command, .shift], spoken: "Command + Shift + F", group: "Editor"),
         .init(id: "undo", title: "Undo Cue Edit", key: "z", modifiers: [.command, .option], spoken: "Command + Option + Z", group: "Editor"),
@@ -86,6 +88,7 @@ struct StudioHelpView: View {
             VStack(alignment: .leading, spacing: 20) {
                 Text("VidiStudio Help").font(.largeTitle).accessibilityAddTraits(.isHeader)
                 Text("Import a local video or create a YouTube project, run analysis from the inspector, review descriptions, synthesize narration, and export. Your project files and completed results are saved locally.")
+                Text("Editor sections include Transcript, Summary, AD Transcript, and AD Overview. AD Overview shows segment and narration counts and generates audio with Apple voices or Gemini TTS. Settings → Narration contains the language/voice browser, samples, and the choice between saved audio playback and speaking on device without files.")
                 ShortcutReferenceView()
                 Button("Close Help") { dismiss() }.keyboardShortcut(.cancelAction)
             }.padding(24)

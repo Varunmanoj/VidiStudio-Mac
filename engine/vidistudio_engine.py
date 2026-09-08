@@ -176,6 +176,30 @@ def ai_video(root, p, stage):
         client.close()
 
 
+def gemini_speech(output, text, project):
+    from google.genai import types
+    cfg = config()
+    client, model = client_and_model('tts')
+    try:
+        response = client.models.generate_content(model=model, contents=parity.render(cfg['prompts']['tts_audio']['user_prompt'], project, text=text), config=types.GenerateContentConfig(response_modalities=['AUDIO'], speech_config=types.SpeechConfig(voice_config=types.VoiceConfig(prebuilt_voice_config=types.PrebuiltVoiceConfig(voice_name=cfg.get('geminiVoice','Kore'))))))
+        parts = [part for candidate in (response.candidates or []) for part in (candidate.content.parts if candidate.content else [])]
+        data = next((part.inline_data.data for part in parts if part.inline_data and part.inline_data.data), None)
+        if not data: raise ValueError('Gemini returned no audio. Check the TTS model and selected voice in Settings.')
+        with wave.open(str(output), 'wb') as f:
+            f.setnchannels(1); f.setsampwidth(2); f.setframerate(24000); f.writeframes(data)
+    finally:
+        client.close()
+
+
+def preview_tts(output, text):
+    if not output: raise ValueError('Voice preview requires --output.')
+    if not text or len(text) > 500: raise ValueError('Use a sample between 1 and 500 characters.')
+    if config().get('ttsMode') != 'gemini': raise ValueError('Choose Gemini TTS for a cloud voice preview.')
+    output.parent.mkdir(parents=True, exist_ok=True)
+    gemini_speech(output, text, {})
+    emit('Voice sample ready', audio=str(output))
+
+
 def synthesize(root,p,segment=None,changed=False):
     cues = validate_cues(p['cues'],p['duration'],p['transcript'])
     if not cues: raise ValueError('Create audio description cues first.')
@@ -189,14 +213,7 @@ def synthesize(root,p,segment=None,changed=False):
         textfile = root/'audio-description/speech-input.txt'
         textfile.write_text(c['text'],encoding='utf-8')
         if cfg.get('ttsMode','system') == 'gemini':
-            from google.genai import types
-            client, model = client_and_model('tts')
-            try:
-                r = client.models.generate_content(model=model, contents=parity.render(cfg['prompts']['tts_audio']['user_prompt'],p,text=c['text']), config=types.GenerateContentConfig(response_modalities=['AUDIO'], speech_config=types.SpeechConfig(voice_config=types.VoiceConfig(prebuilt_voice_config=types.PrebuiltVoiceConfig(voice_name=cfg.get('geminiVoice','Kore'))))))
-                data = next(part.inline_data.data for part in r.candidates[0].content.parts if part.inline_data)
-                with wave.open(str(output),'wb') as f:
-                    f.setnchannels(1); f.setsampwidth(2); f.setframerate(24000); f.writeframes(data)
-            finally: client.close()
+            gemini_speech(output, c['text'], p)
         elif sys.platform == 'darwin':
             raw = output.with_suffix('.aiff')
             args = ['/usr/bin/say', '-f', textfile, '-o', raw]
@@ -267,10 +284,13 @@ def project_lock(root):
 
 def main():
     parser=argparse.ArgumentParser(description=__doc__)
-    parser.add_argument('command',choices=['import-video','probe-video','generate-thumbnails','extract-audio','transcribe','generate-summary','generate-ad-cues','synthesize-tts','export-final-video','save-cues','doctor',*parity.COMMANDS])
+    parser.add_argument('command',choices=['preview-tts','import-video','probe-video','generate-thumbnails','extract-audio','transcribe','generate-summary','generate-ad-cues','synthesize-tts','export-final-video','save-cues','doctor',*parity.COMMANDS])
     parser.add_argument('--project',type=Path); parser.add_argument('--video',type=Path); parser.add_argument('--library',type=Path); parser.add_argument('--input',type=Path)
     parser.add_argument('--content',choices=['transcript','descriptions','combined'],default='descriptions'); parser.add_argument('--url'); parser.add_argument('--name'); parser.add_argument('--timestamp',type=float,default=0); parser.add_argument('--duration',type=float); parser.add_argument('--segment'); parser.add_argument('--format',choices=['srt','vtt','txt','json'],default='srt'); parser.add_argument('--changed',action='store_true'); parser.add_argument('--start-stage',default='transcribe')
+    parser.add_argument('--output', type=Path); parser.add_argument('--text')
     args=parser.parse_args()
+    if args.command == 'preview-tts':
+        preview_tts(args.output, args.text); return
     core=SimpleNamespace(**globals())
     if args.command in ('import-youtube','validate-config'):
         parity.execute(args,None,None,core);return
