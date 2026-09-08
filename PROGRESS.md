@@ -78,3 +78,17 @@ Added Show/Hide Preview and Full-Screen Video controls, Playback menu commands a
 ### Fixed side panels — 2026-09-08
 
 Replaced the resizable NavigationSplitView/inspector with fixed-width project and inspector panels around a geometry-constrained editor. Removed horizontal panel splitters and added independent show/hide toolbar controls. Long project names wrap in explicit multiline rows. Added Open in Project Folder and Delete context actions; deletion uses existing macOS Trash implementation and is disabled during processing. Reduced minimum window size and allowed central tools to scroll on narrow layouts without pushing panels outside the window. Native screenshots confirmed full side panels and the full project name; accessibility inspection confirmed no side resize handles and both show/hide transitions.
+
+### Segment timing and project location — 2026-09-08
+
+Renamed user-facing cue actions to segments throughout the Description editor and keyboard reference. The manual Add Segment editor now provides separately labeled hours, minutes, seconds, and milliseconds controls for both start and end times, displays the resulting timecodes, and validates the segment against the video duration before Save Segment is enabled.
+
+Changed the new-project default to `~/Documents/VidiStudio Projects`. Settings → Storage now presents the current default folder with a native Browse button. Existing saved settings that still contain the former built-in Movies default are moved to the Documents default; the project list does not scan the old Movies location.
+
+Validation: `git diff --check` and the Debug Xcode build passed. Native accessibility inspection confirmed Add Segment, all eight Start/End time component labels, the audio-description text editor, and Save Segment. Settings was visually verified with the Documents path and Browse control. The final Release package completed; four source and four packaged-Release engine tests passed, strict deep code-signature verification passed, and the DMG checksum verified successfully.
+
+### Unified New Project chooser — 2026-09-08
+
+Replaced separate desktop creation actions with a native New Project sheet available from the empty state, toolbar, File menu, and Command-N. The sheet clearly selects either Video File or YouTube Video. Video File requires a chosen local movie; YouTube Video presents a labeled URL field. Create Project remains disabled until the selected source has the required input, and both paths continue through the existing local engine and configured project folder.
+
+Validation: the Debug Xcode build passed. Native accessibility inspection confirmed the New Project heading, both radio choices, source-specific file and URL controls, and disabled/enabled Create Project validation. Command-N reopened the same chooser.

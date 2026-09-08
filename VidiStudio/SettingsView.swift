@@ -71,7 +71,19 @@ struct SettingsView: View {
             }
             }
             if section == "Storage" { Section("Local storage and tools") {
-                TextField("Project library", text: $studio.settings.libraryPath)
+                LabeledContent("Default folder for new projects") {
+                    HStack {
+                        TextField("Project folder", text: $studio.settings.libraryPath)
+                            .accessibilityLabel("Default folder for new projects")
+                        Button("Browse…", systemImage: "folder") {
+                            studio.chooseProjectLibrary()
+                        }
+                        .disabled(studio.busy)
+                    }
+                }
+                Text("New projects are created here. The project list scans this folder and any project folders you open directly.")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
                 TextField("FFmpeg override", text: $studio.settings.ffmpegPath)
                 TextField("FFprobe override", text: $studio.settings.ffprobePath)
                 Button("Check Engine") { studio.execute("doctor") }.disabled(studio.busy)

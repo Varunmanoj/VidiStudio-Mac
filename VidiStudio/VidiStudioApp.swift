@@ -12,7 +12,7 @@ struct VidiStudioApp: App {
         .windowToolbarStyle(.unifiedCompact)
         .commands {
             CommandGroup(replacing: .newItem) {
-                Button("Import Video…") { studio.importVideo() }.keyboardShortcut("n").disabled(studio.busy)
+                Button("New Project…") { studio.isCreatingProject = true }.keyboardShortcut("n").disabled(studio.busy)
                 Button("Open Project Folder…") { studio.openProject() }.keyboardShortcut("o").disabled(studio.busy)
             }
         }

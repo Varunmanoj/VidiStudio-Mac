@@ -41,6 +41,10 @@ struct StudioProject: Codable, Identifiable {
     }
 }
 struct StudioSettings: Codable {
+    static let defaultLibraryURL = FileManager.default.homeDirectoryForCurrentUser
+        .appendingPathComponent("Documents/VidiStudio Projects")
+    static let legacyDefaultLibraryURL = FileManager.default.homeDirectoryForCurrentUser
+        .appendingPathComponent("Movies/VidiStudio Projects")
     var apiKey = ""
     var models: [String: String] = [:]
     var prompts: [String: [String: String]] = [:]
@@ -54,7 +58,7 @@ struct StudioSettings: Codable {
     var geminiVoice = "Kore"
     var ffmpegPath = ""
     var ffprobePath = ""
-    var libraryPath = FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent("Movies/VidiStudio Projects").path
+    var libraryPath = StudioSettings.defaultLibraryURL.path
     static var url: URL { FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent("Library/Application Support/VidiStudio/config.json") }
 }
 
@@ -71,6 +75,7 @@ final class StudioModel {
     var screenText: String?
     var screenTimestamp = 0.0
     var process: Process?
+    var isCreatingProject = false
     var selected: StudioProject? { projects.first { $0.id == selectedID } }
     init() {
         var merged = (try? JSONSerialization.jsonObject(with: JSONEncoder().encode(settings))) as? [String: Any] ?? [:]
@@ -82,6 +87,9 @@ final class StudioModel {
             for (key, value) in saved { merged[key] = value }
         }
         if let data = try? JSONSerialization.data(withJSONObject: merged), let decoded = try? JSONDecoder().decode(StudioSettings.self, from: data) { settings = decoded }
+        if settings.libraryPath == StudioSettings.legacyDefaultLibraryURL.path {
+            settings.libraryPath = StudioSettings.defaultLibraryURL.path
+        }
         reload()
         selectedID = UserDefaults.standard.string(forKey: "lastProjectID")
     }
@@ -116,7 +124,28 @@ final class StudioModel {
         panel.prompt = "Import Video"
         panel.message = "A copy will be saved in your local project library."
         if panel.runModal() == .OK, let url = panel.url {
-            execute("import-video", extra: ["--video", url.path, "--library", settings.libraryPath], project: nil)
+            importVideo(at: url)
+        }
+    }
+    func importVideo(at url: URL) {
+        guard !busy else { return }
+        execute("import-video", extra: ["--video", url.path, "--library", settings.libraryPath], project: nil)
+    }
+    func chooseProjectLibrary() {
+        guard !busy else { return }
+        let panel = NSOpenPanel()
+        panel.canChooseDirectories = true
+        panel.canChooseFiles = false
+        panel.canCreateDirectories = true
+        panel.allowsMultipleSelection = false
+        panel.prompt = "Choose Project Folder"
+        panel.message = "Choose the folder where new VidiStudio projects will be created."
+        let current = URL(fileURLWithPath: settings.libraryPath)
+        panel.directoryURL = FileManager.default.fileExists(atPath: current.path)
+            ? current
+            : current.deletingLastPathComponent()
+        if panel.runModal() == .OK, let url = panel.url {
+            settings.libraryPath = url.standardizedFileURL.path
         }
     }
     func attachVideo() {

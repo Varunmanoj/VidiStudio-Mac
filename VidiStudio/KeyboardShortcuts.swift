@@ -29,10 +29,10 @@ struct StudioShortcut: Identifiable {
         .init(id: "summary", title: "Show Summary", key: "3", modifiers: .command, spoken: "Command + 3", group: "Editor"),
         .init(id: "ad-transcript", title: "Show AD Transcript", key: "4", modifiers: .command, spoken: "Command + 4", group: "Editor"),
         .init(id: "ad-overview", title: "Show AD Overview", key: "5", modifiers: .command, spoken: "Command + 5", group: "Editor"),
-        .init(id: "add", title: "Add Description Cue", key: "n", modifiers: [.command, .shift], spoken: "Command + Shift + N", group: "Editor"),
+        .init(id: "add", title: "Add Description Segment", key: "n", modifiers: [.command, .shift], spoken: "Command + Shift + N", group: "Editor"),
         .init(id: "follow", title: "Toggle Transcript Follow", key: "f", modifiers: [.command, .shift], spoken: "Command + Shift + F", group: "Editor"),
-        .init(id: "undo", title: "Undo Cue Edit", key: "z", modifiers: [.command, .option], spoken: "Command + Option + Z", group: "Editor"),
-        .init(id: "redo", title: "Redo Cue Edit", key: "z", modifiers: [.command, .option, .shift], spoken: "Command + Option + Shift + Z", group: "Editor")
+        .init(id: "undo", title: "Undo Segment Edit", key: "z", modifiers: [.command, .option], spoken: "Command + Option + Z", group: "Editor"),
+        .init(id: "redo", title: "Redo Segment Edit", key: "z", modifiers: [.command, .option, .shift], spoken: "Command + Option + Shift + Z", group: "Editor")
     ]
 }
 struct StudioCommands: Commands {
@@ -68,7 +68,7 @@ struct ShortcutReferenceView: View {
         VStack(alignment: .leading, spacing: 14) {
             Text("Keyboard Shortcuts").font(.title2).accessibilityAddTraits(.isHeader)
             Text("These shortcuts apply to the native macOS app. Editor commands are available with a project open and no editing sheet or processing operation active.")
-            shortcutRow("Import Video", value: "Command + N")
+            shortcutRow("New Project", value: "Command + N")
             shortcutRow("Open Project Folder", value: "Command + O")
             shortcutRow("Settings", value: "Command + Comma")
             shortcutRow("VidiStudio Help", value: "Command + Option + Slash")
@@ -76,9 +76,9 @@ struct ShortcutReferenceView: View {
                 shortcutRow(shortcut.title, value: shortcut.spoken)
             }
             shortcutRow("Save Settings (in Settings)", value: "Command + S")
-            shortcutRow("Save Cue (in its sheet)", value: "Return")
+            shortcutRow("Save Segment (in its editor)", value: "Return")
             shortcutRow("Cancel a sheet or close Help", value: "Escape")
-            Text("Cue changes save automatically when you choose Save Cue. Standard Command + Z and Command + Shift + Z remain available for text editing; the separate cue-history commands do not replace them.")
+            Text("Segment changes save when you choose Save Segment. Standard Command + Z and Command + Shift + Z remain available for text editing; the separate segment-history commands do not replace them.")
             Text("Use Tab and Shift + Tab to move between controls, Space to activate buttons and toggles, and arrow keys inside lists and pickers. Enable Keyboard navigation in macOS System Settings → Keyboard to reach all controls with Tab. VoiceOver users can use standard Control + Option navigation and interaction commands; those combinations are not assigned by VidiStudio.")
         }
     }

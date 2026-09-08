@@ -14,7 +14,7 @@ Other flags: `--build-only`, `--debug`, `--logs`, `--telemetry`. `script/package
 
 ## Workflow
 
-1. Import Video (Command-N) copies a video into the project library and generates metadata and eight thumbnails.
+1. New Project (Command-N) lets you choose a video file or YouTube video. Video files are copied into the project library and receive metadata and eight thumbnails.
 2. In Settings (Command-comma), save your Gemini API key and model names. System narration works without a key.
 3. Import a local video or use the toolbar link button for a YouTube project. Run All Analysis transcribes, summarizes, then generates descriptions; each stage is also available separately.
 4. Review cues, seek from their timestamps or timeline, and add/edit/delete cues. Save rejects overlaps with dialogue and other descriptions.
@@ -27,7 +27,7 @@ Gemini analysis sends a processing copy through the Files API, polls for ACTIVE 
 
 Each portable folder contains `project.json` and `source/`, `metadata/`, `thumbnails/`, `transcript/`, `audio-description/`, `exports/`. Paths inside project data are relative and confined to the project folder. Saves replace JSON atomically. OS-level locks prevent concurrent engine writes and release on process exit. Stages preserve completed outputs on failure. Regenerating a transcript invalidates dependent summary/cues/export references; old files are retained on disk.
 
-Open Project Folder (Command-O) opens a project in another location without copying it. The default library is `~/Movies/VidiStudio Projects` and is configurable.
+Open Project Folder (Command-O) opens a project in another location without copying it. New projects default to `~/Documents/VidiStudio Projects`; choose another folder from Settings → Storage → Browse.
 
 ## Portable engine
 
@@ -66,7 +66,7 @@ Current delivery evidence and known feature/validation limits are recorded in `P
 
 ## Keyboard shortcuts and Help
 
-Open **Help → VidiStudio Help** (Command+Option+/), or **Settings → Help and keyboard shortcuts** for the complete reference. Native Playback and Project Editor menus show available commands and their key equivalents. Import: Command+N; open folder: Command+O; Settings: Command+Comma; play/pause: Command+Shift+Space; seek five seconds: Command+Option+Left/Right; descriptions/transcript/summary: Command+1/2/3; add cue: Command+Shift+N; follow: Command+Shift+F; narration: Command+Shift+D; cue undo/redo: Command+Option+Z / Command+Option+Shift+Z. Save Settings with Command+S and Save Cue with Return in their respective views. Escape cancels a sheet or closes Help.
+Open **Help → VidiStudio Help** (Command+Option+/), or **Settings → Help and keyboard shortcuts** for the complete reference. Native Playback and Project Editor menus show available commands and their key equivalents. New Project: Command+N; open folder: Command+O; Settings: Command+Comma; play/pause: Command+Shift+Space; seek five seconds: Command+Option+Left/Right; descriptions/transcript/summary: Command+1/2/3; add segment: Command+Shift+N; follow: Command+Shift+F; narration: Command+Shift+D; segment undo/redo: Command+Option+Z / Command+Option+Shift+Z. Save Settings with Command+S and Save Segment with Return in their respective views. Escape cancels a sheet or closes Help.
 
 Editor commands disable during processing and editing sheets. Standard text undo and VoiceOver Control+Option commands are preserved. Enable macOS Keyboard navigation to Tab through all controls. Windows web shortcuts are documented in the online application; a Windows desktop UI is not yet shipped.
 

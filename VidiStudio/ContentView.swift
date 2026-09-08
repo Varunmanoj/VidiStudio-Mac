@@ -1,13 +1,122 @@
 import SwiftUI
 import AVKit
 import AVFoundation
+import UniformTypeIdentifiers
+
+private enum NewProjectSource: String, CaseIterable, Identifiable {
+    case videoFile
+    case youtube
+
+    var id: Self { self }
+    var title: String { self == .videoFile ? "Video File" : "YouTube Video" }
+    var icon: String { self == .videoFile ? "film" : "play.rectangle" }
+}
+
+private struct NewProjectView: View {
+    @Environment(\.dismiss) private var dismiss
+    @Bindable var studio: StudioModel
+    @State private var source = NewProjectSource.videoFile
+    @State private var videoURL: URL?
+    @State private var youtubeURL = ""
+
+    private var trimmedYouTubeURL: String {
+        youtubeURL.trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+
+    private var canCreate: Bool {
+        source == .videoFile ? videoURL != nil : !trimmedYouTubeURL.isEmpty
+    }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 0) {
+            Text("New Project")
+                .font(.title2.bold())
+                .accessibilityAddTraits(.isHeader)
+                .padding(.horizontal, 20)
+                .padding(.top, 20)
+                .padding(.bottom, 8)
+            Form {
+            Section {
+                Picker("Project type", selection: $source) {
+                    ForEach(NewProjectSource.allCases) { option in
+                        Label(option.title, systemImage: option.icon).tag(option)
+                    }
+                }
+                .pickerStyle(.radioGroup)
+                .accessibilityHint("Choose a video file from this Mac or enter a YouTube video link.")
+            } header: {
+                Text("Choose a project source")
+            }
+
+            Section {
+                if source == .videoFile {
+                    LabeledContent("Video file") {
+                        Button(videoURL == nil ? "Choose Video…" : "Choose Different Video…", systemImage: "folder") {
+                            chooseVideo()
+                        }
+                    }
+                    Text(videoURL?.path ?? "No video selected")
+                        .font(.caption)
+                        .foregroundStyle(videoURL == nil ? .secondary : .primary)
+                        .textSelection(.enabled)
+                        .accessibilityLabel(videoURL.map { "Selected video: \($0.lastPathComponent)" } ?? "No video selected")
+                } else {
+                    TextField("YouTube video URL", text: $youtubeURL, prompt: Text("https://www.youtube.com/watch?v=…"))
+                        .textFieldStyle(.roundedBorder)
+                        .accessibilityLabel("YouTube video URL")
+                }
+            } header: {
+                Text(source.title)
+            } footer: {
+                Text(source == .videoFile
+                     ? "VidiStudio copies the selected video into a new local project folder."
+                     : "VidiStudio stores the project locally. Playback and analysis require an internet connection.")
+            }
+
+            Section {
+                HStack {
+                    Button("Cancel", role: .cancel) { dismiss() }
+                        .keyboardShortcut(.cancelAction)
+                    Spacer()
+                    Button("Create Project", systemImage: "plus") { createProject() }
+                        .keyboardShortcut(.defaultAction)
+                        .disabled(!canCreate)
+                }
+            }
+            }
+            .formStyle(.grouped)
+        }
+        .frame(width: 560, height: 410)
+    }
+
+    private func chooseVideo() {
+        let panel = NSOpenPanel()
+        panel.allowedContentTypes = [.movie, .video, .mpeg4Movie, .quickTimeMovie]
+        panel.allowsMultipleSelection = false
+        panel.prompt = "Choose Video"
+        panel.message = "Choose the video file for this VidiStudio project."
+        if panel.runModal() == .OK {
+            videoURL = panel.url
+        }
+    }
+
+    private func createProject() {
+        switch source {
+        case .videoFile:
+            guard let videoURL else { return }
+            studio.importVideo(at: videoURL)
+        case .youtube:
+            guard !trimmedYouTubeURL.isEmpty else { return }
+            studio.execute("import-youtube", extra: ["--url", trimmedYouTubeURL, "--library", studio.settings.libraryPath])
+        }
+        dismiss()
+    }
+}
 
 struct ContentView: View {
     @Bindable var studio: StudioModel
     @State private var showInspector = true
     @State private var showProjects = true
-    @State private var importYouTube = false
-    @State private var youtubeURL = ""
     @State private var search = ""
     @State private var rename = ""
     @State private var renaming = false
@@ -45,14 +154,14 @@ struct ContentView: View {
         }
         Group {
             if let p = studio.selected {
-                ProjectEditor(shortcutsBlocked: renaming || importYouTube || studio.error != nil, studio: studio, project: p).id(p.id)
+                ProjectEditor(shortcutsBlocked: renaming || studio.isCreatingProject || studio.error != nil, studio: studio, project: p).id(p.id)
             } else {
                 ContentUnavailableView {
                     Label("Make every video accessible", systemImage: "video.badge.waveform")
                 } description: {
-                    Text("Import a video to create a local workspace for transcripts, audio descriptions, narration, and final exports.")
+                    Text("Create a project from a video file on this Mac or a YouTube video.")
                 } actions: {
-                    Button("Import Video…", systemImage: "plus") { studio.importVideo() }.buttonStyle(.glassProminent)
+                    Button("New Project…", systemImage: "plus") { studio.isCreatingProject = true }.buttonStyle(.glassProminent)
                     Button("Open Project Folder…") { studio.openProject() }
                 }
             }
@@ -71,25 +180,12 @@ struct ContentView: View {
                 HStack { Button("Cancel", role: .cancel) { renaming = false }; Button("Rename") { studio.execute("rename-project", extra: ["--name", rename]); renaming = false }.keyboardShortcut(.defaultAction) }
             }.padding(24).frame(width: 420)
         }
-        .sheet(isPresented: $importYouTube) {
-            VStack(alignment: .leading, spacing: 20) {
-                Text("New YouTube Project").font(.title2)
-                TextField("YouTube video URL", text: $youtubeURL).textFieldStyle(.roundedBorder)
-                Text("The project and generated results are stored locally. YouTube playback and analysis require an internet connection.").foregroundStyle(.secondary)
-                HStack {
-                    Button("Cancel", role: .cancel) { importYouTube = false }
-                    Spacer()
-                    Button("Create Project") {
-                        studio.execute("import-youtube", extra: ["--url", youtubeURL, "--library", studio.settings.libraryPath])
-                        importYouTube = false
-                    }.disabled(youtubeURL.isEmpty).keyboardShortcut(.defaultAction)
-                }
-            }.padding(24).frame(width: 520)
+        .sheet(isPresented: $studio.isCreatingProject) {
+            NewProjectView(studio: studio)
         }
         .toolbar {
             ToolbarItem(placement: .navigation) { Button(showProjects ? "Hide Project List" : "Show Project List", systemImage: "sidebar.left") { showProjects.toggle() } }
-            ToolbarItem(placement: .primaryAction) { Button("Import Video", systemImage: "plus") { studio.importVideo() }.disabled(studio.busy) }
-            ToolbarItem(placement: .primaryAction) { Button("YouTube Project", systemImage: "link") { importYouTube = true }.disabled(studio.busy) }
+            ToolbarItem(placement: .primaryAction) { Button("New Project", systemImage: "plus") { studio.isCreatingProject = true }.disabled(studio.busy) }
             ToolbarItem(placement: .primaryAction) { Button("Open Project", systemImage: "folder") { studio.openProject() }.disabled(studio.busy) }
             ToolbarSpacer(.fixed, placement: .primaryAction)
             ToolbarItem(placement: .primaryAction) { Button(showInspector ? "Hide Inspector" : "Show Inspector", systemImage: "sidebar.right") { showInspector.toggle() } }
@@ -142,8 +238,8 @@ struct ProcessingInspector: View {
                         }
                     }.disabled(studio.busy)
                     Button("Export Narration Audio") { studio.execute("export-audio") }.disabled(studio.busy)
-                    Button("Synthesize Changed Cues") { studio.execute("synthesize-tts", extra: ["--changed"]) }.disabled(studio.busy)
-                    HStack { Button("Undo Cue Edit") { studio.execute("undo-cues") }; Button("Redo") { studio.execute("redo-cues") } }.disabled(studio.busy)
+                    Button("Synthesize Changed Segments") { studio.execute("synthesize-tts", extra: ["--changed"]) }.disabled(studio.busy)
+                    HStack { Button("Undo Segment Edit") { studio.execute("undo-cues") }; Button("Redo") { studio.execute("redo-cues") } }.disabled(studio.busy)
                     if p.sourceType == "youtube" { Button("Attach Local Video Copy…") { studio.attachVideo() }.disabled(studio.busy) }
                     Text("Run analysis stages in order. Review and edit descriptions before synthesizing narration.").font(.caption).foregroundStyle(.secondary)
                     Button("Show Project in Finder", systemImage: "folder") { if let folder = p.folder { NSWorkspace.shared.open(folder) } }
@@ -196,7 +292,7 @@ struct ProjectEditor: View {
                     Toggle("Narration", isOn: $playback.narrationEnabled).toggleStyle(.button).help("Play generated descriptions in sync with video")
                     Toggle("Follow", isOn: $studio.settings.followTranscript).toggleStyle(.button).help("Follow the active transcript or description")
                     if tab == "descriptions" {
-                        Button("Add Cue", systemImage: "plus") {
+                        Button("Add Segment", systemImage: "plus") {
                             let start = max(0, min(playback.time, project.duration - 0.1))
                             cueToEdit = Segment(id: UUID().uuidString, start: start, end: min(start+3,project.duration), text: "")
                         }.disabled(studio.busy)
@@ -211,7 +307,7 @@ struct ProjectEditor: View {
                 } else {
                     let segments = (tab == "descriptions" || tab == "ad-transcript") ? project.cues : project.transcript
                     if segments.isEmpty {
-                        ContentUnavailableView((tab == "descriptions" || tab == "ad-transcript") ? "Describe what matters" : "Your transcript appears here", systemImage: (tab == "descriptions" || tab == "ad-transcript") ? "text.below.photo" : "text.bubble", description: Text((tab == "descriptions" || tab == "ad-transcript") ? "Generate descriptions from the inspector or add a cue manually." : "Use Transcribe Video in the inspector to begin."))
+                        ContentUnavailableView((tab == "descriptions" || tab == "ad-transcript") ? "Describe what matters" : "Your transcript appears here", systemImage: (tab == "descriptions" || tab == "ad-transcript") ? "text.below.photo" : "text.bubble", description: Text((tab == "descriptions" || tab == "ad-transcript") ? "Generate descriptions from the inspector or add a segment manually." : "Use Transcribe Video in the inspector to begin."))
                     } else {
                         ScrollViewReader { reader in
                         List(segments) { cue in
@@ -226,9 +322,9 @@ struct ProjectEditor: View {
                                     Menu {
                                         if let audio = cue.audio, let url = project.url(audio) { Button("Preview Narration") { audioPreview = try? AVAudioPlayer(contentsOf: url); audioPreview?.play() } }
                                         Button("Rewrite to Fit") { studio.execute("rewrite-cue", extra: ["--segment", cue.id]) }
-                                        Button("Synthesize This Cue") { studio.execute("synthesize-tts", extra: ["--segment", cue.id]) }
-                                        Button("Delete Cue", role: .destructive) { studio.saveCues(project.cues.filter { $0.id != cue.id }) }
-                                    } label: { Image(systemName: "ellipsis") }.menuStyle(.borderlessButton).fixedSize().disabled(studio.busy).accessibilityLabel("Cue actions")
+                                        Button("Synthesize This Segment") { studio.execute("synthesize-tts", extra: ["--segment", cue.id]) }
+                                        Button("Delete Segment", role: .destructive) { studio.saveCues(project.cues.filter { $0.id != cue.id }) }
+                                    } label: { Image(systemName: "ellipsis") }.menuStyle(.borderlessButton).fixedSize().disabled(studio.busy).accessibilityLabel("Segment actions")
                                 }
                             }.padding(.vertical, 8)
                                 .id(cue.id)
@@ -341,6 +437,79 @@ struct TimelineView: View {
     }
 }
 
+private struct TimecodeInput: View {
+    let label: String
+    @Binding var value: Double
+    let range: ClosedRange<Double>
+
+    private func componentBinding(
+        divisor: Double,
+        modulus: Int? = nil,
+        allowed: ClosedRange<Int>
+    ) -> Binding<Int> {
+        Binding {
+            let whole = Int(max(0, value) / divisor)
+            return modulus.map { whole % $0 } ?? whole
+        } set: { newValue in
+            let oldComponent = modulus.map { Int(max(0, value) / divisor) % $0 }
+                ?? Int(max(0, value) / divisor)
+            let clamped = min(max(newValue, allowed.lowerBound), allowed.upperBound)
+            value = min(max(value + Double(clamped - oldComponent) * divisor, range.lowerBound), range.upperBound)
+        }
+    }
+
+    private var milliseconds: Binding<Int> {
+        Binding {
+            Int((max(0, value) * 1000).rounded()) % 1000
+        } set: { newValue in
+            let old = Int((max(0, value) * 1000).rounded()) % 1000
+            let clamped = min(max(newValue, 0), 999)
+            value = min(max(value + Double(clamped - old) / 1000, range.lowerBound), range.upperBound)
+        }
+    }
+
+    private var formattedValue: String {
+        let totalMilliseconds = max(0, Int((value * 1000).rounded()))
+        let hours = totalMilliseconds / 3_600_000
+        let minutes = totalMilliseconds / 60_000 % 60
+        let seconds = totalMilliseconds / 1_000 % 60
+        let milliseconds = totalMilliseconds % 1_000
+        return String(format: "%02d:%02d:%02d.%03d", hours, minutes, seconds, milliseconds)
+    }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            Text(label).font(.headline).accessibilityAddTraits(.isHeader)
+            HStack(alignment: .firstTextBaseline, spacing: 8) {
+                timePart("Hours", value: componentBinding(divisor: 3600, allowed: 0...99), width: 54, digits: 2)
+                Text(":").accessibilityHidden(true)
+                timePart("Minutes", value: componentBinding(divisor: 60, modulus: 60, allowed: 0...59), width: 48, digits: 2)
+                Text(":").accessibilityHidden(true)
+                timePart("Seconds", value: componentBinding(divisor: 1, modulus: 60, allowed: 0...59), width: 48, digits: 2)
+                Text(".").accessibilityHidden(true)
+                timePart("Milliseconds", value: milliseconds, width: 62, digits: 3)
+            }
+            Text("Timecode: \(formattedValue)")
+                .font(.caption)
+                .foregroundStyle(.secondary)
+                .accessibilityLabel("\(label): \(formattedValue)")
+        }
+        .accessibilityElement(children: .contain)
+    }
+
+    private func timePart(_ name: String, value: Binding<Int>, width: CGFloat, digits: Int) -> some View {
+        VStack(spacing: 4) {
+            TextField(name, value: value, format: .number.precision(.integerLength(digits)))
+                .textFieldStyle(.roundedBorder)
+                .multilineTextAlignment(.trailing)
+                .monospacedDigit()
+                .frame(width: width)
+                .accessibilityLabel("\(label) \(name.lowercased())")
+            Text(name).font(.caption2).foregroundStyle(.secondary)
+        }
+    }
+}
+
 struct CueEditor: View {
     @Environment(\.dismiss) private var dismiss
     @State private var cue: Segment
@@ -350,19 +519,37 @@ struct CueEditor: View {
         _cue = State(initialValue: cue); self.duration = duration; self.save = save
     }
     var body: some View {
-        VStack(alignment: .leading, spacing: 18) {
-            Text("Audio Description").font(.title2.bold())
-            HStack {
-                TextField("Start (seconds)", value: $cue.start, format: .number)
-                TextField("End (seconds)", value: $cue.end, format: .number)
+        Form {
+            Section {
+                HStack(alignment: .top, spacing: 28) {
+                    TimecodeInput(label: "Start time", value: $cue.start, range: 0...max(0, duration))
+                    TimecodeInput(label: "End time", value: $cue.end, range: 0...max(0, duration))
+                }
+            } header: {
+                Text("Timing")
+            } footer: {
+                Text("Enter hours, minutes, seconds, and milliseconds. End time must be after start time and within the video.")
             }
-            TextEditor(text: $cue.text).frame(height: 140).border(.quaternary).accessibilityLabel("Description text")
-            Text("Keep narration concise and inside a gap in dialogue. Available time: \(max(0,cue.end-cue.start), specifier: "%.1f") seconds.").font(.caption).foregroundStyle(.secondary)
-            HStack {
-                Spacer(); Button("Cancel", role: .cancel) { dismiss() }.keyboardShortcut(.cancelAction)
-                Button("Save Cue") { save(cue); dismiss() }.keyboardShortcut(.defaultAction)
+            Section {
+                TextEditor(text: $cue.text)
+                    .frame(height: 140)
+                    .accessibilityLabel("Audio description text")
+            } header: {
+                Text("Description")
+            } footer: {
+                Text("Keep narration concise and inside a gap in dialogue. Available time: \(max(0,cue.end-cue.start), specifier: "%.3f") seconds.")
+            }
+            Section {
+                HStack {
+                    Spacer()
+                    Button("Cancel", role: .cancel) { dismiss() }.keyboardShortcut(.cancelAction)
+                    Button("Save Segment") { save(cue); dismiss() }.keyboardShortcut(.defaultAction)
                     .disabled(cue.text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || cue.start < 0 || cue.end <= cue.start || cue.end > duration)
+                }
             }
-        }.padding(24).frame(width: 520)
+        }
+        .formStyle(.grouped)
+        .navigationTitle(cue.text.isEmpty ? "Add Audio Description Segment" : "Edit Audio Description Segment")
+        .frame(width: 720, height: 520)
     }
 }
