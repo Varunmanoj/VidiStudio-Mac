@@ -4,7 +4,7 @@ struct SettingsView: View {
     @Bindable var studio: StudioModel
     @Environment(\.openWindow) private var openWindow
     @State private var saved = false
-    @State private var section = "Appearance"
+    private var section: String { studio.settingsSection }
     private let sections = ["Appearance", "Narration", "Gemini API", "Developer prompts", "Storage", "Help"]
     private let sectionIcons = ["Appearance": "circle.lefthalf.filled", "Narration": "speaker.wave.2", "Gemini API": "sparkles", "Developer prompts": "text.bubble", "Storage": "folder", "Help": "questionmark.circle"]
     private func prompt(_ stage: String, _ key: String) -> Binding<String> {
@@ -12,7 +12,7 @@ struct SettingsView: View {
     }
     var body: some View {
         NavigationSplitView {
-            List(sections, id: \.self, selection: $section) { item in
+            List(sections, id: \.self, selection: $studio.settingsSection) { item in
                 Label(item, systemImage: sectionIcons[item] ?? "gearshape").tag(item)
             }
                 .navigationTitle("Settings")
@@ -44,6 +44,10 @@ struct SettingsView: View {
                     Label("Preview segment text with Apple Speech", systemImage: "text.bubble").tag("device")
                 }
                 Text("Play synthesized narration to hear the saved audio used for timing and exports. Apple Speech previews segment text immediately without creating audio files; seeking or resuming restarts the active segment.").font(.caption).foregroundStyle(.secondary)
+                Toggle("Sound when narration is off", isOn: $studio.settings.soundWhenNarrationOff)
+                Text("Play Boink3 once when entering an AD segment while Narration is off.").font(.caption).foregroundStyle(.secondary)
+                Toggle("Sound when synthesized audio is unavailable", isOn: $studio.settings.soundWhenNarrationMissing)
+                Text("Play ascend when Narration is on and synthesized playback is selected, but the segment's saved audio is missing or outdated. No extra sound accompanies live Apple Speech. Turn both options off for no AD indication sounds.").font(.caption).foregroundStyle(.secondary)
                 if studio.settings.ttsMode == "gemini" {
                     GeminiVoiceBrowser(studio: studio)
                 }

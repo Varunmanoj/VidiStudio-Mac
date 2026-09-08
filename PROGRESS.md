@@ -302,3 +302,33 @@ No tests, build, launch, or listening checks were performed, per the user's manu
 Descriptions and audio-description rows in AD Transcript now show a shared icon and text status: Synchronized audio generated, Synchronized audio needs regeneration, or Synchronized audio not generated. Generated status requires a saved audio file that still exists and matches both the current segment text and narration settings; edited text, changed narration settings, or other stale metadata reports regeneration required. Missing files report not generated. Transcript-only rows do not display an AD audio status.
 
 AD Overview now derives its ready, stale, and missing counts from the same shared resolver, keeping overview totals consistent with row labels. Each visible status combines its Material Symbols icon with explicit text and a unified accessibility label. No tests, build, launch, or UI verification were performed, following the user's manual-testing preference.
+
+### Text-only description generation and required context — 2026-09-08
+
+Confirmed in source that Generate/Regenerate Descriptions invokes only the timed-text video analysis stage; neither that stage nor the analysis pipeline invokes narration synthesis. Added inspector wording explaining the separate Synthesize Narration step. Generated AD results now retain only fresh IDs, text, times, and AI-origin metadata, preventing model-supplied audio paths or stale synthesis fields from marking new text as generated audio.
+
+Description requests now append mandatory project context independently of customizable prompt placeholders: the full transcript, summary, video duration, and dialogue-free ranges computed from merged transcript coverage. Instructions require visual grounding in the attached video, attention to untranscribed speech/important sounds, short text that fits the gap, and non-overlapping segments. Existing engine validation rejects transcript overlaps, AD overlaps, and invalid times before replacement is assigned. Agentic video processing remains governed by the configured processing mode; actual narration duration is checked separately during explicitly requested synthesis.
+
+No tests, builds, launches, or live Gemini requests were performed, per the user's manual-testing preference. Code inspection confirms the routing and validation; live model output and listening quality remain unverified.
+
+### Confirm incomplete narration before video export — 2026-09-08
+
+Export Final Video now rereads the saved project and shows a warning if AD narration is missing/outdated or there are no AD segments. The dialog reports the affected count, explains that unavailable descriptions will be omitted and no narration is synthesized automatically, and offers default Cancel or Export Anyway. Fully generated projects proceed normally.
+
+Only confirmation supplies the engine's new allow-incomplete-narration option. With it, the final video includes current available narration and omits missing/stale audio; a project without any usable narration exports its original soundtrack (or silence for a silent source). Without the option, incomplete narration remains blocked. Existing timing validation and narration-duration checks remain enforced. Narration-only export retains its strict behavior.
+
+No tests, builds, app launches, or exports were run, following the user's manual-testing preference.
+
+### Confirm incomplete narration before audio export — 2026-09-08
+
+Extended the shared incomplete-narration confirmation to Export Narration Audio. Both export commands reread saved segments, show missing/outdated counts, default to Cancel, and pass the explicit incomplete-export flag only after Export Anyway. Audio-specific wording explains that unavailable descriptions are omitted and an export with no usable narration will be silent. The audio export engine now honors that opt-in; normal audio exports still reject missing/stale narration. This supersedes the earlier note that narration-only export is always strict.
+
+Code changes only; no tests, builds, launches, or exports were performed, per the user's manual-testing preference.
+
+### Distinct AD indication sounds and Narration settings routing — 2026-09-08
+
+Bundled the two user-supplied WAV files in VidiStudio/Sounds. Narration settings now have independently persisted, default-enabled switches: Boink3 indicates entering an AD segment with narration disabled; ascend indicates entering a segment with narration enabled and synthesized playback selected but saved audio missing or outdated. Live Apple Speech has no additional cue. Indications do not alter video volume, repeat on periodic playback updates, or create exported audio. Pausing stops the sound; seeking permits a new entry indication. Disabling either option stops its indication, and disabling both silences all such cues.
+
+AD Overview's Voice and Narration Settings action now sets shared settings navigation to Narration before opening the native Settings scene, including when the settings window already exists. Native controls and explicit shared section selection follow the macOS SwiftUI settings guidance.
+
+Code and asset changes only. No tests, builds, app launches, or listening checks were run, as requested.

@@ -277,7 +277,7 @@ struct ProcessingInspector: View {
                     Button("Synthesize Changed Segments", systemImage: "waveform") { studio.execute("synthesize-tts", extra: ["--changed"]) }.disabled(studio.busy)
                     HStack { Button("Undo Segment Edit", systemImage: "arrow.uturn.backward") { studio.execute("undo-cues") }; Button("Redo", systemImage: "arrow.uturn.forward") { studio.execute("redo-cues") } }.disabled(studio.busy)
                     if p.sourceType == "youtube" { Button("Attach Local Video Copy…", systemImage: "paperclip") { studio.attachVideo() }.disabled(studio.busy) }
-                    Text("Run analysis stages in order. Review and edit descriptions before synthesizing narration.").font(.caption).foregroundStyle(.secondary)
+                    Text("Generate Descriptions creates timed text only. Review and edit it, then choose Synthesize Narration to create audio.").font(.caption).foregroundStyle(.secondary)
                     Button("Show Project in Finder", systemImage: "folder") { if let folder = p.folder { NSWorkspace.shared.open(folder) } }
                     if !p.exports.isEmpty {
                         Divider(); Text("Exports").font(.headline)
@@ -687,6 +687,8 @@ struct ProjectEditor: View {
         .onChange(of: playback.time) { _, _ in playback.syncNarration(project, settings: studio.settings) }
         .onChange(of: playback.playing) { _, _ in playback.syncNarration(project, settings: studio.settings) }
         .onChange(of: studio.settings.narrationPlayback) { _, _ in playback.syncNarration(project, settings: studio.settings) }
+        .onChange(of: studio.settings.soundWhenNarrationOff) { _, _ in playback.syncNarration(project, settings: studio.settings) }
+        .onChange(of: studio.settings.soundWhenNarrationMissing) { _, _ in playback.syncNarration(project, settings: studio.settings) }
         .onChange(of: studio.settings.systemVoice) { _, _ in playback.syncNarration(project, settings: studio.settings) }
         .onChange(of: studio.settings.systemSpeechRate) { _, _ in playback.syncNarration(project, settings: studio.settings) }
         .onChange(of: studio.settings.systemSpeechPitch) { _, _ in playback.syncNarration(project, settings: studio.settings) }

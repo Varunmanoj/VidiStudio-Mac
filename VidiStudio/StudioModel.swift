@@ -184,6 +184,8 @@ struct StudioSettings: Codable {
     var followTranscript = true
     var ttsMode = "system"
     var narrationPlayback = "generated"
+    var soundWhenNarrationOff = true
+    var soundWhenNarrationMissing = true
     var systemVoice = ""
     var systemSpeechRate = 1.0
     var systemSpeechPitch = 1.0
@@ -225,6 +227,7 @@ final class StudioModel {
     var projects: [StudioProject] = []
     var selectedID: String? { didSet { UserDefaults.standard.set(selectedID, forKey: "lastProjectID") } }
     var settings = StudioSettings()
+    var settingsSection = "Appearance"
     var busy = false
     var message = "All files stay in your local project folders."
     var progress = 0.0
@@ -499,6 +502,36 @@ final class StudioModel {
         return alert.runModal() == .alertSecondButtonReturn
     }
 
+    private func confirmIncompleteNarrationExport(project: StudioProject, audioOnly: Bool) -> [String]? {
+        var current = project
+        do {
+            guard let folder = project.folder else { return nil }
+            current = try JSONDecoder().decode(StudioProject.self, from: Data(contentsOf: folder.appendingPathComponent("project.json")))
+            current.folder = folder
+        } catch {
+            self.error = "Could not check narration before export: \(error.localizedDescription)"
+            return nil
+        }
+        let missing = current.cues.filter {
+            SynchronizedAudioStatus.resolve(cue: $0, project: current, settingsSignature: settings.narrationSignature) != .generated
+        }
+        guard !missing.isEmpty || current.cues.isEmpty else { return [] }
+        let alert = NSAlert()
+        let exportKind = audioOnly ? "narration audio" : "video"
+        let noAudioExplanation = audioOnly
+            ? " If no usable narration is available, the exported audio will be silent for the video’s duration."
+            : ""
+        alert.messageText = "Export \(exportKind) with incomplete audio descriptions?"
+        alert.informativeText = current.cues.isEmpty
+            ? "This project has no AD segments. Continuing exports \(exportKind) without audio descriptions." + noAudioExplanation
+            : "\(missing.count) of \(current.cues.count) AD segments have missing or outdated narration audio. Continuing exports \(exportKind) with available, up-to-date narration only. Those \(missing.count) descriptions will be omitted from the audio. This does not generate missing narration. Cancel and choose Synthesize Narration to include all descriptions." + noAudioExplanation
+        alert.alertStyle = .warning
+        alert.addButton(withTitle: "Cancel")
+        alert.addButton(withTitle: "Export Anyway")
+        guard alert.runModal() == .alertSecondButtonReturn else { return nil }
+        return ["--allow-incomplete-narration"]
+    }
+
     func execute(_ command: String, extra: [String] = [], project: StudioProject? = nil, configurationURL: URL? = nil, cleanupURL: URL? = nil) {
         guard !busy else { return }
         errorTitle = command == "capture-frame" ? "Read Frame Text Processing" : StudioModel.defaultErrorTitle
@@ -508,6 +541,11 @@ final class StudioModel {
         }
         let target = project ?? (["import-video", "import-youtube", "doctor", "validate-config", "list-models"].contains(command) ? nil : selected)
         if let target, !confirmAnalysisReplacement(command, project: target) { return }
+        var exportOptions: [String] = []
+        if ["export-final-video", "export-audio"].contains(command), let target {
+            guard let options = confirmIncompleteNarrationExport(project: target, audioOnly: command == "export-audio") else { return }
+            exportOptions = options
+        }
         guard let engine = Bundle.main.resourceURL?.appendingPathComponent("Engine/vidistudio-engine"), FileManager.default.isExecutableFile(atPath: engine.path) else {
             let message = "The bundled engine is missing. Reinstall VidiStudio and try again."
             if command == "doctor" { engineCheckStatus = .failed(message) }
@@ -518,7 +556,7 @@ final class StudioModel {
         progress = 0
         message = command == "capture-frame" ? "Processing text from the selected frame…" : command.replacingOccurrences(of: "-", with: " ").capitalized
         let task = Process(); task.executableURL = engine
-        task.arguments = [command] + (target?.folder.map { ["--project", $0.path] } ?? []) + extra
+        task.arguments = [command] + (target?.folder.map { ["--project", $0.path] } ?? []) + extra + exportOptions
         task.environment = ProcessInfo.processInfo.environment.merging(["VIDISTUDIO_CONFIG": (configurationURL ?? StudioSettings.url).path]) { _, new in new }
         let output = Pipe(); task.standardOutput = output
         let stderr = Pipe(); task.standardError = stderr

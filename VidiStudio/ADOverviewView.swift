@@ -2,6 +2,7 @@ import SwiftUI
 
 struct ADOverviewView: View {
     @Bindable var studio: StudioModel
+    @Environment(\.openSettings) private var openSettings
     let project: StudioProject
     private func audioStatus(_ cue: Segment) -> SynchronizedAudioStatus {
         .resolve(cue: cue, project: project, settingsSignature: studio.settings.narrationSignature)
@@ -48,7 +49,10 @@ struct ADOverviewView: View {
                     Button("Generate All AD Audio") { studio.saveSettings(); if studio.error == nil { studio.execute("synthesize-tts") } }
                     Button("Generate Missing or Changed Audio") { studio.saveSettings(); if studio.error == nil { studio.execute("synthesize-tts", extra: ["--changed"]) } }
                 }.disabled(studio.busy || project.cues.isEmpty)
-                SettingsLink { Text("Voice and Narration Settings") }
+                Button("Voice and Narration Settings") {
+                    studio.settingsSection = "Narration"
+                    openSettings()
+                }
                 Text("Both engines save narration in this project for synchronized playback and export. Gemini TTS requires your API key. For narration without creating files, choose on-device playback in Settings → Narration and enable Narration in the editor.").font(.caption).foregroundStyle(.secondary)
             }
         }.formStyle(.grouped)

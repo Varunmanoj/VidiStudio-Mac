@@ -67,6 +67,38 @@ final class PlaybackModel {
     var speechError: String?
     private var narration: AVAudioPlayer?
     private var narrationID: String?
+    private var indicationSound: AVAudioPlayer?
+    private var indicatedSegment: String?
+
+    private func syncIndication(_ project: StudioProject, settings: StudioSettings) {
+        guard let cue = project.cues.first(where: { time >= $0.start && time < $0.end }) else {
+            indicatedSegment = nil
+            indicationSound?.stop()
+            return
+        }
+        let sound: String?
+        if !narrationEnabled {
+            sound = settings.soundWhenNarrationOff ? "Boink3" : nil
+        } else if settings.narrationPlayback == "generated",
+                  settings.soundWhenNarrationMissing,
+                  SynchronizedAudioStatus.resolve(cue: cue, project: project, settingsSignature: settings.narrationSignature) != .generated {
+            sound = "ascend"
+        } else {
+            sound = nil
+        }
+        guard playing else { indicationSound?.stop(); return }
+        // Track entries even when disabled, so toggling a setting mid-segment
+        // does not produce a delayed cue or repeat a cue on pause/resume.
+        let entering = indicatedSegment != cue.id
+        indicatedSegment = cue.id
+        guard let sound else { indicationSound?.stop(); return }
+        guard entering else { return }
+        indicationSound?.stop()
+        guard let url = Bundle.main.url(forResource: sound, withExtension: "wav") else { return }
+        indicationSound = try? AVAudioPlayer(contentsOf: url)
+        indicationSound?.volume = 1
+        indicationSound?.play()
+    }
     private let deviceSpeech = AVSpeechSynthesizer()
     private var deviceCue: String?
     private var deviceTime = 0.0
@@ -98,6 +130,7 @@ final class PlaybackModel {
     }
 
     private func stopNarration() {
+        indicationSound?.stop()
         stopDeviceSpeech()
         narration?.stop(); narrationID = nil
         setNarrationDucking(false)
@@ -114,6 +147,7 @@ final class PlaybackModel {
         }
     }
     func syncNarration(_ project: StudioProject, settings: StudioSettings) {
+        syncIndication(project, settings: settings)
         if settings.narrationPlayback == "device" {
             narration?.stop(); narrationID = nil
             guard narrationEnabled, playing, let cue = project.cues.first(where: { time >= $0.start && time < $0.end }) else { stopDeviceSpeech(); setNarrationDucking(false); return }
@@ -151,6 +185,7 @@ final class PlaybackModel {
         setNarrationDucking(narration?.isPlaying == true)
     }
     func stop() {
+        indicatedSegment = nil
         exitVideoFullScreen()
         stopNarration()
         player.pause()
@@ -184,6 +219,7 @@ final class PlaybackModel {
     }
     func play(from seconds: Double) {
         guard seconds.isFinite else { return }
+        indicatedSegment = nil
         stopNarration()
         time = max(0, seconds)
         if let webView {
@@ -199,6 +235,7 @@ final class PlaybackModel {
     }
     func seek(_ seconds: Double) {
         guard seconds.isFinite else { return }
+        indicatedSegment = nil
         stopNarration()
         time = max(0, seconds)
         if let webView { webView.evaluateJavaScript("player?.seekTo(\(time),true)", completionHandler: nil) }

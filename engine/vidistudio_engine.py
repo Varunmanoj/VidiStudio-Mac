@@ -192,6 +192,8 @@ def ai_video(root, p, stage):
                 uploaded=gemini_adapter.ready_file(client,local(root,p['source']),lambda text:emit(text));uri=uploaded.uri;mime=uploaded.mime_type
             pair=cfg['prompts'][key]
             prompt=parity.render(pair['user_prompt'],p)
+            if stage=='generate-ad-cues':
+                prompt+=parity.description_context(p)
             emit('Generating '+stage)
             raw=gemini_adapter.video_interaction(client,model,uri,mime,prompt,pair.get('system_instruction',''),processing=cfg.get('videoProcessing','agentic') if stage!='transcribe' else 'static')
             if stage=='generate-summary': data={'summary':raw}
@@ -211,10 +213,16 @@ def ai_video(root, p, stage):
         elif stage=='generate-summary':
             p['summary']=data['summary'];atomic_json(root/'metadata/summary.json',data)
         else:
-            cues=data.get('audioDescriptions',data.get('cues',[])) if isinstance(data,dict) else data
-            for c in cues:
-                c['start']=parity.timestamp(c['start']);c['end']=parity.timestamp(c['end'])
-                c['origin']='ai';c['aiOriginalText']=c['text']
+            descriptions=data.get('audioDescriptions',data.get('cues',[])) if isinstance(data,dict) else data
+            if not isinstance(descriptions,list):
+                raise ValueError('Description generation must return a list of timed text segments.')
+            cues=[]
+            for c in descriptions:
+                if not isinstance(c,dict) or not isinstance(c.get('text'),str):
+                    raise ValueError('Every generated description must contain text and valid start/end times.')
+                cues.append(dict(id=str(uuid.uuid4()),start=parity.timestamp(c['start']),
+                                 end=parity.timestamp(c['end']),text=c['text'],
+                                 origin='ai',aiOriginalText=c['text']))
             p['cues']=validate_cues(cues,p['duration'],p['transcript']);atomic_json(root/'audio-description/cues.json',p['cues'])
     finally:
         if uploaded:
@@ -324,10 +332,21 @@ def synthesize(root,p,segment=None,changed=False):
     atomic_json(root/'audio-description/cues.json',cues)
 
 
-def export(root,p,audio_only=False):
+def export(root,p,audio_only=False,allow_incomplete=False):
     cues = validate_cues(p['cues'],p['duration'],p['transcript'])
-    if not cues: raise ValueError('Create and synthesize cues before exporting.')
+    if not cues and not allow_incomplete: raise ValueError('Create and synthesize cues before exporting.')
     signature = narration_signature(config())
+    available=[]
+    for cue in cues:
+        usable=(cue.get('audio') and cue.get('audioText')==cue['text']
+                and cue.get('audioSettings')==signature and local(root,cue['audio']).is_file())
+        if not usable:
+            if not allow_incomplete:
+                raise ValueError('Some descriptions have missing or outdated narration. Synthesize narration or confirm an incomplete export.')
+            emit('Omitting description without up-to-date narration: '+cue['id'],warning=True)
+            continue
+        available.append(cue)
+    cues=available
     args = [tool('ffmpeg'),'-y','-v','error']
     if p.get('source'): args += ['-i',local(root,p['source'])]
     elif audio_only: args += ['-f','lavfi','-i','anullsrc=r=48000:cl=stereo']
@@ -341,6 +360,8 @@ def export(root,p,audio_only=False):
         filters.append(f'[{i}:a]adelay={round(c["start"]*1000)}:all=1[n{i}]'); tracks.append(f'[n{i}]')
     if p.get('hasAudio') and not audio_only:
         filters.append('[0:a]anull[original]'); tracks.insert(0,'[original]')
+    if not tracks:
+        filters.append('anullsrc=r=48000:cl=stereo[silence]');tracks.append('[silence]')
     filters.append(''.join(tracks)+f'amix=inputs={len(tracks)}:duration=longest:normalize=0,alimiter=limit=0.95,apad,atrim=duration={p["duration"]}[mix]')
     relative = 'exports/'+('narration-' if audio_only else 'described-')+time.strftime('%Y%m%d-%H%M%S')+('.m4a' if audio_only else '.mp4')
     output = root/relative
@@ -392,6 +413,7 @@ def main():
     parser.add_argument('--project',type=Path); parser.add_argument('--video',type=Path); parser.add_argument('--library',type=Path); parser.add_argument('--input',type=Path)
     parser.add_argument('--content',choices=['transcript','descriptions','combined'],default='descriptions'); parser.add_argument('--url'); parser.add_argument('--name'); parser.add_argument('--timestamp',type=float,default=0); parser.add_argument('--duration',type=float); parser.add_argument('--segment'); parser.add_argument('--format',choices=['srt','vtt','txt','json'],default='srt'); parser.add_argument('--changed',action='store_true'); parser.add_argument('--start-stage',default='transcribe')
     parser.add_argument('--output', type=Path); parser.add_argument('--text')
+    parser.add_argument('--allow-incomplete-narration',action='store_true',help='Export video or narration audio omitting missing/outdated narration after explicit confirmation.')
     args=parser.parse_args()
     if args.command == 'preview-tts':
         preview_tts(args.output, args.text); return
@@ -439,7 +461,7 @@ def main():
                 if args.command=='generate-ad-cues' and not p['summary']: raise ValueError('Generate the summary first.')
                 ai_video(root,p,args.command)
             elif args.command=='synthesize-tts': synthesize(root,p,args.segment,args.changed)
-            elif args.command=='export-final-video': export(root,p)
+            elif args.command=='export-final-video': export(root,p,allow_incomplete=args.allow_incomplete_narration)
             elif args.command=='save-cues':
                 if not args.input: raise ValueError('--input is required.')
                 cues=validate_cues(json.loads(args.input.read_text()),p['duration'],p['transcript'])
