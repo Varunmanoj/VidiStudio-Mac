@@ -110,7 +110,15 @@ def execute(args,root,p,e):
             result=client.interactions.create(model=model,input=render(pair['user_prompt'],p,text=cue['text'],target_duration=cue['end']-cue['start']),system_instruction=pair['system_instruction'])
             text=gemini_adapter.output_text(result).strip()
             if not text:raise ValueError('Rewrite returned no text.')
-            remember(p);cue['text']=text;p['exports']=[];e.atomic_json(root/'audio-description/cues.json',p['cues'])
+            remember(p)
+            if text != cue['text']:
+                if cue.get('origin') in ('ai','ai_modified'):
+                    cue['origin']='ai_modified'
+                    cue.setdefault('aiOriginalText',cue['text'])
+                else:
+                    cue['origin']='ai'
+                    cue['aiOriginalText']=text
+            cue['text']=text;p['exports']=[];e.atomic_json(root/'audio-description/cues.json',p['cues'])
         finally:client.close()
     elif command=='capture-frame':
         args.timestamp=frame_timestamp(args.timestamp,p['duration'])

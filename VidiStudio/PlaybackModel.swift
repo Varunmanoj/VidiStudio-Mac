@@ -58,14 +58,50 @@ final class PlaybackModel {
             if event.keyCode == 53 { self?.exitVideoFullScreen(); return nil }; return event
         }
     }
-    var playing = false
-    var narrationEnabled = false
+    var playing = false {
+        didSet { if !playing { stopNarration() } }
+    }
+    var narrationEnabled = false {
+        didSet { if !narrationEnabled { stopNarration() } }
+    }
     var speechError: String?
     private var narration: AVAudioPlayer?
     private var narrationID: String?
     private let deviceSpeech = AVSpeechSynthesizer()
     private var deviceCue: String?
     private var deviceTime = 0.0
+    private var unduckedVolume: Float?
+    private var appliedDuckedVolume: Float?
+    private var webVolumeDucked = false
+
+    // Attenuate the soundtrack relative to the user's volume, never the AD voice.
+    private func setNarrationDucking(_ active: Bool) {
+        if let webView {
+            if active != webVolumeDucked {
+                webVolumeDucked = active
+                webView.evaluateJavaScript("setNarrationDucking(\(active ? "true" : "false"))", completionHandler: nil)
+            }
+            return
+        }
+        if active {
+            if unduckedVolume == nil || player.volume != appliedDuckedVolume {
+                unduckedVolume = player.volume
+                appliedDuckedVolume = player.volume * 0.2
+                player.volume = appliedDuckedVolume ?? 0
+            }
+        } else if let original = unduckedVolume {
+            // Respect a volume change made in the player while narration was active.
+            if player.volume == appliedDuckedVolume { player.volume = original }
+            unduckedVolume = nil
+            appliedDuckedVolume = nil
+        }
+    }
+
+    private func stopNarration() {
+        stopDeviceSpeech()
+        narration?.stop(); narrationID = nil
+        setNarrationDucking(false)
+    }
     private func stopDeviceSpeech() {
         deviceSpeech.stopSpeaking(at: .immediate); deviceCue = nil
     }
@@ -80,15 +116,21 @@ final class PlaybackModel {
     func syncNarration(_ project: StudioProject, settings: StudioSettings) {
         if settings.narrationPlayback == "device" {
             narration?.stop(); narrationID = nil
-            guard narrationEnabled, playing, let cue = project.cues.first(where: { time >= $0.start && time < $0.end }) else { stopDeviceSpeech(); return }
-            let identity = cue.id + cue.text + settings.narrationSignature
+            guard narrationEnabled, playing, let cue = project.cues.first(where: { time >= $0.start && time < $0.end }) else { stopDeviceSpeech(); setNarrationDucking(false); return }
+            let identity = cue.id + cue.text + settings.systemSpeechSignature
             if deviceCue != identity || abs(time - deviceTime) > 0.8 {
                 stopDeviceSpeech()
-                deviceSpeech.speak(SystemSpeechUtterance.make(text: cue.text, settings: settings))
                 deviceCue = identity
-                speechError = nil
+                do {
+                    deviceSpeech.speak(try SystemSpeechUtterance.make(text: cue.text, settings: settings))
+                    speechError = nil
+                } catch {
+                    speechError = error.localizedDescription
+                    setNarrationDucking(false)
+                }
             }
             deviceTime = time
+            setNarrationDucking(deviceSpeech.isSpeaking)
             return
         }
         stopDeviceSpeech()
@@ -96,7 +138,7 @@ final class PlaybackModel {
               let cue = project.cues.first(where: { time >= $0.start && time < $0.end }),
               cue.audioText == cue.text, cue.audioSettings == settings.narrationSignature,
               let path = cue.audio, let url = project.url(path) else {
-            narration?.stop(); narrationID = nil; return
+            narration?.stop(); narrationID = nil; setNarrationDucking(false); return
         }
         let offset = max(0, time - cue.start)
         if narrationID != cue.id {
@@ -106,23 +148,23 @@ final class PlaybackModel {
         } else if let narration, abs(narration.currentTime - offset) > 0.4, offset < narration.duration {
             narration.currentTime = offset; narration.play()
         }
+        setNarrationDucking(narration?.isPlaying == true)
     }
     func stop() {
         exitVideoFullScreen()
-        stopDeviceSpeech()
-        narration?.stop(); narrationID = nil
+        stopNarration()
         player.pause()
         if let observer { player.removeTimeObserver(observer); self.observer = nil }
         webView?.evaluateJavaScript("player?.pauseVideo()", completionHandler: nil)
     }
     func togglePlayback() {
+        if playing || player.timeControlStatus == .playing { stopNarration() }
         if let webView { webView.evaluateJavaScript("player && (player.getPlayerState() === 1 ? player.pauseVideo() : player.playVideo())", completionHandler: nil) }
         else if player.timeControlStatus == .playing { player.pause() }
         else { player.play() }
     }
     func pauseAndCaptureTime(_ completion: @escaping (Double) -> Void) {
-        stopDeviceSpeech()
-        narration?.stop(); narrationID = nil
+        stopNarration()
         playing = false
         if let webView {
             webView.evaluateJavaScript("player ? (player.pauseVideo(), player.getCurrentTime()) : null") { [weak self] result, _ in
@@ -142,8 +184,7 @@ final class PlaybackModel {
     }
     func play(from seconds: Double) {
         guard seconds.isFinite else { return }
-        stopDeviceSpeech()
-        narration?.stop(); narrationID = nil
+        stopNarration()
         time = max(0, seconds)
         if let webView {
             webView.evaluateJavaScript("player && (player.seekTo(\(time), true), player.playVideo())", completionHandler: nil)
@@ -158,6 +199,7 @@ final class PlaybackModel {
     }
     func seek(_ seconds: Double) {
         guard seconds.isFinite else { return }
+        stopNarration()
         time = max(0, seconds)
         if let webView { webView.evaluateJavaScript("player?.seekTo(\(time),true)", completionHandler: nil) }
         else { player.seek(to: CMTime(seconds: time, preferredTimescale: 600)) }
@@ -179,6 +221,24 @@ struct YouTubePlayer: NSViewRepresentable {
         guard id.range(of: "^[A-Za-z0-9_-]{11}$", options: .regularExpression) != nil else { return view }
         let html = """
         <!doctype html><html><head><meta name="viewport" content="width=device-width,initial-scale=1"><style>html,body,#player{width:100%;height:100%;margin:0;background:#000}</style></head><body><div id="player"></div><script src="https://www.youtube.com/iframe_api"></script><script>
+        var narrationDucked=false, originalVolume=null, duckedVolume=null;
+        function setNarrationDucking(active){
+            narrationDucked=active;
+            if(!player || !player.getVolume)return;
+            if(active){updateNarrationVolume();}
+            else if(originalVolume!==null){
+                if(Math.abs(player.getVolume()-duckedVolume)<1)player.setVolume(originalVolume);
+                originalVolume=null;duckedVolume=null;
+            }
+        }
+        function updateNarrationVolume(){
+            if(!narrationDucked || !player || !player.getVolume)return;
+            var current=player.getVolume();
+            if(originalVolume===null || Math.abs(current-duckedVolume)>=1){
+                originalVolume=current;duckedVolume=Math.round(current*0.2);player.setVolume(duckedVolume);
+            }
+        }
+        setInterval(updateNarrationVolume,150);
         var player; function onYouTubeIframeAPIReady(){player=new YT.Player('player',{videoId:'\(id)',playerVars:{playsinline:1,origin:'https://accessivideo.pages.dev'},events:{onReady:function(){setInterval(function(){window.webkit.messageHandlers.playback.postMessage({time:player.getCurrentTime(),duration:player.getDuration(),state:player.getPlayerState(),title:player.getVideoData().title || ''});},150);}}});}
         </script></body></html>
         """

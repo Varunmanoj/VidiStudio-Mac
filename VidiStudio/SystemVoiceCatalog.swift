@@ -38,13 +38,23 @@ struct SystemVoice: Identifiable, Sendable {
     }
     func preview(_ voice: SystemVoice, settings: StudioSettings) {
         stop()
-        sampleSynthesizer.speak(SystemSpeechUtterance.make(text: voice.sample, settings: settings, voiceName: voice.name))
+        do {
+            sampleSynthesizer.speak(try SystemSpeechUtterance.make(text: voice.sample, settings: settings, voiceName: voice.name))
+            error = nil
+        } catch { self.error = error.localizedDescription }
     }
     func stop() { sampleSynthesizer.stopSpeaking(at: .immediate) }
 }
 
 enum SystemSpeechUtterance {
-    static func make(text: String, settings: StudioSettings, voiceName: String? = nil) -> AVSpeechUtterance {
+    struct UnavailableVoice: LocalizedError {
+        let name: String
+        var errorDescription: String? {
+            "The selected Apple voice ‘\(name)’ is unavailable for live speech. Choose an installed voice in Settings → Narration, or explicitly choose System default."
+        }
+    }
+
+    static func make(text: String, settings: StudioSettings, voiceName: String? = nil) throws -> AVSpeechUtterance {
         let utterance = AVSpeechUtterance(string: text)
         let scaledRate = AVSpeechUtteranceDefaultSpeechRate * Float(settings.systemSpeechRate)
         utterance.rate = min(max(scaledRate, AVSpeechUtteranceMinimumSpeechRate), AVSpeechUtteranceMaximumSpeechRate)
@@ -52,10 +62,23 @@ enum SystemSpeechUtterance {
         utterance.volume = Float(min(max(settings.systemSpeechVolume, 0), 1.0))
         let requested = (voiceName ?? settings.systemVoice).trimmingCharacters(in: .whitespacesAndNewlines)
         if !requested.isEmpty {
-            let baseName = requested.replacingOccurrences(of: " (Enhanced)", with: "")
-            utterance.voice = AVSpeechSynthesisVoice.speechVoices().first {
-                $0.identifier == requested || $0.name == requested || $0.name == baseName
+            let voices = AVSpeechSynthesisVoice.speechVoices()
+            let normalized = requested.lowercased()
+            let quality: AVSpeechSynthesisVoiceQuality? = normalized.hasSuffix(" (premium)") ? .premium
+                : normalized.hasSuffix(" (enhanced)") ? .enhanced : nil
+            let baseName = requested
+                .replacingOccurrences(of: " (Enhanced)", with: "", options: .caseInsensitive)
+                .replacingOccurrences(of: " (Premium)", with: "", options: .caseInsensitive)
+            let match = voices.first { $0.identifier == requested }
+                ?? voices.first {
+                    ($0.name.caseInsensitiveCompare(requested) == .orderedSame
+                     || $0.name.caseInsensitiveCompare(baseName) == .orderedSame)
+                    && (quality == nil || $0.quality == quality)
+                }
+            guard let match else {
+                throw UnavailableVoice(name: requested)
             }
+            utterance.voice = match
         }
         return utterance
     }

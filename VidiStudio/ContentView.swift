@@ -449,7 +449,7 @@ struct ProjectEditor: View {
                 Button("Close") { studio.screenText = nil }
                 Spacer()
                 Button("Add as Description", systemImage: "text.badge.plus") {
-                    cueToEdit = Segment(id: UUID().uuidString, start: studio.screenTimestamp, end: min(project.duration, studio.screenTimestamp + 3), text: studio.screenText ?? "")
+                    cueToEdit = Segment(id: UUID().uuidString, start: studio.screenTimestamp, end: min(project.duration, studio.screenTimestamp + 3), text: studio.screenText ?? "", origin: "ai", aiOriginalText: studio.screenText)
                     studio.screenText = nil
                 }
                 .disabled(studio.screenText?.isEmpty != false)
@@ -569,10 +569,19 @@ struct ProjectEditor: View {
                                     }
                                     .foregroundStyle(row.color)
                                 }
+                                if row.isDescription {
+                                    DescriptionOriginLabel(origin: cue.provenance)
+                                    SynchronizedAudioStatusLabel(
+                                        status: .resolve(
+                                            cue: cue,
+                                            project: project,
+                                            settingsSignature: studio.settings.narrationSignature
+                                        )
+                                    )
+                                }
                                 Text(cue.text).textSelection(.enabled)
                             }.frame(maxWidth: .infinity, alignment: .leading)
                             if tab == "descriptions" {
-                                if cue.audio != nil && cue.audioText == cue.text && cue.audioSettings == studio.settings.narrationSignature { Image(systemName: "waveform.circle.fill").foregroundStyle(.green).accessibilityLabel("Narration ready") }
                                 Button("Edit", systemImage: "pencil") { cueToEdit = cue }.labelStyle(.iconOnly).disabled(studio.busy)
                                 Menu {
                                     if let audio = cue.audio, let url = project.url(audio) { Button("Preview Narration", systemImage: "play.circle") { audioPreview = try? AVAudioPlayer(contentsOf: url); audioPreview?.play() } }
@@ -700,7 +709,8 @@ struct ProjectEditor: View {
                 id: UUID().uuidString,
                 start: start,
                 end: min(start + 3, project.duration),
-                text: ""
+                text: "",
+                origin: "manual"
             )
         }
     }
@@ -900,13 +910,25 @@ private struct TimecodeInput: View {
     }
 
     private func timePart(_ name: String, value: Binding<Int>, width: CGFloat, digits: Int) -> some View {
-        TextField(name, value: value, format: .number.precision(.integerLength(digits)))
-            .textFieldStyle(.roundedBorder)
-            .labelsHidden()
-            .multilineTextAlignment(.trailing)
+        let bounds = name == "Hours" ? 0...99 : name == "Milliseconds" ? 0...999 : 0...59
+        return Stepper(value: value, in: bounds, step: 1) {
+            Text(value.wrappedValue, format: .number.precision(.integerLength(digits)))
+                .frame(maxWidth: .infinity, alignment: .trailing)
+        }
             .monospacedDigit()
             .frame(width: width)
+            .focusable()
+            .onKeyPress(.upArrow) {
+                value.wrappedValue = min(bounds.upperBound, value.wrappedValue + 1)
+                return .handled
+            }
+            .onKeyPress(.downArrow) {
+                value.wrappedValue = max(bounds.lowerBound, value.wrappedValue - 1)
+                return .handled
+            }
             .accessibilityLabel("\(label) \(name.lowercased())")
+            .accessibilityValue(String(value.wrappedValue))
+            .help("Use Up Arrow or Down Arrow to change \(name.lowercased()) by one")
     }
 
     private func unitHeading(_ name: String, width: CGFloat) -> some View {
@@ -1045,6 +1067,8 @@ struct CueEditor: View {
                 frameTextStatus = "No readable text was found at the segment start time."
             } else {
                 cue.text = text
+                cue.origin = "ai"
+                cue.aiOriginalText = text
                 frameTextStatus = "Screen text added to the description."
             }
             capturedScreenText = nil

@@ -46,7 +46,10 @@ struct SettingsView: View {
                 Text("Play synthesized narration to hear the saved audio used for timing and exports. Apple Speech previews segment text immediately without creating audio files; seeking or resuming restarts the active segment.").font(.caption).foregroundStyle(.secondary)
                 if studio.settings.ttsMode == "gemini" {
                     GeminiVoiceBrowser(studio: studio)
-                } else {
+                }
+                if studio.settings.ttsMode != "gemini" || studio.settings.narrationPlayback == "device" {
+                    Text("Live Apple Speech uses the Apple voice, speech rate, pitch, and volume below, including when Gemini is selected for generating saved narration.")
+                        .font(.caption).foregroundStyle(.secondary)
                     GroupBox("Voice controls") {
                         VStack(alignment: .leading, spacing: 14) {
                             speechSlider("Speech rate", value: $studio.settings.systemSpeechRate, range: 0.5...2.0)

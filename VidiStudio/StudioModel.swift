@@ -12,6 +12,105 @@ struct Segment: Codable, Identifiable, Hashable {
     var audioText: String?
     var audioDuration: Double?
     var audioSettings: String?
+    var origin: String?
+    var aiOriginalText: String?
+
+    var provenance: DescriptionOrigin { DescriptionOrigin(rawValue: origin ?? "") ?? .unknown }
+}
+
+enum DescriptionOrigin: String, CaseIterable {
+    case ai, aiModified = "ai_modified", manual, unknown
+
+    var title: String {
+        switch self {
+        case .ai: return "AI-generated"
+        case .aiModified: return "AI-generated · modified"
+        case .manual: return "Manually added"
+        case .unknown: return "Origin unknown"
+        }
+    }
+    var glyph: String {
+        switch self {
+        case .ai: return "\u{e65f}"
+        case .aiModified: return "\u{e3c9}"
+        case .manual: return "\u{e7fe}"
+        case .unknown: return "\u{e887}"
+        }
+    }
+    var color: Color {
+        switch self {
+        case .ai: return .purple
+        case .aiModified: return .orange
+        case .manual: return .blue
+        case .unknown: return .secondary
+        }
+    }
+}
+
+struct DescriptionOriginLabel: View {
+    let origin: DescriptionOrigin
+    var body: some View {
+        HStack(spacing: 5) {
+            MaterialIcon(glyph: origin.glyph)
+            Text(origin.title).font(.caption.weight(.semibold))
+        }
+        .foregroundStyle(origin.color)
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel("Description origin: \(origin.title)")
+    }
+}
+
+enum SynchronizedAudioStatus: Equatable {
+    case generated, needsRegeneration, notGenerated
+
+    static func resolve(cue: Segment, project: StudioProject, settingsSignature: String) -> Self {
+        guard let path = cue.audio,
+              let url = project.url(path),
+              FileManager.default.fileExists(atPath: url.path) else {
+            return .notGenerated
+        }
+        return cue.audioText == cue.text && cue.audioSettings == settingsSignature
+            ? .generated
+            : .needsRegeneration
+    }
+
+    var title: String {
+        switch self {
+        case .generated: return "Synchronized audio generated"
+        case .needsRegeneration: return "Synchronized audio needs regeneration"
+        case .notGenerated: return "Synchronized audio not generated"
+        }
+    }
+
+    var glyph: String {
+        switch self {
+        case .generated: return "\u{e86c}"
+        case .needsRegeneration: return "\u{e629}"
+        case .notGenerated: return "\u{e1b8}"
+        }
+    }
+
+    var color: Color {
+        switch self {
+        case .generated: return .green
+        case .needsRegeneration: return .orange
+        case .notGenerated: return .secondary
+        }
+    }
+}
+
+struct SynchronizedAudioStatusLabel: View {
+    let status: SynchronizedAudioStatus
+
+    var body: some View {
+        HStack(spacing: 5) {
+            MaterialIcon(glyph: status.glyph)
+            Text(status.title).font(.caption.weight(.semibold))
+        }
+        .foregroundStyle(status.color)
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel(status.title)
+    }
 }
 struct GeminiModelOption: Identifiable, Hashable {
     let name: String
@@ -99,6 +198,10 @@ struct StudioSettings: Codable {
         if ttsMode == "gemini" {
             return "gemini|\(geminiVoice)|\(models["tts_audio"] ?? "")"
         }
+        return systemSpeechSignature
+    }
+
+    var systemSpeechSignature: String {
         return String(
             format: "system|%@|%.3f|%.3f|%.3f",
             locale: Locale(identifier: "en_US_POSIX"),

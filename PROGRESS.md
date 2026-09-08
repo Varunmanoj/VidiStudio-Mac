@@ -268,3 +268,37 @@ Validation: `script/build_and_run.sh --verify` completed with `BUILD SUCCEEDED`,
 Replaced the zero-height `VSplitView` collapse state, which left the editor controls in the accessibility hierarchy but visually clipped them above the window. The preview now stays mounted inside a persistent vertical layout and collapses to zero without moving the editor. The section picker, in-place Show Preview button, playback/editor controls, contextual Generate or Regenerate action, Add Segment when applicable, and the segment list remain visibly aligned from the top. The replacement preview divider remains pointer-draggable and exposes an adjustable Resize video preview control to VoiceOver.
 
 Validation: `script/build_and_run.sh --verify` completed with `BUILD SUCCEEDED`, and `git diff --check` passed. A screenshot of the rebuilt app with the preview hidden visibly showed the Transcript controls and Regenerate Transcript across the top with transcript rows directly underneath; the video and timeline were absent. Show Preview restored the native video and timeline. The accessible divider successfully adjusted from 413 to 453 points and back. No project content or processing action was changed.
+
+### Description origin labels and counts — 2026-09-08
+
+Added persisted origin metadata to AD segments and shared Material Symbols icon/text labels in Descriptions and AD Transcript. Categories are AI-generated, AI-generated · modified, Manually added, and Origin unknown. AD Overview shows separate counts for each category with the same icons and accessible labels. Legacy segments without provenance remain unknown rather than being inferred from IDs or narration files.
+
+AI generation and frame-text capture record AI origin. Saving changes to an existing AI segment's text or timing marks it modified; manual edits retain manual origin. New frame-text descriptions edited before first save are marked modified using the captured text baseline. Rewrite to Fit marks known AI descriptions modified and records newly AI-rewritten manual/unknown text as AI-generated. Existing undo/redo snapshots preserve the metadata alongside other segment fields.
+
+Per the user's explicit instruction, no tests, build, launch, or UI verification were performed for this change. The user will test manually; the running app must be rebuilt to include these changes.
+
+### Video volume reduction during narration — 2026-09-08
+
+Added soundtrack ducking for saved narration playback and live Apple Speech. While narration is playing, the native video's volume is reduced to 20% of the user's selected volume; the original volume is restored when narration ends, the cue ends, playback pauses, narration is disabled, seeking occurs, or the editor stops playback. Missing/nonplaying narration does not trigger ducking. Volume changes made during narration are retained as the new baseline, and mute state is untouched. The YouTube player uses the same relative reduction and restoration through its JavaScript player controls. Existing playback-position updates check actual narration playback/speech state, including completion before the segment end.
+
+Code changes only, following the user's manual-testing preference: no tests, builds, app launches, or listening checks were performed. Rebuild before manually checking both narration modes.
+
+### Time component steppers — 2026-09-08
+
+Replaced the Add/Edit Segment start/end time text fields with native numeric steppers for hours, minutes, seconds, and milliseconds. Values retain leading zeros and aligned unit headings. Each focused control handles Up/Down Arrow to increment/decrement by one and exposes its start/end unit label and numeric value to accessibility. Hours are bounded to 0–99, minutes/seconds to 0–59, and milliseconds to 0–999, with the existing video bounds and timing validation preserved.
+
+Code changes only. No tests, builds, launches, or UI verification were performed, per the user's manual-testing preference.
+
+### Live Apple Speech settings fidelity — 2026-09-08
+
+Source inspection confirmed live speech already applies the configured Apple speech rate, pitch, and volume. Fixed silent default-voice fallback: voice resolution now prioritizes exact identifiers and respects Enhanced/Premium quality when matching names. An unavailable selected voice reports a visible error instead of speaking with an unrelated default voice; the system default is used only when explicitly selected. Settings voice samples share the same resolution and error behavior.
+
+Live playback now keys utterances on the Apple settings signature independently of the saved-audio engine, so changing Apple voice/rate/pitch/volume restarts the active narration even when Gemini is selected for synthesis. Settings exposes Apple voice controls whenever live Apple playback is selected, including alongside Gemini synthesis settings, with an explanation of which settings apply. Speech volume continues to use the configured 0–1 value (default 1); soundtrack ducking is separate.
+
+No tests, build, launch, or listening checks were performed, per the user's manual-testing preference. Findings are based on code inspection, not confirmation of the specific voice heard on the user's Mac.
+
+### Per-segment synchronized audio status — 2026-09-08
+
+Descriptions and audio-description rows in AD Transcript now show a shared icon and text status: Synchronized audio generated, Synchronized audio needs regeneration, or Synchronized audio not generated. Generated status requires a saved audio file that still exists and matches both the current segment text and narration settings; edited text, changed narration settings, or other stale metadata reports regeneration required. Missing files report not generated. Transcript-only rows do not display an AD audio status.
+
+AD Overview now derives its ready, stale, and missing counts from the same shared resolver, keeping overview totals consistent with row labels. Each visible status combines its Material Symbols icon with explicit text and a unified accessibility label. No tests, build, launch, or UI verification were performed, following the user's manual-testing preference.

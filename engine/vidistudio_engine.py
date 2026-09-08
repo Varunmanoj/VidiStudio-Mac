@@ -84,6 +84,24 @@ def save(root, p):
     atomic_json(root / 'project.json', p)
 
 
+def track_cue_origins(cues, previous):
+    """Keep provenance across saves without guessing the origin of legacy cues."""
+    existing = {cue['id']: cue for cue in previous}
+    for cue in cues:
+        old = existing.get(cue['id'])
+        if old:
+            changed = any(cue.get(key) != old.get(key) for key in ('text', 'start', 'end'))
+            if old.get('origin') in ('ai', 'ai_modified'):
+                cue['origin'] = 'ai_modified' if changed or old['origin'] == 'ai_modified' else 'ai'
+            elif cue.get('origin') != 'ai' or not cue.get('aiOriginalText'):
+                cue['origin'] = old.get('origin', 'unknown')
+        else:
+            cue.setdefault('origin', 'manual')
+        if cue.get('origin') == 'ai' and cue.get('aiOriginalText') is not None and cue['text'] != cue['aiOriginalText']:
+            cue['origin'] = 'ai_modified'
+    return cues
+
+
 def validate_cues(cues, duration, transcript=()):
     previous = 0.0
     ids = set()
@@ -194,7 +212,9 @@ def ai_video(root, p, stage):
             p['summary']=data['summary'];atomic_json(root/'metadata/summary.json',data)
         else:
             cues=data.get('audioDescriptions',data.get('cues',[])) if isinstance(data,dict) else data
-            for c in cues: c['start']=parity.timestamp(c['start']);c['end']=parity.timestamp(c['end'])
+            for c in cues:
+                c['start']=parity.timestamp(c['start']);c['end']=parity.timestamp(c['end'])
+                c['origin']='ai';c['aiOriginalText']=c['text']
             p['cues']=validate_cues(cues,p['duration'],p['transcript']);atomic_json(root/'audio-description/cues.json',p['cues'])
     finally:
         if uploaded:
@@ -422,7 +442,8 @@ def main():
             elif args.command=='export-final-video': export(root,p)
             elif args.command=='save-cues':
                 if not args.input: raise ValueError('--input is required.')
-                cues=validate_cues(json.loads(args.input.read_text()),p['duration'],p['transcript']);parity.remember(p);p['cues']=cues
+                cues=validate_cues(json.loads(args.input.read_text()),p['duration'],p['transcript'])
+                track_cue_origins(cues,p['cues']);parity.remember(p);p['cues']=cues
                 p['exports']=[]
                 atomic_json(root/'audio-description/cues.json',p['cues'])
             elif args.command in parity.COMMANDS: parity.execute(args,root,p,core)
