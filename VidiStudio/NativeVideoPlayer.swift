@@ -5,9 +5,11 @@ import AVKit
 /// and lets the video resize without imposing its pixel dimensions on the window.
 struct NativeVideoPlayer: NSViewRepresentable {
     let player: AVPlayer
+    var playback: PlaybackModel? = nil
     func makeNSView(context: Context) -> PlayerSurface {
         let view = PlayerSurface()
         view.player = player
+        playback?.videoSurface = view
         view.controlsStyle = .floating
         view.showsFullScreenToggleButton = true
         view.videoGravity = .resizeAspect
@@ -22,9 +24,12 @@ struct NativeVideoPlayer: NSViewRepresentable {
     }
     static func dismantleNSView(_ view: PlayerSurface, coordinator: ()) { view.player = nil }
 }
-final class PlayerSurface: AVPlayerView {
+final class PlayerSurface: AVPlayerView, FullScreenVideoSizing {
+    var fullScreenFrame: NSRect?
+    override var frame: NSRect { get { super.frame } set { super.frame = fullScreenFrame ?? newValue } }
     override func viewDidMoveToWindow() {
         super.viewDidMoveToWindow()
+        guard fullScreenFrame == nil else { return }
         guard let window, let screen = window.screen else { return }
         let visible = screen.visibleFrame
         var frame = window.frame

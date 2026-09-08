@@ -3,12 +3,16 @@ import AppKit
 
 struct WindowFitter: NSViewRepresentable {
     func makeNSView(context: Context) -> FittingView { FittingView() }
-    func updateNSView(_ view: FittingView, context: Context) {}
+    func updateNSView(_ view: FittingView, context: Context) { view.fitWindow() }
     final class FittingView: NSView {
         override func viewDidMoveToWindow() {
             super.viewDidMoveToWindow()
+            fitWindow()
+        }
+        func fitWindow() {
             DispatchQueue.main.async { [weak self] in
                 guard let window = self?.window, let screen = window.screen ?? NSScreen.main else { return }
+                if window.styleMask.contains(.fullScreen) { return }
                 let available = screen.visibleFrame
                 if !available.contains(window.frame) {
                     var frame = window.frame

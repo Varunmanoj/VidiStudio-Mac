@@ -74,16 +74,20 @@ struct SettingsView: View {
                 TextField("Project library", text: $studio.settings.libraryPath)
                 TextField("FFmpeg override", text: $studio.settings.ffmpegPath)
                 TextField("FFprobe override", text: $studio.settings.ffprobePath)
+                Button("Check Engine") { studio.execute("doctor") }.disabled(studio.busy)
             }
             }
-            HStack {
-                Button("Save Settings") { studio.saveSettings(); saved = studio.error == nil }.keyboardShortcut("s")
-                Button("Check Engine") { studio.execute("doctor") }
-                if saved { Label("Saved", systemImage: "checkmark.circle.fill") }
-            }.disabled(studio.busy)
             Text("API credentials are saved outside projects with owner-only file permissions.").font(.caption).foregroundStyle(.secondary)
         }.formStyle(.grouped).navigationTitle(section)
-        }.frame(minWidth: 850, idealWidth: 940, minHeight: 650, idealHeight: 740)
+        }
+        .background(SettingsWindowChrome().frame(width: 0, height: 0))
+        .navigationSplitViewStyle(.balanced)
+        .toolbar {
+            ToolbarItem(placement: .primaryAction) {
+                Button("Save Settings") { studio.saveSettings(); saved = studio.error == nil }.keyboardShortcut("s").disabled(studio.busy)
+            }
+        }
+        .frame(minWidth: 850, idealWidth: 940, minHeight: 650, idealHeight: 740)
         .onChange(of: section) { _, _ in saved = false }
         .preferredColorScheme(studio.settings.theme == "dark" ? .dark : studio.settings.theme == "light" ? .light : nil)
     }

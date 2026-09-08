@@ -54,9 +54,11 @@ def execute(args,root,p,e):
         return
     if command=='import-youtube':
         if not args.url or not args.library: raise ValueError('YouTube import requires --url and --library.')
-        url=youtube_url(args.url);ident=url.split('=')[-1];name=args.name or 'YouTube '+ident
+        url=youtube_url(args.url);ident=url.split('=')[-1];name=args.name or 'YouTube video'
         try:
-            with urlopen('https://www.youtube.com/oembed?format=json&url='+url,timeout=10,context=ssl.create_default_context(cafile=certifi.where())) as r:name=json.load(r).get('title',name)
+            with urlopen('https://www.youtube.com/oembed?format=json&url='+url,timeout=10,context=ssl.create_default_context(cafile=certifi.where())) as r:
+                title=str(json.load(r).get('title') or '').strip()
+                if title and not args.name:name=title[:200]
         except Exception:pass
         root=args.library.resolve()/('YouTube-'+ident+'-'+uuid.uuid4().hex[:8])
         for folder in ('source','metadata','thumbnails','transcript','audio-description','exports'):(root/folder).mkdir(parents=True,exist_ok=True)
@@ -68,6 +70,8 @@ def execute(args,root,p,e):
         for stage in stages[stages.index(args.start_stage):]:
             p['status']='Processing '+stage;e.save(root,p);e.ai_video(root,p,stage);e.save(root,p)
     elif command=='update-metadata':
+        if args.name and args.name.strip() and (p.get('name') in ('YouTube video','YouTube Project') or p.get('name') == 'YouTube '+p.get('youtubeURL','').split('=')[-1]):
+            p['name']=args.name.strip()[:200]
         if args.duration is not None:
             if not math.isfinite(args.duration) or args.duration<=0:raise ValueError('Duration must be positive.')
             p['duration']=args.duration

@@ -9,7 +9,7 @@ struct VidiStudioApp: App {
                 .frame(minWidth: 1000, minHeight: 680)
         }
         .defaultSize(width: 1200, height: 780)
-        .windowToolbarStyle(.unified)
+        .windowToolbarStyle(.unifiedCompact)
         .commands {
             CommandGroup(replacing: .newItem) {
                 Button("Import Video…") { studio.importVideo() }.keyboardShortcut("n").disabled(studio.busy)
@@ -18,6 +18,6 @@ struct VidiStudioApp: App {
         }
         .commands { StudioCommands() }
         Window("VidiStudio Help", id: "help") { StudioHelpView() }.defaultSize(width: 740, height: 650)
-        Settings { SettingsView(studio: studio) }
+        Settings { SettingsView(studio: studio) }.windowToolbarStyle(.unifiedCompact)
     }
 }

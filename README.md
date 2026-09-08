@@ -81,3 +81,7 @@ For playback, choose generated audio or on-device speech without audio files, th
 ### Voice samples in Settings
 
 Settings → Narration shows samples for the selected speech engine. Apple voices offer Play Selected Voice (including the system default), individual Speak Sample buttons, and Stop Sample. Gemini offers the online voice list plus a custom voice ID, editable sample text, Play Voice Sample, Stop Sample, and Cancel Generation. Gemini previews use current unsaved settings through an owner-only temporary config; they do not change projects or save settings. Samples are cached within the Settings session and removed when leaving the Gemini section. Changing voice or sample stops playback. A Gemini API key is required; requests use the configured TTS model and prompt.
+
+### Preview workspace
+
+Use Show/Hide Preview in the editor or Command+Shift+V to collapse the video and timeline while keeping the player loaded. Full-Screen Video (Command+Option+F) presents the video separately from the editor; Escape restores it. Both controls are also in the Playback menu and keyboard reference.

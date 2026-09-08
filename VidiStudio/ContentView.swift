@@ -28,9 +28,9 @@ struct ContentView: View {
                     }
                 }
             }
-            .searchable(text: $search, prompt: "Search projects")
+            .searchable(text: $search, placement: .sidebar, prompt: "Search projects")
             .navigationTitle("VidiStudio")
-            .navigationSplitViewColumnWidth(min: 210, ideal: 240)
+            .navigationSplitViewColumnWidth(min: 200, ideal: 240, max: 300)
             .safeAreaInset(edge: .bottom) {
                 HStack { Label("On this Mac", systemImage: "internaldrive"); Spacer(); SettingsLink { Image(systemName: "gearshape") }.help("Settings").accessibilityLabel("Settings") }
                     .font(.caption).foregroundStyle(.secondary).padding()
@@ -49,6 +49,7 @@ struct ContentView: View {
                 }
             }
         }
+        .navigationSplitViewStyle(.balanced)
         .background(WindowFitter().frame(width: 0, height: 0))
         .preferredColorScheme(studio.settings.theme == "dark" ? .dark : studio.settings.theme == "light" ? .light : nil)
         .sheet(isPresented: $renaming) {
@@ -74,11 +75,11 @@ struct ContentView: View {
         }
         .inspector(isPresented: $showInspector) { ProcessingInspector(studio: studio).inspectorColumnWidth(min: 240, ideal: 270, max: 350) }
         .toolbar {
-            ToolbarItem { Button("Import Video", systemImage: "plus") { studio.importVideo() }.disabled(studio.busy) }
-            ToolbarItem { Button("YouTube Project", systemImage: "link") { importYouTube = true }.disabled(studio.busy) }
-            ToolbarItem { Button("Open Project", systemImage: "folder") { studio.openProject() }.disabled(studio.busy) }
-            ToolbarSpacer(.fixed)
-            ToolbarItem { Button("Show Inspector", systemImage: "sidebar.right") { showInspector.toggle() } }
+            ToolbarItem(placement: .primaryAction) { Button("Import Video", systemImage: "plus") { studio.importVideo() }.disabled(studio.busy) }
+            ToolbarItem(placement: .primaryAction) { Button("YouTube Project", systemImage: "link") { importYouTube = true }.disabled(studio.busy) }
+            ToolbarItem(placement: .primaryAction) { Button("Open Project", systemImage: "folder") { studio.openProject() }.disabled(studio.busy) }
+            ToolbarSpacer(.fixed, placement: .primaryAction)
+            ToolbarItem(placement: .primaryAction) { Button(showInspector ? "Hide Inspector" : "Show Inspector", systemImage: "sidebar.right") { showInspector.toggle() } }
         }
         .safeAreaInset(edge: .bottom) {
             HStack(spacing: 12) {
@@ -152,6 +153,8 @@ struct ProjectEditor: View {
     @State private var playback = PlaybackModel()
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @State private var tab = "descriptions"
+    @State private var requestedTitle = ""
+    @State private var previewHidden = false
     @State private var cueToEdit: Segment?
     @State private var audioPreview: AVAudioPlayer?
     var body: some View {
@@ -159,16 +162,23 @@ struct ProjectEditor: View {
             VStack(spacing: 0) {
                 Group {
                     if let url = project.youtubeURL, project.source.isEmpty { YouTubePlayer(url: url, playback: playback) }
-                    else { NativeVideoPlayer(player: playback.player) }
-                }.frame(minWidth: 0, idealWidth: 700, maxWidth: .infinity, minHeight: 220, idealHeight: 340, maxHeight: .infinity).background(.black)
-                TimelineView(project: project, playback: playback)
-            }.frame(minHeight: 310)
+                    else { NativeVideoPlayer(player: playback.player, playback: playback) }
+                }.frame(minWidth: 0, idealWidth: 700, maxWidth: .infinity, minHeight: previewHidden ? 0 : 220, idealHeight: previewHidden ? 0 : 340, maxHeight: previewHidden ? 0 : .infinity).background(.black)
+                TimelineView(project: project, playback: playback).frame(height: previewHidden ? 0 : nil).clipped()
+            }.frame(minHeight: previewHidden ? 0 : 310, maxHeight: previewHidden ? 0 : .infinity).clipped().accessibilityHidden(previewHidden).allowsHitTesting(!previewHidden)
             VStack(spacing: 0) {
                 HStack {
                     Picker("Editor section", selection: $tab) {
                         Text("Descriptions").tag("descriptions"); Text("Transcript").tag("transcript"); Text("Summary").tag("summary"); Text("AD Transcript").tag("ad-transcript"); Text("AD Overview").tag("ad-overview")
-                    }.pickerStyle(.menu).frame(maxWidth: 240)
+                    }.pickerStyle(.menu).labelsHidden().frame(maxWidth: 200)
                     Spacer()
+                    Button(previewHidden ? "Show Preview" : "Hide Preview", systemImage: previewHidden ? "video" : "video.slash") {
+                        playback.exitVideoFullScreen(); previewHidden.toggle()
+                    }.labelStyle(.iconOnly).help(previewHidden ? "Show video preview" : "Hide video preview to focus on editing")
+                    Button("Full-Screen Video", systemImage: "arrow.up.left.and.arrow.down.right") {
+                        previewHidden = false
+                        DispatchQueue.main.async { playback.toggleVideoFullScreen() }
+                    }.labelStyle(.iconOnly).help("View video full screen; press Escape to return")
                     Button("Read Frame Text", systemImage: "text.viewfinder") { studio.execute("capture-frame", extra: ["--timestamp", String(playback.time)]) }.labelStyle(.iconOnly).help("Extract text from the current video frame").disabled(studio.busy)
                     Toggle("Narration", isOn: $playback.narrationEnabled).toggleStyle(.button).help("Play generated descriptions in sync with video")
                     Toggle("Follow", isOn: $studio.settings.followTranscript).toggleStyle(.button).help("Follow the active transcript or description")
@@ -178,7 +188,7 @@ struct ProjectEditor: View {
                             cueToEdit = Segment(id: UUID().uuidString, start: start, end: min(start+3,project.duration), text: "")
                         }.disabled(studio.busy)
                     }
-                }.padding(12)
+                }.controlSize(.small).padding(12)
                 if let error = playback.speechError { Text(error).foregroundStyle(.red).padding(8) }
                 Divider()
                 if tab == "ad-overview" {
@@ -221,6 +231,10 @@ struct ProjectEditor: View {
         }
         .focusedSceneValue(\.editorShortcuts, shortcutsBlocked || studio.busy || cueToEdit != nil || studio.screenText != nil ? nil : EditorShortcutActions(run: { action in
             switch action {
+            case "preview": playback.exitVideoFullScreen(); previewHidden.toggle()
+            case "fullscreen":
+                previewHidden = false
+                DispatchQueue.main.async { playback.toggleVideoFullScreen() }
             case "play": playback.togglePlayback()
             case "back": playback.seek(max(0, playback.time - 5))
             case "forward": playback.seek(min(project.duration, playback.time + 5))
@@ -236,6 +250,18 @@ struct ProjectEditor: View {
             }
         }))
         .navigationTitle(project.name)
+        .onChange(of: studio.busy) { _, busy in
+            if !busy, !playback.videoTitle.isEmpty, requestedTitle != playback.videoTitle, project.name == "YouTube video" || project.name == "YouTube Project" || project.name == "YouTube " + (project.youtubeURL?.components(separatedBy: "v=").last ?? "") {
+                requestedTitle = playback.videoTitle
+                studio.execute("update-metadata", extra: ["--name", playback.videoTitle])
+            }
+        }
+        .onChange(of: playback.videoTitle) { _, title in
+            if !studio.busy, !title.isEmpty, requestedTitle != title, project.name == "YouTube video" || project.name == "YouTube Project" || project.name == "YouTube " + (project.youtubeURL?.components(separatedBy: "v=").last ?? "") {
+                requestedTitle = title
+                studio.execute("update-metadata", extra: ["--name", title])
+            }
+        }
         .onChange(of: playback.duration) { _, duration in
             if !studio.busy, duration > 0, abs(duration - project.duration) > 0.5 { studio.execute("update-metadata", extra: ["--duration", String(duration)]) }
         }
