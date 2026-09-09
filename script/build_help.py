@@ -7,9 +7,10 @@ import pathlib
 import plistlib
 import re
 import subprocess
+import shutil
 
 ROOT = pathlib.Path(__file__).resolve().parents[1]
-BOOK_ID = "Varunmanojkumar.VidiStudio.help"
+BOOK_ID = "Varunmanojkumar.VidiStudio.help.v2"
 TOPICS = [
     ("welcome", "Welcome to VidiStudio"),
     ("first-project", "Create your first described video"),
@@ -61,14 +62,41 @@ def keyboard():
 
 CSS = """html{color-scheme:light dark;font:17px/1.6 -apple-system,BlinkMacSystemFont,sans-serif}body{margin:0;color:light-dark(#202124,#ededf0);background:light-dark(#fff,#1c1c1e)}a{color:light-dark(#005bbb,#80baff)}a:focus-visible,input:focus-visible{outline:3px solid #e89c23;outline-offset:4px}header{padding:1rem 2rem;border-bottom:1px solid #8885}header a{font-weight:700;text-decoration:none}.layout{display:grid;grid-template-columns:260px minmax(0,800px);max-width:1120px;margin:auto}nav{padding:1.5rem}nav ol{padding-left:1.2rem}nav li{margin:.5rem 0}nav a[aria-current=page]{font-weight:700}main{padding:2rem;min-width:0}h1{font-size:2.3rem;line-height:1.15;letter-spacing:-.04em}h2{font-size:1.35rem;margin-top:2rem}h3{font-size:1.1rem}dt{font-weight:650;margin-top:1rem}dd{margin-left:0}li{margin:.6rem 0}table{border-collapse:collapse;width:100%;font-size:.93rem}td,th{text-align:left;vertical-align:top;padding:.7rem;border-bottom:1px solid #8885}caption{text-align:left;font-weight:700;margin:1rem 0}.pager{display:flex;justify-content:space-between;gap:2rem;border-top:1px solid #8885;margin-top:3rem;padding-top:1rem}.skip{position:absolute;left:-9999px}.skip:focus{left:1rem;background:Canvas;padding:1rem;z-index:1}.collection{padding:1rem;border:1px solid #8885;border-radius:12px;margin:1rem 0}.collection a{font-size:1.15rem;font-weight:600}footer{font-size:.8rem;color:light-dark(#54545a,#bbb);margin-top:2rem}@media(max-width:760px){.layout{display:block}nav{border-bottom:1px solid #8885}main{padding:1.25rem}h1{font-size:2rem}}"""
 
+CSS += """a,a:visited{color:inherit;text-decoration:none}a:hover{background:light-dark(#ececee,#333336);border-radius:4px}a:focus-visible{outline:2px solid currentColor;outline-offset:4px}nav a{display:block;padding:3px 6px}nav a[aria-current=page]{background:light-dark(#ececee,#333336);border-radius:6px}.collection:hover{background:light-dark(#f3f3f5,#29292c)}figure{margin:1.75rem 0}figure img{display:block;width:100%;height:auto;border:1px solid #8885;border-radius:10px}figcaption{font-size:.85rem;color:light-dark(#54545a,#bbb);margin-top:.65rem}.screenshot-light{display:block}.screenshot-dark{display:none}@media(prefers-color-scheme:dark){.screenshot-light{display:none}.screenshot-dark{display:block}}"""
+
+ILLUSTRATIONS = {
+    "index": ("editor", "The VidiStudio editor: video and timeline above the transcript, with processing actions in the right inspector."),
+    "welcome": ("editor", "The editor brings video, timed text, and processing tools into one window."),
+    "first-project": ("projects", "Start in All Projects. Choose New Project to import a video, or Open Project Folder to reopen existing work."),
+    "projects": ("projects", "All Projects in Grid View, with search, project tiles, layout controls, and the icon-size slider."),
+    "editor": ("editor", "Video preview and timeline occupy the top; the section picker and Transcript are below. Project Inspector is on the right."),
+    "analysis": ("editor", "Find Run All Analysis and individual processing actions in the Project Inspector on the right."),
+    "narration": ("narration", "Narration settings separate the speech engine from playback mode, followed by indication sounds and Apple voice controls."),
+    "settings": ("narration", "Use the Settings sidebar to choose a section. Narration includes playback, sound, and voice controls."),
+}
+
+def illustration(slug):
+    if slug not in ILLUSTRATIONS:
+        return ""
+    name, caption = ILLUSTRATIONS[slug]
+    return '<figure>' + ''.join(
+        f'<img class="screenshot-{theme}" src="images/{name}-{theme}.png" alt="{html.escape(caption)}" loading="lazy">'
+        for theme in ["light", "dark"]
+    ) + f'<figcaption>{html.escape(caption)}</figcaption></figure>'
+
 def build(output, index=True):
     resources = output / "Contents/Resources"
     locale = resources / "en.lproj"
     locale.mkdir(parents=True, exist_ok=True)
+    shutil.copytree(ROOT / "docs/help/images", locale / "images", dirs_exist_ok=True)
+    for name, _ in ILLUSTRATIONS.values():
+        for theme in ["light", "dark"]:
+            if not (locale / "images" / f"{name}-{theme}.png").is_file():
+                raise ValueError(f"Missing screenshot: {name}-{theme}")
     info = dict(CFBundleDevelopmentRegion="en", CFBundleIdentifier=BOOK_ID,
                 CFBundleInfoDictionaryVersion="6.0", CFBundleName="VidiStudio Help",
                 CFBundlePackageType="BNDL", CFBundleSignature="hbwr",
-                CFBundleVersion="1", CFBundleShortVersionString="1.0",
+                CFBundleVersion="2", CFBundleShortVersionString="1.1",
                 HPDBookAccessPath="index.html", HPDBookIndexPath="search.helpindex",
                 HPDBookTitle="VidiStudio Help", HPDBookType="3")
     (output / "Contents/Info.plist").write_bytes(plistlib.dumps(info))
@@ -83,6 +111,9 @@ def build(output, index=True):
             body = keyboard()
         else:
             body = (ROOT / "docs/help" / f"{slug}.html").read_text()
+        if illustration(slug):
+            before, separator, after = body.partition('</p>')
+            body = before + separator + illustration(slug) + after
         toc = ''.join(f'<li><a href="{key}.html"' + (' aria-current="page"' if key == slug else '') + f'>{html.escape(label)}</a></li>' for key, label in TOPICS)
         pager = '<div class="pager">'
         if position:

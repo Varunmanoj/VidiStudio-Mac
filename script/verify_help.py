@@ -4,7 +4,7 @@ import argparse
 from pathlib import Path
 import plistlib
 
-from build_help import BOOK_ID, TOPICS, Page
+from build_help import BOOK_ID, TOPICS, ILLUSTRATIONS, Page
 
 
 def verify(app):
@@ -19,6 +19,9 @@ def verify(app):
     assert metadata["HPDBookAccessPath"] == "index.html"
     assert (locale / metadata["HPDBookIndexPath"]).stat().st_size > 0, "Empty search index"
     assert (locale / "style.css").stat().st_size > 0
+    for name, _ in ILLUSTRATIONS.values():
+        for theme in ["light", "dark"]:
+            assert (locale / "images" / f"{name}-{theme}.png").stat().st_size > 0
     pages = {}
     for slug in ["index"] + [key for key, _ in TOPICS]:
         name = f"{slug}.html"
