@@ -1,10 +1,25 @@
 import SwiftUI
 import AppKit
 
-struct EditorShortcutActions {
-    var run: (String) -> Void
-    var previewHidden: Bool
-    var canRun: (String) -> Bool
+@MainActor @Observable
+final class EditorShortcutActions {
+    var previewHidden = false
+    var available = false
+    var canGenerateDescriptions = false
+    var hasNarrationAudio = false
+    var handler: ((String) -> Void)?
+
+    func run(_ action: String) {
+        guard canRun(action) else { return }
+        handler?(action)
+    }
+
+    func canRun(_ action: String) -> Bool {
+        guard available, handler != nil else { return false }
+        if action == "generate-ad-cues" { return canGenerateDescriptions }
+        if action == "delete-narration" { return hasNarrationAudio }
+        return true
+    }
 }
 private struct EditorShortcutKey: FocusedValueKey { typealias Value = EditorShortcutActions }
 extension FocusedValues {
@@ -82,7 +97,7 @@ struct StudioCommands: Commands {
                 editor?.run("preview")
             }
             .keyboardShortcut("v", modifiers: [.command, .shift])
-            .disabled(editor == nil)
+            .disabled(editor?.canRun("preview") != true)
             Divider()
             Button(browser?.showProjects?.wrappedValue == true ? "Hide Project List" : "Show Project List", systemImage: "sidebar.left") { browser?.showProjects?.wrappedValue.toggle() }
                 .keyboardShortcut("b", modifiers: .command).disabled(browser?.showProjects == nil)
@@ -101,10 +116,10 @@ struct StudioCommands: Commands {
         }
         CommandGroup(replacing: .textEditing) { }
         CommandGroup(replacing: .textFormatting) { }
+        CommandMenu("Playback") {
+            shortcutEntries(StudioShortcut.editor.filter { $0.group == "Playback" })
+        }
         CommandMenu("Project") {
-            Menu("Playback") {
-                shortcutEntries(StudioShortcut.editor.filter { $0.group == "Playback" && $0.id != "preview" })
-            }
             Menu("Editor Sections") {
                 shortcutEntries(StudioShortcut.editor.filter { ["transcript", "summary", "descriptions", "ad-overview", "ad-transcript"].contains($0.id) })
             }
@@ -144,7 +159,7 @@ struct ShortcutReferenceView: View {
         VStack(alignment: .leading, spacing: 14) {
             Text("Keyboard Shortcuts").font(.title2).accessibilityAddTraits(.isHeader)
             Text("These shortcuts apply to the native macOS app. Editor commands are available with a project open and no editing sheet or processing operation active.")
-            Text("The Project menu groups Playback, Editor Sections, Segments, and Analysis & Regeneration. Generation shortcuts use Command + Option + Shift. Existing content is replaced only after confirmation; Regenerate All asks before deleting generated content.")
+            Text("The Playback menu contains video and narration controls. The Project menu groups Editor Sections, Segments, and Analysis & Regeneration. Generation shortcuts use Command + Option + Shift. Existing content is replaced only after confirmation; Regenerate All asks before deleting generated content.")
             shortcutRow("New Project", value: "Command + N")
             shortcutRow("Open Selected Project", value: "Command + O")
             shortcutRow("Open Project Folder", value: "Command + Shift + O")

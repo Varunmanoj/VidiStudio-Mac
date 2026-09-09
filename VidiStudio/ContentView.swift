@@ -188,6 +188,7 @@ struct ProjectEditorWindow: View {
     let projectID: String
     let openProjects: OpenProjectRegistry
     @State private var studio: StudioModel
+    @State private var editorShortcutActions = EditorShortcutActions()
     @State private var showInspector = true
     @Environment(\.openWindow) private var openWindow
     @Environment(\.dismiss) private var dismiss
@@ -212,7 +213,8 @@ struct ProjectEditorWindow: View {
                     ProjectEditor(
                         shortcutsBlocked: studio.error != nil,
                         studio: studio,
-                        project: project
+                        project: project,
+                        shortcutActions: editorShortcutActions
                     )
                     .id(project.id)
                     .frame(width: max(0, geometry.size.width - (showInspector ? 273 : 0)), height: geometry.size.height)
@@ -236,6 +238,10 @@ struct ProjectEditorWindow: View {
             hasSelectedProject: false,
             openSelectedProject: nil
         ))
+        // Keep the focused command bridge above the playhead-driven editor.
+        // Its identity now remains stable while playback updates every 150 ms,
+        // so an open menu does not get rebuilt and lose focus.
+        .focusedSceneValue(\.editorShortcuts, studio.selected == nil ? nil : editorShortcutActions)
         .preferredColorScheme(studio.settings.theme == "dark" ? .dark : studio.settings.theme == "light" ? .light : nil)
         .navigationTitle(studio.selected?.name ?? "Project Editor")
         .toolbar {
@@ -402,6 +408,7 @@ struct ProjectEditor: View {
     var shortcutsBlocked = false
     @Bindable var studio: StudioModel
     let project: StudioProject
+    let shortcutActions: EditorShortcutActions
     @State private var playback = PlaybackModel()
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @State private var tab = "transcript"
@@ -830,42 +837,41 @@ struct ProjectEditor: View {
         }
     }
 
-    private var editorShortcutActions: EditorShortcutActions? {
-        guard !shortcutsBlocked, !studio.busy, cueToEdit == nil, studio.screenText == nil else { return nil }
-        return EditorShortcutActions(run: { action in
-            switch action {
-            case "preview": playback.exitVideoFullScreen(); previewHidden.toggle()
-            case "fullscreen":
-                previewHidden = false
-                DispatchQueue.main.async { playback.toggleVideoFullScreen() }
-            case "play": playback.togglePlayback()
-            case "back": playback.seek(max(0, playback.time - 5))
-            case "forward": playback.seek(min(project.duration, playback.time + 5))
-            case "narration": playback.narrationEnabled.toggle()
-            case "follow": followTranscript.toggle()
-            case "descriptions", "transcript", "summary", "ad-transcript", "ad-overview": tab = action
-            case "add":
-                presentNewSegment()
-            case "delete-narration":
-                studio.confirmDeleteGeneratedContent(project, component: .narration)
-            case "undo": studio.execute("undo-cues")
-            case "redo": studio.execute("redo-cues")
-            case "analyze", "transcribe", "generate-summary", "regenerate-all": studio.execute(action)
-            case "generate-ad-cues":
-                if project.canGenerateDescriptions { studio.execute(action) }
-            default: break
-            }
-        }, previewHidden: previewHidden, canRun: { action in
-            guard !studio.busy else { return false }
-            if action == "generate-ad-cues" { return project.canGenerateDescriptions }
-            if action == "delete-narration" { return GeneratedContentComponent.narration.hasContent(in: project) }
-            return true
-        })
+    private func runEditorShortcut(_ action: String) {
+        switch action {
+        case "preview": playback.exitVideoFullScreen(); previewHidden.toggle()
+        case "fullscreen":
+            previewHidden = false
+            DispatchQueue.main.async { playback.toggleVideoFullScreen() }
+        case "play": playback.togglePlayback()
+        case "back": playback.seek(max(0, playback.time - 5))
+        case "forward": playback.seek(min(project.duration, playback.time + 5))
+        case "narration": playback.narrationEnabled.toggle()
+        case "follow": followTranscript.toggle()
+        case "descriptions", "transcript", "summary", "ad-transcript", "ad-overview": tab = action
+        case "add": presentNewSegment()
+        case "delete-narration": studio.confirmDeleteGeneratedContent(project, component: .narration)
+        case "undo": studio.execute("undo-cues")
+        case "redo": studio.execute("redo-cues")
+        case "analyze", "transcribe", "generate-summary", "regenerate-all": studio.execute(action)
+        case "generate-ad-cues":
+            if project.canGenerateDescriptions { studio.execute(action) }
+        default: break
+        }
+    }
+
+    private func refreshEditorShortcutActions(updateHandler: Bool = false) {
+        if updateHandler {
+            shortcutActions.handler = { action in runEditorShortcut(action) }
+        }
+        shortcutActions.previewHidden = previewHidden
+        shortcutActions.available = !shortcutsBlocked && !studio.busy && cueToEdit == nil && studio.screenText == nil
+        shortcutActions.canGenerateDescriptions = project.canGenerateDescriptions
+        shortcutActions.hasNarrationAudio = GeneratedContentComponent.narration.hasContent(in: project)
     }
 
     private var editorWithProjectUpdates: some View {
         editorLayout
-        .focusedSceneValue(\.editorShortcuts, editorShortcutActions)
         // ProjectEditorWindow owns the navigation title. Keeping a second title
         // on this playhead-driven subtree made AppKit clear and restore the
         // title while playback invalidated the view every 150 milliseconds.
@@ -924,8 +930,22 @@ struct ProjectEditor: View {
 
     var body: some View {
         editorWithVoiceUpdates
-        .onAppear(perform: preparePlayback)
-        .onDisappear { playback.stop(); stopNarrationPreview() }
+        .onAppear {
+            preparePlayback()
+            refreshEditorShortcutActions(updateHandler: true)
+        }
+        .onDisappear {
+            shortcutActions.available = false
+            shortcutActions.handler = nil
+            playback.stop()
+            stopNarrationPreview()
+        }
+        .onChange(of: previewHidden) { _, _ in refreshEditorShortcutActions() }
+        .onChange(of: shortcutsBlocked) { _, _ in refreshEditorShortcutActions() }
+        .onChange(of: cueToEdit?.id) { _, _ in refreshEditorShortcutActions() }
+        .onChange(of: studio.screenText) { _, _ in refreshEditorShortcutActions() }
+        .onChange(of: studio.busy) { _, _ in refreshEditorShortcutActions() }
+        .onChange(of: project.updatedAt) { _, _ in refreshEditorShortcutActions(updateHandler: true) }
         .sheet(isPresented: screenTextPresented) { screenTextReview }
         .sheet(item: $cueToEdit, onDismiss: {
             readingFrameForSegment = false
