@@ -9,10 +9,62 @@ struct SystemVoice: Identifiable, Sendable {
     var id: String { name + language }
     var languageName: String { Locale.current.localizedString(forIdentifier: language) ?? language }
 }
-@MainActor @Observable final class SystemVoiceCatalog {
+
+enum SystemSpeechVoiceResolver {
+    static var defaultVoiceIdentifier: String? {
+        let url = FileManager.default.homeDirectoryForCurrentUser
+            .appendingPathComponent("Library/Preferences/com.apple.Accessibility.plist")
+        guard let data = try? Data(contentsOf: url),
+              let preferences = try? PropertyListSerialization.propertyList(from: data, format: nil) as? [String: Any],
+              let selections = preferences["SpokenContentDefaultVoiceSelectionsByLanguage"] as? [Any] else { return nil }
+        var choices: [String: String] = [:]
+        var index = 0
+        while index + 1 < selections.count {
+            if let language = selections[index] as? String,
+               let selection = selections[index + 1] as? [String: Any],
+               let identifier = selection["voiceId"] as? String {
+                choices[language] = identifier
+            }
+            index += 2
+        }
+        var languageKeys = Locale.preferredLanguages.flatMap { language -> [String] in
+            let normalized = language.replacingOccurrences(of: "_", with: "-")
+            return [normalized, normalized.components(separatedBy: "-").first ?? normalized]
+        }
+        languageKeys.append("en")
+        return languageKeys.lazy.compactMap { choices[$0] }.first
+    }
+
+    static var defaultVoice: AVSpeechSynthesisVoice? {
+        guard let identifier = defaultVoiceIdentifier else { return nil }
+        return AVSpeechSynthesisVoice(identifier: identifier)
+    }
+
+    static var defaultVoiceDisplayName: String? {
+        guard let voice = defaultVoice else { return nil }
+        if voice.name.localizedCaseInsensitiveContains("enhanced")
+            || voice.name.localizedCaseInsensitiveContains("premium") {
+            return voice.name
+        }
+        switch voice.quality {
+        case .premium: return "\(voice.name) (Premium)"
+        case .enhanced: return "\(voice.name) (Enhanced)"
+        default: return voice.name
+        }
+    }
+}
+
+@MainActor @Observable final class SystemVoiceCatalog: NSObject, @preconcurrency AVSpeechSynthesizerDelegate {
     var voices: [SystemVoice] = []
     var error: String?
+    var isPlayingSample = false
     @ObservationIgnored private let sampleSynthesizer = AVSpeechSynthesizer()
+
+    override init() {
+        super.init()
+        sampleSynthesizer.delegate = self
+    }
+
     func refresh() async {
         let result = await Task.detached { () -> [SystemVoice] in
             let process = Process(), pipe = Pipe()
@@ -43,7 +95,22 @@ struct SystemVoice: Identifiable, Sendable {
             error = nil
         } catch { self.error = error.localizedDescription }
     }
-    func stop() { sampleSynthesizer.stopSpeaking(at: .immediate) }
+    func stop() {
+        sampleSynthesizer.stopSpeaking(at: .immediate)
+        isPlayingSample = false
+    }
+
+    func speechSynthesizer(_ synthesizer: AVSpeechSynthesizer, didStart utterance: AVSpeechUtterance) {
+        isPlayingSample = true
+    }
+
+    func speechSynthesizer(_ synthesizer: AVSpeechSynthesizer, didFinish utterance: AVSpeechUtterance) {
+        isPlayingSample = false
+    }
+
+    func speechSynthesizer(_ synthesizer: AVSpeechSynthesizer, didCancel utterance: AVSpeechUtterance) {
+        isPlayingSample = false
+    }
 }
 
 enum SystemSpeechUtterance {
@@ -61,7 +128,9 @@ enum SystemSpeechUtterance {
         utterance.pitchMultiplier = Float(min(max(settings.systemSpeechPitch, 0.5), 2.0))
         utterance.volume = Float(min(max(settings.systemSpeechVolume, 0), 1.0))
         let requested = (voiceName ?? settings.systemVoice).trimmingCharacters(in: .whitespacesAndNewlines)
-        if !requested.isEmpty {
+        if requested.isEmpty {
+            utterance.voice = SystemSpeechVoiceResolver.defaultVoice
+        } else {
             let voices = AVSpeechSynthesisVoice.speechVoices()
             let normalized = requested.lowercased()
             let quality: AVSpeechSynthesisVoiceQuality? = normalized.hasSuffix(" (premium)") ? .premium
@@ -98,13 +167,7 @@ struct SystemVoiceBrowser: View {
                 }
             }
             voiceSearchField
-            HStack {
-                Button("Use system default voice") { settings.systemVoice = "" }
-                Button("Play Selected Voice", systemImage: "play.circle") {
-                    catalog.preview(catalog.voices.first { $0.name == settings.systemVoice } ?? SystemVoice(name: settings.systemVoice, language: "", sample: "This is a sample of audio description narration in VidiStudio."), settings: settings)
-                }
-            }
-            Text("Selected: \(settings.systemVoice.isEmpty ? "System default" : settings.systemVoice)").font(.callout)
+            Text("Selected: \(selectedVoiceLabel)").font(.callout)
             ScrollView {
                 LazyVStack(alignment: .leading, spacing: 12) {
                     ForEach(catalog.voices.filter { (language == "all" || $0.language == language) && (search.isEmpty || $0.name.localizedStandardContains(search) || $0.languageName.localizedStandardContains(search)) }) { voice in
@@ -120,8 +183,22 @@ struct SystemVoiceBrowser: View {
                 }.padding(4)
             }.frame(minHeight: 200, idealHeight: 280, maxHeight: 320)
             HStack {
+                Button("Use system default voice") { settings.systemVoice = "" }
+                Button(
+                    catalog.isPlayingSample ? "Stop Sample" : "Play Sample",
+                    systemImage: catalog.isPlayingSample ? "stop.circle" : "play.circle"
+                ) {
+                    if catalog.isPlayingSample {
+                        catalog.stop()
+                    } else {
+                        catalog.preview(
+                            catalog.voices.first { $0.name == settings.systemVoice }
+                                ?? SystemVoice(name: settings.systemVoice, language: "", sample: "This is a sample of audio description narration in VidiStudio."),
+                            settings: settings
+                        )
+                    }
+                }
                 Button("Refresh Voices") { Task { await catalog.refresh() } }
-                Button("Stop Sample") { catalog.stop() }
                 Button("Open macOS Voice Settings") {
                     NSWorkspace.shared.open(URL(string: "x-apple.systempreferences:com.apple.preference.universalaccess")!)
                 }
@@ -129,6 +206,14 @@ struct SystemVoiceBrowser: View {
             Text("Lists voices available to macOS speech on this Mac. Download additional languages and enhanced voices in System Settings → Accessibility → Read & Speak, then refresh.").font(.caption).foregroundStyle(.secondary)
             if let error = catalog.error { Text(error).foregroundStyle(.red) }
         }.task { await catalog.refresh() }.onDisappear { catalog.stop() }
+    }
+
+    private var selectedVoiceLabel: String {
+        if !settings.systemVoice.isEmpty { return settings.systemVoice }
+        if let voice = SystemSpeechVoiceResolver.defaultVoiceDisplayName {
+            return "System default (\(voice))"
+        }
+        return "System default"
     }
 
     private var voiceSearchField: some View {

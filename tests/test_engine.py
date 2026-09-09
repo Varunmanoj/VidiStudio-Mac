@@ -7,6 +7,30 @@ ENGINE=Path(__file__).resolve().parents[1]/'engine/vidistudio_engine.py'
 sys.path.insert(0,str(ENGINE.parent))
 spec=importlib.util.spec_from_file_location('engine',ENGINE); engine=importlib.util.module_from_spec(spec); spec.loader.exec_module(engine)
 class Validation(unittest.TestCase):
+    def test_read_and_speak_voice_resolution(self):
+        preferences = {
+            'SpokenContentDefaultVoiceSelectionsByLanguage': [
+                'hi', {'voiceId': 'com.apple.voice.Aman'},
+                'en', {'voiceId': 'com.apple.voice.enhanced.en-US.Nathan'},
+            ]
+        }
+        identifier = engine.spoken_content_voice_id(preferences, ['en-IN'])
+        self.assertEqual(identifier, 'com.apple.voice.enhanced.en-US.Nathan')
+        listing = 'Aman (English (India)) en_IN    # Hello\nNathan (Enhanced)   en_US    # Hello\n'
+        self.assertEqual(engine.system_voice_name_from_identifier(identifier, listing), 'Nathan (Enhanced)')
+
+    def test_explicit_voice_overrides_read_and_speak_default(self):
+        with patch.object(engine, 'spoken_content_voice_id', return_value='com.apple.voice.enhanced.en-US.Nathan'):
+            self.assertEqual(engine.effective_system_voice({'systemVoice': 'Allison (Enhanced)'}), 'Allison (Enhanced)')
+            self.assertEqual(
+                engine.narration_signature({'systemVoice': 'Allison (Enhanced)'}),
+                'system|Allison (Enhanced)|1.000|1.000|1.000',
+            )
+            self.assertEqual(
+                engine.narration_signature({'systemVoice': ''}),
+                'system|default:com.apple.voice.enhanced.en-US.Nathan|1.000|1.000|1.000',
+            )
+
     def test_narration_fit_warning_uses_ad_segment_wording(self):
         self.assertEqual(
             engine.narration_fit_error_message(1, 14.8, 10.4),
@@ -178,6 +202,20 @@ class Validation(unittest.TestCase):
             with patch.object(engine, 'config', return_value={}):
                 with self.assertRaisesRegex(ValueError, 'Generate narration for at least one AD segment'):
                     engine.export(root, p, audio_only=True, allow_incomplete=True)
+    def test_saved_narration_remains_usable_after_voice_change(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            (root/'audio-description').mkdir()
+            (root/'audio-description/segment.wav').write_bytes(b'generated with an earlier voice')
+            cue = {
+                'id': 'ad', 'text': 'A visual description.',
+                'audioText': 'A visual description.',
+                'audio': 'audio-description/segment.wav',
+                'audioSettings': 'system|Earlier Voice|1.000|1.000|1.000',
+            }
+            self.assertTrue(engine.narration_audio_is_usable(root, cue))
+            cue['audioText'] = 'Earlier description text.'
+            self.assertFalse(engine.narration_audio_is_usable(root, cue))
     def test_path_escape(self):
         with self.assertRaises(ValueError): engine.local(Path('/tmp/project'),'../../etc/passwd')
     def test_pipeline(self):
@@ -205,7 +243,15 @@ class Validation(unittest.TestCase):
             cli('save-cues','--project',folder,'--input',cues)
             cli('synthesize-tts','--project',folder)
             self.assertTrue((folder/project()['cues'][0]['audio']).exists())
-            self.assertEqual(project()['cues'][0]['audioSettings'], 'system||1.100|1.150|0.700')
+            expected_voice = engine.system_voice_signature({})
+            self.assertEqual(project()['cues'][0]['audioSettings'], f'system|{expected_voice}|1.100|1.150|0.700')
+            # A later voice/rate change must not invalidate or replace the
+            # already-generated file during playback or export.
+            (root/'settings.json').write_text(json.dumps({
+                'systemSpeechRate': 1.6,
+                'systemSpeechPitch': 0.8,
+                'systemSpeechVolume': 0.5,
+            }))
             cli('export-final-video','--project',folder)
             output=folder/project()['exports'][0]
             self.assertAlmostEqual(float(engine.probe(output)['format']['duration']),8,delta=.2)

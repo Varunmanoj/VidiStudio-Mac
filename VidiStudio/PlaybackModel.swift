@@ -82,7 +82,7 @@ final class PlaybackModel {
             sound = settings.soundWhenNarrationOff ? "Boink3" : nil
         } else if settings.narrationPlayback == "generated",
                   settings.soundWhenNarrationMissing,
-                  SynchronizedAudioStatus.resolve(cue: cue, project: project, settingsSignature: settings.narrationSignature) != .generated {
+                  SynchronizedAudioStatus.resolve(cue: cue, project: project) != .generated {
             sound = "ascend"
         } else {
             sound = nil
@@ -194,7 +194,7 @@ final class PlaybackModel {
         stopDeviceSpeech()
         guard narrationEnabled, playing,
               let cue = project.cues.first(where: { time >= $0.start && time < $0.end }),
-              cue.audioText == cue.text, cue.audioSettings == settings.narrationSignature,
+              cue.audioText == cue.text,
               let path = cue.audio, let url = project.url(path) else {
             narration?.stop(); narrationID = nil; setNarrationDucking(false); return
         }

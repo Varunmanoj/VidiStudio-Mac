@@ -5,6 +5,8 @@ struct ProjectGridView: View {
     let projects: [StudioProject]
     @Binding var selection: String?
     let busy: Bool
+    @Binding var itemSize: Double
+    let open: (StudioProject) -> Void
     let rename: (StudioProject) -> Void
     let delete: (StudioProject) -> Void
     let process: (StudioProject) -> Void
@@ -12,14 +14,14 @@ struct ProjectGridView: View {
 
     var body: some View {
         ScrollView {
-            LazyVGrid(columns: [GridItem(.adaptive(minimum: 150), spacing: 12)], spacing: 12) {
+            LazyVGrid(columns: [GridItem(.adaptive(minimum: itemSize), spacing: 12)], spacing: 12) {
                 ForEach(projects) { project in
                     Button {
                         selection = project.id
                     } label: {
                         VStack(alignment: .leading, spacing: 8) {
                             ProjectThumbnail(project: project)
-                                .frame(height: 96).frame(maxWidth: .infinity)
+                                .frame(height: max(78, itemSize * 0.56)).frame(maxWidth: .infinity)
                                 .clipped().background(.quaternary)
                             Text(project.name).font(.headline)
                                 .lineLimit(nil).fixedSize(horizontal: false, vertical: true)
@@ -29,9 +31,14 @@ struct ProjectGridView: View {
                             .background(selection == project.id ? Color.accentColor.opacity(0.18) : Color.clear, in: RoundedRectangle(cornerRadius: 10))
                     }
                     .buttonStyle(.plain)
+                    .simultaneousGesture(TapGesture(count: 2).onEnded { open(project) })
                     .accessibilityLabel("\(project.name), \(timecode(project.duration)), \(project.cues.count) descriptions")
+                    .accessibilityHint("Double-click to open this project in a new window")
+                    .accessibilityAction(named: "Open Project") { open(project) }
                     .accessibilityAddTraits(selection == project.id ? [.isSelected] : [])
                     .contextMenu {
+                        Button("Open Project", systemImage: "macwindow.badge.plus") { open(project) }
+                        Divider()
                         Button("Rename", systemImage: "pencil") { rename(project) }
                         Button("Open in Project Folder", systemImage: "folder") {
                             if let folder = project.folder { NSWorkspace.shared.open(folder) }
@@ -88,10 +95,12 @@ private struct ProjectThumbnail: View {
 }
 
 struct ProjectBrowserActions {
-    var showProjects: Binding<Bool>
-    var showInspector: Binding<Bool>
-    var grid: Binding<Bool>
+    var showProjects: Binding<Bool>?
+    var showInspector: Binding<Bool>?
+    var grid: Binding<Bool>?
     var hasProject: Bool
+    var hasSelectedProject: Bool
+    var openSelectedProject: (() -> Void)?
 }
 private struct ProjectBrowserKey: FocusedValueKey { typealias Value = ProjectBrowserActions }
 extension FocusedValues {

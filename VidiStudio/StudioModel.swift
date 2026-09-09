@@ -63,13 +63,16 @@ struct DescriptionOriginLabel: View {
 enum SynchronizedAudioStatus: Equatable {
     case generated, needsRegeneration, notGenerated
 
-    static func resolve(cue: Segment, project: StudioProject, settingsSignature: String) -> Self {
+    static func resolve(cue: Segment, project: StudioProject) -> Self {
         guard let path = cue.audio,
               let url = project.url(path),
               FileManager.default.fileExists(atPath: url.path) else {
             return .notGenerated
         }
-        return cue.audioText == cue.text && cue.audioSettings == settingsSignature
+        // The settings signature records which voice created this file. A later
+        // voice change must not invalidate or replace otherwise synchronized
+        // project audio; only a text change requires regeneration.
+        return cue.audioText == cue.text
             ? .generated
             : .needsRegeneration
     }
@@ -192,9 +195,9 @@ struct StudioProject: Codable, Identifiable {
         default: return false
         }
     }
-    func hasExportableNarration(settingsSignature: String) -> Bool {
+    func hasExportableNarration() -> Bool {
         cues.contains {
-            SynchronizedAudioStatus.resolve(cue: $0, project: self, settingsSignature: settingsSignature) == .generated
+            SynchronizedAudioStatus.resolve(cue: $0, project: self) == .generated
         }
     }
     func url(_ relative: String) -> URL? {
@@ -204,7 +207,7 @@ struct StudioProject: Codable, Identifiable {
         return resolved
     }
 }
-struct StudioSettings: Codable {
+struct StudioSettings: Codable, Equatable {
     static let defaultLibraryURL = FileManager.default.homeDirectoryForCurrentUser
         .appendingPathComponent("Documents/VidiStudio Projects")
     static let legacyDefaultLibraryURL = FileManager.default.homeDirectoryForCurrentUser
@@ -215,7 +218,6 @@ struct StudioSettings: Codable {
     var apiVersion = "v1beta"
     var videoProcessing = "agentic"
     var theme = "system"
-    var followTranscript = true
     var ttsMode = "system"
     var narrationPlayback = "generated"
     var soundWhenNarrationOff = true
@@ -238,10 +240,14 @@ struct StudioSettings: Codable {
     }
 
     var systemSpeechSignature: String {
+        let selectedVoice = systemVoice.trimmingCharacters(in: .whitespacesAndNewlines)
+        let voiceSignature = selectedVoice.isEmpty
+            ? "default:\(SystemSpeechVoiceResolver.defaultVoiceIdentifier ?? "automatic")"
+            : selectedVoice
         return String(
             format: "system|%@|%.3f|%.3f|%.3f",
             locale: Locale(identifier: "en_US_POSIX"),
-            systemVoice,
+            voiceSignature,
             systemSpeechRate,
             systemSpeechPitch,
             systemSpeechVolume
@@ -255,12 +261,97 @@ struct StudioSettings: Codable {
     }
 }
 
+extension Notification.Name {
+    static let vidiStudioSettingsDidChange = Notification.Name("VidiStudioSettingsDidChange")
+    static let vidiStudioProjectNarrationDidChange = Notification.Name("VidiStudioProjectNarrationDidChange")
+    static let vidiStudioProjectFollowDidChange = Notification.Name("VidiStudioProjectFollowDidChange")
+}
+
+enum ProjectPlaybackPreferences {
+    static func narrationKey(_ projectID: String) -> String {
+        "projectNarrationEnabled.\(projectID)"
+    }
+
+    static func narrationEnabled(_ projectID: String) -> Bool {
+        UserDefaults.standard.object(forKey: narrationKey(projectID)) as? Bool ?? false
+    }
+
+    static func followKey(_ projectID: String) -> String {
+        "projectFollowTranscript.\(projectID)"
+    }
+
+    static func followEnabled(_ projectID: String) -> Bool {
+        UserDefaults.standard.object(forKey: followKey(projectID)) as? Bool ?? true
+    }
+
+    static func setNarrationEnabled(_ enabled: Bool, projectID: String) {
+        let key = narrationKey(projectID)
+        let previous = UserDefaults.standard.object(forKey: key) as? Bool
+        UserDefaults.standard.set(enabled, forKey: key)
+        guard previous != enabled else { return }
+        announceNarrationChange(enabled, projectID: projectID)
+    }
+
+    static func announceNarrationChange(_ enabled: Bool, projectID: String) {
+        NotificationCenter.default.post(
+            name: .vidiStudioProjectNarrationDidChange,
+            object: nil,
+            userInfo: ["projectID": projectID, "enabled": enabled]
+        )
+    }
+
+    static func setFollowEnabled(_ enabled: Bool, projectID: String) {
+        let key = followKey(projectID)
+        let previous = UserDefaults.standard.object(forKey: key) as? Bool
+        UserDefaults.standard.set(enabled, forKey: key)
+        guard previous != enabled else { return }
+        announceFollowChange(enabled, projectID: projectID)
+    }
+
+    static func announceFollowChange(_ enabled: Bool, projectID: String) {
+        NotificationCenter.default.post(
+            name: .vidiStudioProjectFollowDidChange,
+            object: nil,
+            userInfo: ["projectID": projectID, "enabled": enabled]
+        )
+    }
+}
+
+struct OpenProjectReference: Identifiable, Equatable {
+    let id: String
+    var name: String
+}
+
+@MainActor @Observable
+final class OpenProjectRegistry {
+    private(set) var projects: [OpenProjectReference] = []
+
+    func open(_ id: String, name: String) {
+        if let index = projects.firstIndex(where: { $0.id == id }) {
+            if projects[index].name != name { projects[index].name = name }
+        } else {
+            projects.append(OpenProjectReference(id: id, name: name))
+        }
+    }
+
+    func close(_ id: String) {
+        projects.removeAll { $0.id == id }
+    }
+}
+
 @MainActor @Observable
 final class StudioModel {
     static let defaultErrorTitle = "VidiStudio needs attention"
     var projects: [StudioProject] = []
     var selectedID: String? { didSet { UserDefaults.standard.set(selectedID, forKey: "lastProjectID") } }
-    var settings = StudioSettings()
+    var settings = StudioSettings() {
+        didSet {
+            guard settingsPersistenceEnabled, !applyingExternalSettings, settings != oldValue else { return }
+            persistSettings(reloadProjects: settings.libraryPath != oldValue.libraryPath)
+        }
+    }
+    @ObservationIgnored private var settingsPersistenceEnabled = false
+    @ObservationIgnored private var applyingExternalSettings = false
     var settingsSection = "Appearance"
     var busy = false
     var message = "All files stay in your local project folders."
@@ -292,19 +383,37 @@ final class StudioModel {
             for (key, value) in saved { merged[key] = value }
         }
         if let data = try? JSONSerialization.data(withJSONObject: merged), let decoded = try? JSONDecoder().decode(StudioSettings.self, from: data) { settings = decoded }
+        var migratedLibrary = false
         if settings.libraryPath == StudioSettings.legacyDefaultLibraryURL.path {
             settings.libraryPath = StudioSettings.defaultLibraryURL.path
+            migratedLibrary = true
         }
+        settingsPersistenceEnabled = true
+        if migratedLibrary { persistSettings(reloadProjects: false) }
         reload()
         selectedID = UserDefaults.standard.string(forKey: "lastProjectID")
     }
-    func saveSettings() {
+
+    func applyExternalSettings(_ updated: StudioSettings) {
+        let libraryChanged = settings.libraryPath != updated.libraryPath
+        applyingExternalSettings = true
+        settings = updated
+        applyingExternalSettings = false
+        if libraryChanged { reload() }
+    }
+
+    private func persistSettings(reloadProjects: Bool) {
         do {
             let directory = StudioSettings.url.deletingLastPathComponent()
             try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true, attributes: [.posixPermissions: 0o700])
             try JSONEncoder().encode(settings).write(to: StudioSettings.url, options: .atomic)
             try FileManager.default.setAttributes([.posixPermissions: 0o600], ofItemAtPath: StudioSettings.url.path)
-            reload()
+            if reloadProjects { reload() }
+            NotificationCenter.default.post(
+                name: .vidiStudioSettingsDidChange,
+                object: self,
+                userInfo: ["settings": settings]
+            )
         } catch { self.error = error.localizedDescription }
     }
     func reload() {
@@ -552,9 +661,9 @@ final class StudioModel {
             return nil
         }
         let missing = current.cues.filter {
-            SynchronizedAudioStatus.resolve(cue: $0, project: current, settingsSignature: settings.narrationSignature) != .generated
+            SynchronizedAudioStatus.resolve(cue: $0, project: current) != .generated
         }
-        if audioOnly && !current.hasExportableNarration(settingsSignature: settings.narrationSignature) {
+        if audioOnly && !current.hasExportableNarration() {
             self.error = "Generate narration for at least one AD segment before exporting narration audio."
             return nil
         }
@@ -564,7 +673,7 @@ final class StudioModel {
         alert.messageText = "Export \(exportKind) with incomplete audio descriptions?"
         alert.informativeText = current.cues.isEmpty
             ? "This project has no AD segments. Continuing exports \(exportKind) without audio descriptions."
-            : "\(missing.count) of \(current.cues.count) AD segments have missing or outdated narration audio. Continuing exports \(exportKind) with available, up-to-date narration only. Those \(missing.count) descriptions will be omitted from the audio. This does not generate missing narration. Cancel and choose Synthesize Narration to include all descriptions."
+            : "\(missing.count) of \(current.cues.count) AD segments have missing narration or narration for earlier text. Continuing exports \(exportKind) with available, synchronized narration only. Those \(missing.count) descriptions will be omitted from the audio. This does not generate missing narration. Cancel and choose Synthesize Narration to include all descriptions."
         alert.alertStyle = .warning
         alert.addButton(withTitle: "Cancel")
         alert.addButton(withTitle: "Export Anyway")

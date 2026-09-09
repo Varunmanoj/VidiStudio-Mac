@@ -37,6 +37,7 @@ final class VidiStudioAppDelegate: NSObject, NSApplicationDelegate {
 struct VidiStudioApp: App {
     @NSApplicationDelegateAdaptor(VidiStudioAppDelegate.self) private var appDelegate
     @State private var studio = StudioModel()
+    @State private var openProjects = OpenProjectRegistry()
     init() {
         NSWindow.allowsAutomaticWindowTabbing = false
     }
@@ -52,11 +53,20 @@ struct VidiStudioApp: App {
         .commands {
             CommandGroup(replacing: .newItem) {
                 Button("New Project…", systemImage: "plus") { studio.isCreatingProject = true }.keyboardShortcut("n").disabled(studio.busy)
-                Button("Open Project Folder…", systemImage: "folder") { studio.openProject() }.keyboardShortcut("o").disabled(studio.busy)
+                Button("Open Project Folder…", systemImage: "folder") { studio.openProject() }.keyboardShortcut("o", modifiers: [.command, .shift]).disabled(studio.busy)
             }
         }
         .commands { StudioCommands() }
+        WindowGroup("Project Editor", id: "project-editor", for: String.self) { $projectID in
+            if let projectID {
+                ProjectEditorWindow(projectID: projectID, openProjects: openProjects)
+            } else {
+                ContentUnavailableView("Project Unavailable", systemImage: "film", description: Text("Return to All Projects and open the project again."))
+            }
+        }
+        .defaultSize(width: 1200, height: 780)
+        .windowToolbarStyle(.unifiedCompact)
         Window("VidiStudio Help", id: "help") { StudioHelpView() }.defaultSize(width: 740, height: 650)
-        Settings { SettingsView(studio: studio) }.windowToolbarStyle(.unifiedCompact)
+        Settings { SettingsView(studio: studio, openProjects: openProjects) }.windowToolbarStyle(.unifiedCompact)
     }
 }

@@ -115,88 +115,49 @@ private struct NewProjectView: View {
 
 struct ContentView: View {
     @Bindable var studio: StudioModel
-    @State private var showInspector = true
-    @State private var showProjects = true
+    @Environment(\.openWindow) private var openWindow
     @State private var search = ""
     @State private var rename = ""
     @State private var renaming = false
     @State private var deletionProject: StudioProject?
     @AppStorage("projectBrowserGrid") private var projectGrid = false
+    @AppStorage("projectGridItemSize") private var projectGridItemSize = 180.0
+
+    private func openEditor(_ project: StudioProject) {
+        studio.selectedID = project.id
+        // The project ID is the WindowGroup value and therefore its window identity.
+        // Reopening the same value activates that editor instead of creating a duplicate.
+        openWindow(id: "project-editor", value: project.id)
+    }
+
     var body: some View {
-        GeometryReader { geometry in
-        let inspectorVisible = showInspector && studio.selected != nil
-        HStack(spacing: 0) {
-        if showProjects {
-          VStack(spacing: 0) {
-            TextField("Search projects", text: $search).textFieldStyle(.roundedBorder).padding(12)
-            if projectGrid {
-                ProjectGridView(projects: studio.projects.filter { search.isEmpty || $0.name.localizedStandardContains(search) }, selection: $studio.selectedID, busy: studio.busy, rename: { p in
-                    studio.selectedID = p.id; rename = p.name; renaming = true
-                }, delete: { studio.trashProject($0) }, process: { p in studio.selectedID = p.id; studio.execute("analyze", project: p) }, clear: { deletionProject = $0 })
-            } else {
-            List(selection: $studio.selectedID) {
-                Section("Local Projects") {
-                    ForEach(studio.projects.filter { search.isEmpty || $0.name.localizedStandardContains(search) }) { p in
-                        HStack(alignment: .top, spacing: 8) {
-                            MaterialIcon(glyph: "\u{e02c}").accessibilityHidden(true)
-                            VStack(alignment: .leading, spacing: 5) {
-                                Text(p.name).lineLimit(nil).fixedSize(horizontal: false, vertical: true).frame(width: 178, alignment: .leading)
-                                Text("\(timecode(p.duration)) · \(p.cues.count) descriptions").font(.caption).foregroundStyle(.secondary)
-                            }.padding(.vertical, 5)
-                        }.tag(p.id)
-                        .contextMenu {
-                            Button("Rename", systemImage: "pencil") { studio.selectedID = p.id; rename = p.name; renaming = true }
-                            Button("Open in Project Folder", systemImage: "folder") { if let folder = p.folder { NSWorkspace.shared.open(folder) } }
-                            Button(p.canReprocess ? "Reprocess Video" : "Process Video", systemImage: "sparkles") {
-                                studio.selectedID = p.id
-                                studio.execute("analyze", project: p)
-                            }.disabled(studio.busy)
-                            Divider()
-                            Button("Choose Content to Delete…", systemImage: "eraser", role: .destructive) { deletionProject = p }.disabled(studio.busy || !p.hasGeneratedContent)
-                            Button("Delete Project", systemImage: "trash", role: .destructive) { studio.trashProject(p) }.help("Move this project to the Mac Trash").disabled(studio.busy)
-                        }
-                    }
-                }
-            }
-            .listStyle(.sidebar)
-            }
-            Spacer(minLength: 0)
-            .safeAreaInset(edge: .bottom) {
-                HStack {
-                    Spacer()
-                    SettingsLink { Image(systemName: "gearshape") }
-                        .help("Settings")
-                        .accessibilityLabel("Settings")
-                }
-                .font(.caption)
-                .foregroundStyle(.secondary)
-                .padding()
-            }
-          }.frame(width: projectGrid ? min(440, geometry.size.width * 0.48) : 252).frame(maxHeight: .infinity).background(.bar)
-          Divider()
-        }
-        Group {
-            if let p = studio.selected {
-                ProjectEditor(shortcutsBlocked: renaming || studio.isCreatingProject || studio.error != nil, studio: studio, project: p).id(p.id)
-            } else {
-                ContentUnavailableView {
-                    Label("Make every video accessible", systemImage: "video.badge.waveform")
-                } description: {
-                    Text("Create a project from a video file on this Mac or a YouTube video.")
-                } actions: {
-                    Button("New Project…", systemImage: "plus") { studio.isCreatingProject = true }.buttonStyle(.glassProminent)
-                    Button("Open Project Folder…", systemImage: "folder") { studio.openProject() }
-                }
-            }
-        }.frame(width: max(0, geometry.size.width - (showProjects ? (projectGrid ? min(440, geometry.size.width * 0.48) : 252) + 1 : 0) - (inspectorVisible ? 273 : 0)), height: geometry.size.height).clipped()
-        if inspectorVisible {
-            Divider()
-            ProcessingInspector(studio: studio).frame(width: 272, height: geometry.size.height).background(.bar)
-        }
-        }.frame(width: geometry.size.width, height: geometry.size.height, alignment: .leading)
-        }
+        ProjectBrowserPage(
+            projects: studio.projects,
+            search: $search,
+            grid: $projectGrid,
+            gridItemSize: $projectGridItemSize,
+            selection: $studio.selectedID,
+            busy: studio.busy,
+            newProject: { studio.isCreatingProject = true },
+            openProjectFolder: {
+                studio.openProject()
+                if let project = studio.selected { openEditor(project) }
+            },
+            openEditor: openEditor,
+            rename: { p in studio.selectedID = p.id; rename = p.name; renaming = true },
+            delete: { studio.trashProject($0) },
+            process: { p in studio.selectedID = p.id; studio.execute("analyze", project: p) },
+            clear: { deletionProject = $0 }
+        )
         .background(WindowFitter().frame(width: 0, height: 0))
-        .focusedSceneValue(\.projectBrowser, ProjectBrowserActions(showProjects: $showProjects, showInspector: $showInspector, grid: $projectGrid, hasProject: studio.selected != nil))
+        .focusedSceneValue(\.projectBrowser, ProjectBrowserActions(
+            showProjects: nil,
+            showInspector: nil,
+            grid: $projectGrid,
+            hasProject: false,
+            hasSelectedProject: studio.selected != nil,
+            openSelectedProject: { if let project = studio.selected { openEditor(project) } }
+        ))
         .preferredColorScheme(studio.settings.theme == "dark" ? .dark : studio.settings.theme == "light" ? .light : nil)
         .sheet(isPresented: $renaming) {
             VStack(spacing: 20) {
@@ -210,24 +171,100 @@ struct ContentView: View {
         .sheet(isPresented: $studio.isCreatingProject) {
             NewProjectView(studio: studio)
         }
-        .toolbar {
-            ToolbarItem(placement: .navigation) { Button(showProjects ? "Hide Project List" : "Show Project List", systemImage: "sidebar.left") { showProjects.toggle() } }
-            ToolbarItem(placement: .navigation) {
-                Picker("Project layout", selection: $projectGrid) {
-                    Label("List View", systemImage: "list.bullet").tag(false)
-                    Label("Grid View", systemImage: "square.grid.2x2").tag(true)
-                }.pickerStyle(.segmented).onChange(of: projectGrid) { _, _ in showProjects = true }
+        .alert(studio.errorTitle, isPresented: Binding(get: { studio.error != nil }, set: { if !$0 { studio.dismissError() } })) {
+            Button("OK", role: .cancel) { studio.dismissError() }
+        } message: { Text(studio.error ?? "") }
+        .onReceive(NotificationCenter.default.publisher(for: .vidiStudioSettingsDidChange)) { notification in
+            guard let source = notification.object as? StudioModel,
+                  source !== studio,
+                  let settings = notification.userInfo?["settings"] as? StudioSettings else { return }
+            studio.applyExternalSettings(settings)
+        }
+    }
+}
+
+struct ProjectEditorWindow: View {
+    let projectID: String
+    let openProjects: OpenProjectRegistry
+    @State private var studio: StudioModel
+    @State private var showInspector = true
+    @Environment(\.openWindow) private var openWindow
+    @Environment(\.dismiss) private var dismiss
+
+    init(projectID: String, openProjects: OpenProjectRegistry) {
+        self.projectID = projectID
+        self.openProjects = openProjects
+        let model = StudioModel()
+        model.selectedID = projectID
+        _studio = State(initialValue: model)
+    }
+
+    private func returnToAllProjects() {
+        openWindow(id: "studio")
+        dismiss()
+    }
+
+    var body: some View {
+        GeometryReader { geometry in
+            if let project = studio.selected {
+                HStack(spacing: 0) {
+                    ProjectEditor(
+                        shortcutsBlocked: studio.error != nil,
+                        studio: studio,
+                        project: project
+                    )
+                    .id(project.id)
+                    .frame(width: max(0, geometry.size.width - (showInspector ? 273 : 0)), height: geometry.size.height)
+                    if showInspector {
+                        Divider()
+                        ProcessingInspector(studio: studio)
+                            .frame(width: 272, height: geometry.size.height)
+                            .background(.bar)
+                    }
+                }
+            } else {
+                ContentUnavailableView("Project Unavailable", systemImage: "film", description: Text("The project may have moved or been deleted."))
             }
-            ToolbarItem(placement: .primaryAction) { Button("New Project", systemImage: "plus") { studio.isCreatingProject = true }.disabled(studio.busy) }
-            ToolbarItem(placement: .primaryAction) { Button("Open Project", systemImage: "folder") { studio.openProject() }.disabled(studio.busy) }
-            if studio.selected != nil {
-                ToolbarSpacer(.fixed, placement: .primaryAction)
-                ToolbarItem(placement: .primaryAction) { Button(showInspector ? "Hide Inspector" : "Show Inspector", systemImage: "sidebar.right") { showInspector.toggle() } }
+        }
+        .background(WindowFitter().frame(width: 0, height: 0))
+        .focusedSceneValue(\.projectBrowser, ProjectBrowserActions(
+            showProjects: nil,
+            showInspector: $showInspector,
+            grid: nil,
+            hasProject: studio.selected != nil,
+            hasSelectedProject: false,
+            openSelectedProject: nil
+        ))
+        .preferredColorScheme(studio.settings.theme == "dark" ? .dark : studio.settings.theme == "light" ? .light : nil)
+        .navigationTitle(studio.selected?.name ?? "Project Editor")
+        .toolbar {
+            ToolbarItem(placement: .primaryAction) {
+                Button("Back to All Projects", systemImage: "chevron.backward", action: returnToAllProjects)
+                    .labelStyle(.iconOnly)
+                    .help("Return to all projects")
+            }
+            ToolbarItem(placement: .primaryAction) {
+                Button(showInspector ? "Hide Inspector" : "Show Inspector", systemImage: "sidebar.right") { showInspector.toggle() }
+                    .labelStyle(.iconOnly)
             }
         }
         .alert(studio.errorTitle, isPresented: Binding(get: { studio.error != nil }, set: { if !$0 { studio.dismissError() } })) {
             Button("OK", role: .cancel) { studio.dismissError() }
         } message: { Text(studio.error ?? "") }
+        .onAppear {
+            studio.reload()
+            studio.selectedID = projectID
+            openProjects.open(projectID, name: studio.selected?.name ?? "Project")
+        }
+        .onChange(of: studio.selected?.name) { _, name in
+            if let name { openProjects.open(projectID, name: name) }
+        }
+        .onDisappear { openProjects.close(projectID) }
+        .onReceive(NotificationCenter.default.publisher(for: .vidiStudioSettingsDidChange)) { notification in
+            guard let settings = notification.userInfo?["settings"] as? StudioSettings else { return }
+            guard let source = notification.object as? StudioModel, source !== studio else { return }
+            studio.applyExternalSettings(settings)
+        }
     }
 }
 
@@ -313,8 +350,8 @@ struct ProcessingInspector: View {
                         }
                     }.disabled(studio.busy)
                     Button("Export Narration Audio", systemImage: "square.and.arrow.up") { studio.execute("export-audio") }
-                        .disabled(studio.busy || !p.hasExportableNarration(settingsSignature: studio.settings.narrationSignature))
-                        .help(p.hasExportableNarration(settingsSignature: studio.settings.narrationSignature)
+                        .disabled(studio.busy || !p.hasExportableNarration())
+                        .help(p.hasExportableNarration()
                             ? "Export available synchronized narration audio"
                             : "Generate narration audio for at least one AD segment first")
                     Button("Synthesize Changed Segments", systemImage: "waveform") { studio.execute("synthesize-tts", extra: ["--changed"]) }.disabled(studio.busy)
@@ -360,6 +397,7 @@ struct ProjectEditor: View {
     @State private var audioPreview: AVAudioPlayer?
     @State private var segmentScreenText: String?
     @State private var readingFrameForSegment = false
+    @State private var followTranscript = true
     private var transcriptRows: [TranscriptRow] {
         let dialogue = project.transcript.map { TranscriptRow(segment: $0, isDescription: false) }
         let descriptions = project.cues.map { TranscriptRow(segment: $0, isDescription: true) }
@@ -419,7 +457,7 @@ struct ProjectEditor: View {
                     Toggle("Narration", isOn: $playback.narrationEnabled)
                         .toggleStyle(.button)
                         .help("Play generated descriptions in sync with video")
-                    Toggle("Follow", isOn: $studio.settings.followTranscript)
+                    Toggle("Follow", isOn: $followTranscript)
                         .toggleStyle(.button)
                         .help("Follow the active transcript or description")
                 }
@@ -522,6 +560,8 @@ struct ProjectEditor: View {
 
     private func preparePlayback() {
         playback.observe()
+        playback.narrationEnabled = ProjectPlaybackPreferences.narrationEnabled(project.id)
+        followTranscript = ProjectPlaybackPreferences.followEnabled(project.id)
         guard !project.source.isEmpty, let url = project.url(project.source) else { return }
         playback.player.replaceCurrentItem(with: AVPlayerItem(url: url))
     }
@@ -550,8 +590,7 @@ struct ProjectEditor: View {
     private func playableNarrationURL(for cue: Segment) -> URL? {
         guard SynchronizedAudioStatus.resolve(
             cue: cue,
-            project: project,
-            settingsSignature: studio.settings.narrationSignature
+            project: project
         ) == .generated,
         let audio = cue.audio else { return nil }
         return project.url(audio)
@@ -641,8 +680,7 @@ struct ProjectEditor: View {
                                     SynchronizedAudioStatusLabel(
                                         status: .resolve(
                                             cue: cue,
-                                            project: project,
-                                            settingsSignature: studio.settings.narrationSignature
+                                            project: project
                                         )
                                     )
                                 }
@@ -676,7 +714,7 @@ struct ProjectEditor: View {
                             .listRowBackground(playback.time >= cue.start && playback.time < cue.end ? Color.accentColor.opacity(0.15) : Color.clear)
                     }.listStyle(.inset)
                     .onChange(of: segments.first(where: { playback.time >= $0.segment.start && playback.time < $0.segment.end })?.id) { _, id in
-                        if studio.settings.followTranscript, let id { if reduceMotion { reader.scrollTo(id, anchor: .center) } else { withAnimation { reader.scrollTo(id, anchor: .center) } } }
+                        if followTranscript, let id { if reduceMotion { reader.scrollTo(id, anchor: .center) } else { withAnimation { reader.scrollTo(id, anchor: .center) } } }
                     }
                     }
                 }
@@ -742,7 +780,7 @@ struct ProjectEditor: View {
             case "back": playback.seek(max(0, playback.time - 5))
             case "forward": playback.seek(min(project.duration, playback.time + 5))
             case "narration": playback.narrationEnabled.toggle()
-            case "follow": studio.settings.followTranscript.toggle()
+            case "follow": followTranscript.toggle()
             case "descriptions", "transcript", "summary", "ad-transcript", "ad-overview": tab = action
             case "add":
                 presentNewSegment()
@@ -777,7 +815,25 @@ struct ProjectEditor: View {
         .onChange(of: studio.settings.narrationPlayback) { _, _ in playback.syncNarration(project, settings: studio.settings) }
         .onChange(of: studio.settings.soundWhenNarrationOff) { _, _ in playback.syncNarration(project, settings: studio.settings) }
         .onChange(of: studio.settings.soundWhenNarrationMissing) { _, _ in playback.syncNarration(project, settings: studio.settings) }
-        .onChange(of: playback.narrationEnabled) { _, _ in playback.syncNarration(project, settings: studio.settings) }
+        .onChange(of: playback.narrationEnabled) { _, enabled in
+            ProjectPlaybackPreferences.setNarrationEnabled(enabled, projectID: project.id)
+            playback.syncNarration(project, settings: studio.settings)
+        }
+        .onReceive(NotificationCenter.default.publisher(for: .vidiStudioProjectNarrationDidChange)) { notification in
+            guard notification.userInfo?["projectID"] as? String == project.id,
+                  let enabled = notification.userInfo?["enabled"] as? Bool,
+                  playback.narrationEnabled != enabled else { return }
+            playback.narrationEnabled = enabled
+        }
+        .onChange(of: followTranscript) { _, enabled in
+            ProjectPlaybackPreferences.setFollowEnabled(enabled, projectID: project.id)
+        }
+        .onReceive(NotificationCenter.default.publisher(for: .vidiStudioProjectFollowDidChange)) { notification in
+            guard notification.userInfo?["projectID"] as? String == project.id,
+                  let enabled = notification.userInfo?["enabled"] as? Bool,
+                  followTranscript != enabled else { return }
+            followTranscript = enabled
+        }
     }
 
     private var editorWithVoiceUpdates: some View {

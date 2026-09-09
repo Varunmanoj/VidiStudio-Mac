@@ -1,12 +1,45 @@
 import SwiftUI
 
+private struct ProjectPlaybackPreferenceControls: View {
+    let projectID: String
+    let projectName: String
+    @AppStorage private var narrationEnabled: Bool
+    @AppStorage private var followEnabled: Bool
+
+    init(projectID: String, projectName: String) {
+        self.projectID = projectID
+        self.projectName = projectName
+        _narrationEnabled = AppStorage(
+            wrappedValue: false,
+            ProjectPlaybackPreferences.narrationKey(projectID)
+        )
+        _followEnabled = AppStorage(
+            wrappedValue: true,
+            ProjectPlaybackPreferences.followKey(projectID)
+        )
+    }
+
+    var body: some View {
+        Toggle("Narration during playback", isOn: $narrationEnabled)
+            .accessibilityHint("Turns synchronized narration on or off for \(projectName) and remembers the choice for this project")
+            .onChange(of: narrationEnabled) { _, enabled in
+                ProjectPlaybackPreferences.announceNarrationChange(enabled, projectID: projectID)
+            }
+        Toggle("Follow synchronized transcript", isOn: $followEnabled)
+            .accessibilityHint("Follows the active transcript or description while \(projectName) plays")
+            .onChange(of: followEnabled) { _, enabled in
+                ProjectPlaybackPreferences.announceFollowChange(enabled, projectID: projectID)
+            }
+    }
+}
+
 struct SettingsView: View {
     @Bindable var studio: StudioModel
+    @Bindable var openProjects: OpenProjectRegistry
     @Environment(\.openWindow) private var openWindow
-    @State private var saved = false
     private var section: String { studio.settingsSection }
-    private let sections = ["Appearance", "Narration", "Gemini API", "Developer prompts", "Storage", "Help"]
-    private let sectionIcons = ["Appearance": "circle.lefthalf.filled", "Narration": "speaker.wave.2", "Gemini API": "sparkles", "Developer prompts": "text.bubble", "Storage": "folder", "Help": "questionmark.circle"]
+    private let sections = ["Appearance", "Projects", "Narration", "Gemini API", "Developer prompts", "Storage", "Help"]
+    private let sectionIcons = ["Appearance": "circle.lefthalf.filled", "Projects": "rectangle.stack", "Narration": "speaker.wave.2", "Gemini API": "sparkles", "Developer prompts": "text.bubble", "Storage": "folder", "Help": "questionmark.circle"]
     private func prompt(_ stage: String, _ key: String) -> Binding<String> {
         Binding(get: { studio.settings.prompts[stage]?[key] ?? "" }, set: { studio.settings.prompts[stage, default: [:]][key] = $0 })
     }
@@ -31,8 +64,20 @@ struct SettingsView: View {
                 Picker("Appearance", selection: $studio.settings.theme) {
                     Label("System", systemImage: "desktopcomputer").tag("system"); Label("Light", systemImage: "sun.max").tag("light"); Label("Dark", systemImage: "moon").tag("dark")
                 }
-                Toggle("Follow transcript during playback", isOn: $studio.settings.followTranscript)
             }
+            }
+            if section == "Projects" {
+                if openProjects.projects.isEmpty {
+                    Section("Open projects") {
+                        ContentUnavailableView("No Open Projects", systemImage: "rectangle.stack", description: Text("Open a project to manage its project-specific playback settings."))
+                    }
+                } else {
+                    ForEach(openProjects.projects) { project in
+                        Section(project.name) {
+                            ProjectPlaybackPreferenceControls(projectID: project.id, projectName: project.name)
+                        }
+                    }
+                }
             }
             if section == "Gemini API" { GeminiAPISettingsView(studio: studio) }
             if section == "Narration" { Section("Narration") {
@@ -43,7 +88,7 @@ struct SettingsView: View {
                     Label("Play synthesized narration", systemImage: "play.circle").tag("generated")
                     Label("Preview segment text with Apple Speech", systemImage: "text.bubble").tag("device")
                 }
-                Text("Play synthesized narration to hear the saved audio used for timing and exports. Apple Speech previews segment text immediately without creating audio files; seeking or resuming restarts the active segment.").font(.caption).foregroundStyle(.secondary)
+                Text("Play synthesized narration to hear each saved file with the voice it was created with; changing the current voice does not replace it. Apple Speech previews segment text immediately with the latest voice settings and does not create audio files. Seeking or resuming restarts the active segment. Your playback choice is saved automatically.").font(.caption).foregroundStyle(.secondary)
                 Toggle("Sound when narration is off", isOn: $studio.settings.soundWhenNarrationOff)
                 Text("Play a player sound once when entering an AD segment while Narration is off.").font(.caption).foregroundStyle(.secondary)
                 Toggle("Sound when synthesized audio is unavailable", isOn: $studio.settings.soundWhenNarrationMissing)
@@ -52,7 +97,7 @@ struct SettingsView: View {
                     GeminiVoiceBrowser(studio: studio)
                 }
                 if studio.settings.ttsMode != "gemini" || studio.settings.narrationPlayback == "device" {
-                    Text("Live Apple Speech uses the Apple voice, speech rate, pitch, and volume below, including when Gemini is selected for generating saved narration.")
+                    Text("Live Apple Speech uses the Apple voice, speech rate, pitch, and volume below, including when Gemini is selected for generating saved narration. System default follows the voice selected for the current language in macOS Accessibility → Read & Speak.")
                         .font(.caption).foregroundStyle(.secondary)
                     GroupBox("Voice controls") {
                         VStack(alignment: .leading, spacing: 14) {
@@ -145,13 +190,7 @@ struct SettingsView: View {
         }
         .background(SettingsWindowChrome().frame(width: 0, height: 0))
         .navigationSplitViewStyle(.balanced)
-        .toolbar {
-            ToolbarItem(placement: .primaryAction) {
-                Button("Save Settings", systemImage: "square.and.arrow.down") { studio.saveSettings(); saved = studio.error == nil }.keyboardShortcut("s").disabled(studio.busy)
-            }
-        }
         .frame(minWidth: 850, idealWidth: 940, minHeight: 650, idealHeight: 740)
-        .onChange(of: section) { _, _ in saved = false }
         .onChange(of: studio.settings.ffmpegPath) { _, _ in studio.engineCheckStatus = .unchecked }
         .onChange(of: studio.settings.ffprobePath) { _, _ in studio.engineCheckStatus = .unchecked }
         .preferredColorScheme(studio.settings.theme == "dark" ? .dark : studio.settings.theme == "light" ? .light : nil)

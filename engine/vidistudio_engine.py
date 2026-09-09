@@ -1,6 +1,6 @@
 """VidiStudio portable local project engine. stdout is newline-delimited JSON."""
 from __future__ import annotations
-import argparse, contextlib, json, math, os, platform, shutil, subprocess, sys, tempfile, time, uuid, wave
+import argparse, contextlib, json, math, os, platform, plistlib, re, shutil, subprocess, sys, tempfile, time, uuid, wave
 import signal
 import gemini_adapter
 import parity
@@ -267,11 +267,88 @@ def speech_controls(cfg):
     )
 
 
+def spoken_content_voice_id(preferences=None, preferred_languages=None):
+    """Return the Read & Speak voice identifier for the Mac's preferred language."""
+    if sys.platform != 'darwin' and preferences is None:
+        return None
+    if preferences is None:
+        try:
+            with (Path.home() / 'Library/Preferences/com.apple.Accessibility.plist').open('rb') as stream:
+                preferences = plistlib.load(stream)
+        except (OSError, ValueError, plistlib.InvalidFileException):
+            return None
+    selections = preferences.get('SpokenContentDefaultVoiceSelectionsByLanguage', [])
+    if not isinstance(selections, list):
+        return None
+    choices = {
+        selections[index]: selections[index + 1].get('voiceId')
+        for index in range(0, len(selections) - 1, 2)
+        if isinstance(selections[index], str)
+        and isinstance(selections[index + 1], dict)
+        and isinstance(selections[index + 1].get('voiceId'), str)
+    }
+    if preferred_languages is None:
+        try:
+            with (Path.home() / 'Library/Preferences/.GlobalPreferences.plist').open('rb') as stream:
+                preferred_languages = plistlib.load(stream).get('AppleLanguages', [])
+        except (OSError, ValueError, plistlib.InvalidFileException):
+            preferred_languages = []
+    language_keys = []
+    for language in preferred_languages or []:
+        normalized = str(language).replace('_', '-')
+        language_keys.extend((normalized, normalized.split('-', 1)[0]))
+    language_keys.append('en')
+    return next((choices[key] for key in language_keys if key in choices), None)
+
+
+def system_voice_name_from_identifier(identifier, voice_listing=None):
+    if not identifier:
+        return None
+    if voice_listing is None:
+        try:
+            voice_listing = run(['/usr/bin/say', '-v', '?'], timeout=30)
+        except (OSError, ValueError, subprocess.SubprocessError):
+            return None
+    normalized_identifier = re.sub(r'[^a-z0-9]', '', identifier.lower())
+    candidates = []
+    for line in voice_listing.splitlines():
+        match = re.match(r'^(.+?)\s+([a-z]{2,3}_[A-Za-z_]+)\s+#', line)
+        if not match:
+            continue
+        name, language = match.groups()
+        base_name = re.sub(r'\s*\([^)]*(?:\([^)]*\)[^)]*)?\)\s*$', '', name).strip()
+        if re.sub(r'[^a-z0-9]', '', base_name.lower()) in normalized_identifier:
+            candidates.append((name.strip(), language))
+    if not candidates:
+        return None
+    language_match = re.search(r'([a-z]{2,3})[-_]([a-z]{2})', identifier, re.IGNORECASE)
+    if language_match:
+        expected = f'{language_match.group(1)}_{language_match.group(2)}'.lower()
+        localized = next((name for name, language in candidates if language.lower() == expected), None)
+        if localized:
+            return localized
+    return candidates[0][0]
+
+
+def effective_system_voice(cfg):
+    selected = str(cfg.get('systemVoice', '') or '').strip()
+    if selected:
+        return selected
+    return system_voice_name_from_identifier(spoken_content_voice_id())
+
+
+def system_voice_signature(cfg):
+    selected = str(cfg.get('systemVoice', '') or '').strip()
+    if selected:
+        return selected
+    return 'default:' + (spoken_content_voice_id() or 'automatic')
+
+
 def narration_signature(cfg):
     if cfg.get('ttsMode', 'system') == 'gemini':
         return f"gemini|{cfg.get('geminiVoice', 'Kore')}|{cfg.get('models', {}).get('tts_audio', '')}"
     rate, pitch, volume = speech_controls(cfg)
-    return f"system|{cfg.get('systemVoice', '')}|{rate:.3f}|{pitch:.3f}|{volume:.3f}"
+    return f"system|{system_voice_signature(cfg)}|{rate:.3f}|{pitch:.3f}|{volume:.3f}"
 
 
 def finish_system_speech(raw, output, cfg):
@@ -312,7 +389,7 @@ def synthesize(root,p,segment=None,changed=False):
             args = ['/usr/bin/say', '-f', textfile, '-o', raw]
             rate, _, _ = speech_controls(cfg)
             args += ['-r', str(round(180 * rate))]
-            if cfg.get('systemVoice'): args += ['-v', cfg['systemVoice']]
+            if voice := effective_system_voice(cfg): args += ['-v', voice]
             run(args)
             finish_system_speech(raw, output, cfg); raw.unlink()
         elif os.name == 'nt':
@@ -336,18 +413,21 @@ def synthesize(root,p,segment=None,changed=False):
     atomic_json(root/'audio-description/cues.json',cues)
 
 
+def narration_audio_is_usable(root, cue):
+    """A saved narration file stays usable until its segment text changes."""
+    return bool(cue.get('audio') and cue.get('audioText') == cue.get('text')
+                and local(root, cue['audio']).is_file())
+
+
 def export(root,p,audio_only=False,allow_incomplete=False):
     cues = validate_cues(p['cues'],p['duration'],p['transcript'])
     if not cues and not allow_incomplete: raise ValueError('Create and synthesize AD segments before exporting.')
-    signature = narration_signature(config())
     available=[]
     for cue in cues:
-        usable=(cue.get('audio') and cue.get('audioText')==cue['text']
-                and cue.get('audioSettings')==signature and local(root,cue['audio']).is_file())
-        if not usable:
+        if not narration_audio_is_usable(root, cue):
             if not allow_incomplete:
                 raise ValueError('Some descriptions have missing or outdated narration. Synthesize narration or confirm an incomplete export.')
-            emit('Omitting description without up-to-date narration: '+cue['id'],warning=True)
+            emit('Omitting description without synchronized narration: '+cue['id'],warning=True)
             continue
         available.append(cue)
     cues=available
@@ -359,7 +439,7 @@ def export(root,p,audio_only=False,allow_incomplete=False):
     else: raise ValueError('Attach a local copy of this YouTube video to render a final video. Narration-only export is available now.')
     filters=[]; tracks=[]
     for i,c in enumerate(cues,1):
-        if not c.get('audio') or c.get('audioText') != c['text'] or c.get('audioSettings') != signature: raise ValueError('Synthesize all changed AD segments before exporting.')
+        if not narration_audio_is_usable(root, c): raise ValueError('Synthesize all changed AD segments before exporting.')
         audio = local(root,c['audio'])
         if float(probe(audio)['format']['duration']) > c['end']-c['start']+.02: raise ValueError('Narration exceeds its AD segment. Adjust timing or regenerate.')
         args += ['-i',audio]

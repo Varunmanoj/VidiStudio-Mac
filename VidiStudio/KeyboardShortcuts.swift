@@ -68,6 +68,13 @@ struct StudioCommands: Commands {
     @FocusedValue(\.editorShortcuts) private var editor
     @Environment(\.openWindow) private var openWindow
     var body: some Commands {
+        CommandGroup(after: .newItem) {
+            Button("Open Selected Project", systemImage: "macwindow.badge.plus") {
+                browser?.openSelectedProject?()
+            }
+            .keyboardShortcut("o", modifiers: .command)
+            .disabled(browser?.hasSelectedProject != true || browser?.openSelectedProject == nil)
+        }
         CommandGroup(after: .sidebar) {
             Button(editor?.previewHidden == true ? "Show Preview" : "Hide Preview", systemImage: editor?.previewHidden == true ? "video" : "video.slash") {
                 editor?.run("preview")
@@ -75,15 +82,15 @@ struct StudioCommands: Commands {
             .keyboardShortcut("v", modifiers: [.command, .shift])
             .disabled(editor == nil)
             Divider()
-            Button(browser?.showProjects.wrappedValue == true ? "Hide Project List" : "Show Project List", systemImage: "sidebar.left") { browser?.showProjects.wrappedValue.toggle() }
-                .keyboardShortcut("b", modifiers: .command).disabled(browser == nil)
-            Button(browser?.hasProject == true && browser?.showInspector.wrappedValue == true ? "Hide Inspector" : "Show Inspector", systemImage: "sidebar.right") { browser?.showInspector.wrappedValue.toggle() }
-                .keyboardShortcut("b", modifiers: [.command, .shift]).disabled(browser?.hasProject != true)
+            Button(browser?.showProjects?.wrappedValue == true ? "Hide Project List" : "Show Project List", systemImage: "sidebar.left") { browser?.showProjects?.wrappedValue.toggle() }
+                .keyboardShortcut("b", modifiers: .command).disabled(browser?.showProjects == nil)
+            Button(browser?.hasProject == true && browser?.showInspector?.wrappedValue == true ? "Hide Inspector" : "Show Inspector", systemImage: "sidebar.right") { browser?.showInspector?.wrappedValue.toggle() }
+                .keyboardShortcut("b", modifiers: [.command, .shift]).disabled(browser?.hasProject != true || browser?.showInspector == nil)
             Divider()
-            Button("Project List View", systemImage: "list.bullet") { browser?.grid.wrappedValue = false; browser?.showProjects.wrappedValue = true }
-                .keyboardShortcut("1", modifiers: [.command, .option]).disabled(browser == nil)
-            Button("Project Grid View", systemImage: "square.grid.2x2") { browser?.grid.wrappedValue = true; browser?.showProjects.wrappedValue = true }
-                .keyboardShortcut("2", modifiers: [.command, .option]).disabled(browser == nil)
+            Button("Project List View", systemImage: "list.bullet") { browser?.grid?.wrappedValue = false; browser?.showProjects?.wrappedValue = true }
+                .keyboardShortcut("1", modifiers: [.command, .option]).disabled(browser?.grid == nil)
+            Button("Project Grid View", systemImage: "square.grid.2x2") { browser?.grid?.wrappedValue = true; browser?.showProjects?.wrappedValue = true }
+                .keyboardShortcut("2", modifiers: [.command, .option]).disabled(browser?.grid == nil)
         }
         CommandGroup(replacing: .appInfo) {
             Button("About VidiStudio", systemImage: "info.circle") {
@@ -137,7 +144,9 @@ struct ShortcutReferenceView: View {
             Text("These shortcuts apply to the native macOS app. Editor commands are available with a project open and no editing sheet or processing operation active.")
             Text("The Project menu groups Playback, Editor Sections, Segments, and Analysis & Regeneration. Generation shortcuts use Command + Option + Shift. Existing content is replaced only after confirmation; Regenerate All asks before deleting generated content.")
             shortcutRow("New Project", value: "Command + N")
-            shortcutRow("Open Project Folder", value: "Command + O")
+            shortcutRow("Open Selected Project", value: "Command + O")
+            shortcutRow("Open Project Folder", value: "Command + Shift + O")
+            shortcutRow("Rename Selected Project", value: "Return; All Projects")
             shortcutRow("Settings", value: "Command + Comma")
             shortcutRow("Show or Hide Project List", value: "Command + B")
             shortcutRow("Show or Hide Inspector", value: "Command + Shift + B; requires a selected project")
@@ -147,7 +156,6 @@ struct ShortcutReferenceView: View {
             ForEach(StudioShortcut.editor) { shortcut in
                 shortcutRow(shortcut.title, value: shortcut.spoken)
             }
-            shortcutRow("Save Settings (in Settings)", value: "Command + S")
             shortcutRow("Save Segment (in its editor)", value: "Return")
             shortcutRow("Cancel a sheet or close Help", value: "Escape")
             Text("Segment changes save when you choose Save Segment. Standard Command + Z and Command + Shift + Z remain available for text editing; the separate segment-history commands do not replace them.")

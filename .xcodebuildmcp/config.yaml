@@ -1,0 +1,13 @@
+schemaVersion: 1
+
+enabledWorkflows:
+  - macos
+  - project-discovery
+  - debugging
+  - utilities
+
+sessionDefaults:
+  projectPath: ./VidiStudio.xcodeproj
+  scheme: VidiStudio
+  configuration: Debug
+  platform: macOS

@@ -5,11 +5,19 @@ struct ADOverviewView: View {
     @Environment(\.openSettings) private var openSettings
     let project: StudioProject
     private func audioStatus(_ cue: Segment) -> SynchronizedAudioStatus {
-        .resolve(cue: cue, project: project, settingsSignature: studio.settings.narrationSignature)
+        .resolve(cue: cue, project: project)
     }
     private var ready: Int { project.cues.filter { audioStatus($0) == .generated }.count }
     private var stale: Int { project.cues.filter { audioStatus($0) == .needsRegeneration }.count }
     private var missing: Int { project.cues.filter { audioStatus($0) == .notGenerated }.count }
+    private var selectedVoice: String {
+        if studio.settings.ttsMode == "gemini" { return studio.settings.geminiVoice }
+        if !studio.settings.systemVoice.isEmpty { return studio.settings.systemVoice }
+        if let voice = SystemSpeechVoiceResolver.defaultVoiceDisplayName {
+            return "System default (\(voice))"
+        }
+        return "System default"
+    }
     private func statistic(_ title: String, value: String) -> some View {
         HStack { Text(title); Spacer(); Text(value).monospacedDigit() }
             .accessibilityElement(children: .ignore)
@@ -44,16 +52,17 @@ struct ADOverviewView: View {
                     Text("Apple on-device voices · offline").tag("system")
                     Text("Gemini TTS").tag("gemini")
                 }
-                statistic("Voice", value: studio.settings.ttsMode == "gemini" ? studio.settings.geminiVoice : studio.settings.systemVoice.isEmpty ? "System default" : studio.settings.systemVoice)
+                statistic("Voice", value: selectedVoice)
                 HStack {
-                    Button("Generate All AD Audio") { studio.saveSettings(); if studio.error == nil { studio.execute("synthesize-tts") } }
-                    Button("Generate Missing or Changed Audio") { studio.saveSettings(); if studio.error == nil { studio.execute("synthesize-tts", extra: ["--changed"]) } }
+                    Button("Generate All AD Audio") { studio.execute("synthesize-tts") }
+                    Button("Generate Missing or Changed Audio") { studio.execute("synthesize-tts", extra: ["--changed"]) }
                 }.disabled(studio.busy || project.cues.isEmpty)
                 Button("Voice and Narration Settings") {
                     studio.settingsSection = "Narration"
                     openSettings()
                 }
-                Text("Both engines save narration in this project for synchronized playback and export. Gemini TTS requires your API key. For narration without creating files, choose on-device playback in Settings → Narration and enable Narration in the editor.").font(.caption).foregroundStyle(.secondary)
+                Text("Voice and speech-engine changes are saved automatically and shared with open project windows.").font(.caption).foregroundStyle(.secondary)
+                Text("Both engines save narration in this project for synchronized playback and export. Existing files keep the voice they were created with even if voice settings change. Gemini TTS requires your API key. For narration without creating files, choose on-device playback in Settings → Narration and enable Narration in the editor.").font(.caption).foregroundStyle(.secondary)
             }
         }.formStyle(.grouped)
     }
