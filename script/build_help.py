@@ -1,0 +1,115 @@
+#!/usr/bin/env python3
+"""Build the offline Apple Help book and validate its internal navigation."""
+import argparse
+import html
+from html.parser import HTMLParser
+import pathlib
+import plistlib
+import re
+import subprocess
+
+ROOT = pathlib.Path(__file__).resolve().parents[1]
+BOOK_ID = "Varunmanojkumar.VidiStudio.help"
+TOPICS = [
+    ("welcome", "Welcome to VidiStudio"),
+    ("first-project", "Create your first described video"),
+    ("projects", "Manage projects"),
+    ("editor", "Explore the editor"),
+    ("descriptions", "Write and edit descriptions"),
+    ("analysis", "Analyze and regenerate content"),
+    ("narration", "Choose voices and play narration"),
+    ("exports", "Export your work"),
+    ("settings", "Settings reference"),
+    ("keyboard", "Keyboard shortcuts and accessibility"),
+    ("troubleshooting", "Solve common problems"),
+    ("privacy", "Privacy and glossary"),
+]
+
+class Page(HTMLParser):
+    def __init__(self, source):
+        super().__init__()
+        self.ids, self.links = set(), []
+        self.feed(source)
+
+    def handle_starttag(self, tag, attrs):
+        attrs = dict(attrs)
+        if "id" in attrs:
+            if attrs["id"] in self.ids:
+                raise ValueError("Duplicate anchor: " + attrs["id"])
+            self.ids.add(attrs["id"])
+        if tag == "a" and "href" in attrs:
+            self.links.append(attrs["href"])
+
+def keyboard():
+    source = (ROOT / "VidiStudio/KeyboardShortcuts.swift").read_text()
+    commands = re.findall(r'\.init\(id: "[^"]+", title: "([^"]+)".*?spoken: "([^"]+)"', source)
+    if len(commands) < 20:
+        raise ValueError("Editor shortcut extraction failed")
+    general = [("New Project", "Command + N"), ("Open Selected Project", "Command + O"),
+               ("Open Project Folder", "Command + Shift + O"), ("Rename selected project in All Projects", "Return"),
+               ("Settings", "Command + Comma"), ("Show or Hide Inspector", "Command + Shift + B"),
+               ("Project List View", "Command + Option + 1"), ("Project Grid View", "Command + Option + 2"),
+               ("VidiStudio Help", "Command + Option + Slash")]
+    rows = "".join(f"<tr><th scope='row'>{html.escape(title)}</th><td>{html.escape(keys)}</td></tr>" for title, keys in general + commands)
+    return """<h1>Keyboard shortcuts and accessibility</h1>
+<p>Use the menu bar to discover commands and their shortcuts. Project commands require an open project and may be unavailable during processing or while a sheet is open. The Project menu groups Playback, Editor Sections, Segments, and Analysis &amp; Regeneration.</p>
+<table><caption>Application shortcuts</caption><thead><tr><th scope='col'>Action</th><th scope='col'>Shortcut</th></tr></thead><tbody>""" + rows + """</tbody></table>
+<h2>Edit text and segments</h2><p>Command-Z and Command-Shift-Z undo and redo text editing. The separate segment-history commands above restore saved segment edits. Return activates Save Segment when the sheet's default action is available; Escape cancels a sheet or leaves full-screen video. Regeneration shortcuts still ask for confirmation before replacing existing content.</p>
+<h2>Navigate without a mouse</h2><p>Enable Keyboard navigation in macOS System Settings &gt; Keyboard to reach all controls using Tab and Shift-Tab. Use Space to activate a focused button or toggle, and arrow keys within lists and pickers. Select a project and press Command-O to open it. Focus the video timeline slider to seek without dragging. Description rows expose edit and other actions in their contextual menu.</p>
+<h2>Use VoiceOver</h2><p>Use standard Control-Option navigation and interaction commands. VidiStudio does not assign those combinations to app shortcuts. The player, timeline, sections, segment times, generation status, and voice choices expose accessible labels. In this Help Book, use headings, links, and the table of contents to navigate; the Skip to topic link bypasses repeated navigation. Tables have column headings and prose instructions do not depend on screenshots or color.</p>
+<h2>Make reading comfortable</h2><p>VidiStudio supports System, Light, and Dark appearance in Settings. This Help Book follows the system appearance independently. Follow synchronized transcript can keep the active text visible during playback; turn it off when you want to read without automatic scrolling.</p>"""
+
+CSS = """html{color-scheme:light dark;font:17px/1.6 -apple-system,BlinkMacSystemFont,sans-serif}body{margin:0;color:light-dark(#202124,#ededf0);background:light-dark(#fff,#1c1c1e)}a{color:light-dark(#005bbb,#80baff)}a:focus-visible,input:focus-visible{outline:3px solid #e89c23;outline-offset:4px}header{padding:1rem 2rem;border-bottom:1px solid #8885}header a{font-weight:700;text-decoration:none}.layout{display:grid;grid-template-columns:260px minmax(0,800px);max-width:1120px;margin:auto}nav{padding:1.5rem}nav ol{padding-left:1.2rem}nav li{margin:.5rem 0}nav a[aria-current=page]{font-weight:700}main{padding:2rem;min-width:0}h1{font-size:2.3rem;line-height:1.15;letter-spacing:-.04em}h2{font-size:1.35rem;margin-top:2rem}h3{font-size:1.1rem}dt{font-weight:650;margin-top:1rem}dd{margin-left:0}li{margin:.6rem 0}table{border-collapse:collapse;width:100%;font-size:.93rem}td,th{text-align:left;vertical-align:top;padding:.7rem;border-bottom:1px solid #8885}caption{text-align:left;font-weight:700;margin:1rem 0}.pager{display:flex;justify-content:space-between;gap:2rem;border-top:1px solid #8885;margin-top:3rem;padding-top:1rem}.skip{position:absolute;left:-9999px}.skip:focus{left:1rem;background:Canvas;padding:1rem;z-index:1}.collection{padding:1rem;border:1px solid #8885;border-radius:12px;margin:1rem 0}.collection a{font-size:1.15rem;font-weight:600}footer{font-size:.8rem;color:light-dark(#54545a,#bbb);margin-top:2rem}@media(max-width:760px){.layout{display:block}nav{border-bottom:1px solid #8885}main{padding:1.25rem}h1{font-size:2rem}}"""
+
+def build(output, index=True):
+    resources = output / "Contents/Resources"
+    locale = resources / "en.lproj"
+    locale.mkdir(parents=True, exist_ok=True)
+    info = dict(CFBundleDevelopmentRegion="en", CFBundleIdentifier=BOOK_ID,
+                CFBundleInfoDictionaryVersion="6.0", CFBundleName="VidiStudio Help",
+                CFBundlePackageType="BNDL", CFBundleSignature="hbwr",
+                CFBundleVersion="1", CFBundleShortVersionString="1.0",
+                HPDBookAccessPath="index.html", HPDBookIndexPath="search.helpindex",
+                HPDBookTitle="VidiStudio Help", HPDBookType="3")
+    (output / "Contents/Info.plist").write_bytes(plistlib.dumps(info))
+    (locale / "style.css").write_text(CSS)
+    (locale / "InfoPlist.strings").write_text('"HPDBookTitle" = "VidiStudio Help";\n')
+    pages = [("index", "VidiStudio Help")] + TOPICS
+    for position, (slug, title) in enumerate(pages):
+        if slug == "index":
+            body = '<h1>VidiStudio Help</h1><p>Create accessible video, one clear description at a time. Start with the guided workflow or choose a topic below.</p>'
+            body += ''.join(f'<section class="collection"><a href="{key}.html">{html.escape(label)}</a></section>' for key, label in TOPICS)
+        elif slug == "keyboard":
+            body = keyboard()
+        else:
+            body = (ROOT / "docs/help" / f"{slug}.html").read_text()
+        toc = ''.join(f'<li><a href="{key}.html"' + (' aria-current="page"' if key == slug else '') + f'>{html.escape(label)}</a></li>' for key, label in TOPICS)
+        pager = '<div class="pager">'
+        if position:
+            key, label = pages[position - 1]
+            pager += f'<a rel="prev" href="{key}.html">Previous: {html.escape(label)}</a>'
+        if position + 1 < len(pages):
+            key, label = pages[position + 1]
+            pager += f'<a rel="next" href="{key}.html">Next: {html.escape(label)}</a>'
+        pager += '</div>'
+        document = f'''<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>{html.escape(title)}</title><meta name="AppleTitle" content="{BOOK_ID}"><meta name="description" content="{html.escape(title)} — VidiStudio user guide"><link rel="stylesheet" href="style.css"></head><body><a class="skip" href="#topic">Skip to topic</a><header><a href="index.html">VidiStudio Help · Home</a></header><div class="layout"><nav aria-label="Table of contents"><h2>Contents</h2><ol>{toc}</ol><p>Use Help Viewer’s search field to find words across this guide.</p></nav><main id="topic"><a name="{slug}" id="{slug}"></a>{body}{pager}<footer>VidiStudio for macOS · Offline user guide</footer></main></div></body></html>'''
+        (locale / f"{slug}.html").write_text(document)
+    parsed = {path.name: Page(path.read_text()) for path in locale.glob("*.html")}
+    for name, page in parsed.items():
+        for link in page.links:
+            if ":" in link:
+                continue
+            target, _, anchor = link.partition("#")
+            target = target or name
+            if target not in parsed or (anchor and anchor not in parsed[target].ids):
+                raise ValueError(f"Broken link in {name}: {link}")
+    if index:
+        subprocess.run(["/usr/bin/hiutil", "-I", "lsm", "-C", "-a", "-s", "en", "-f", str(locale / "search.helpindex"), str(locale)], check=True)
+    print(f"Validated {len(parsed)} Help pages and all internal links: {output}")
+
+if __name__ == "__main__":
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("--output", type=pathlib.Path, default=ROOT / "build/help/VidiStudio.help")
+    parser.add_argument("--no-index", action="store_true")
+    args = parser.parse_args()
+    build(args.output, not args.no_index)

@@ -66,7 +66,6 @@ struct VidiStudioApp: App {
         }
         .defaultSize(width: 1200, height: 780)
         .windowToolbarStyle(.unifiedCompact)
-        Window("VidiStudio Help", id: "help") { StudioHelpView() }.defaultSize(width: 740, height: 650)
         Settings { SettingsView(studio: studio, openProjects: openProjects) }.windowToolbarStyle(.unifiedCompact)
     }
 }

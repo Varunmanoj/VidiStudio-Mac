@@ -11,6 +11,7 @@ if [[ ! -f build/engine/vidistudio-engine/.complete ]] || [[ -n "$(find engine -
 fi
 xcodebuild -project VidiStudio.xcodeproj -scheme VidiStudio -configuration "$CONFIGURATION" -derivedDataPath build/DerivedData CODE_SIGNING_ALLOWED=NO build > build/xcode-build.log 2>&1 || { tail -60 build/xcode-build.log; exit 1; }
 APP="$PWD/build/DerivedData/Build/Products/$CONFIGURATION/VidiStudio.app"
+python3 script/verify_help.py "$APP"
 
 codesign --force --deep --sign - "$APP" > build/codesign.log 2>&1
 case "$MODE" in

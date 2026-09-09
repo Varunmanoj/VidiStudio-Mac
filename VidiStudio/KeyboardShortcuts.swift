@@ -113,7 +113,7 @@ struct StudioCommands: Commands {
             Menu("Analysis & Regeneration") { entries("Analysis") }
         }
         CommandGroup(replacing: .help) {
-            Button("VidiStudio Help", systemImage: "questionmark.circle") { openWindow(id: "help") }.keyboardShortcut("/", modifiers: [.command, .option])
+            Button("VidiStudio Help", systemImage: "questionmark.circle") { StudioHelp.open() }.keyboardShortcut("/", modifiers: [.command, .option])
         }
     }
     @ViewBuilder private func entries(_ group: String) -> some View {
@@ -148,7 +148,6 @@ struct ShortcutReferenceView: View {
             shortcutRow("Open Project Folder", value: "Command + Shift + O")
             shortcutRow("Rename Selected Project", value: "Return; All Projects")
             shortcutRow("Settings", value: "Command + Comma")
-            shortcutRow("Show or Hide Project List", value: "Command + B")
             shortcutRow("Show or Hide Inspector", value: "Command + Shift + B; requires a selected project")
             shortcutRow("Project List View", value: "Command + Option + 1")
             shortcutRow("Project Grid View", value: "Command + Option + 2")
@@ -157,26 +156,9 @@ struct ShortcutReferenceView: View {
                 shortcutRow(shortcut.title, value: shortcut.spoken)
             }
             shortcutRow("Save Segment (in its editor)", value: "Return")
-            shortcutRow("Cancel a sheet or close Help", value: "Escape")
+            shortcutRow("Cancel a sheet or leave full-screen video", value: "Escape")
             Text("Segment changes save when you choose Save Segment. Standard Command + Z and Command + Shift + Z remain available for text editing; the separate segment-history commands do not replace them.")
             Text("Use Tab and Shift + Tab to move between controls, Space to activate buttons and toggles, and arrow keys inside lists and pickers. Enable Keyboard navigation in macOS System Settings → Keyboard to reach all controls with Tab. VoiceOver users can use standard Control + Option navigation and interaction commands; those combinations are not assigned by VidiStudio.")
         }
-    }
-}
-struct StudioHelpView: View {
-    @Environment(\.dismiss) private var dismiss
-    var body: some View {
-        ScrollView {
-            VStack(alignment: .leading, spacing: 20) {
-                Text("VidiStudio Help").font(.largeTitle).accessibilityAddTraits(.isHeader)
-                Text(AppVersionInfo.display)
-                    .foregroundStyle(.secondary)
-                    .accessibilityLabel("VidiStudio \(AppVersionInfo.display)")
-                Text("Import a local video or create a YouTube project, run analysis from the inspector, review descriptions, synthesize narration, and export. Your project files and completed results are saved locally.")
-                Text("Editor sections are ordered Transcript, Summary, Descriptions, AD Overview, and AD Transcript. Transcript shows spoken dialogue; Descriptions contains the authored AD segments; AD Overview shows segment and narration counts and generates audio with Apple voices or Gemini TTS; AD Transcript combines dialogue and AD segments chronologically. Settings → Narration contains the language and voice browser, voice samples, offline speech rate, pitch and volume controls, Restore Defaults, and the choice between saved audio playback and speaking on device without files.")
-                ShortcutReferenceView()
-                Button("Close Help") { dismiss() }.keyboardShortcut(.cancelAction)
-            }.padding(24)
-        }.frame(minWidth: 640, minHeight: 500)
     }
 }

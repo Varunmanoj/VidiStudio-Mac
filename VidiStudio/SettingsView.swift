@@ -53,7 +53,7 @@ struct SettingsView: View {
         } detail: {
         Form {
             if section == "Help" { Section("Help and keyboard shortcuts") {
-                Button("Open VidiStudio Help", systemImage: "questionmark.circle") { openWindow(id: "help") }
+                Button("Open VidiStudio Help", systemImage: "questionmark.circle") { StudioHelp.open() }
                 LabeledContent("App version", value: AppVersionInfo.display)
                     .accessibilityElement(children: .ignore)
                     .accessibilityLabel("App version, \(AppVersionInfo.display)")
