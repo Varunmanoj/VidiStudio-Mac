@@ -1,6 +1,7 @@
 import SwiftUI
 import AVKit
 import AVFoundation
+import Combine
 import UniformTypeIdentifiers
 
 private enum NewProjectSource: String, CaseIterable, Identifiable {
@@ -290,6 +291,7 @@ struct ProcessingInspector: View {
         case "transcribe": return .transcript
         case "generate-summary": return .summary
         case "generate-ad-cues": return .descriptions
+        case "synthesize-tts": return .narration
         default: return nil
         }
     }
@@ -316,7 +318,9 @@ struct ProcessingInspector: View {
                     }.disabled(studio.busy)
                     Text("Individual actions replace only their own content. Regenerate All deletes generated content and recreates the transcript, summary, and AD segments. Narration and exports can then be generated separately.")
                         .font(.caption).foregroundStyle(.secondary)
-                    ForEach(stages, id: \.0) { stage in
+                    ForEach(stages.filter { stage in
+                        stage.0 != "export-final-video" || !p.isYouTubeURLProject
+                    }, id: \.0) { stage in
                         HStack(spacing: 6) {
                             Button { studio.execute(stage.0) } label: {
                                 HStack {
@@ -339,10 +343,12 @@ struct ProcessingInspector: View {
                         .controlSize(.large)
                     }
                     Menu("Export Text", systemImage: "square.and.arrow.up") {
-                        ForEach(["transcript", "descriptions", "combined"], id: \.self) { content in
+                        ForEach(["transcript", "summary", "descriptions", "combined"], id: \.self) { content in
                             Menu(content.capitalized, systemImage: "doc.text") {
-                                ForEach(["srt", "vtt", "txt", "json"], id: \.self) { format in
-                                    Button(format.uppercased(), systemImage: "doc") { studio.execute("export-subtitles", extra: ["--content", content, "--format", format]) }
+                                ForEach(content == "summary" ? ["md"] : ["srt", "vtt", "txt", "json"], id: \.self) { format in
+                                    Button(format == "md" ? "Markdown" : format.uppercased(), systemImage: "doc") {
+                                        studio.execute("export-subtitles", extra: ["--content", content, "--format", format])
+                                    }
                                 }
                             }
                             .disabled(!p.canExportText(content))
@@ -356,13 +362,23 @@ struct ProcessingInspector: View {
                             : "Generate narration audio for at least one AD segment first")
                     Button("Synthesize Changed Segments", systemImage: "waveform") { studio.execute("synthesize-tts", extra: ["--changed"]) }.disabled(studio.busy)
                     HStack { Button("Undo Segment Edit", systemImage: "arrow.uturn.backward") { studio.execute("undo-cues") }; Button("Redo", systemImage: "arrow.uturn.forward") { studio.execute("redo-cues") } }.disabled(studio.busy)
-                    if p.sourceType == "youtube" { Button("Attach Local Video Copy…", systemImage: "paperclip") { studio.attachVideo() }.disabled(studio.busy) }
                     Text("Generate Descriptions creates timed text only. Review and edit it, then choose Synthesize Narration to create audio.").font(.caption).foregroundStyle(.secondary)
                     Button("Show Project in Finder", systemImage: "folder") { if let folder = p.folder { NSWorkspace.shared.open(folder) } }
                     if !p.exports.isEmpty {
                         Divider(); Text("Exports").font(.headline)
                         ForEach(p.exports, id: \.self) { path in
-                            Button(URL(fileURLWithPath: path).lastPathComponent, systemImage: "play.rectangle") { if let url = p.url(path) { NSWorkspace.shared.open(url) } }
+                            HStack(spacing: 6) {
+                                Button(URL(fileURLWithPath: path).lastPathComponent, systemImage: "play.rectangle") {
+                                    if let url = p.url(path) { NSWorkspace.shared.open(url) }
+                                }
+                                .frame(maxWidth: .infinity, alignment: .leading)
+                                Button("Delete Export", systemImage: "trash", role: .destructive) {
+                                    studio.confirmDeleteExport(p, path: path)
+                                }
+                                .labelStyle(.iconOnly)
+                                .help("Delete \(URL(fileURLWithPath: path).lastPathComponent)")
+                                .disabled(studio.busy)
+                            }
                         }
                     }
                 } else { Text("Select a project to see its media and processing tools.").foregroundStyle(.secondary) }
@@ -395,6 +411,8 @@ struct ProjectEditor: View {
     @State private var previewHeightAtDragStart: CGFloat?
     @State private var cueToEdit: Segment?
     @State private var audioPreview: AVAudioPlayer?
+    @State private var activePreviewCueID: String?
+    @State private var previewPaused = false
     @State private var segmentScreenText: String?
     @State private var readingFrameForSegment = false
     @State private var followTranscript = true
@@ -562,7 +580,9 @@ struct ProjectEditor: View {
         playback.observe()
         playback.narrationEnabled = ProjectPlaybackPreferences.narrationEnabled(project.id)
         followTranscript = ProjectPlaybackPreferences.followEnabled(project.id)
-        guard !project.source.isEmpty, let url = project.url(project.source) else { return }
+        guard !project.isYouTubeURLProject,
+              !project.source.isEmpty,
+              let url = project.url(project.source) else { return }
         playback.player.replaceCurrentItem(with: AVPlayerItem(url: url))
     }
 
@@ -598,20 +618,48 @@ struct ProjectEditor: View {
 
     private func previewNarration(for cue: Segment) {
         guard let url = playableNarrationURL(for: cue) else { return }
+        if activePreviewCueID == cue.id, let audioPreview {
+            if audioPreview.isPlaying {
+                audioPreview.pause()
+                previewPaused = true
+            } else {
+                audioPreview.play()
+                previewPaused = false
+            }
+            return
+        }
         do {
-            audioPreview?.stop()
+            stopNarrationPreview()
             let player = try AVAudioPlayer(contentsOf: url)
             audioPreview = player
+            activePreviewCueID = cue.id
+            previewPaused = false
             player.play()
         } catch {
             studio.error = "Could not play this segment’s narration: \(error.localizedDescription)"
         }
     }
 
+    private func stopNarrationPreview() {
+        audioPreview?.stop()
+        audioPreview = nil
+        activePreviewCueID = nil
+        previewPaused = false
+    }
+
+    private func previewControlTitle(for cue: Segment) -> String {
+        guard activePreviewCueID == cue.id else { return "Play Narration" }
+        return audioPreview?.isPlaying == true ? "Pause Narration" : "Resume Narration"
+    }
+
+    private func previewControlIcon(for cue: Segment) -> String {
+        activePreviewCueID == cue.id && audioPreview?.isPlaying == true ? "pause.circle" : "play.circle"
+    }
+
     private var previewPane: some View {
         VStack(spacing: 0) {
             Group {
-                if let url = project.youtubeURL, project.source.isEmpty { YouTubePlayer(url: url, playback: playback) }
+                if project.isYouTubeURLProject, let url = project.youtubeURL { YouTubePlayer(url: url, playback: playback) }
                 else { NativeVideoPlayer(player: playback.player, playback: playback) }
             }
             .frame(minWidth: 0, idealWidth: 700, maxWidth: .infinity, minHeight: 120, idealHeight: 340, maxHeight: .infinity)
@@ -687,19 +735,33 @@ struct ProjectEditor: View {
                                 Text(cue.text).textSelection(.enabled)
                             }.frame(maxWidth: .infinity, alignment: .leading)
                             if tab == "descriptions" {
-                                Button("Play Narration", systemImage: "play.circle") { previewNarration(for: cue) }
+                                Button(previewControlTitle(for: cue), systemImage: previewControlIcon(for: cue)) { previewNarration(for: cue) }
                                     .labelStyle(.iconOnly)
                                     .disabled(studio.busy || playableNarrationURL(for: cue) == nil)
                                     .help(playableNarrationURL(for: cue) == nil
                                         ? "Generate synchronized audio for this AD segment first"
-                                        : "Play this AD segment’s generated narration")
+                                        : "\(previewControlTitle(for: cue)) for this AD segment")
+                                Button("Stop Narration", systemImage: "stop.circle") { stopNarrationPreview() }
+                                    .labelStyle(.iconOnly)
+                                    .disabled(studio.busy || activePreviewCueID != cue.id)
+                                    .help(activePreviewCueID == cue.id
+                                        ? "Stop this AD segment’s narration and return to the beginning"
+                                        : "This AD segment’s narration is not active")
                                 Button("Edit", systemImage: "pencil") { cueToEdit = cue }.labelStyle(.iconOnly).disabled(studio.busy)
                                 Menu {
-                                    if playableNarrationURL(for: cue) != nil {
-                                        Button("Preview Narration", systemImage: "play.circle") { previewNarration(for: cue) }
-                                    }
+                                    Button(previewControlTitle(for: cue), systemImage: previewControlIcon(for: cue)) { previewNarration(for: cue) }
+                                        .disabled(playableNarrationURL(for: cue) == nil)
+                                    Button("Stop Narration", systemImage: "stop.circle") { stopNarrationPreview() }
+                                        .disabled(activePreviewCueID != cue.id)
                                     Button("Rewrite to Fit", systemImage: "wand.and.stars") { studio.execute("rewrite-cue", extra: ["--segment", cue.id]) }
                                     Button("Synthesize This Segment", systemImage: "waveform") { studio.execute("synthesize-tts", extra: ["--segment", cue.id]) }
+                                    Button("Delete Segment Audio", systemImage: "speaker.slash", role: .destructive) {
+                                        studio.confirmDeleteSegmentAudio(project, cue: cue) {
+                                            stopNarrationPreview()
+                                            playback.stopNarrationPlayback()
+                                        }
+                                    }
+                                    .disabled(cue.audio == nil)
                                     Button("Delete Segment", systemImage: "trash", role: .destructive) { studio.saveCues(project.cues.filter { $0.id != cue.id }) }
                                 } label: { Image(systemName: "ellipsis") }
                                     .menuStyle(.borderlessButton)
@@ -784,6 +846,8 @@ struct ProjectEditor: View {
             case "descriptions", "transcript", "summary", "ad-transcript", "ad-overview": tab = action
             case "add":
                 presentNewSegment()
+            case "delete-narration":
+                studio.confirmDeleteGeneratedContent(project, component: .narration)
             case "undo": studio.execute("undo-cues")
             case "redo": studio.execute("redo-cues")
             case "analyze", "transcribe", "generate-summary", "regenerate-all": studio.execute(action)
@@ -792,14 +856,19 @@ struct ProjectEditor: View {
             default: break
             }
         }, previewHidden: previewHidden, canRun: { action in
-            action != "generate-ad-cues" || project.canGenerateDescriptions
+            guard !studio.busy else { return false }
+            if action == "generate-ad-cues" { return project.canGenerateDescriptions }
+            if action == "delete-narration" { return GeneratedContentComponent.narration.hasContent(in: project) }
+            return true
         })
     }
 
     private var editorWithProjectUpdates: some View {
         editorLayout
         .focusedSceneValue(\.editorShortcuts, editorShortcutActions)
-        .navigationTitle(project.name)
+        // ProjectEditorWindow owns the navigation title. Keeping a second title
+        // on this playhead-driven subtree made AppKit clear and restore the
+        // title while playback invalidated the view every 150 milliseconds.
         .onChange(of: studio.busy) { _, busy in handleBusyChange(busy) }
         .onChange(of: studio.screenText) { _, text in handleScreenText(text) }
         .onChange(of: playback.videoTitle) { _, title in updateYouTubeTitleIfNeeded(title) }
@@ -834,6 +903,15 @@ struct ProjectEditor: View {
                   followTranscript != enabled else { return }
             followTranscript = enabled
         }
+        .onReceive(NotificationCenter.default.publisher(for: .vidiStudioNarrationAudioWillDelete)) { notification in
+            guard notification.userInfo?["projectID"] as? String == project.id else { return }
+            stopNarrationPreview()
+            playback.stopNarrationPlayback()
+        }
+        .onReceive(Timer.publish(every: 0.2, on: .main, in: .common).autoconnect()) { _ in
+            guard activePreviewCueID != nil, !previewPaused, audioPreview?.isPlaying != true else { return }
+            stopNarrationPreview()
+        }
     }
 
     private var editorWithVoiceUpdates: some View {
@@ -847,7 +925,7 @@ struct ProjectEditor: View {
     var body: some View {
         editorWithVoiceUpdates
         .onAppear(perform: preparePlayback)
-        .onDisappear { playback.stop(); audioPreview?.stop() }
+        .onDisappear { playback.stop(); stopNarrationPreview() }
         .sheet(isPresented: screenTextPresented) { screenTextReview }
         .sheet(item: $cueToEdit, onDismiss: {
             readingFrameForSegment = false

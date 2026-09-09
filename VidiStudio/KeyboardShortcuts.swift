@@ -35,6 +35,7 @@ struct StudioShortcut: Identifiable {
         case "ad-overview": return "chart.bar"
         case "add": return "plus"
         case "follow": return "text.line.first.and.arrowtriangle.forward"
+        case "delete-narration": return "speaker.slash"
         case "undo": return "arrow.uturn.backward"
         case "redo": return "arrow.uturn.forward"
         default: return "arrow.clockwise"
@@ -54,6 +55,7 @@ struct StudioShortcut: Identifiable {
         .init(id: "ad-transcript", title: "Show AD Transcript", key: "5", modifiers: .command, spoken: "Command + 5", group: "Editor"),
         .init(id: "add", title: "Add Description Segment", key: "n", modifiers: [.command, .shift], spoken: "Command + Shift + N", group: "Editor"),
         .init(id: "follow", title: "Toggle Transcript Follow", key: "f", modifiers: [.command, .shift], spoken: "Command + Shift + F", group: "Editor"),
+        .init(id: "delete-narration", title: "Delete All Narration Audio…", key: .delete, modifiers: [.command, .option], spoken: "Command + Option + Delete", group: "Editor"),
         .init(id: "undo", title: "Undo Segment Edit", key: "z", modifiers: [.command, .option], spoken: "Command + Option + Z", group: "Editor"),
         .init(id: "redo", title: "Redo Segment Edit", key: "z", modifiers: [.command, .option, .shift], spoken: "Command + Option + Shift + Z", group: "Editor"),
         .init(id: "analyze", title: "Run All Analysis", key: "a", modifiers: [.command, .option, .shift], spoken: "Command + Option + Shift + A", group: "Analysis"),
@@ -107,7 +109,7 @@ struct StudioCommands: Commands {
                 shortcutEntries(StudioShortcut.editor.filter { ["transcript", "summary", "descriptions", "ad-overview", "ad-transcript"].contains($0.id) })
             }
             Menu("Segments") {
-                shortcutEntries(StudioShortcut.editor.filter { ["add", "follow", "undo", "redo"].contains($0.id) })
+                shortcutEntries(StudioShortcut.editor.filter { ["add", "follow", "delete-narration", "undo", "redo"].contains($0.id) })
             }
             Divider()
             Menu("Analysis & Regeneration") { entries("Analysis") }

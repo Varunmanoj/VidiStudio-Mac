@@ -155,6 +155,9 @@ final class PlaybackModel {
         narration?.stop(); narrationID = nil
         setNarrationDucking(false)
     }
+    func stopNarrationPlayback() {
+        stopNarration()
+    }
     private func stopDeviceSpeech() {
         deviceSpeech.stopSpeaking(at: .immediate); deviceCue = nil
     }

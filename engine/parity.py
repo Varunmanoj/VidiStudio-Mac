@@ -161,6 +161,14 @@ def execute(args,root,p,e):
             e.emit('Frame text extracted',screenText=text,timestamp=args.timestamp)
         finally:client.close()
     elif command=='export-subtitles':
+        if args.content=='summary':
+            summary=p.get('summary','').strip()
+            if not summary:raise ValueError('No summary available to export.')
+            if args.format!='md':raise ValueError('Summary export is available as Markdown.')
+            text='# Summary\n\n'+summary+'\n'
+            rel=e.export_relative_path(root,p,'Summary','md');(root/rel).write_text(text,encoding='utf-8');p['exports'].append(rel)
+            return
+        if args.format=='md':raise ValueError('Markdown export is available for the summary.')
         segments=p['transcript'] if args.content=='transcript' else p['cues'] if args.content=='descriptions' else sorted(p['transcript']+p['cues'],key=lambda s:s['start'])
         if not segments:raise ValueError('No text available to export.')
         if args.format=='json':text=json.dumps(segments,ensure_ascii=False,indent=2)
@@ -170,8 +178,9 @@ def execute(args,root,p,e):
             for i,c in enumerate(segments,1):
                 sep='.' if args.format=='vtt' else ','
                 text+=f"{i}\n{clock(c['start'],sep)} --> {clock(c['end'],sep)}\n{c['text']}\n\n"
-        rel=f'exports/{args.content}-{time.time_ns()}.{args.format}';(root/rel).write_text(text,encoding='utf-8');p['exports'].append(rel)
+        export_type={'transcript':'Transcript','descriptions':'Descriptions','combined':'Combined Text'}[args.content]
+        rel=e.export_relative_path(root,p,export_type,args.format);(root/rel).write_text(text,encoding='utf-8');p['exports'].append(rel)
     elif command=='export-audio':e.export(root,p,audio_only=True,allow_incomplete=getattr(args,'allow_incomplete_narration',False))
     elif command=='delete-export':
         if args.name not in p['exports']:raise ValueError('Select an existing export.')
-        source=e.local(root,args.name);trash=root/'metadata/trash';trash.mkdir(exist_ok=True);shutil.move(source,trash/(str(time.time_ns())+'-'+source.name));p['exports'].remove(args.name)
+        source=e.local(root,args.name);trash=root/'metadata/trash';trash.mkdir(parents=True,exist_ok=True);shutil.move(source,trash/(str(time.time_ns())+'-'+source.name));p['exports'].remove(args.name)

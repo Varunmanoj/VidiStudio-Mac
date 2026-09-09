@@ -13,9 +13,9 @@ class Parity(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             root=Path(tmp);(root/'exports').mkdir();(root/'audio-description').mkdir()
             old={'id':'a','start':1.,'end':2.5,'text':'Hello'}
-            project={'transcript':[old.copy()],'cues':[old.copy()],'exports':[]}
+            project={'name':'Dilemma / Episode: 3','transcript':[old.copy()],'cues':[old.copy()],'exports':[]}
             parity.remember(project);project['cues'][0]['text']='Edited'
-            e=SimpleNamespace(atomic_json=engine.atomic_json)
+            e=SimpleNamespace(atomic_json=engine.atomic_json,local=engine.local,export_relative_path=engine.export_relative_path)
             args=SimpleNamespace(command='undo-cues')
             parity.execute(args,root,project,e)
             self.assertEqual(project['cues'][0]['text'],'Hello')
@@ -26,4 +26,17 @@ class Parity(unittest.TestCase):
             text=(root/project['exports'][0]).read_text()
             self.assertIn('00:00:01.000 --> 00:00:02.500',text)
             self.assertTrue(text.startswith('WEBVTT'))
+            self.assertRegex(project['exports'][0],r'^exports/Dilemma - Episode - 3 - Transcript - \d{8}-\d{6}\.vtt$')
+            project['summary']='A concise project summary.'
+            args=SimpleNamespace(command='export-subtitles',content='summary',format='md')
+            parity.execute(args,root,project,e)
+            summary=(root/project['exports'][1]).read_text()
+            self.assertEqual(summary,'# Summary\n\nA concise project summary.\n')
+            self.assertRegex(project['exports'][1],r'^exports/Dilemma - Episode - 3 - Summary - \d{8}-\d{6}\.md$')
+            deleted=project['exports'][0]
+            args=SimpleNamespace(command='delete-export',name=deleted)
+            parity.execute(args,root,project,e)
+            self.assertNotIn(deleted,project['exports'])
+            self.assertFalse((root/deleted).exists())
+            self.assertTrue(any((root/'metadata/trash').iterdir()))
 if __name__=='__main__':unittest.main()

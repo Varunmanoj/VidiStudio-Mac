@@ -186,6 +186,31 @@ class Validation(unittest.TestCase):
             self.assertTrue((root/'source/video.mp4').exists())
             self.assertFalse(any((root/'metadata/history').iterdir()))
 
+    def test_delete_segment_audio_preserves_descriptions_and_other_audio(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            (root/'audio-description').mkdir()
+            first_audio = root/'audio-description/first.wav'
+            second_audio = root/'audio-description/second.wav'
+            first_audio.write_bytes(b'first')
+            second_audio.write_bytes(b'second')
+            project = {'cues': [
+                {'id':'first','start':1,'end':2,'text':'First description','audio':'audio-description/first.wav',
+                 'audioText':'First description','audioDuration':1.0,'audioSettings':'voice'},
+                {'id':'second','start':3,'end':4,'text':'Second description','audio':'audio-description/second.wav',
+                 'audioText':'Second description','audioDuration':1.0,'audioSettings':'voice'},
+            ]}
+
+            engine.delete_segment_audio(root, project, 'first')
+
+            self.assertEqual(len(project['cues']), 2)
+            self.assertEqual(project['cues'][0], {'id':'first','start':1,'end':2,'text':'First description'})
+            self.assertIn('audio', project['cues'][1])
+            self.assertFalse(first_audio.exists())
+            self.assertTrue(second_audio.exists())
+            saved = json.loads((root/'audio-description/cues.json').read_text())
+            self.assertEqual(saved, project['cues'])
+
     def test_overlap_and_boundaries(self):
         for cues in [[{'start':-1,'end':2,'text':'a'}],[{'start':0,'end':11,'text':'a'}],[{'start':0,'end':3,'text':'a'},{'start':2,'end':5,'text':'b'}],[{'start':0,'end':float('nan'),'text':'a'}]]:
             with self.assertRaises(ValueError): engine.validate_cues(cues,10)
@@ -216,6 +241,37 @@ class Validation(unittest.TestCase):
             self.assertTrue(engine.narration_audio_is_usable(root, cue))
             cue['audioText'] = 'Earlier description text.'
             self.assertFalse(engine.narration_audio_is_usable(root, cue))
+    def test_final_video_ducks_original_only_during_narration(self):
+        self.assertEqual(engine.original_audio_filter([]), '[0:a]anull[original]')
+        self.assertEqual(
+            engine.original_audio_filter([(1.0, 2.25), (4.5, 5.0)]),
+            "[0:a]volume=0.2000:enable='between(t,1.000000,2.250000)+between(t,4.500000,5.000000)'[original]",
+        )
+    def test_export_filename_contains_project_type_and_timestamp(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            (root/'exports').mkdir()
+            relative = engine.export_relative_path(
+                root, {'name':'Dilemma / Episode: 3'}, 'Final Video', 'mp4', '20260909-123456'
+            )
+            self.assertEqual(relative, 'exports/Dilemma - Episode - 3 - Final Video - 20260909-123456.mp4')
+            (root/relative).touch()
+            self.assertEqual(
+                engine.export_relative_path(root, {'name':'Dilemma / Episode: 3'}, 'Final Video', 'mp4', '20260909-123456'),
+                'exports/Dilemma - Episode - 3 - Final Video - 20260909-123456 - 2.mp4',
+            )
+    def test_youtube_project_cannot_export_final_video_even_with_legacy_source(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            project = {
+                'sourceType': 'youtube',
+                'source': 'source/legacy-copy.mp4',
+                'duration': 10,
+                'transcript': [],
+                'cues': [],
+            }
+            with self.assertRaisesRegex(ValueError, 'unavailable for YouTube URL projects'):
+                engine.export(root, project, allow_incomplete=True)
     def test_path_escape(self):
         with self.assertRaises(ValueError): engine.local(Path('/tmp/project'),'../../etc/passwd')
     def test_pipeline(self):
@@ -242,9 +298,15 @@ class Validation(unittest.TestCase):
             cues=root/'cues.json'; cues.write_text(json.dumps([{'id':'test','start':1,'end':6,'text':'Colorful shapes move.'}]))
             cli('save-cues','--project',folder,'--input',cues)
             cli('synthesize-tts','--project',folder)
-            self.assertTrue((folder/project()['cues'][0]['audio']).exists())
+            generated_audio=folder/project()['cues'][0]['audio']
+            self.assertTrue(generated_audio.exists())
             expected_voice = engine.system_voice_signature({})
             self.assertEqual(project()['cues'][0]['audioSettings'], f'system|{expected_voice}|1.100|1.150|0.700')
+            cli('delete-segment-audio','--project',folder,'--segment','test')
+            self.assertEqual(project()['cues'][0]['text'],'Colorful shapes move.')
+            self.assertNotIn('audio',project()['cues'][0])
+            self.assertFalse(generated_audio.exists())
+            cli('synthesize-tts','--project',folder,'--segment','test')
             # A later voice/rate change must not invalidate or replace the
             # already-generated file during playback or export.
             (root/'settings.json').write_text(json.dumps({
@@ -254,10 +316,19 @@ class Validation(unittest.TestCase):
             }))
             cli('export-final-video','--project',folder)
             output=folder/project()['exports'][0]
+            self.assertRegex(project()['exports'][0],r'^exports/sample video - Final Video - \d{8}-\d{6}\.mp4$')
             self.assertAlmostEqual(float(engine.probe(output)['format']['duration']),8,delta=.2)
+            cli('delete-export','--project',folder,'--name',project()['exports'][0])
+            self.assertFalse(output.exists())
+            self.assertEqual(project()['exports'],[])
+            self.assertTrue(any((folder/'metadata/trash').iterdir()))
             stale=project()['cues']; stale[0]['text']='Changed narration.'; cues.write_text(json.dumps(stale))
             cli('save-cues','--project',folder,'--input',cues)
             cli('export-final-video','--project',folder,success=False)
             cli('transcribe','--project',folder,success=False)
             self.assertIn('API key',project()['error'])
+            cli('delete-generated','--project',folder,'--component','narration')
+            self.assertEqual(len(project()['cues']),1)
+            self.assertEqual(project()['cues'][0]['text'],'Changed narration.')
+            self.assertNotIn('audio',project()['cues'][0])
 if __name__=='__main__': unittest.main()

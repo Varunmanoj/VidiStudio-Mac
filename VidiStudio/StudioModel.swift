@@ -161,6 +161,9 @@ struct StudioProject: Codable, Identifiable {
     var sourceType: String?
     var youtubeURL: String?
     var folder: URL?
+    var isYouTubeURLProject: Bool {
+        sourceType == "youtube"
+    }
     var hasProcessed: Bool?
     var canReprocess: Bool {
         hasProcessed == true || !transcript.isEmpty || !summary.isEmpty || !cues.isEmpty || !exports.isEmpty
@@ -190,6 +193,7 @@ struct StudioProject: Codable, Identifiable {
     func canExportText(_ content: String) -> Bool {
         switch content {
         case "transcript": return !transcript.isEmpty
+        case "summary": return !summary.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
         case "descriptions": return !cues.isEmpty
         case "combined": return !transcript.isEmpty && !cues.isEmpty
         default: return false
@@ -265,6 +269,7 @@ extension Notification.Name {
     static let vidiStudioSettingsDidChange = Notification.Name("VidiStudioSettingsDidChange")
     static let vidiStudioProjectNarrationDidChange = Notification.Name("VidiStudioProjectNarrationDidChange")
     static let vidiStudioProjectFollowDidChange = Notification.Name("VidiStudioProjectFollowDidChange")
+    static let vidiStudioNarrationAudioWillDelete = Notification.Name("VidiStudioNarrationAudioWillDelete")
 }
 
 enum ProjectPlaybackPreferences {
@@ -510,12 +515,6 @@ final class StudioModel {
             assign(url.standardizedFileURL.path)
         }
     }
-    func attachVideo() {
-        guard !busy else { return }
-        let panel = NSOpenPanel(); panel.allowedContentTypes = [.movie, .video]
-        panel.message = "Choose the matching local video for playback and final video export."
-        if panel.runModal() == .OK, let url = panel.url { execute("attach-video", extra: ["--video", url.path]) }
-    }
     func trashProject(_ project: StudioProject) {
         guard !busy, let folder = project.folder else { return }
         do { try FileManager.default.trashItem(at: folder, resultingItemURL: nil); reload() }
@@ -536,7 +535,45 @@ final class StudioModel {
         alert.addButton(withTitle: "Cancel")
         alert.addButton(withTitle: "Delete \(component.title)")
         guard alert.runModal() == .alertSecondButtonReturn else { return }
+        if component == .narration || component == .descriptions {
+            NotificationCenter.default.post(
+                name: .vidiStudioNarrationAudioWillDelete,
+                object: self,
+                userInfo: ["projectID": project.id]
+            )
+        }
         deleteGeneratedContent(project, components: [component])
+    }
+    func confirmDeleteExport(_ project: StudioProject, path: String) {
+        guard !busy, project.exports.contains(path) else { return }
+        let name = URL(fileURLWithPath: path).lastPathComponent
+        let alert = NSAlert()
+        alert.messageText = "Delete “\(name)”?"
+        alert.informativeText = "The export will be removed from the project’s Exports list and moved to the project’s internal Trash folder."
+        alert.alertStyle = .warning
+        alert.addButton(withTitle: "Cancel")
+        alert.addButton(withTitle: "Delete Export")
+        guard alert.runModal() == .alertSecondButtonReturn else { return }
+        selectedID = project.id
+        execute("delete-export", extra: ["--name", path], project: project)
+    }
+    func confirmDeleteSegmentAudio(_ project: StudioProject, cue: Segment, beforeDelete: () -> Void) {
+        guard !busy, cue.audio != nil else { return }
+        let alert = NSAlert()
+        alert.messageText = "Delete audio for this description?"
+        alert.informativeText = "Only the generated narration audio will be deleted. The description text and timing will remain unchanged."
+        alert.alertStyle = .warning
+        alert.addButton(withTitle: "Cancel")
+        alert.addButton(withTitle: "Delete Segment Audio")
+        guard alert.runModal() == .alertSecondButtonReturn else { return }
+        beforeDelete()
+        NotificationCenter.default.post(
+            name: .vidiStudioNarrationAudioWillDelete,
+            object: self,
+            userInfo: ["projectID": project.id]
+        )
+        selectedID = project.id
+        execute("delete-segment-audio", extra: ["--segment", cue.id], project: project)
     }
     func openProject() {
         guard !busy else { return }
@@ -689,6 +726,10 @@ final class StudioModel {
             engineCheckStatus = .checking
         }
         let target = project ?? (["import-video", "import-youtube", "doctor", "validate-config", "list-models"].contains(command) ? nil : selected)
+        if command == "export-final-video", let target, target.isYouTubeURLProject {
+            error = "Final video export is unavailable for YouTube URL projects. You can export text and narration audio instead."
+            return
+        }
         if command == "generate-ad-cues", let target, !target.canGenerateDescriptions {
             error = "Generate the transcript and summary before generating descriptions."
             return

@@ -419,7 +419,40 @@ def narration_audio_is_usable(root, cue):
                 and local(root, cue['audio']).is_file())
 
 
+def export_relative_path(root, project, export_type, extension, stamp=None):
+    """Create a portable, descriptive, collision-safe path for a new export."""
+    project_name = str(project.get('name') or 'Project').strip()
+    project_name = re.sub(r'[<>:"/\\|?*\x00-\x1f]+', '-', project_name)
+    project_name = re.sub(r'\s*-\s*', ' - ', project_name)
+    project_name = re.sub(r'\s+', ' ', project_name).strip(' .-') or 'Project'
+    project_name = project_name[:100].rstrip(' .-') or 'Project'
+    timestamp = stamp or time.strftime('%Y%m%d-%H%M%S')
+    base = f'{project_name} - {export_type} - {timestamp}'
+    relative = Path('exports') / f'{base}.{extension}'
+    suffix = 2
+    while (root / relative).exists():
+        relative = Path('exports') / f'{base} - {suffix}.{extension}'
+        suffix += 1
+    return relative.as_posix()
+
+
+EXPORT_DUCKING_LEVEL = 0.2
+
+
+def original_audio_filter(narration_intervals):
+    """Duck the source only while saved narration is actually audible."""
+    if not narration_intervals:
+        return '[0:a]anull[original]'
+    expression = '+'.join(
+        f'between(t,{start:.6f},{end:.6f})'
+        for start, end in narration_intervals
+    )
+    return f"[0:a]volume={EXPORT_DUCKING_LEVEL:.4f}:enable='{expression}'[original]"
+
+
 def export(root,p,audio_only=False,allow_incomplete=False):
+    if not audio_only and p.get('sourceType') == 'youtube':
+        raise ValueError('Final video export is unavailable for YouTube URL projects. Export text or narration audio instead.')
     cues = validate_cues(p['cues'],p['duration'],p['transcript'])
     if not cues and not allow_incomplete: raise ValueError('Create and synthesize AD segments before exporting.')
     available=[]
@@ -436,20 +469,27 @@ def export(root,p,audio_only=False,allow_incomplete=False):
     args = [tool('ffmpeg'),'-y','-v','error']
     if p.get('source'): args += ['-i',local(root,p['source'])]
     elif audio_only: args += ['-f','lavfi','-i','anullsrc=r=48000:cl=stereo']
-    else: raise ValueError('Attach a local copy of this YouTube video to render a final video. Narration-only export is available now.')
-    filters=[]; tracks=[]
+    else: raise ValueError('A local source video is required to render a final video. Narration-only export is available now.')
+    filters=[]; tracks=[]; narration_intervals=[]
     for i,c in enumerate(cues,1):
         if not narration_audio_is_usable(root, c): raise ValueError('Synthesize all changed AD segments before exporting.')
         audio = local(root,c['audio'])
-        if float(probe(audio)['format']['duration']) > c['end']-c['start']+.02: raise ValueError('Narration exceeds its AD segment. Adjust timing or regenerate.')
+        audio_duration = float(probe(audio)['format']['duration'])
+        if audio_duration > c['end']-c['start']+.02: raise ValueError('Narration exceeds its AD segment. Adjust timing or regenerate.')
         args += ['-i',audio]
         filters.append(f'[{i}:a]adelay={round(c["start"]*1000)}:all=1[n{i}]'); tracks.append(f'[n{i}]')
+        narration_intervals.append((c['start'], min(c['end'], c['start'] + audio_duration)))
     if p.get('hasAudio') and not audio_only:
-        filters.append('[0:a]anull[original]'); tracks.insert(0,'[original]')
+        filters.append(original_audio_filter(narration_intervals)); tracks.insert(0,'[original]')
     if not tracks:
         filters.append('anullsrc=r=48000:cl=stereo[silence]');tracks.append('[silence]')
     filters.append(''.join(tracks)+f'amix=inputs={len(tracks)}:duration=longest:normalize=0,alimiter=limit=0.95,apad,atrim=duration={p["duration"]}[mix]')
-    relative = 'exports/'+('narration-' if audio_only else 'described-')+time.strftime('%Y%m%d-%H%M%S')+('.m4a' if audio_only else '.mp4')
+    relative = export_relative_path(
+        root,
+        p,
+        'Narration Audio' if audio_only else 'Final Video',
+        'm4a' if audio_only else 'mp4',
+    )
     output = root/relative
     args += ['-filter_complex',';'.join(filters)]
     if not audio_only: args += ['-map','0:v:0','-c:v','libx264','-preset','fast','-crf','20']
@@ -551,6 +591,30 @@ def delete_generated_components(root, p, components):
 
     p['hasProcessed'] = bool(p.get('transcript') or p.get('summary') or p.get('cues') or p.get('exports'))
 
+
+def delete_segment_audio(root, p, segment_id):
+    cue = next((candidate for candidate in p.get('cues', []) if candidate.get('id') == segment_id), None)
+    if cue is None:
+        raise ValueError('Select an audio description segment.')
+    audio = cue.get('audio')
+    if not audio:
+        raise ValueError('This audio description segment has no generated audio.')
+    audio_root = local(root, 'audio-description')
+    audio_path = local(root, audio)
+    if audio_path != audio_root and audio_root not in audio_path.parents:
+        raise ValueError('The segment audio path is outside the audio-description folder.')
+    shared = any(
+        candidate.get('id') != segment_id and candidate.get('audio') == audio
+        for candidate in p.get('cues', [])
+    )
+    if not shared:
+        if audio_path.is_dir() and not audio_path.is_symlink():
+            raise ValueError('The segment audio path is not an audio file.')
+        audio_path.unlink(missing_ok=True)
+    for key in ('audio', 'audioText', 'audioDuration', 'audioSettings'):
+        cue.pop(key, None)
+    atomic_json(audio_root/'cues.json', p.get('cues', []))
+
 def validate_analysis_prerequisites(command, root, project):
     if command != 'transcribe' and not (root/'transcript/transcript.json').exists():
         raise ValueError('Run transcription first.')
@@ -559,9 +623,9 @@ def validate_analysis_prerequisites(command, root, project):
 
 def main():
     parser=argparse.ArgumentParser(description=__doc__)
-    parser.add_argument('command',choices=['clear-generated','delete-generated','list-models','preview-tts','import-video','probe-video','generate-thumbnails','extract-audio','transcribe','generate-summary','generate-ad-cues','synthesize-tts','export-final-video','save-cues','doctor',*parity.COMMANDS])
+    parser.add_argument('command',choices=['clear-generated','delete-generated','delete-segment-audio','list-models','preview-tts','import-video','probe-video','generate-thumbnails','extract-audio','transcribe','generate-summary','generate-ad-cues','synthesize-tts','export-final-video','save-cues','doctor',*parity.COMMANDS])
     parser.add_argument('--project',type=Path); parser.add_argument('--video',type=Path); parser.add_argument('--library',type=Path); parser.add_argument('--input',type=Path)
-    parser.add_argument('--content',choices=['transcript','descriptions','combined'],default='descriptions'); parser.add_argument('--url'); parser.add_argument('--name'); parser.add_argument('--timestamp',type=float,default=0); parser.add_argument('--duration',type=float); parser.add_argument('--segment'); parser.add_argument('--format',choices=['srt','vtt','txt','json'],default='srt'); parser.add_argument('--changed',action='store_true'); parser.add_argument('--start-stage',default='transcribe')
+    parser.add_argument('--content',choices=['transcript','summary','descriptions','combined'],default='descriptions'); parser.add_argument('--url'); parser.add_argument('--name'); parser.add_argument('--timestamp',type=float,default=0); parser.add_argument('--duration',type=float); parser.add_argument('--segment'); parser.add_argument('--format',choices=['srt','vtt','txt','json','md'],default='srt'); parser.add_argument('--changed',action='store_true'); parser.add_argument('--start-stage',default='transcribe')
     parser.add_argument('--output', type=Path); parser.add_argument('--text')
     parser.add_argument('--component', action='append', choices=['transcript','summary','descriptions','narration','thumbnails','exports','history'], default=[])
     parser.add_argument('--allow-incomplete-narration',action='store_true',help='Export video or narration audio omitting missing/outdated narration after explicit confirmation.')
@@ -603,6 +667,7 @@ def main():
                 p['hasProcessed'] = True
             if args.command=='clear-generated': clear_generated(root,p)
             elif args.command=='delete-generated': delete_generated_components(root,p,args.component)
+            elif args.command=='delete-segment-audio': delete_segment_audio(root,p,args.segment)
             elif args.command=='probe-video': atomic_json(root/'metadata/probe.json',probe(local(root,p['source'])))
             elif args.command=='generate-thumbnails': thumbnails(root,p)
             elif args.command=='extract-audio':
