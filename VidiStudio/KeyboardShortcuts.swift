@@ -4,6 +4,7 @@ import AppKit
 struct EditorShortcutActions {
     var run: (String) -> Void
     var previewHidden: Bool
+    var canRun: (String) -> Bool
 }
 private struct EditorShortcutKey: FocusedValueKey { typealias Value = EditorShortcutActions }
 extension FocusedValues {
@@ -58,7 +59,7 @@ struct StudioShortcut: Identifiable {
         .init(id: "analyze", title: "Run All Analysis", key: "a", modifiers: [.command, .option, .shift], spoken: "Command + Option + Shift + A", group: "Analysis"),
         .init(id: "transcribe", title: "Generate / Regenerate Transcript…", key: "t", modifiers: [.command, .option, .shift], spoken: "Command + Option + Shift + T", group: "Analysis"),
         .init(id: "generate-summary", title: "Generate / Regenerate Summary…", key: "s", modifiers: [.command, .option, .shift], spoken: "Command + Option + Shift + S", group: "Analysis"),
-        .init(id: "generate-ad-cues", title: "Generate / Regenerate AD Segments…", key: "d", modifiers: [.command, .option, .shift], spoken: "Command + Option + Shift + D", group: "Analysis"),
+        .init(id: "generate-ad-cues", title: "Generate / Regenerate Descriptions…", key: "d", modifiers: [.command, .option, .shift], spoken: "Command + Option + Shift + D", group: "Analysis"),
         .init(id: "regenerate-all", title: "Regenerate All…", key: "r", modifiers: [.command, .option, .shift], spoken: "Command + Option + Shift + R", group: "Analysis")
     ]
 }
@@ -115,7 +116,7 @@ struct StudioCommands: Commands {
         ForEach(shortcuts) { shortcut in
             Button(shortcut.title, systemImage: shortcut.icon) { editor?.run(shortcut.id) }
                 .keyboardShortcut(shortcut.key, modifiers: shortcut.modifiers)
-                .disabled(editor == nil)
+                .disabled(editor?.canRun(shortcut.id) != true)
         }
     }
 }

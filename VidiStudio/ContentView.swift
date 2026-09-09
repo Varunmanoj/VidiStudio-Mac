@@ -120,6 +120,7 @@ struct ContentView: View {
     @State private var search = ""
     @State private var rename = ""
     @State private var renaming = false
+    @State private var deletionProject: StudioProject?
     @AppStorage("projectBrowserGrid") private var projectGrid = false
     var body: some View {
         GeometryReader { geometry in
@@ -131,7 +132,7 @@ struct ContentView: View {
             if projectGrid {
                 ProjectGridView(projects: studio.projects.filter { search.isEmpty || $0.name.localizedStandardContains(search) }, selection: $studio.selectedID, busy: studio.busy, rename: { p in
                     studio.selectedID = p.id; rename = p.name; renaming = true
-                }, delete: { studio.trashProject($0) }, process: { p in studio.selectedID = p.id; studio.execute("analyze", project: p) }, clear: { studio.clearGeneratedContent($0) })
+                }, delete: { studio.trashProject($0) }, process: { p in studio.selectedID = p.id; studio.execute("analyze", project: p) }, clear: { deletionProject = $0 })
             } else {
             List(selection: $studio.selectedID) {
                 Section("Local Projects") {
@@ -151,7 +152,7 @@ struct ContentView: View {
                                 studio.execute("analyze", project: p)
                             }.disabled(studio.busy)
                             Divider()
-                            Button("Delete Generated Content…", systemImage: "eraser", role: .destructive) { studio.clearGeneratedContent(p) }.disabled(studio.busy || !p.hasGeneratedContent)
+                            Button("Choose Content to Delete…", systemImage: "eraser", role: .destructive) { deletionProject = p }.disabled(studio.busy || !p.hasGeneratedContent)
                             Button("Delete Project", systemImage: "trash", role: .destructive) { studio.trashProject(p) }.help("Move this project to the Mac Trash").disabled(studio.busy)
                         }
                     }
@@ -203,6 +204,9 @@ struct ContentView: View {
                 HStack { Button("Cancel", role: .cancel) { renaming = false }; Button("Rename", systemImage: "pencil") { studio.execute("rename-project", extra: ["--name", rename]); renaming = false }.keyboardShortcut(.defaultAction) }
             }.padding(24).frame(width: 420)
         }
+        .sheet(item: $deletionProject) { project in
+            GeneratedContentDeletionView(studio: studio, project: project)
+        }
         .sheet(isPresented: $studio.isCreatingProject) {
             NewProjectView(studio: studio)
         }
@@ -237,11 +241,26 @@ struct ProcessingInspector: View {
 
     private func title(for stage: (String, String, String), project: StudioProject) -> String {
         switch stage.0 {
-        case "transcribe": return project.transcript.isEmpty ? "Generate Transcript" : "Regenerate Transcript"
+        case "transcribe": return project.hasGeneratedTranscript ? "Regenerate Transcript" : "Generate Transcript"
         case "generate-summary": return project.summary.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? "Generate Summary" : "Regenerate Summary"
         case "generate-ad-cues": return project.cues.isEmpty ? "Generate Descriptions" : "Regenerate Descriptions"
         default: return stage.1
         }
+    }
+
+    private func deletableComponent(for stage: String) -> GeneratedContentComponent? {
+        switch stage {
+        case "transcribe": return .transcript
+        case "generate-summary": return .summary
+        case "generate-ad-cues": return .descriptions
+        default: return nil
+        }
+    }
+
+    private func stageIsDisabled(_ stage: String, project: StudioProject) -> Bool {
+        studio.busy
+            || (project.source.isEmpty && ["probe-video", "generate-thumbnails", "extract-audio"].contains(stage))
+            || (stage == "generate-ad-cues" && !project.canGenerateDescriptions)
     }
 
     var body: some View {
@@ -261,8 +280,26 @@ struct ProcessingInspector: View {
                     Text("Individual actions replace only their own content. Regenerate All deletes generated content and recreates the transcript, summary, and AD segments. Narration and exports can then be generated separately.")
                         .font(.caption).foregroundStyle(.secondary)
                     ForEach(stages, id: \.0) { stage in
-                        Button { studio.execute(stage.0) } label: { HStack { MaterialIcon(glyph: stage.0 == "transcribe" ? "\u{e8af}" : stage.0 == "synthesize-tts" ? "\u{e050}" : "\u{e037}"); Text(title(for: stage, project: p)) }.frame(maxWidth: .infinity, alignment: .leading) }
-                            .disabled(studio.busy || (p.source.isEmpty && ["probe-video", "generate-thumbnails", "extract-audio"].contains(stage.0))).controlSize(.large)
+                        HStack(spacing: 6) {
+                            Button { studio.execute(stage.0) } label: {
+                                HStack {
+                                    MaterialIcon(glyph: stage.0 == "transcribe" ? "\u{e8af}" : stage.0 == "synthesize-tts" ? "\u{e050}" : "\u{e037}")
+                                    Text(title(for: stage, project: p))
+                                }
+                                .frame(maxWidth: .infinity, alignment: .leading)
+                            }
+                            .disabled(stageIsDisabled(stage.0, project: p))
+                            .help(stage.0 == "generate-ad-cues" && !p.canGenerateDescriptions ? "Generate the transcript and summary first" : title(for: stage, project: p))
+                            if let component = deletableComponent(for: stage.0), component.hasContent(in: p) {
+                                Button("Delete \(component.title)", systemImage: "trash", role: .destructive) {
+                                    studio.confirmDeleteGeneratedContent(p, component: component)
+                                }
+                                .labelStyle(.iconOnly)
+                                .help("Delete \(component.title.lowercased())")
+                                .disabled(studio.busy)
+                            }
+                        }
+                        .controlSize(.large)
                     }
                     Menu("Export Text", systemImage: "square.and.arrow.up") {
                         ForEach(["transcript", "descriptions", "combined"], id: \.self) { content in
@@ -271,9 +308,15 @@ struct ProcessingInspector: View {
                                     Button(format.uppercased(), systemImage: "doc") { studio.execute("export-subtitles", extra: ["--content", content, "--format", format]) }
                                 }
                             }
+                            .disabled(!p.canExportText(content))
+                            .help(p.canExportText(content) ? "Export \(content) text" : "No \(content) text is available to export")
                         }
                     }.disabled(studio.busy)
-                    Button("Export Narration Audio", systemImage: "square.and.arrow.up") { studio.execute("export-audio") }.disabled(studio.busy)
+                    Button("Export Narration Audio", systemImage: "square.and.arrow.up") { studio.execute("export-audio") }
+                        .disabled(studio.busy || !p.hasExportableNarration(settingsSignature: studio.settings.narrationSignature))
+                        .help(p.hasExportableNarration(settingsSignature: studio.settings.narrationSignature)
+                            ? "Export available synchronized narration audio"
+                            : "Generate narration audio for at least one AD segment first")
                     Button("Synthesize Changed Segments", systemImage: "waveform") { studio.execute("synthesize-tts", extra: ["--changed"]) }.disabled(studio.busy)
                     HStack { Button("Undo Segment Edit", systemImage: "arrow.uturn.backward") { studio.execute("undo-cues") }; Button("Redo", systemImage: "arrow.uturn.forward") { studio.execute("redo-cues") } }.disabled(studio.busy)
                     if p.sourceType == "youtube" { Button("Attach Local Video Copy…", systemImage: "paperclip") { studio.attachVideo() }.disabled(studio.busy) }
@@ -330,7 +373,7 @@ struct ProjectEditor: View {
     private var generationAction: (command: String, title: String, icon: String)? {
         switch tab {
         case "transcript":
-            return ("transcribe", project.transcript.isEmpty ? "Generate Transcript" : "Regenerate Transcript", "text.bubble")
+            return ("transcribe", project.hasGeneratedTranscript ? "Regenerate Transcript" : "Generate Transcript", "text.bubble")
         case "summary":
             let hasSummary = !project.summary.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
             return ("generate-summary", hasSummary ? "Regenerate Summary" : "Generate Summary", "text.alignleft")
@@ -383,8 +426,10 @@ struct ProjectEditor: View {
             }
             if let action = generationAction {
                 Button(action.title, systemImage: action.icon) { studio.execute(action.command) }
-                    .disabled(studio.busy)
-                    .help(action.title.hasPrefix("Regenerate") ? "Replace the existing content after confirmation" : "Generate content for this section")
+                    .disabled(studio.busy || (action.command == "generate-ad-cues" && !project.canGenerateDescriptions))
+                    .help(action.command == "generate-ad-cues" && !project.canGenerateDescriptions
+                        ? "Generate the transcript and summary first"
+                        : action.title.hasPrefix("Regenerate") ? "Replace the existing content after confirmation" : "Generate content for this section")
                     .fixedSize()
             }
             if tab == "descriptions" {
@@ -502,6 +547,28 @@ struct ProjectEditor: View {
         readingFrameForSegment = false
     }
 
+    private func playableNarrationURL(for cue: Segment) -> URL? {
+        guard SynchronizedAudioStatus.resolve(
+            cue: cue,
+            project: project,
+            settingsSignature: studio.settings.narrationSignature
+        ) == .generated,
+        let audio = cue.audio else { return nil }
+        return project.url(audio)
+    }
+
+    private func previewNarration(for cue: Segment) {
+        guard let url = playableNarrationURL(for: cue) else { return }
+        do {
+            audioPreview?.stop()
+            let player = try AVAudioPlayer(contentsOf: url)
+            audioPreview = player
+            player.play()
+        } catch {
+            studio.error = "Could not play this segment’s narration: \(error.localizedDescription)"
+        }
+    }
+
     private var previewPane: some View {
         VStack(spacing: 0) {
             Group {
@@ -582,9 +649,17 @@ struct ProjectEditor: View {
                                 Text(cue.text).textSelection(.enabled)
                             }.frame(maxWidth: .infinity, alignment: .leading)
                             if tab == "descriptions" {
+                                Button("Play Narration", systemImage: "play.circle") { previewNarration(for: cue) }
+                                    .labelStyle(.iconOnly)
+                                    .disabled(studio.busy || playableNarrationURL(for: cue) == nil)
+                                    .help(playableNarrationURL(for: cue) == nil
+                                        ? "Generate synchronized audio for this AD segment first"
+                                        : "Play this AD segment’s generated narration")
                                 Button("Edit", systemImage: "pencil") { cueToEdit = cue }.labelStyle(.iconOnly).disabled(studio.busy)
                                 Menu {
-                                    if let audio = cue.audio, let url = project.url(audio) { Button("Preview Narration", systemImage: "play.circle") { audioPreview = try? AVAudioPlayer(contentsOf: url); audioPreview?.play() } }
+                                    if playableNarrationURL(for: cue) != nil {
+                                        Button("Preview Narration", systemImage: "play.circle") { previewNarration(for: cue) }
+                                    }
                                     Button("Rewrite to Fit", systemImage: "wand.and.stars") { studio.execute("rewrite-cue", extra: ["--segment", cue.id]) }
                                     Button("Synthesize This Segment", systemImage: "waveform") { studio.execute("synthesize-tts", extra: ["--segment", cue.id]) }
                                     Button("Delete Segment", systemImage: "trash", role: .destructive) { studio.saveCues(project.cues.filter { $0.id != cue.id }) }
@@ -673,10 +748,14 @@ struct ProjectEditor: View {
                 presentNewSegment()
             case "undo": studio.execute("undo-cues")
             case "redo": studio.execute("redo-cues")
-            case "analyze", "transcribe", "generate-summary", "generate-ad-cues", "regenerate-all": studio.execute(action)
+            case "analyze", "transcribe", "generate-summary", "regenerate-all": studio.execute(action)
+            case "generate-ad-cues":
+                if project.canGenerateDescriptions { studio.execute(action) }
             default: break
             }
-        }, previewHidden: previewHidden)
+        }, previewHidden: previewHidden, canRun: { action in
+            action != "generate-ad-cues" || project.canGenerateDescriptions
+        })
     }
 
     private var editorWithProjectUpdates: some View {

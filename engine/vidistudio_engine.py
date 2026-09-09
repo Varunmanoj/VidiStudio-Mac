@@ -108,13 +108,13 @@ def validate_cues(cues, duration, transcript=()):
     for c in sorted(cues, key=lambda c: c['start']):
         a, b = float(c['start']), float(c['end'])
         if not math.isfinite(a + b) or a < previous or b <= a or b > duration + .01:
-            raise ValueError('Cues must have finite, non-overlapping times inside the video duration.')
+            raise ValueError('AD segments must have finite, non-overlapping times inside the video duration.')
         if not str(c.get('text', '')).strip():
-            raise ValueError('Every cue needs description text.')
+            raise ValueError('Every AD segment needs description text.')
         if any(a < t['end'] and b > t['start'] for t in transcript):
             raise ValueError('An audio description overlaps spoken dialogue. Adjust its timing.')
         c.setdefault('id', str(uuid.uuid4()))
-        if c['id'] in ids: raise ValueError('Duplicate cue identifier.')
+        if c['id'] in ids: raise ValueError('Duplicate AD segment identifier.')
         ids.add(c['id'])
         previous = b
     return sorted(cues, key=lambda c: c['start'])
@@ -288,15 +288,19 @@ def finish_system_speech(raw, output, cfg):
     run([*args, output])
 
 
+def narration_fit_error_message(index, actual, available):
+    return f'AD segment {index} takes {actual:.1f}s but has {available:.1f}s. Shorten its text or extend its gap.'
+
+
 def synthesize(root,p,segment=None,changed=False):
     cues = validate_cues(p['cues'],p['duration'],p['transcript'])
-    if not cues: raise ValueError('Create audio description cues first.')
+    if not cues: raise ValueError('Create audio description segments first.')
     cfg = config()
     signature = narration_signature(cfg)
     for i,c in enumerate(cues):
         if segment and c['id']!=segment: continue
         if changed and c.get('audioText')==c['text'] and c.get('audioSettings')==signature and c.get('audio') and local(root,c['audio']).exists(): continue
-        emit(f'Synthesizing cue {i+1} of {len(cues)}', progress=i/len(cues))
+        emit(f'Synthesizing AD segment {i+1} of {len(cues)}', progress=i/len(cues))
         name = 'audio-description/' + str(uuid.uuid4()) + '.wav'
         output = root/name
         textfile = root/'audio-description/speech-input.txt'
@@ -326,7 +330,7 @@ def synthesize(root,p,segment=None,changed=False):
             raise ValueError('System speech produced no audio. Choose an installed voice in Settings and check macOS speech availability.')
         if actual > c['end']-c['start']:
             output.unlink(missing_ok=True)
-            raise ValueError(f'Cue {i+1} takes {actual:.1f}s but has {c["end"]-c["start"]:.1f}s. Shorten its text or extend its gap.')
+            raise ValueError(narration_fit_error_message(i+1, actual, c['end']-c['start']))
         c['audio'] = name; c['audioText'] = c['text']; c['audioDuration'] = actual; c['audioSettings'] = signature
         p['cues'] = cues; save(root,p)
     atomic_json(root/'audio-description/cues.json',cues)
@@ -334,7 +338,7 @@ def synthesize(root,p,segment=None,changed=False):
 
 def export(root,p,audio_only=False,allow_incomplete=False):
     cues = validate_cues(p['cues'],p['duration'],p['transcript'])
-    if not cues and not allow_incomplete: raise ValueError('Create and synthesize cues before exporting.')
+    if not cues and not allow_incomplete: raise ValueError('Create and synthesize AD segments before exporting.')
     signature = narration_signature(config())
     available=[]
     for cue in cues:
@@ -347,15 +351,17 @@ def export(root,p,audio_only=False,allow_incomplete=False):
             continue
         available.append(cue)
     cues=available
+    if audio_only and not cues:
+        raise ValueError('Generate narration for at least one AD segment before exporting narration audio.')
     args = [tool('ffmpeg'),'-y','-v','error']
     if p.get('source'): args += ['-i',local(root,p['source'])]
     elif audio_only: args += ['-f','lavfi','-i','anullsrc=r=48000:cl=stereo']
     else: raise ValueError('Attach a local copy of this YouTube video to render a final video. Narration-only export is available now.')
     filters=[]; tracks=[]
     for i,c in enumerate(cues,1):
-        if not c.get('audio') or c.get('audioText') != c['text'] or c.get('audioSettings') != signature: raise ValueError('Synthesize all changed cues before exporting.')
+        if not c.get('audio') or c.get('audioText') != c['text'] or c.get('audioSettings') != signature: raise ValueError('Synthesize all changed AD segments before exporting.')
         audio = local(root,c['audio'])
-        if float(probe(audio)['format']['duration']) > c['end']-c['start']+.02: raise ValueError('Narration exceeds its cue. Adjust timing or regenerate.')
+        if float(probe(audio)['format']['duration']) > c['end']-c['start']+.02: raise ValueError('Narration exceeds its AD segment. Adjust timing or regenerate.')
         args += ['-i',audio]
         filters.append(f'[{i}:a]adelay={round(c["start"]*1000)}:all=1[n{i}]'); tracks.append(f'[n{i}]')
     if p.get('hasAudio') and not audio_only:
@@ -407,12 +413,77 @@ def clear_generated(root, p):
     p['hasProcessed'] = False
     p.pop('error', None)
 
+def reset_generated_directory(root, p, relative):
+    folder = root / relative
+    source = local(root, p['source']).resolve() if p.get('source') else None
+    if folder.is_symlink():
+        raise ValueError(f'Cannot delete generated content: {relative} is a symbolic link.')
+    resolved = local(root, relative)
+    if source and (resolved == source or resolved in source.parents):
+        raise ValueError('Cannot delete generated content because it contains the source video.')
+    if resolved.exists():
+        shutil.rmtree(resolved)
+    resolved.mkdir(parents=True)
+
+def delete_generated_components(root, p, components):
+    selected = set(components)
+    allowed = {'transcript', 'summary', 'descriptions', 'narration', 'thumbnails', 'exports', 'history'}
+    if not selected or not selected.issubset(allowed):
+        raise ValueError('Choose at least one valid generated-content component.')
+
+    if 'transcript' in selected:
+        reset_generated_directory(root, p, 'transcript')
+        p['transcript'] = []
+    if 'summary' in selected:
+        summary = root/'metadata/summary.json'
+        if summary.is_symlink(): raise ValueError('Cannot delete a symbolic-link summary.')
+        local(root, 'metadata/summary.json').unlink(missing_ok=True)
+        p['summary'] = ''
+    if 'descriptions' in selected:
+        reset_generated_directory(root, p, 'audio-description')
+        p['cues'] = []
+        p['undoStack'] = []
+        p['redoStack'] = []
+    elif 'narration' in selected:
+        folder = root/'audio-description'
+        if folder.is_symlink(): raise ValueError('Cannot delete narration from a symbolic-link folder.')
+        resolved = local(root, 'audio-description')
+        resolved.mkdir(parents=True, exist_ok=True)
+        for path in resolved.iterdir():
+            if path.name == 'cues.json': continue
+            if path.is_symlink(): path.unlink()
+            elif path.is_dir(): shutil.rmtree(path)
+            else: path.unlink()
+        for cue in p.get('cues', []):
+            for key in ('audio', 'audioText', 'audioDuration', 'audioSettings'):
+                cue.pop(key, None)
+        atomic_json(resolved/'cues.json', p.get('cues', []))
+    if 'thumbnails' in selected:
+        reset_generated_directory(root, p, 'thumbnails')
+        p['thumbnails'] = []
+    if 'exports' in selected:
+        reset_generated_directory(root, p, 'exports')
+        p['exports'] = []
+    if 'history' in selected:
+        reset_generated_directory(root, p, 'metadata/history')
+        p['undoStack'] = []
+        p['redoStack'] = []
+
+    p['hasProcessed'] = bool(p.get('transcript') or p.get('summary') or p.get('cues') or p.get('exports'))
+
+def validate_analysis_prerequisites(command, root, project):
+    if command != 'transcribe' and not (root/'transcript/transcript.json').exists():
+        raise ValueError('Run transcription first.')
+    if command == 'generate-ad-cues' and not project['summary'].strip():
+        raise ValueError('Generate the summary first.')
+
 def main():
     parser=argparse.ArgumentParser(description=__doc__)
-    parser.add_argument('command',choices=['clear-generated','list-models','preview-tts','import-video','probe-video','generate-thumbnails','extract-audio','transcribe','generate-summary','generate-ad-cues','synthesize-tts','export-final-video','save-cues','doctor',*parity.COMMANDS])
+    parser.add_argument('command',choices=['clear-generated','delete-generated','list-models','preview-tts','import-video','probe-video','generate-thumbnails','extract-audio','transcribe','generate-summary','generate-ad-cues','synthesize-tts','export-final-video','save-cues','doctor',*parity.COMMANDS])
     parser.add_argument('--project',type=Path); parser.add_argument('--video',type=Path); parser.add_argument('--library',type=Path); parser.add_argument('--input',type=Path)
     parser.add_argument('--content',choices=['transcript','descriptions','combined'],default='descriptions'); parser.add_argument('--url'); parser.add_argument('--name'); parser.add_argument('--timestamp',type=float,default=0); parser.add_argument('--duration',type=float); parser.add_argument('--segment'); parser.add_argument('--format',choices=['srt','vtt','txt','json'],default='srt'); parser.add_argument('--changed',action='store_true'); parser.add_argument('--start-stage',default='transcribe')
     parser.add_argument('--output', type=Path); parser.add_argument('--text')
+    parser.add_argument('--component', action='append', choices=['transcript','summary','descriptions','narration','thumbnails','exports','history'], default=[])
     parser.add_argument('--allow-incomplete-narration',action='store_true',help='Export video or narration audio omitting missing/outdated narration after explicit confirmation.')
     args=parser.parse_args()
     if args.command == 'preview-tts':
@@ -451,14 +522,14 @@ def main():
             if args.command in ('analyze', 'transcribe', 'generate-summary', 'generate-ad-cues', 'synthesize-tts'):
                 p['hasProcessed'] = True
             if args.command=='clear-generated': clear_generated(root,p)
+            elif args.command=='delete-generated': delete_generated_components(root,p,args.component)
             elif args.command=='probe-video': atomic_json(root/'metadata/probe.json',probe(local(root,p['source'])))
             elif args.command=='generate-thumbnails': thumbnails(root,p)
             elif args.command=='extract-audio':
                 if not p['hasAudio']: raise ValueError('This video has no audio track.')
                 run([tool('ffmpeg'),'-y','-v','error','-i',local(root,p['source']),'-vn','-ac','1','-ar','16000',root/'transcript/source.wav'])
             elif args.command in ('transcribe','generate-summary','generate-ad-cues'):
-                if args.command!='transcribe' and not (root/'transcript/transcript.json').exists(): raise ValueError('Run transcription first.')
-                if args.command=='generate-ad-cues' and not p['summary']: raise ValueError('Generate the summary first.')
+                validate_analysis_prerequisites(args.command, root, p)
                 ai_video(root,p,args.command)
             elif args.command=='synthesize-tts': synthesize(root,p,args.segment,args.changed)
             elif args.command=='export-final-video': export(root,p,allow_incomplete=args.allow_incomplete_narration)

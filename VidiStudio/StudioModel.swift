@@ -162,7 +162,41 @@ struct StudioProject: Codable, Identifiable {
     var canReprocess: Bool {
         hasProcessed == true || !transcript.isEmpty || !summary.isEmpty || !cues.isEmpty || !exports.isEmpty
     }
-    var hasGeneratedContent: Bool { canReprocess || !thumbnails.isEmpty }
+    var hasGeneratedContent: Bool {
+        canReprocess || !thumbnails.isEmpty
+            || hasFile("transcript/transcript.json")
+            || hasFile("metadata/summary.json")
+            || directoryHasContent("audio-description")
+            || directoryHasContent("exports")
+            || directoryHasContent("metadata/history")
+    }
+    func hasFile(_ relative: String) -> Bool {
+        url(relative).map { FileManager.default.fileExists(atPath: $0.path) } == true
+    }
+    func directoryHasContent(_ relative: String) -> Bool {
+        guard let directory = url(relative),
+              let contents = try? FileManager.default.contentsOfDirectory(at: directory, includingPropertiesForKeys: nil) else { return false }
+        return !contents.isEmpty
+    }
+    var hasGeneratedTranscript: Bool {
+        !transcript.isEmpty || hasFile("transcript/transcript.json")
+    }
+    var canGenerateDescriptions: Bool {
+        hasGeneratedTranscript && !summary.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+    }
+    func canExportText(_ content: String) -> Bool {
+        switch content {
+        case "transcript": return !transcript.isEmpty
+        case "descriptions": return !cues.isEmpty
+        case "combined": return !transcript.isEmpty && !cues.isEmpty
+        default: return false
+        }
+    }
+    func hasExportableNarration(settingsSignature: String) -> Bool {
+        cues.contains {
+            SynchronizedAudioStatus.resolve(cue: $0, project: self, settingsSignature: settingsSignature) == .generated
+        }
+    }
     func url(_ relative: String) -> URL? {
         guard let folder else { return nil }
         let resolved = folder.appendingPathComponent(relative).standardizedFileURL.resolvingSymlinksInPath()
@@ -378,17 +412,22 @@ final class StudioModel {
         do { try FileManager.default.trashItem(at: folder, resultingItemURL: nil); reload() }
         catch { self.error = error.localizedDescription }
     }
-    func clearGeneratedContent(_ project: StudioProject) {
-        guard !busy else { return }
+    func deleteGeneratedContent(_ project: StudioProject, components: Set<GeneratedContentComponent>) {
+        guard !busy, !components.isEmpty else { return }
+        selectedID = project.id
+        let arguments = components.sorted { $0.rawValue < $1.rawValue }.flatMap { ["--component", $0.rawValue] }
+        execute("delete-generated", extra: arguments, project: project)
+    }
+    func confirmDeleteGeneratedContent(_ project: StudioProject, component: GeneratedContentComponent) {
+        guard !busy, component.hasContent(in: project) else { return }
         let alert = NSAlert()
-        alert.messageText = "Delete generated content from “\(project.name)”?"
-        alert.informativeText = "This deletes transcripts, summaries, descriptions, narration, thumbnails, exports, and edit history. Your project and original video or YouTube link are kept. This cannot be undone."
+        alert.messageText = "Delete \(component.title.lowercased()) from “\(project.name)”?"
+        alert.informativeText = component.explanation + " The project and original video or YouTube link are kept. This cannot be undone."
         alert.alertStyle = .warning
         alert.addButton(withTitle: "Cancel")
-        alert.addButton(withTitle: "Delete Generated Content")
+        alert.addButton(withTitle: "Delete \(component.title)")
         guard alert.runModal() == .alertSecondButtonReturn else { return }
-        selectedID = project.id
-        execute("clear-generated", project: project)
+        deleteGeneratedContent(project, components: [component])
     }
     func openProject() {
         guard !busy else { return }
@@ -515,16 +554,17 @@ final class StudioModel {
         let missing = current.cues.filter {
             SynchronizedAudioStatus.resolve(cue: $0, project: current, settingsSignature: settings.narrationSignature) != .generated
         }
+        if audioOnly && !current.hasExportableNarration(settingsSignature: settings.narrationSignature) {
+            self.error = "Generate narration for at least one AD segment before exporting narration audio."
+            return nil
+        }
         guard !missing.isEmpty || current.cues.isEmpty else { return [] }
         let alert = NSAlert()
         let exportKind = audioOnly ? "narration audio" : "video"
-        let noAudioExplanation = audioOnly
-            ? " If no usable narration is available, the exported audio will be silent for the video’s duration."
-            : ""
         alert.messageText = "Export \(exportKind) with incomplete audio descriptions?"
         alert.informativeText = current.cues.isEmpty
-            ? "This project has no AD segments. Continuing exports \(exportKind) without audio descriptions." + noAudioExplanation
-            : "\(missing.count) of \(current.cues.count) AD segments have missing or outdated narration audio. Continuing exports \(exportKind) with available, up-to-date narration only. Those \(missing.count) descriptions will be omitted from the audio. This does not generate missing narration. Cancel and choose Synthesize Narration to include all descriptions." + noAudioExplanation
+            ? "This project has no AD segments. Continuing exports \(exportKind) without audio descriptions."
+            : "\(missing.count) of \(current.cues.count) AD segments have missing or outdated narration audio. Continuing exports \(exportKind) with available, up-to-date narration only. Those \(missing.count) descriptions will be omitted from the audio. This does not generate missing narration. Cancel and choose Synthesize Narration to include all descriptions."
         alert.alertStyle = .warning
         alert.addButton(withTitle: "Cancel")
         alert.addButton(withTitle: "Export Anyway")
@@ -540,6 +580,10 @@ final class StudioModel {
             engineCheckStatus = .checking
         }
         let target = project ?? (["import-video", "import-youtube", "doctor", "validate-config", "list-models"].contains(command) ? nil : selected)
+        if command == "generate-ad-cues", let target, !target.canGenerateDescriptions {
+            error = "Generate the transcript and summary before generating descriptions."
+            return
+        }
         if let target, !confirmAnalysisReplacement(command, project: target) { return }
         var exportOptions: [String] = []
         if ["export-final-video", "export-audio"].contains(command), let target {

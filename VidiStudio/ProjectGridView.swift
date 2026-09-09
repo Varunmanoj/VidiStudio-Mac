@@ -38,7 +38,7 @@ struct ProjectGridView: View {
                         }
                         Button(project.canReprocess ? "Reprocess Video" : "Process Video", systemImage: "sparkles") { process(project) }.disabled(busy)
                         Divider()
-                        Button("Delete Generated Content…", systemImage: "eraser", role: .destructive) { clear(project) }.disabled(busy || !project.hasGeneratedContent)
+                        Button("Choose Content to Delete…", systemImage: "eraser", role: .destructive) { clear(project) }.disabled(busy || !project.hasGeneratedContent)
                         Button("Delete Project", systemImage: "trash", role: .destructive) { delete(project) }.disabled(busy)
                     }
                 }

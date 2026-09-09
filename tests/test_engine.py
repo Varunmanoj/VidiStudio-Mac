@@ -7,6 +7,27 @@ ENGINE=Path(__file__).resolve().parents[1]/'engine/vidistudio_engine.py'
 sys.path.insert(0,str(ENGINE.parent))
 spec=importlib.util.spec_from_file_location('engine',ENGINE); engine=importlib.util.module_from_spec(spec); spec.loader.exec_module(engine)
 class Validation(unittest.TestCase):
+    def test_narration_fit_warning_uses_ad_segment_wording(self):
+        self.assertEqual(
+            engine.narration_fit_error_message(1, 14.8, 10.4),
+            'AD segment 1 takes 14.8s but has 10.4s. Shorten its text or extend its gap.',
+        )
+
+    def test_description_generation_requires_transcript_and_summary(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            (root/'transcript').mkdir()
+            with self.assertRaisesRegex(ValueError, 'Run transcription first'):
+                engine.validate_analysis_prerequisites('generate-ad-cues', root, {'transcript': [], 'summary': 'Summary'})
+            (root/'transcript/transcript.json').write_text('[]')
+            with self.assertRaisesRegex(ValueError, 'Generate the summary first'):
+                engine.validate_analysis_prerequisites('generate-ad-cues', root, {'transcript': [{'text': 'Dialogue'}], 'summary': '   '})
+            engine.validate_analysis_prerequisites(
+                'generate-ad-cues',
+                root,
+                {'transcript': [], 'summary': 'Summary'},
+            )
+
     def test_frame_timestamp_uses_last_valid_frame_at_video_end(self):
         self.assertEqual(engine.parity.frame_timestamp(10, 10), 9.9)
         self.assertEqual(engine.parity.frame_timestamp(4.25, 10), 4.25)
@@ -104,12 +125,59 @@ class Validation(unittest.TestCase):
             with self.assertRaises(ValueError): engine.clear_generated(root, p)
             self.assertEqual((root/p['source']).read_bytes(), b'protected')
 
+    def test_delete_generated_components_is_selective(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            for folder in ('source', 'metadata/history', 'thumbnails', 'transcript', 'audio-description', 'exports'):
+                (root/folder).mkdir(parents=True, exist_ok=True)
+            (root/'source/video.mp4').write_bytes(b'original')
+            (root/'metadata/summary.json').write_text('{"summary":"Summary"}')
+            (root/'metadata/history/edit.json').write_text('{}')
+            (root/'thumbnails/frame.jpg').write_bytes(b'image')
+            (root/'transcript/transcript.json').write_text('[]')
+            (root/'transcript/source.wav').write_bytes(b'audio')
+            (root/'audio-description/cues.json').write_text('[]')
+            (root/'audio-description/cue.wav').write_bytes(b'narration')
+            (root/'exports/final.mp4').write_bytes(b'export')
+            p = dict(
+                source='source/video.mp4', transcript=[{'text': 'Dialogue'}], summary='Summary',
+                cues=[{'text': 'Description', 'audio': 'audio-description/cue.wav', 'audioText': 'Description',
+                       'audioDuration': 1.0, 'audioSettings': 'voice'}],
+                thumbnails=['thumbnails/frame.jpg'], exports=['exports/final.mp4'],
+                undoStack=[[{'text': 'Before'}]], redoStack=[], hasProcessed=True,
+            )
+
+            engine.delete_generated_components(root, p, ['summary', 'narration'])
+            self.assertEqual(p['summary'], '')
+            self.assertFalse((root/'metadata/summary.json').exists())
+            self.assertEqual(p['cues'][0], {'text': 'Description'})
+            self.assertFalse((root/'audio-description/cue.wav').exists())
+            self.assertTrue((root/'audio-description/cues.json').exists())
+            self.assertTrue((root/'transcript/transcript.json').exists())
+            self.assertTrue((root/'source/video.mp4').exists())
+
+            engine.delete_generated_components(root, p, ['transcript', 'descriptions', 'thumbnails', 'exports', 'history'])
+            self.assertEqual((p['transcript'], p['cues'], p['thumbnails'], p['exports'], p['undoStack']), ([], [], [], [], []))
+            self.assertFalse(p['hasProcessed'])
+            self.assertTrue((root/'source/video.mp4').exists())
+            self.assertFalse(any((root/'metadata/history').iterdir()))
+
     def test_overlap_and_boundaries(self):
         for cues in [[{'start':-1,'end':2,'text':'a'}],[{'start':0,'end':11,'text':'a'}],[{'start':0,'end':3,'text':'a'},{'start':2,'end':5,'text':'b'}],[{'start':0,'end':float('nan'),'text':'a'}]]:
             with self.assertRaises(ValueError): engine.validate_cues(cues,10)
     def test_dialogue_overlap(self):
         with self.assertRaises(ValueError): engine.validate_cues([{'start':1,'end':3,'text':'a'}],10,[{'start':2,'end':4}])
         self.assertEqual(len(engine.validate_cues([{'start':0,'end':2,'text':'a'}],10,[{'start':2,'end':4}])),1)
+    def test_narration_export_rejects_all_silent_output(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            p = dict(
+                duration=10, transcript=[], exports=[], source='', hasAudio=False,
+                cues=[{'id': 'ad', 'start': 1, 'end': 3, 'text': 'A visual description.'}],
+            )
+            with patch.object(engine, 'config', return_value={}):
+                with self.assertRaisesRegex(ValueError, 'Generate narration for at least one AD segment'):
+                    engine.export(root, p, audio_only=True, allow_incomplete=True)
     def test_path_escape(self):
         with self.assertRaises(ValueError): engine.local(Path('/tmp/project'),'../../etc/passwd')
     def test_pipeline(self):
