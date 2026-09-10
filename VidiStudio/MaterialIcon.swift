@@ -3,6 +3,7 @@ import CoreText
 
 struct MaterialIcon: View {
     let glyph: String
+    var size: CGFloat = 20
     private static let registered: Void = {
         if let url = Bundle.main.url(forResource: "MaterialSymbolsRounded", withExtension: "ttf") {
             CTFontManagerRegisterFontsForURL(url as CFURL, .process, nil)
@@ -10,6 +11,6 @@ struct MaterialIcon: View {
     }()
     var body: some View {
         let _ = Self.registered
-        Text(glyph).font(.custom("Material Symbols Rounded", size: 20)).accessibilityHidden(true)
+        Text(glyph).font(.custom("Material Symbols Rounded", size: size)).accessibilityHidden(true)
     }
 }

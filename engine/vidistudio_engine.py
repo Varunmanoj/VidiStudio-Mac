@@ -84,6 +84,50 @@ def save(root, p):
     atomic_json(root / 'project.json', p)
 
 
+DUPLICATE_PROJECT_MESSAGE = ('This project already exists. Please continue with the existing project '
+                             'or delete the existing project before continuing.')
+MAX_LOCAL_VIDEO_SIZE_BYTES = 2_000_000_000
+LOCAL_VIDEO_SIZE_MESSAGE = ('VidiStudio supports local video files up to 2 GB because larger files '
+                            'cannot be uploaded through the Gemini Files API. Choose a smaller video '
+                            'or create a YouTube project instead.')
+
+
+def library_projects(library):
+    library = Path(library)
+    if not library.exists():
+        return []
+    projects = []
+    for project_file in library.glob('*/project.json'):
+        try:
+            projects.append(json.loads(project_file.read_text(encoding='utf-8')))
+        except (OSError, ValueError, TypeError):
+            continue
+    return projects
+
+
+def ensure_unique_local_video(library, filename):
+    candidate = Path(filename).name.casefold()
+    for project in library_projects(library):
+        if project.get('sourceType') == 'youtube':
+            continue
+        if Path(str(project.get('source', ''))).name.casefold() == candidate:
+            raise ValueError(DUPLICATE_PROJECT_MESSAGE)
+
+
+def ensure_supported_local_video(video):
+    try:
+        size = Path(video).stat().st_size
+    except OSError as exc:
+        raise ValueError('VidiStudio could not read the selected video file size.') from exc
+    if size > MAX_LOCAL_VIDEO_SIZE_BYTES:
+        raise ValueError(LOCAL_VIDEO_SIZE_MESSAGE)
+    return size
+
+
+def ensure_unique_youtube_video(library, url):
+    parity.ensure_unique_youtube_video(library, url)
+
+
 def track_cue_origins(cues, previous):
     """Keep provenance across saves without guessing the origin of legacy cues."""
     existing = {cue['id']: cue for cue in previous}
@@ -188,6 +232,7 @@ def ai_video(root, p, stage):
         else:
             if youtube: uri=p['youtubeURL'];mime=None
             else:
+                ensure_supported_local_video(local(root,p['source']))
                 emit('Uploading a processing copy to Gemini')
                 uploaded=gemini_adapter.ready_file(client,local(root,p['source']),lambda text:emit(text));uri=uploaded.uri;mime=uploaded.mime_type
             pair=cfg['prompts'][key]
@@ -641,6 +686,8 @@ def main():
         emit('Engine ready',python=platform.python_version(),ffmpeg=tool('ffmpeg'),ffprobe=tool('ffprobe')); return
     if args.command=='import-video':
         if not args.video or not args.library: raise ValueError('Import requires --video and --library.')
+        ensure_supported_local_video(args.video)
+        ensure_unique_local_video(args.library, args.video.name)
         info=probe(args.video)
         streams=info['streams']; video=next((s for s in streams if s['codec_type']=='video'),None)
         if not video: raise ValueError('The selected file has no video stream.')

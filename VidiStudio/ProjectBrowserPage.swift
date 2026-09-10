@@ -84,30 +84,63 @@ struct ProjectBrowserPage: View {
                     clear: clear
                 )
             } else {
-                List(filteredProjects, selection: $selection) { project in
-                    HStack(spacing: 12) {
-                        MaterialIcon(glyph: "\u{e02c}")
-                            .font(.title2)
-                            .accessibilityHidden(true)
-                        VStack(alignment: .leading, spacing: 3) {
-                            Text(project.name).font(.headline)
-                            Text("\(timecode(project.duration)) · \(project.cues.count) descriptions · \(project.status)")
-                                .font(.caption)
-                                .foregroundStyle(.secondary)
+                Table(filteredProjects, selection: $selection) {
+                    TableColumn("Name") { project in
+                        HStack(spacing: 8) {
+                            MaterialIcon(glyph: "\u{e02c}")
+                            Text(project.name)
+                                .fontWeight(.medium)
+                                .lineLimit(2)
                         }
-                        Spacer()
+                        .accessibilityElement(children: .ignore)
+                        .accessibilityLabel("Project name: \(project.name)")
                     }
-                    .padding(.vertical, 6)
-                    .tag(project.id)
-                    .accessibilityElement(children: .combine)
-                    .accessibilityLabel("\(project.name), \(timecode(project.duration)), \(project.cues.count) descriptions, \(project.status)")
-                    .accessibilityHint("Double-click to open this project in a new window")
-                    .accessibilityAction(named: "Open Project") { openEditor(project) }
-                    .onTapGesture(count: 2) { openEditor(project) }
-                    .contextMenu { projectMenu(project) }
+                    .width(min: 190, ideal: 280)
+                    TableColumn("Duration") { project in
+                        Text(timecode(project.duration))
+                            .monospacedDigit()
+                            .accessibilityLabel("Duration: \(timecode(project.duration))")
+                    }
+                    .width(min: 75, ideal: 90, max: 110)
+                    TableColumn("AD Segments") { project in
+                        Text(project.cues.count, format: .number)
+                            .monospacedDigit()
+                            .accessibilityLabel("\(project.cues.count) audio description \(project.cues.count == 1 ? "segment" : "segments")")
+                    }
+                    .width(min: 82, ideal: 95, max: 110)
+                    TableColumn("Transcript") { project in
+                        ProjectArtifactStatusIcon(project: project, kind: .transcript)
+                    }
+                    .width(min: 72, ideal: 82, max: 100)
+                    TableColumn("Summary") { project in
+                        ProjectArtifactStatusIcon(project: project, kind: .summary)
+                    }
+                    .width(min: 65, ideal: 78, max: 95)
+                    TableColumn("AD") { project in
+                        ProjectArtifactStatusIcon(project: project, kind: .descriptions)
+                    }
+                    .width(min: 44, ideal: 52, max: 65)
+                    TableColumn("Video Export") { project in
+                        ProjectArtifactStatusIcon(project: project, kind: .finalVideo, showsCount: true)
+                    }
+                    .width(min: 80, ideal: 92, max: 110)
+                    TableColumn("Audio Export") { project in
+                        ProjectArtifactStatusIcon(project: project, kind: .narrationAudio, showsCount: true)
+                    }
+                    .width(min: 80, ideal: 92, max: 110)
                 }
-                .listStyle(.inset)
-                .accessibilityLabel("All projects list")
+                .contextMenu(forSelectionType: String.self) { identifiers in
+                    if let identifier = identifiers.first,
+                       let project = filteredProjects.first(where: { $0.id == identifier }) {
+                        projectMenu(project)
+                    }
+                } primaryAction: { identifiers in
+                    if let identifier = identifiers.first,
+                       let project = filteredProjects.first(where: { $0.id == identifier }) {
+                        openEditor(project)
+                    }
+                }
+                .accessibilityLabel("All projects table")
             }
         }
         .navigationTitle("All Projects")

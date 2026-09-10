@@ -27,12 +27,13 @@ struct ProjectGridView: View {
                                 .lineLimit(nil).fixedSize(horizontal: false, vertical: true)
                             Text("\(timecode(project.duration)) · \(project.cues.count) descriptions")
                                 .font(.caption).foregroundStyle(.secondary)
+                            ProjectArtifactStatusRow(project: project)
                         }.padding(10).frame(maxWidth: .infinity, alignment: .leading)
                             .background(selection == project.id ? Color.accentColor.opacity(0.18) : Color.clear, in: RoundedRectangle(cornerRadius: 10))
                     }
                     .buttonStyle(.plain)
                     .simultaneousGesture(TapGesture(count: 2).onEnded { open(project) })
-                    .accessibilityLabel("\(project.name), \(timecode(project.duration)), \(project.cues.count) descriptions")
+                    .accessibilityLabel("\(project.name), duration \(timecode(project.duration)), \(project.projectBrowserAccessibilityLabel)")
                     .accessibilityHint("Double-click to open this project in a new window")
                     .accessibilityAction(named: "Open Project") { open(project) }
                     .accessibilityAddTraits(selection == project.id ? [.isSelected] : [])

@@ -19,13 +19,16 @@ private struct NewProjectView: View {
     @State private var source = NewProjectSource.videoFile
     @State private var videoURL: URL?
     @State private var youtubeURL = ""
+    @State private var youtubePreview: YouTubeProjectPreview?
+    @State private var youtubeFetchError: String?
+    @State private var fetchingYouTube = false
 
     private var trimmedYouTubeURL: String {
         youtubeURL.trimmingCharacters(in: .whitespacesAndNewlines)
     }
 
     private var canCreate: Bool {
-        source == .videoFile ? videoURL != nil : !trimmedYouTubeURL.isEmpty
+        source == .videoFile ? videoURL != nil : youtubePreview != nil
     }
 
     var body: some View {
@@ -62,16 +65,64 @@ private struct NewProjectView: View {
                         .textSelection(.enabled)
                         .accessibilityLabel(videoURL.map { "Selected video: \($0.lastPathComponent)" } ?? "No video selected")
                 } else {
-                    TextField("YouTube video URL", text: $youtubeURL, prompt: Text("https://www.youtube.com/watch?v=…"))
-                        .textFieldStyle(.roundedBorder)
-                        .accessibilityLabel("YouTube video URL")
+                    VStack(alignment: .leading, spacing: 10) {
+                        HStack {
+                            TextField("YouTube video URL", text: $youtubeURL, prompt: Text("https://www.youtube.com/watch?v=…"))
+                                .textFieldStyle(.roundedBorder)
+                                .accessibilityLabel("YouTube video URL")
+                            Button("Fetch Details") {
+                                Task { await fetchYouTubeDetails() }
+                            }
+                            .disabled(trimmedYouTubeURL.isEmpty || fetchingYouTube)
+                            .accessibilityHint("Fetch the video's project name and thumbnail for review.")
+                        }
+                        if fetchingYouTube {
+                            ProgressView("Fetching video details…")
+                                .controlSize(.small)
+                        }
+                        if let youtubeFetchError {
+                            Label(youtubeFetchError, systemImage: "exclamationmark.triangle.fill")
+                                .font(.caption)
+                                .foregroundStyle(.red)
+                                .accessibilityLabel("Could not fetch video details. \(youtubeFetchError)")
+                        }
+                        if let youtubePreview {
+                            HStack(alignment: .top, spacing: 12) {
+                                Image(nsImage: youtubePreview.thumbnail)
+                                    .resizable()
+                                    .scaledToFill()
+                                    .frame(width: 180, height: 101)
+                                    .clipped()
+                                    .clipShape(RoundedRectangle(cornerRadius: 8))
+                                    .accessibilityLabel("Thumbnail for \(youtubePreview.title)")
+                                VStack(alignment: .leading, spacing: 5) {
+                                    Text("Project name")
+                                        .font(.caption)
+                                        .foregroundStyle(.secondary)
+                                    Text(youtubePreview.title)
+                                        .font(.headline)
+                                        .textSelection(.enabled)
+                                    Text(youtubePreview.canonicalURL)
+                                        .font(.caption)
+                                        .foregroundStyle(.secondary)
+                                        .lineLimit(2)
+                                        .textSelection(.enabled)
+                                }
+                            }
+                            .padding(10)
+                            .background(.quaternary, in: RoundedRectangle(cornerRadius: 10))
+                            Text("Review these details before creating the project.")
+                                .font(.caption)
+                                .foregroundStyle(.secondary)
+                        }
+                    }
                 }
             } header: {
                 Text(source.title)
             } footer: {
                 Text(source == .videoFile
                      ? "VidiStudio copies the selected video into a new local project folder."
-                     : "VidiStudio stores the project locally. Playback and analysis require an internet connection.")
+                     : "Fetch and review the video details first. VidiStudio stores the project locally; playback and analysis require an internet connection.")
             }
 
             Section {
@@ -87,7 +138,14 @@ private struct NewProjectView: View {
             }
             .formStyle(.grouped)
         }
-        .frame(width: 560, height: 410)
+        .frame(width: 600, height: source == .youtube ? 570 : 410)
+        .onChange(of: youtubeURL) {
+            youtubePreview = nil
+            youtubeFetchError = nil
+        }
+        .alert(studio.errorTitle, isPresented: Binding(get: { studio.error != nil }, set: { if !$0 { studio.dismissError() } })) {
+            Button("OK", role: .cancel) { studio.dismissError() }
+        } message: { Text(studio.error ?? "") }
     }
 
     private func chooseVideo() {
@@ -96,21 +154,41 @@ private struct NewProjectView: View {
         panel.allowsMultipleSelection = false
         panel.prompt = "Choose Video"
         panel.message = "Choose the video file for this VidiStudio project."
-        if panel.runModal() == .OK {
-            videoURL = panel.url
+        if panel.runModal() == .OK, let selectedURL = panel.url,
+           studio.validateLocalVideoForCreation(selectedURL) {
+            videoURL = selectedURL
         }
     }
 
     private func createProject() {
+        let started: Bool
         switch source {
         case .videoFile:
             guard let videoURL else { return }
-            studio.importVideo(at: videoURL)
+            started = studio.importVideo(at: videoURL)
         case .youtube:
-            guard !trimmedYouTubeURL.isEmpty else { return }
-            studio.execute("import-youtube", extra: ["--url", trimmedYouTubeURL, "--library", studio.settings.libraryPath])
+            guard let youtubePreview else { return }
+            started = studio.importYouTube(at: youtubePreview.canonicalURL, name: youtubePreview.title)
         }
-        dismiss()
+        if started { dismiss() }
+    }
+
+    @MainActor
+    private func fetchYouTubeDetails() async {
+        let requestedURL = trimmedYouTubeURL
+        guard studio.validateYouTubeForCreation(requestedURL) else { return }
+        youtubePreview = nil
+        youtubeFetchError = nil
+        fetchingYouTube = true
+        defer { fetchingYouTube = false }
+        do {
+            let preview = try await YouTubeProjectPreviewFetcher.fetch(requestedURL)
+            guard requestedURL == trimmedYouTubeURL else { return }
+            youtubePreview = preview
+        } catch {
+            guard requestedURL == trimmedYouTubeURL else { return }
+            youtubeFetchError = error.localizedDescription
+        }
     }
 }
 

@@ -446,9 +446,90 @@ final class StudioModel {
             importVideo(at: url)
         }
     }
-    func importVideo(at url: URL) {
-        guard !busy else { return }
+    @discardableResult
+    func importVideo(at url: URL) -> Bool {
+        guard !busy else { return false }
+        guard validateLocalVideoForCreation(url) else { return false }
+        let filename = url.lastPathComponent
+        if let existing = projects.first(where: {
+            !$0.isYouTubeURLProject
+                && URL(fileURLWithPath: $0.source).lastPathComponent.caseInsensitiveCompare(filename) == .orderedSame
+        }) {
+            showDuplicateProjectError(existing)
+            return false
+        }
         execute("import-video", extra: ["--video", url.path, "--library", settings.libraryPath], project: nil)
+        return true
+    }
+    func validateLocalVideoForCreation(_ url: URL) -> Bool {
+        do {
+            let size = try LocalVideoFilePolicy.size(at: url)
+            guard size <= LocalVideoFilePolicy.maximumSizeBytes else {
+                errorTitle = "Video File Too Large"
+                error = "\(url.lastPathComponent) is \(LocalVideoFilePolicy.displaySize(size)). VidiStudio supports local video files up to 2 GB because larger files cannot be uploaded through the Gemini Files API. Choose a smaller video or create a YouTube project instead."
+                return false
+            }
+            return true
+        } catch {
+            errorTitle = "Video File Unavailable"
+            self.error = "VidiStudio could not read the size of \(url.lastPathComponent). Choose an available local video file and try again."
+            return false
+        }
+    }
+    @discardableResult
+    func importYouTube(at rawURL: String, name: String? = nil) -> Bool {
+        guard !busy else { return false }
+        guard validateYouTubeForCreation(rawURL) else { return false }
+        var arguments = ["--url", rawURL, "--library", settings.libraryPath]
+        if let name, !name.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            arguments += ["--name", name]
+        }
+        execute("import-youtube", extra: arguments, project: nil)
+        return true
+    }
+    func validateYouTubeForCreation(_ rawURL: String) -> Bool {
+        let candidate = Self.youtubeVideoID(from: rawURL)
+        if let existing = projects.first(where: { project in
+            guard project.isYouTubeURLProject, let existingURL = project.youtubeURL else { return false }
+            if let candidate, let existingID = Self.youtubeVideoID(from: existingURL) {
+                return candidate == existingID
+            }
+            return existingURL.trimmingCharacters(in: .whitespacesAndNewlines) == rawURL.trimmingCharacters(in: .whitespacesAndNewlines)
+        }) {
+            showDuplicateProjectError(existing)
+            return false
+        }
+        return true
+    }
+    private func showDuplicateProjectError(_ project: StudioProject) {
+        selectedID = project.id
+        errorTitle = "Project Already Exists"
+        error = "A project for this video already exists as “\(project.name)”. Please continue with the existing project or delete the existing project before continuing."
+    }
+    static func youtubeVideoID(from rawURL: String) -> String? {
+        guard let components = URLComponents(string: rawURL.trimmingCharacters(in: .whitespacesAndNewlines)),
+              ["http", "https"].contains(components.scheme?.lowercased() ?? ""),
+              let host = components.host?.lowercased() else { return nil }
+        let pathParts = components.path.split(separator: "/").map(String.init)
+        let identifier: String?
+        switch host {
+        case "youtu.be", "www.youtu.be":
+            identifier = pathParts.first
+        case "youtube.com", "www.youtube.com", "m.youtube.com", "youtube-nocookie.com", "www.youtube-nocookie.com":
+            if components.path == "/watch" {
+                identifier = components.queryItems?.first(where: { $0.name == "v" })?.value
+            } else if pathParts.count > 1, ["shorts", "embed", "live"].contains(pathParts[0]) {
+                identifier = pathParts[1]
+            } else {
+                identifier = nil
+            }
+        default:
+            identifier = nil
+        }
+        guard let identifier,
+              identifier.count == 11,
+              identifier.unicodeScalars.allSatisfy({ CharacterSet.alphanumerics.union(CharacterSet(charactersIn: "_-")).contains($0) }) else { return nil }
+        return identifier
     }
     func chooseProjectLibrary() {
         guard !busy else { return }

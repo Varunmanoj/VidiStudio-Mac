@@ -1,5 +1,10 @@
 """Shared Gemini contracts; no credentials, defaults or storage ownership here."""
 import math, time
+from pathlib import Path
+
+MAX_FILE_SIZE_BYTES = 2_000_000_000
+FILE_SIZE_ERROR = ('VidiStudio supports files up to 2 GB for Gemini processing. '
+                   'Choose a smaller video or create a YouTube project instead.')
 
 def value(obj,key,default=None):
     return obj.get(key,default) if isinstance(obj,dict) else getattr(obj,key,default)
@@ -14,6 +19,8 @@ def output_text(result):
     return '\n'.join(texts)
 
 def ready_file(client,path,emit=lambda *_:None):
+    if Path(path).stat().st_size > MAX_FILE_SIZE_BYTES:
+        raise ValueError(FILE_SIZE_ERROR)
     f=client.files.upload(file=str(path)); deadline=time.monotonic()+900
     try:
         while str(value(value(f,'state'),'name',value(f,'state'))).upper()=='PROCESSING':

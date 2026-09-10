@@ -6,7 +6,9 @@ import parity
 import vidistudio_engine as engine
 class Parity(unittest.TestCase):
     def test_url_validation(self):
-        self.assertEqual(parity.youtube_url('https://youtu.be/hYaQffYszuM?t=3'),'https://www.youtube.com/watch?v=hYaQffYszuM')
+        expected='https://www.youtube.com/watch?v=4fYlQtcm6qY'
+        self.assertEqual(parity.youtube_url('https://youtu.be/4fYlQtcm6qY'),expected)
+        self.assertEqual(parity.youtube_url('https://www.youtube.com/watch?v=4fYlQtcm6qY'),expected)
         for url in ['https://youtube.com.evil.test/watch?v=hYaQffYszuM','file:///tmp/test','https://youtube.com/watch?v=bad']:
             with self.assertRaises(ValueError):parity.youtube_url(url)
     def test_subtitles_and_undo(self):

@@ -7,6 +7,73 @@ ENGINE=Path(__file__).resolve().parents[1]/'engine/vidistudio_engine.py'
 sys.path.insert(0,str(ENGINE.parent))
 spec=importlib.util.spec_from_file_location('engine',ENGINE); engine=importlib.util.module_from_spec(spec); spec.loader.exec_module(engine)
 class Validation(unittest.TestCase):
+    def test_local_video_size_limit_accepts_boundary_and_rejects_larger_file(self):
+        with tempfile.TemporaryDirectory() as temp:
+            video = Path(temp)/'large-video.mp4'
+            with video.open('wb') as stream:
+                stream.truncate(engine.MAX_LOCAL_VIDEO_SIZE_BYTES)
+            self.assertEqual(
+                engine.ensure_supported_local_video(video),
+                engine.MAX_LOCAL_VIDEO_SIZE_BYTES,
+            )
+            with video.open('r+b') as stream:
+                stream.truncate(engine.MAX_LOCAL_VIDEO_SIZE_BYTES + 1)
+            with self.assertRaisesRegex(ValueError, 'up to 2 GB'):
+                engine.ensure_supported_local_video(video)
+
+    def test_gemini_upload_rejects_oversized_file_before_network_request(self):
+        with tempfile.TemporaryDirectory() as temp:
+            video = Path(temp)/'large-video.mp4'
+            with video.open('wb') as stream:
+                stream.truncate(engine.MAX_LOCAL_VIDEO_SIZE_BYTES + 1)
+            client = Mock()
+            with self.assertRaisesRegex(ValueError, 'up to 2 GB'):
+                engine.gemini_adapter.ready_file(client, video)
+            client.files.upload.assert_not_called()
+
+    def test_import_command_rejects_oversized_video_before_project_creation(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            video = root/'large-video.mp4'
+            with video.open('wb') as stream:
+                stream.truncate(engine.MAX_LOCAL_VIDEO_SIZE_BYTES + 1)
+            library = root/'library'
+            result = subprocess.run(
+                [sys.executable, str(ENGINE), 'import-video', '--video', str(video), '--library', str(library)],
+                capture_output=True,
+                text=True,
+            )
+            self.assertEqual(result.returncode, 1, result.stdout + result.stderr)
+            self.assertIn('up to 2 GB', result.stdout)
+            self.assertFalse(library.exists())
+
+    def test_duplicate_local_video_filename_is_rejected(self):
+        with tempfile.TemporaryDirectory() as temp:
+            library = Path(temp)
+            project = library/'existing'
+            project.mkdir()
+            (project/'project.json').write_text(json.dumps({
+                'source': 'source/My Video.MP4',
+                'sourceType': 'upload',
+            }))
+            with self.assertRaisesRegex(ValueError, 'project already exists'):
+                engine.ensure_unique_local_video(library, 'my video.mp4')
+            engine.ensure_unique_local_video(library, 'another-video.mp4')
+
+    def test_duplicate_youtube_video_url_is_rejected(self):
+        with tempfile.TemporaryDirectory() as temp:
+            library = Path(temp)
+            project = library/'existing'
+            project.mkdir()
+            (project/'project.json').write_text(json.dumps({
+                'source': '',
+                'sourceType': 'youtube',
+                'youtubeURL': 'https://www.youtube.com/watch?v=4fYlQtcm6qY',
+            }))
+            with self.assertRaisesRegex(ValueError, 'project already exists'):
+                engine.ensure_unique_youtube_video(library, 'https://youtu.be/4fYlQtcm6qY')
+            engine.ensure_unique_youtube_video(library, 'https://youtu.be/abcdefghijk')
+
     def test_read_and_speak_voice_resolution(self):
         preferences = {
             'SpokenContentDefaultVoiceSelectionsByLanguage': [

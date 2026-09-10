@@ -19,6 +19,29 @@ def youtube_url(raw):
     if not re.fullmatch(r'[A-Za-z0-9_-]{11}',ident): raise ValueError('This URL does not contain a valid YouTube video ID.')
     return 'https://www.youtube.com/watch?v='+ident
 
+def ensure_unique_youtube_video(library, url):
+    candidate=youtube_url(url);library=Path(library)
+    if not library.exists():return
+    for project_file in library.glob('*/project.json'):
+        try:project=json.loads(project_file.read_text(encoding='utf-8'))
+        except (OSError,ValueError,TypeError):continue
+        if project.get('sourceType')!='youtube' or not project.get('youtubeURL'):continue
+        try:existing=youtube_url(project['youtubeURL'])
+        except ValueError:existing=str(project['youtubeURL']).strip()
+        if existing==candidate:
+            raise ValueError('This project already exists. Please continue with the existing project or delete the existing project before continuing.')
+
+def download_youtube_thumbnail(root, video_id):
+    relative='thumbnails/youtube-thumbnail.jpg'
+    try:
+        with urlopen(f'https://i.ytimg.com/vi/{video_id}/hqdefault.jpg',timeout=10,context=ssl.create_default_context(cafile=certifi.where())) as response:
+            if response.headers.get_content_type()!='image/jpeg':return None
+            data=response.read(5*1024*1024+1)
+        if len(data)>5*1024*1024 or not data.startswith(b'\xff\xd8\xff'):return None
+        (root/relative).write_bytes(data)
+        return relative
+    except Exception:return None
+
 def timestamp(value):
     if isinstance(value,str) and ':' in value:
         result=0.
@@ -88,6 +111,7 @@ def execute(args,root,p,e):
     if command=='import-youtube':
         if not args.url or not args.library: raise ValueError('YouTube import requires --url and --library.')
         url=youtube_url(args.url);ident=url.split('=')[-1];name=args.name or 'YouTube video'
+        ensure_unique_youtube_video(args.library, url)
         try:
             with urlopen('https://www.youtube.com/oembed?format=json&url='+url,timeout=10,context=ssl.create_default_context(cafile=certifi.where())) as r:
                 title=str(json.load(r).get('title') or '').strip()
@@ -95,7 +119,8 @@ def execute(args,root,p,e):
         except Exception:pass
         root=args.library.resolve()/('YouTube-'+ident+'-'+uuid.uuid4().hex[:8])
         for folder in ('source','metadata','thumbnails','transcript','audio-description','exports'):(root/folder).mkdir(parents=True,exist_ok=True)
-        p=dict(schemaVersion=1,id=str(uuid.uuid4()),name=name,source='',sourceType='youtube',youtubeURL=url,duration=args.duration or 0,width=0,height=0,hasAudio=True,createdAt=time.time(),updatedAt=time.time(),thumbnails=[],transcript=[],summary='',cues=[],exports=[],status='Imported')
+        thumbnail=download_youtube_thumbnail(root,ident)
+        p=dict(schemaVersion=1,id=str(uuid.uuid4()),name=name,source='',sourceType='youtube',youtubeURL=url,duration=args.duration or 0,width=0,height=0,hasAudio=True,createdAt=time.time(),updatedAt=time.time(),thumbnails=[thumbnail] if thumbnail else [],transcript=[],summary='',cues=[],exports=[],status='Imported')
         e.save(root,p);e.emit('YouTube project imported',project=str(root));return
     if command in ('analyze', 'regenerate-all'):
         stages=['transcribe','generate-summary','generate-ad-cues']
@@ -118,6 +143,7 @@ def execute(args,root,p,e):
             p['duration']=args.duration
     elif command=='attach-video':
         if not args.video:raise ValueError('Select a local copy of this video.')
+        e.ensure_supported_local_video(args.video)
         info=e.probe(args.video);duration=float(info['format']['duration'])
         if p['duration'] and abs(duration-p['duration'])>2:raise ValueError('The local copy duration differs from this YouTube project by more than two seconds.')
         rel='source/'+args.video.name;shutil.copy2(args.video,root/rel);p['source']=rel;p['duration']=duration;p['hasAudio']=any(s['codec_type']=='audio' for s in info['streams'])
