@@ -113,6 +113,23 @@ struct SettingsView: View {
                     }
                     SystemVoiceBrowser(settings: $studio.settings)
                 }
+                GroupBox("Summary readback") {
+                    VStack(alignment: .leading, spacing: 10) {
+                        Text("The Summary tab reads sentences aloud with the Apple voice above and highlights the active sentence and spoken word. The summary scrolls automatically to the sentence being read.")
+                            .font(.caption).foregroundStyle(.secondary)
+                        ColorPicker("Sentence highlight", selection: summaryColorBinding(\.summarySentenceHighlight))
+                            .accessibilityLabel("Sentence highlight background color")
+                            .accessibilityHint("Background color used for the summary sentence being read")
+                        ColorPicker("Spoken word highlight", selection: summaryColorBinding(\.summaryWordHighlight))
+                            .accessibilityLabel("Spoken word highlight background color")
+                            .accessibilityHint("Background color used for the word currently spoken in the summary")
+                        Button("Restore Highlight Defaults", systemImage: "arrow.counterclockwise") {
+                            studio.settings.restoreSummaryHighlightDefaults()
+                        }
+                        .accessibilityHint("Restores the summary sentence and word highlight colors")
+                    }
+                    .padding(.vertical, 4)
+                }
             }
             }
             if section == "Developer prompts" { Section("Developer prompts") {
@@ -193,7 +210,24 @@ struct SettingsView: View {
         .frame(minWidth: 850, idealWidth: 940, minHeight: 650, idealHeight: 740)
         .onChange(of: studio.settings.ffmpegPath) { _, _ in studio.engineCheckStatus = .unchecked }
         .onChange(of: studio.settings.ffprobePath) { _, _ in studio.engineCheckStatus = .unchecked }
+        .onAppear {
+            if let section = SettingsSectionRequest.consume(), sections.contains(section) {
+                studio.settingsSection = section
+            }
+        }
+        .onReceive(NotificationCenter.default.publisher(for: .vidiStudioOpenSettingsSection)) { _ in
+            if let section = SettingsSectionRequest.consume(), sections.contains(section) {
+                studio.settingsSection = section
+            }
+        }
         .preferredColorScheme(studio.settings.theme == "dark" ? .dark : studio.settings.theme == "light" ? .light : nil)
+    }
+
+    private func summaryColorBinding(_ keyPath: WritableKeyPath<StudioSettings, String>) -> Binding<Color> {
+        Binding(
+            get: { SummaryHighlightColor.color(from: studio.settings[keyPath: keyPath]) },
+            set: { studio.settings[keyPath: keyPath] = SummaryHighlightColor.hex(from: $0) }
+        )
     }
 
     private func speechSlider(_ title: String, value: Binding<Double>, range: ClosedRange<Double>) -> some View {

@@ -580,3 +580,49 @@ Transcription, summary, and AD segment generation now retry automatically up to 
 The Mac UI streams engine retry messages in the existing processing status, documents the 3-attempt behavior in the Project Inspector, and every failure alert now offers a `Retry <transcription/summary/AD segments/analysis>` button alongside OK for retryable analysis commands. The failed command, arguments, and project are retained in `StudioModel` so manual retry re-runs the same request without repeating the replacement confirmation.
 
 Validation: focused retry checks passed for 3-attempt exhaustion with the manual-retry suffix, success on the second attempt, and single-attempt configuration failure. All 25 source engine tests passed. `script/build_and_run.sh --verify` passed. No live Gemini validation was performed.
+
+### Summary tab readback with synchronized highlighting — 2026-09-12
+
+The Summary tab now has its own playback controls (Play/Pause via Command-Shift-P, Stop, Previous/Next sentence) plus a live sentence progress label. Reading uses the Apple on-device Text to Speech voice, rate, pitch, and volume from Settings → Narration through the shared `SystemSpeechUtterance` builder, speaking one summary sentence per utterance so headings, lists, quotes, and code blocks keep their existing native styling while each block's sentences are individually tracked.
+
+The active sentence gets a full-range background fill and the spoken word gets a distinct solid background with an auto-contrasting text color, both drawn from `NSMutableAttributedString` ranges so the `AVSpeechSynthesizer` UTF-16 word ranges map exactly with wrapping intact. `Settings → Narration → Summary readback` adds Sentence highlight and Spoken word highlight color pickers with restore defaults; the sentence fill renders translucent and the word fill solid. Scrolling follows the active sentence (centered, top on start) through `ScrollViewReader`, gated by the existing Follow toggle and reduced-motion setting. Leaving the Summary tab, regenerating the summary, or closing the editor stops speech immediately so no orphan audio survives a mid-sentence close. Active sentences expose "Sentence X of N, reading/paused" VoiceOver labels with the selected trait, and controls are disabled until a real summary exists.
+
+Validation: Debug build succeeded, `script/build_and_run.sh --verify` passed with all 13 Help pages verified and the app launched, all 25 engine tests passed, and `git diff --check` passed. Sentence tokenization was spot-checked against markdown with headings and bullets to confirm per-block splitting. Live voice/highlight rendering was not separately observed in this pass.
+
+### Summary read-from-selection across text menu, menu bar, and Play button — 2026-09-12
+
+The Summary tab text area is now a selectable AppKit text view (same Apple voice, sentence/word highlights, and auto-scroll as before) that reports its selection to the shared `SummaryReadbackModel`. Right-clicking summary text extends the standard text menu with Read Summary from Here, Read This Sentence, Read Selected Text, Pause/Resume, and Stop; the clicked word anchors the first two when the click falls outside the selection. Read-from-here snaps to the containing word, reads that sentence from the word onward with correctly offset word highlighting, then continues through following sentences; selected-text reads once without disturbing sentence order.
+
+The same options appear in Playback → Summary Reading in the menu bar (enabled only while the Summary section is active, with Command + Shift + P for Play/Pause) and on the Play/Pause button's right-click options menu. Menu enabling flows through new `EditorShortcutActions` summary flags synced from the editor's owned reader model, which also routes the menu actions. Editor Help, Settings shortcut reference, and README document the new entry points.
+
+Validation: Debug build succeeded, `script/build_and_run.sh --verify` passed with all 13 Help pages verified and the app launched, all 25 engine tests passed, and `git diff --check` passed. Live right-click/menu-bar interaction was not separately observed in this pass.
+
+### Summary Dark Mode text legibility — 2026-09-12
+
+The summary text view rendered near-black text on the dark text background in Dark Mode while Light Mode was fine. The programmatically created `NSTextView` kept a fixed default foreground and the generated attributed string set no foreground of its own. The text view now uses the semantic `labelColor` (plus matching insertion-point color) and every generated range carries an explicit semantic foreground (`labelColor`, `secondaryLabelColor` for quotes), so the summary adapts to both appearances. Highlight and contrasting word-text colors are unchanged.
+
+Validation: Debug build succeeded, `script/build_and_run.sh --verify` passed with all 13 Help pages verified and the app launched, and `git diff --check` passed. Rendered Dark Mode legibility was not separately observed in this pass.
+
+### AD Overview narration card text removal and working Narration deep link — 2026-09-12
+
+Removed all caption text below the Voice and Narration Settings button, leaving the narration card with just the speech-engine picker, voice readout, generate buttons, and the settings button. Fixed the Narration deep link properly: the earlier notification-only attempt failed because the Settings view does not exist yet when the button is tapped, so there is no observer alive to receive it and Settings still opened on Appearance. The request is now also stored in UserDefaults (`VidiStudioRequestedSettingsSection`) and consumed by `SettingsView` on appear, with the notification path retained for when Settings is already open.
+
+Validation: Debug build succeeded, `script/build_and_run.sh --verify` passed with all 13 Help pages verified and the app launched, and `git diff --check` passed.
+
+### AD Overview narration card cleanup and Narration deep link — 2026-09-12
+
+Removed the "Voice and speech-engine changes are saved automatically…" caption below the Voice and Narration Settings button, leaving only the button and the engine explainer. The button now also posts a settings-section request so the Settings window opens directly on Narration instead of Appearance; previously the section assignment only touched the editor window's own model while Settings runs on the app-level model. `SettingsView` observes the new `VidiStudioOpenSettingsSection` notification and selects the requested section (validated against known sections), which also works if Settings is already open.
+
+Validation: Debug build succeeded, `script/build_and_run.sh --verify` passed with all 13 Help pages verified and the app launched, and `git diff --check` passed.
+
+### AD Overview two-column grid — 2026-09-12
+
+The AD Overview tab replaces its single centered grouped form with a full-width scroll view: the Audio description overview and Description origins tables sit side by side in an adaptive two-column grid (collapsing to one column in narrow windows), and Create narration audio spans the full width below. All statistics, origin counts, captions, actions, and accessibility labels are unchanged; only the layout now uses the available width to cut vertical scrolling.
+
+Validation: Debug build succeeded, `script/build_and_run.sh --verify` passed with all 13 Help pages verified and the app launched, and `git diff --check` passed.
+
+### Narration/Follow toggles scoped to transcript tabs — 2026-09-12
+
+The editor toolbar's Narration and Follow toggles now appear only on the Transcript and AD Transcript tabs, where synchronized description playback and transcript following apply. They are hidden on Summary, Descriptions, and AD Overview. The underlying per-project preferences are untouched, so the Summary reader's auto-scroll keeps honoring the last Follow value set from a transcript tab.
+
+Validation: Debug build succeeded, `script/build_and_run.sh --verify` passed with all 13 Help pages verified and the app launched, and `git diff --check` passed.

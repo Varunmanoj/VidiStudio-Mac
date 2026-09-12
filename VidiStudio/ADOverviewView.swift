@@ -25,45 +25,71 @@ struct ADOverviewView: View {
             .accessibilityAddTraits(.isStaticText)
     }
     var body: some View {
-        Form {
-            Section("Audio description overview") {
-                statistic("Description segments", value: String(project.cues.count))
-                statistic("Narration audio ready", value: String(ready))
-                statistic("Audio needs updating", value: String(stale))
-                statistic("Audio missing or unavailable", value: String(missing))
-                statistic("Description time", value: timecode(project.cues.reduce(0) { $0 + max(0, $1.end - $1.start) }))
-                statistic("Spoken transcript segments", value: String(project.transcript.count))
-            }
-            Section("Description origins") {
-                ForEach(DescriptionOrigin.allCases, id: \.rawValue) { origin in
-                    HStack {
-                        DescriptionOriginLabel(origin: origin)
-                        Spacer()
-                        Text(String(project.cues.filter { $0.provenance == origin }.count)).monospacedDigit()
+        ScrollView {
+            VStack(alignment: .leading, spacing: 16) {
+                LazyVGrid(
+                    columns: [GridItem(.adaptive(minimum: 340), spacing: 16)],
+                    alignment: .leading,
+                    spacing: 16
+                ) {
+                    GroupBox("Audio description overview") {
+                        VStack(alignment: .leading, spacing: 10) {
+                            statistic("Description segments", value: String(project.cues.count))
+                            Divider()
+                            statistic("Narration audio ready", value: String(ready))
+                            Divider()
+                            statistic("Audio needs updating", value: String(stale))
+                            Divider()
+                            statistic("Audio missing or unavailable", value: String(missing))
+                            Divider()
+                            statistic("Description time", value: timecode(project.cues.reduce(0) { $0 + max(0, $1.end - $1.start) }))
+                            Divider()
+                            statistic("Spoken transcript segments", value: String(project.transcript.count))
+                        }
+                        .padding(.vertical, 4)
                     }
-                    .accessibilityElement(children: .ignore)
-                    .accessibilityLabel("\(origin.title): \(project.cues.filter { $0.provenance == origin }.count) segments")
+                    GroupBox("Description origins") {
+                        VStack(alignment: .leading, spacing: 10) {
+                            ForEach(DescriptionOrigin.allCases, id: \.rawValue) { origin in
+                                HStack {
+                                    DescriptionOriginLabel(origin: origin)
+                                    Spacer()
+                                    Text(String(project.cues.filter { $0.provenance == origin }.count)).monospacedDigit()
+                                }
+                                .accessibilityElement(children: .ignore)
+                                .accessibilityLabel("\(origin.title): \(project.cues.filter { $0.provenance == origin }.count) segments")
+                                if origin != DescriptionOrigin.allCases.last {
+                                    Divider()
+                                }
+                            }
+                            Text("AI-generated and modified AI segments are counted separately. Manual segments remain manual when edited. Older segments without recorded origin appear as unknown.")
+                                .font(.caption).foregroundStyle(.secondary)
+                        }
+                        .padding(.vertical, 4)
+                    }
                 }
-                Text("AI-generated and modified AI segments are counted separately. Manual segments remain manual when edited. Older segments without recorded origin appear as unknown.")
-                    .font(.caption).foregroundStyle(.secondary)
+                GroupBox("Create narration audio") {
+                    VStack(alignment: .leading, spacing: 10) {
+                        Picker("Speech engine", selection: $studio.settings.ttsMode) {
+                            Text("Apple on-device voices · offline").tag("system")
+                            Text("Gemini TTS").tag("gemini")
+                        }
+                        statistic("Voice", value: selectedVoice)
+                        HStack {
+                            Button("Generate All AD Audio") { studio.execute("synthesize-tts") }
+                            Button("Generate Missing or Changed Audio") { studio.execute("synthesize-tts", extra: ["--changed"]) }
+                        }.disabled(studio.busy || project.cues.isEmpty)
+                        Button("Voice and Narration Settings") {
+                            studio.settingsSection = "Narration"
+                            SettingsSectionRequest.request("Narration")
+                            openSettings()
+                        }
+                    }
+                    .padding(.vertical, 4)
+                }
             }
-            Section("Create narration audio") {
-                Picker("Speech engine", selection: $studio.settings.ttsMode) {
-                    Text("Apple on-device voices · offline").tag("system")
-                    Text("Gemini TTS").tag("gemini")
-                }
-                statistic("Voice", value: selectedVoice)
-                HStack {
-                    Button("Generate All AD Audio") { studio.execute("synthesize-tts") }
-                    Button("Generate Missing or Changed Audio") { studio.execute("synthesize-tts", extra: ["--changed"]) }
-                }.disabled(studio.busy || project.cues.isEmpty)
-                Button("Voice and Narration Settings") {
-                    studio.settingsSection = "Narration"
-                    openSettings()
-                }
-                Text("Voice and speech-engine changes are saved automatically and shared with open project windows.").font(.caption).foregroundStyle(.secondary)
-                Text("Both engines save narration in this project for synchronized playback and export. Existing files keep the voice they were created with even if voice settings change. Gemini TTS requires your API key. For narration without creating files, choose on-device playback in Settings → Narration and enable Narration in the editor.").font(.caption).foregroundStyle(.secondary)
-            }
-        }.formStyle(.grouped)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .padding(20)
+        }
     }
 }

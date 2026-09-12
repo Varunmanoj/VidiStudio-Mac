@@ -7,6 +7,15 @@ final class EditorShortcutActions {
     var available = false
     var canGenerateDescriptions = false
     var hasNarrationAudio = false
+    /// Summary section readback state, synced by the project editor.
+    var summaryActive = false
+    var summaryReadable = false
+    var summaryIsReading = false
+    var summaryIsPaused = false
+    /// A text selection anchored inside a summary sentence (read-from point).
+    var summaryHasSelection = false
+    /// A non-empty summary text selection (read-selection content).
+    var summaryHasTextSelection = false
     var handler: ((String) -> Void)?
 
     func run(_ action: String) {
@@ -16,9 +25,27 @@ final class EditorShortcutActions {
 
     func canRun(_ action: String) -> Bool {
         guard available, handler != nil else { return false }
+        if action.hasPrefix("summary-") { return canRunSummary(action) }
         if action == "generate-ad-cues" { return canGenerateDescriptions }
         if action == "delete-narration" { return hasNarrationAudio }
         return true
+    }
+
+    func canRunSummary(_ action: String) -> Bool {
+        guard available, handler != nil, summaryActive, summaryReadable else { return false }
+        switch action {
+        case "summary-play-pause", "summary-from-start", "summary-read-sentence",
+             "summary-next", "summary-previous":
+            return true
+        case "summary-from-selection":
+            return summaryHasSelection
+        case "summary-read-selection":
+            return summaryHasTextSelection
+        case "summary-stop":
+            return summaryIsReading
+        default:
+            return false
+        }
     }
 }
 private struct EditorShortcutKey: FocusedValueKey { typealias Value = EditorShortcutActions }
@@ -53,6 +80,7 @@ struct StudioShortcut: Identifiable {
         case "delete-narration": return "speaker.slash"
         case "undo": return "arrow.uturn.backward"
         case "redo": return "arrow.uturn.forward"
+        case "summary-play-pause": return "playpause"
         default: return "arrow.clockwise"
         }
     }
@@ -71,6 +99,7 @@ struct StudioShortcut: Identifiable {
         .init(id: "add", title: "Add Description Segment", key: "n", modifiers: [.command, .shift], spoken: "Command + Shift + N", group: "Editor"),
         .init(id: "follow", title: "Toggle Transcript Follow", key: "f", modifiers: [.command, .shift], spoken: "Command + Shift + F", group: "Editor"),
         .init(id: "delete-narration", title: "Delete All Narration Audio…", key: .delete, modifiers: [.command, .option], spoken: "Command + Option + Delete", group: "Editor"),
+        .init(id: "summary-play-pause", title: "Play or Pause Summary Reading", key: "p", modifiers: [.command, .shift], spoken: "Command + Shift + P", group: "Summary"),
         .init(id: "undo", title: "Undo Segment Edit", key: "z", modifiers: [.command, .option], spoken: "Command + Option + Z", group: "Editor"),
         .init(id: "redo", title: "Redo Segment Edit", key: "z", modifiers: [.command, .option, .shift], spoken: "Command + Option + Shift + Z", group: "Editor"),
         .init(id: "analyze", title: "Run All Analysis", key: "a", modifiers: [.command, .option, .shift], spoken: "Command + Option + Shift + A", group: "Analysis"),
@@ -118,6 +147,27 @@ struct StudioCommands: Commands {
         CommandGroup(replacing: .textFormatting) { }
         CommandMenu("Playback") {
             shortcutEntries(StudioShortcut.editor.filter { $0.group == "Playback" })
+            Divider()
+            Menu("Summary Reading") {
+                shortcutEntries(StudioShortcut.editor.filter { $0.group == "Summary" })
+                Divider()
+                Button("Read Summary from Start", systemImage: "forward.end") { editor?.run("summary-from-start") }
+                    .disabled(editor?.canRun("summary-from-start") != true)
+                Button("Read Summary from Selection", systemImage: "text.cursor") { editor?.run("summary-from-selection") }
+                    .disabled(editor?.canRun("summary-from-selection") != true)
+                Button("Read Selected Summary Text", systemImage: "quote.bubble") { editor?.run("summary-read-selection") }
+                    .disabled(editor?.canRun("summary-read-selection") != true)
+                Button("Read Current Summary Sentence", systemImage: "text.bubble") { editor?.run("summary-read-sentence") }
+                    .disabled(editor?.canRun("summary-read-sentence") != true)
+                Divider()
+                Button("Stop Summary Reading", systemImage: "stop.fill") { editor?.run("summary-stop") }
+                    .disabled(editor?.canRun("summary-stop") != true)
+                Button("Previous Summary Sentence", systemImage: "backward.fill") { editor?.run("summary-previous") }
+                    .disabled(editor?.canRun("summary-previous") != true)
+                Button("Next Summary Sentence", systemImage: "forward.fill") { editor?.run("summary-next") }
+                    .disabled(editor?.canRun("summary-next") != true)
+            }
+            .disabled(editor?.summaryActive != true)
         }
         CommandMenu("Project") {
             Menu("Editor Sections") {
@@ -172,6 +222,11 @@ struct ShortcutReferenceView: View {
             ForEach(StudioShortcut.editor) { shortcut in
                 shortcutRow(shortcut.title, value: shortcut.spoken)
             }
+            shortcutRow("Read Summary from Start", value: "Playback → Summary Reading menu; Summary section")
+            shortcutRow("Read Summary from Selection", value: "Playback → Summary Reading menu, summary text right-click menu, or Play button options; needs a selection in the summary")
+            shortcutRow("Read Selected Summary Text", value: "Playback → Summary Reading menu, summary text right-click menu, or Play button options; needs selected summary text")
+            shortcutRow("Read Current Summary Sentence", value: "Playback → Summary Reading menu or summary text right-click menu")
+            shortcutRow("Stop Summary Reading", value: "Playback → Summary Reading menu")
             shortcutRow("Save Segment (in its editor)", value: "Return")
             shortcutRow("Cancel a sheet or leave full-screen video", value: "Escape")
             Text("Segment changes save when you choose Save Segment. Standard Command + Z and Command + Shift + Z remain available for text editing; the separate segment-history commands do not replace them.")

@@ -230,6 +230,8 @@ struct StudioSettings: Codable, Equatable {
     var systemSpeechRate = 1.0
     var systemSpeechPitch = 1.0
     var systemSpeechVolume = 1.0
+    var summarySentenceHighlight = SummaryHighlightColor.defaultSentenceHex
+    var summaryWordHighlight = SummaryHighlightColor.defaultWordHex
     var geminiVoice = "Kore"
     var ffmpegPath = ""
     var ffprobePath = ""
@@ -263,13 +265,42 @@ struct StudioSettings: Codable, Equatable {
         systemSpeechPitch = 1.0
         systemSpeechVolume = 1.0
     }
+
+    mutating func restoreSummaryHighlightDefaults() {
+        summarySentenceHighlight = SummaryHighlightColor.defaultSentenceHex
+        summaryWordHighlight = SummaryHighlightColor.defaultWordHex
+    }
 }
 
 extension Notification.Name {
+    static let vidiStudioOpenSettingsSection = Notification.Name("VidiStudioOpenSettingsSection")
     static let vidiStudioSettingsDidChange = Notification.Name("VidiStudioSettingsDidChange")
     static let vidiStudioProjectNarrationDidChange = Notification.Name("VidiStudioProjectNarrationDidChange")
     static let vidiStudioProjectFollowDidChange = Notification.Name("VidiStudioProjectFollowDidChange")
     static let vidiStudioNarrationAudioWillDelete = Notification.Name("VidiStudioNarrationAudioWillDelete")
+}
+
+/// Handoff for opening Settings on a specific section. The request is stored in
+/// UserDefaults as well as posted, because the Settings view may not exist yet
+/// when the request is made and would otherwise miss the notification.
+enum SettingsSectionRequest {
+    static let defaultsKey = "VidiStudioRequestedSettingsSection"
+
+    static func request(_ section: String) {
+        UserDefaults.standard.set(section, forKey: defaultsKey)
+        NotificationCenter.default.post(
+            name: .vidiStudioOpenSettingsSection,
+            object: nil,
+            userInfo: ["section": section]
+        )
+    }
+
+    /// Returns and clears a pending request, or nil when there is none.
+    static func consume() -> String? {
+        guard let section = UserDefaults.standard.string(forKey: defaultsKey) else { return nil }
+        UserDefaults.standard.removeObject(forKey: defaultsKey)
+        return section
+    }
 }
 
 enum ProjectPlaybackPreferences {

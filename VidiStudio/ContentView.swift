@@ -519,6 +519,7 @@ struct ProjectEditor: View {
     @State private var segmentScreenText: String?
     @State private var readingFrameForSegment = false
     @State private var followTranscript = true
+    @State private var summaryReader = SummaryReadbackModel()
     private var transcriptRows: [TranscriptRow] {
         let dialogue = project.transcript.map { TranscriptRow(segment: $0, isDescription: false) }
         let descriptions = project.cues.map { TranscriptRow(segment: $0, isDescription: true) }
@@ -575,12 +576,14 @@ struct ProjectEditor: View {
                     .labelStyle(.iconOnly)
                     .help("Extract text from the current video frame")
                     .disabled(studio.busy)
-                    Toggle("Narration", isOn: $playback.narrationEnabled)
-                        .toggleStyle(.button)
-                        .help("Play generated descriptions in sync with video")
-                    Toggle("Follow", isOn: $followTranscript)
-                        .toggleStyle(.button)
-                        .help("Follow the active transcript or description")
+                    if tab == "transcript" || tab == "ad-transcript" {
+                        Toggle("Narration", isOn: $playback.narrationEnabled)
+                            .toggleStyle(.button)
+                            .help("Play generated descriptions in sync with video")
+                        Toggle("Follow", isOn: $followTranscript)
+                            .toggleStyle(.button)
+                            .help("Follow the active transcript or description")
+                    }
                 }
             }
             if let action = generationAction {
@@ -794,7 +797,13 @@ struct ProjectEditor: View {
             } else if tab == "ad-overview" {
                 ADOverviewView(studio: studio, project: project)
             } else if tab == "summary" {
-                MarkdownSummaryView(markdown: project.summary.isEmpty ? "Generate a summary after transcription to capture the story and visual context." : project.summary)
+                SummaryReaderView(
+                    markdown: project.summary.isEmpty ? "Generate a summary after transcription to capture the story and visual context." : project.summary,
+                    model: summaryReader,
+                    settings: studio.settings,
+                    follow: followTranscript,
+                    hasSummary: !project.summary.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+                )
             } else {
                 let segments = transcriptRows
                 if segments.isEmpty {
@@ -945,6 +954,16 @@ struct ProjectEditor: View {
         case "narration": playback.narrationEnabled.toggle()
         case "follow": followTranscript.toggle()
         case "descriptions", "transcript", "summary", "ad-transcript", "ad-overview": tab = action
+        case "summary-play-pause":
+            if summaryReader.isReading, !summaryReader.isPaused { summaryReader.pause() }
+            else { summaryReader.play() }
+        case "summary-stop": summaryReader.stop()
+        case "summary-from-start": summaryReader.playFromStart()
+        case "summary-from-selection": summaryReader.playFromSelection()
+        case "summary-read-selection": summaryReader.readSelectedText()
+        case "summary-read-sentence": summaryReader.readSentenceAtSelection()
+        case "summary-next": summaryReader.next()
+        case "summary-previous": summaryReader.previous()
         case "add": presentNewSegment()
         case "delete-narration": studio.confirmDeleteGeneratedContent(project, component: .narration)
         case "undo": studio.execute("undo-cues")
@@ -964,6 +983,12 @@ struct ProjectEditor: View {
         shortcutActions.available = !shortcutsBlocked && !studio.busy && cueToEdit == nil && studio.screenText == nil
         shortcutActions.canGenerateDescriptions = project.canGenerateDescriptions
         shortcutActions.hasNarrationAudio = GeneratedContentComponent.narration.hasContent(in: project)
+        shortcutActions.summaryActive = (tab == "summary")
+        shortcutActions.summaryReadable = !project.summary.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty && !studio.busy
+        shortcutActions.summaryIsReading = summaryReader.isReading
+        shortcutActions.summaryIsPaused = summaryReader.isPaused
+        shortcutActions.summaryHasSelection = summaryReader.hasReadableSelection
+        shortcutActions.summaryHasTextSelection = summaryReader.hasNonEmptySelection
     }
 
     private var editorWithProjectUpdates: some View {
@@ -1042,6 +1067,12 @@ struct ProjectEditor: View {
         .onChange(of: studio.screenText) { _, _ in refreshEditorShortcutActions() }
         .onChange(of: studio.busy) { _, _ in refreshEditorShortcutActions() }
         .onChange(of: project.updatedAt) { _, _ in refreshEditorShortcutActions(updateHandler: true) }
+        .onChange(of: tab) { _, _ in refreshEditorShortcutActions() }
+        .onChange(of: project.summary) { _, _ in refreshEditorShortcutActions() }
+        .onChange(of: summaryReader.isReading) { _, _ in refreshEditorShortcutActions() }
+        .onChange(of: summaryReader.isPaused) { _, _ in refreshEditorShortcutActions() }
+        .onChange(of: summaryReader.selectedRange) { _, _ in refreshEditorShortcutActions() }
+        .onChange(of: summaryReader.sentences.count) { _, _ in refreshEditorShortcutActions() }
         .sheet(isPresented: screenTextPresented) { screenTextReview }
         .sheet(item: $cueToEdit, onDismiss: {
             readingFrameForSegment = false
