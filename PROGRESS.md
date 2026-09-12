@@ -621,6 +621,12 @@ The AD Overview tab replaces its single centered grouped form with a full-width 
 
 Validation: Debug build succeeded, `script/build_and_run.sh --verify` passed with all 13 Help pages verified and the app launched, and `git diff --check` passed.
 
+### Narration/Follow toggles on Descriptions tab too — 2026-09-12
+
+The Narration and Follow toolbar toggles now also appear on the Descriptions tab, alongside Transcript and AD Transcript. They remain hidden on Summary and AD Overview.
+
+Validation: Debug build succeeded and `git diff --check` passed.
+
 ### Narration/Follow toggles scoped to transcript tabs — 2026-09-12
 
 The editor toolbar's Narration and Follow toggles now appear only on the Transcript and AD Transcript tabs, where synchronized description playback and transcript following apply. They are hidden on Summary, Descriptions, and AD Overview. The underlying per-project preferences are untouched, so the Summary reader's auto-scroll keeps honoring the last Follow value set from a transcript tab.

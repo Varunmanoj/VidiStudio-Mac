@@ -576,7 +576,7 @@ struct ProjectEditor: View {
                     .labelStyle(.iconOnly)
                     .help("Extract text from the current video frame")
                     .disabled(studio.busy)
-                    if tab == "transcript" || tab == "ad-transcript" {
+                    if tab == "transcript" || tab == "ad-transcript" || tab == "descriptions" {
                         Toggle("Narration", isOn: $playback.narrationEnabled)
                             .toggleStyle(.button)
                             .help("Play generated descriptions in sync with video")
