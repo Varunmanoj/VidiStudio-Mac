@@ -597,6 +597,12 @@ The same options appear in Playback → Summary Reading in the menu bar (enabled
 
 Validation: Debug build succeeded, `script/build_and_run.sh --verify` passed with all 13 Help pages verified and the app launched, all 25 engine tests passed, and `git diff --check` passed. Live right-click/menu-bar interaction was not separately observed in this pass.
 
+### Full-screen preview restore fix — 2026-09-12
+
+Exiting full-screen video (Escape) left the local preview collapsed, recoverable only by reopening the project. Root cause: `removeFromSuperview()` drops the superview-owned Auto Layout constraints SwiftUI laid the preview out with, and the exit path restored only the frame, which is meaningless without constraints — the next host re-layout (driven by the 150 ms playback observer) collapsed the view. The exit path now saves the surface's superview constraints on entry and re-adds them on exit before refreshing layout, with the frame restore kept as fallback. The full-screen container also exits on Escape directly as a backup to the key event monitor. A headless AppKit check confirmed the old path collapses to zero on host re-layout while the fixed path restores full size.
+
+Validation: headless restore checks passed, Debug build succeeded, `script/build_and_run.sh --verify` passed with all 13 Help pages verified and the app launched, all 25 engine tests passed, and `git diff --check` passed. Live full-screen enter/exit was not separately observed in this pass.
+
 ### Bounded selection/sentence reads plus smart Play — 2026-09-12
 
 Read Selected Text and Read This Sentence now stop automatically at the end of the selection or sentence instead of continuing like Read from Here, which still reads through to the end. Single-sentence reads go through a new `readSentence(at:)` path that keeps full sentence/word highlighting while stopping after one sentence. Play is now smart across the button, menus, and shortcut: it resumes when paused, reads from the text selection when one exists, and otherwise starts from the beginning. A headless run also exposed a stale-callback race where a late finish from stopped speech could wipe newly started reading, so delegate callbacks now verify utterance identity and rapid stop-then-start is covered by a regression check.

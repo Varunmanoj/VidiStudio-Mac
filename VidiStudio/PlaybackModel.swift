@@ -8,6 +8,20 @@ final class VideoWebView: WKWebView, FullScreenVideoSizing {
     override var frame: NSRect { get { super.frame } set { super.frame = fullScreenFrame ?? newValue } }
 }
 
+/// Full-screen host that exits on Escape even if the key event monitor misses,
+/// e.g. while player controls hold focus.
+final class FullScreenContainerView: NSView {
+    var onEscape: (() -> Void)?
+    override var acceptsFirstResponder: Bool { true }
+    override func keyDown(with event: NSEvent) {
+        if event.keyCode == 53 {
+            onEscape?()
+        } else {
+            super.keyDown(with: event)
+        }
+    }
+}
+
 @MainActor @Observable
 final class PlaybackModel {
     let player = AVPlayer()
@@ -21,17 +35,30 @@ final class PlaybackModel {
     private var normalTranslatesConstraints = false
     private var fullScreenContainer: NSView?
     private var originalVideoParent: NSView?
+    /// Superview constraints positioning the surface. Removing the surface from
+    /// its parent drops these, so they must be saved and re-added on exit or
+    /// the preview restores collapsed.
+    private var normalVideoConstraints: [NSLayoutConstraint] = []
     func exitVideoFullScreen() {
         if let container = fullScreenContainer, let surface = videoSurface {
             (surface as? FullScreenVideoSizing)?.fullScreenFrame = nil
             container.exitFullScreenMode(options: nil)
             surface.removeFromSuperview()
-            originalVideoParent?.addSubview(surface)
-            surface.translatesAutoresizingMaskIntoConstraints = normalTranslatesConstraints
-            surface.autoresizingMask = normalAutoresizing
-            surface.frame = normalVideoFrame
+            if let parent = originalVideoParent {
+                parent.addSubview(surface)
+                surface.translatesAutoresizingMaskIntoConstraints = normalTranslatesConstraints
+                surface.autoresizingMask = normalAutoresizing
+                if !normalVideoConstraints.isEmpty {
+                    parent.addConstraints(normalVideoConstraints)
+                }
+                surface.frame = normalVideoFrame
+                surface.needsLayout = true
+                parent.updateConstraintsForSubtreeIfNeeded()
+                parent.layoutSubtreeIfNeeded()
+            }
         }
         fullScreenContainer = nil; originalVideoParent = nil
+        normalVideoConstraints = []
         if let monitor = fullScreenKeyMonitor { NSEvent.removeMonitor(monitor); fullScreenKeyMonitor = nil }
     }
     func toggleVideoFullScreen() {
@@ -42,8 +69,18 @@ final class PlaybackModel {
         normalAutoresizing = surface.autoresizingMask
         normalTranslatesConstraints = surface.translatesAutoresizingMaskIntoConstraints
         originalVideoParent = surface.superview
-        let container = NSView(frame: NSRect(origin: .zero, size: screen.frame.size))
+        if let parent = originalVideoParent {
+            normalVideoConstraints = parent.constraints.filter {
+                ($0.firstItem as? NSView) === surface || ($0.secondItem as? NSView) === surface
+            }
+        } else {
+            normalVideoConstraints = []
+        }
+        let container = FullScreenContainerView(frame: NSRect(origin: .zero, size: screen.frame.size))
         container.wantsLayer = true; container.layer?.backgroundColor = NSColor.black.cgColor
+        container.onEscape = { [weak self] in
+            Task { @MainActor [weak self] in self?.exitVideoFullScreen() }
+        }
         fullScreenContainer = container
         surface.removeFromSuperview()
         container.addSubview(surface)
