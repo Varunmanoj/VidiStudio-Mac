@@ -192,6 +192,17 @@ final class SummaryReadbackModel: NSObject, @preconcurrency AVSpeechSynthesizerD
     /// UTF-16 offset within the speaking sentence where a partial utterance starts.
     @ObservationIgnored private var partialOffset = 0
     @ObservationIgnored private var oneShotActive = false
+    /// The utterance most recently handed to the synthesizer. Delegate callbacks
+    /// carrying any other utterance are stale (e.g. from speech stopped just
+    /// before a new start) and must be ignored.
+    @ObservationIgnored private var speakingUtterance: AVSpeechUtterance?
+    /// When true, the current utterance is a single unit (selected text or one
+    /// sentence): finishing it stops instead of advancing to the next sentence.
+    @ObservationIgnored private var stopAfterCurrent = false
+    /// Hook for the text view to collapse its visual selection when user-initiated
+    /// speech starts, so sentence/word highlighting is visible. Wired by the view;
+    /// chained sentence advances never clear, so selecting text mid-reading works.
+    @ObservationIgnored var clearTextSelection: (@MainActor () -> Void)?
 
     override init() {
         super.init()
@@ -245,7 +256,7 @@ final class SummaryReadbackModel: NSObject, @preconcurrency AVSpeechSynthesizerD
             return
         }
         if isReading { return }
-        speak(at: currentIndex ?? 0)
+        speak(at: currentIndex ?? 0, userInitiated: true)
     }
 
     func pause() {
@@ -254,9 +265,30 @@ final class SummaryReadbackModel: NSObject, @preconcurrency AVSpeechSynthesizerD
         isPaused = true
     }
 
+    /// Single shared play/pause entry used by the button, menus, and shortcuts
+    /// so every trigger behaves identically. Smart start: resumes when paused,
+    /// reads from the text selection when one exists, otherwise reads from the
+    /// beginning of the summary.
+    func togglePlayPause() {
+        if isReading, !isPaused {
+            pause()
+            return
+        }
+        if isPaused {
+            play()
+            return
+        }
+        if hasNonEmptySelection {
+            playFromSelection()
+            return
+        }
+        playFromStart()
+    }
+
     func stop() {
         suppressAdvance = true
         synthesizer.stopSpeaking(at: .immediate)
+        speakingUtterance = nil
         speakingIndex = nil
         currentIndex = nil
         wordRange = nil
@@ -264,6 +296,7 @@ final class SummaryReadbackModel: NSObject, @preconcurrency AVSpeechSynthesizerD
         isPaused = false
         partialOffset = 0
         oneShotActive = false
+        stopAfterCurrent = false
         suppressAdvance = false
     }
 
@@ -312,6 +345,7 @@ final class SummaryReadbackModel: NSObject, @preconcurrency AVSpeechSynthesizerD
         guard NSMaxRange(selection) <= plain.length else { return }
         let text = plain.substring(with: selection).trimmingCharacters(in: .whitespacesAndNewlines)
         guard !text.isEmpty else { return }
+        clearTextSelection?()
         do {
             let utterance = try SystemSpeechUtterance.make(text: text, settings: settings)
             suppressAdvance = true
@@ -325,6 +359,7 @@ final class SummaryReadbackModel: NSObject, @preconcurrency AVSpeechSynthesizerD
             isReading = true
             isPaused = false
             error = nil
+            speakingUtterance = utterance
             synthesizer.speak(utterance)
         } catch {
             self.error = error.localizedDescription
@@ -334,13 +369,44 @@ final class SummaryReadbackModel: NSObject, @preconcurrency AVSpeechSynthesizerD
         }
     }
 
-    /// Read the sentence under the selection or caret.
+    /// Read one sentence and stop at its end instead of continuing.
+    func readSentence(at index: Int) {
+        guard sentences.indices.contains(index) else { return }
+        error = nil
+        clearTextSelection?()
+        do {
+            let utterance = try SystemSpeechUtterance.make(text: sentences[index].text, settings: settings)
+            suppressAdvance = true
+            synthesizer.stopSpeaking(at: .immediate)
+            suppressAdvance = false
+            speakingIndex = index
+            partialOffset = 0
+            oneShotActive = false
+            stopAfterCurrent = true
+            currentIndex = index
+            wordRange = nil
+            isReading = true
+            isPaused = false
+            error = nil
+            speakingUtterance = utterance
+            synthesizer.speak(utterance)
+        } catch {
+            self.error = error.localizedDescription
+            stopAfterCurrent = false
+            isReading = false
+            isPaused = false
+            currentIndex = nil
+            wordRange = nil
+            speakingIndex = nil
+        }
+    }
+
+    /// Read the sentence under the selection or caret, stopping at its end.
     func readSentenceAtSelection() {
         if let location = selectedRange?.location,
            location != NSNotFound,
            let index = sentenceIndex(at: location) {
-            error = nil
-            restart(at: index)
+            readSentence(at: index)
             return
         }
         replayCurrent()
@@ -369,7 +435,7 @@ final class SummaryReadbackModel: NSObject, @preconcurrency AVSpeechSynthesizerD
             play()
             return
         }
-        restart(at: currentIndex)
+        readSentence(at: currentIndex)
     }
 
     // MARK: Display cache
@@ -492,18 +558,27 @@ final class SummaryReadbackModel: NSObject, @preconcurrency AVSpeechSynthesizerD
 
     // MARK: Speech plumbing
 
+    private func isCurrentUtterance(_ identifier: ObjectIdentifier) -> Bool {
+        guard let speakingUtterance else { return false }
+        return ObjectIdentifier(speakingUtterance) == identifier
+    }
+
     private func restart(at index: Int) {
         suppressAdvance = true
         synthesizer.stopSpeaking(at: .immediate)
         suppressAdvance = false
-        speak(at: index)
+        speak(at: index, userInitiated: true)
     }
 
-    private func speak(at index: Int) {
+    /// - Parameter userInitiated: true for button/menu/shortcut starts (clears the
+    ///   text selection so highlighting is visible); false for chained advances,
+    ///   which must preserve a selection the user makes mid-reading.
+    private func speak(at index: Int, userInitiated: Bool = false) {
         guard sentences.indices.contains(index) else {
             stop()
             return
         }
+        if userInitiated { clearTextSelection?() }
         do {
             let utterance = try SystemSpeechUtterance.make(text: sentences[index].text, settings: settings)
             speakingIndex = index
@@ -514,6 +589,7 @@ final class SummaryReadbackModel: NSObject, @preconcurrency AVSpeechSynthesizerD
             isReading = true
             isPaused = false
             error = nil
+            speakingUtterance = utterance
             synthesizer.speak(utterance)
         } catch {
             self.error = error.localizedDescription
@@ -538,6 +614,7 @@ final class SummaryReadbackModel: NSObject, @preconcurrency AVSpeechSynthesizerD
             if sentences.indices.contains(next) { restart(at: next) } else { stop() }
             return
         }
+        clearTextSelection?()
         do {
             let utterance = try SystemSpeechUtterance.make(text: partial, settings: settings)
             suppressAdvance = true
@@ -551,6 +628,7 @@ final class SummaryReadbackModel: NSObject, @preconcurrency AVSpeechSynthesizerD
             isReading = true
             isPaused = false
             error = nil
+            speakingUtterance = utterance
             synthesizer.speak(utterance)
         } catch {
             self.error = error.localizedDescription
@@ -566,8 +644,9 @@ final class SummaryReadbackModel: NSObject, @preconcurrency AVSpeechSynthesizerD
         _ synthesizer: AVSpeechSynthesizer,
         didStart utterance: AVSpeechUtterance
     ) {
+        let identifier = ObjectIdentifier(utterance)
         Task { @MainActor [weak self] in
-            guard let self else { return }
+            guard let self, self.isCurrentUtterance(identifier) else { return }
             if self.oneShotActive { return }
             guard let speakingIndex = self.speakingIndex else { return }
             self.currentIndex = speakingIndex
@@ -580,8 +659,9 @@ final class SummaryReadbackModel: NSObject, @preconcurrency AVSpeechSynthesizerD
         willSpeakRangeOfSpeechString characterRange: NSRange,
         utterance: AVSpeechUtterance
     ) {
+        let identifier = ObjectIdentifier(utterance)
         Task { @MainActor [weak self] in
-            guard let self else { return }
+            guard let self, self.isCurrentUtterance(identifier) else { return }
             if self.oneShotActive { return }
             guard let speakingIndex = self.speakingIndex,
                   self.cachedLineRanges.indices.contains(speakingIndex) else { return }
@@ -599,11 +679,13 @@ final class SummaryReadbackModel: NSObject, @preconcurrency AVSpeechSynthesizerD
         _ synthesizer: AVSpeechSynthesizer,
         didFinish utterance: AVSpeechUtterance
     ) {
+        let identifier = ObjectIdentifier(utterance)
         Task { @MainActor [weak self] in
-            guard let self else { return }
+            guard let self, self.isCurrentUtterance(identifier) else { return }
             guard !self.suppressAdvance, self.isReading, !self.isPaused else { return }
             if self.oneShotActive {
                 self.oneShotActive = false
+                self.speakingUtterance = nil
                 self.speakingIndex = nil
                 self.currentIndex = nil
                 self.wordRange = nil
@@ -612,10 +694,22 @@ final class SummaryReadbackModel: NSObject, @preconcurrency AVSpeechSynthesizerD
                 return
             }
             guard let finished = self.speakingIndex else { return }
+            if self.stopAfterCurrent {
+                self.stopAfterCurrent = false
+                self.speakingUtterance = nil
+                self.speakingIndex = nil
+                self.currentIndex = nil
+                self.wordRange = nil
+                self.isReading = false
+                self.isPaused = false
+                self.partialOffset = 0
+                return
+            }
             let next = finished + 1
             if self.sentences.indices.contains(next) {
                 self.speak(at: next)
             } else {
+                self.speakingUtterance = nil
                 self.speakingIndex = nil
                 self.currentIndex = nil
                 self.wordRange = nil
@@ -637,6 +731,21 @@ final class SummaryReadbackModel: NSObject, @preconcurrency AVSpeechSynthesizerD
 
 // MARK: - Selectable text view with summary reading menu
 
+/// NSTextView that serves its right-click menu through a closure, using direct
+/// subclass dispatch instead of the delegate channel.
+final class SummaryTextView: NSTextView {
+    var contextMenuProvider: ((NSEvent) -> NSMenu?)?
+
+    override func menu(for event: NSEvent) -> NSMenu? {
+        contextMenuProvider?(event) ?? super.menu(for: event)
+    }
+
+    /// The standard AppKit text menu for the provider to extend.
+    func standardMenu(for event: NSEvent) -> NSMenu? {
+        super.menu(for: event)
+    }
+}
+
 struct SummarySentenceTextView: NSViewRepresentable {
     @Bindable var model: SummaryReadbackModel
     let settings: StudioSettings
@@ -653,7 +762,7 @@ struct SummarySentenceTextView: NSViewRepresentable {
         scrollView.hasHorizontalScroller = false
         scrollView.autohidesScrollers = true
         scrollView.borderType = .noBorder
-        let textView = NSTextView()
+        let textView = SummaryTextView()
         textView.isEditable = false
         textView.isSelectable = true
         textView.isRichText = true
@@ -669,7 +778,28 @@ struct SummarySentenceTextView: NSViewRepresentable {
         // adapt so the summary stays readable in both appearances.
         textView.textColor = .labelColor
         textView.insertionPointColor = .labelColor
-        textView.delegate = context.coordinator
+        context.coordinator.textView = textView
+        // Collapse the visual selection whenever user-initiated speech starts so
+        // sentence/word highlighting is visible instead of hiding under blue.
+        // Runs synchronously inside the triggering action, before speech state
+        // changes render, and records the write so its echo is never adopted.
+        context.coordinator.model.clearTextSelection = { [weak textView, weak coordinator = context.coordinator] in
+            guard let textView, let coordinator else { return }
+            let length = (textView.string as NSString).length
+            let caret = min(max(0, textView.selectedRange().location), length)
+            let collapsed = NSRange(location: caret, length: 0)
+            coordinator.lastProgrammaticRange = collapsed
+            coordinator.isRestoringSelection = true
+            textView.setSelectedRange(collapsed)
+            coordinator.isRestoringSelection = false
+            coordinator.model.selectedRange = collapsed
+        }
+        textView.contextMenuProvider = { [weak coordinator = context.coordinator] event in
+            guard let coordinator else { return nil }
+            return MainActor.assumeIsolated {
+                coordinator.menu(for: event, in: textView)
+            }
+        }
         scrollView.documentView = textView
         return scrollView
     }
@@ -700,7 +830,7 @@ struct SummarySentenceTextView: NSViewRepresentable {
                 var restored = selection
                 restored.location = min(max(0, restored.location), length)
                 restored.length = min(max(0, restored.length), max(0, length - restored.location))
-                textView.setSelectedRange(restored)
+                context.coordinator.restoreSelection(restored)
             }
         }
         if follow, hasSummary, !userSelecting,
@@ -716,44 +846,99 @@ struct SummarySentenceTextView: NSViewRepresentable {
     }
 
     @MainActor
-    final class Coordinator: NSObject, NSTextViewDelegate {
+    final class Coordinator: NSObject {
         let model: SummaryReadbackModel
         var hasSummary = true
         var lastContentSignature = ""
         var lastScrolledIndex: Int?
+        weak var textView: SummaryTextView?
         /// Anchor resolved when the context menu opens (click, or selection when clicked inside it).
         private var menuAnchor = NSNotFound
+        /// Set while restoring the selection around highlight refreshes so those
+        /// programmatic resets are never mistaken for a user selection.
+        var isRestoringSelection = false
+        /// The range last written programmatically; its deferred echo posts are ignored.
+        var lastProgrammaticRange: NSRange?
+        private var selectionObserver: NSObjectProtocol?
 
         init(model: SummaryReadbackModel) {
             self.model = model
-        }
-
-        func textDidChangeSelection(_ notification: Notification) {
-            guard let textView = notification.object as? NSTextView else { return }
-            let range = textView.selectedRange()
-            if model.selectedRange != range {
-                model.selectedRange = range
+            super.init()
+            // Selection is tracked through NotificationCenter, which posts
+            // reliably, rather than the NSTextViewDelegate channel. The post is
+            // treated only as a signal: the view's live range is re-read, so a
+            // deferred post can never install a stale range.
+            selectionObserver = NotificationCenter.default.addObserver(
+                forName: NSTextView.didChangeSelectionNotification,
+                object: nil,
+                queue: nil
+            ) { [weak self] notification in
+                guard let self,
+                      notification.object as? NSTextView != nil else { return }
+                if Thread.isMainThread {
+                    MainActor.assumeIsolated {
+                        self.adoptLiveSelection()
+                    }
+                } else {
+                    Task { @MainActor [weak self] in
+                        self?.adoptLiveSelection()
+                    }
+                }
             }
         }
 
-        func textView(
-            _ view: NSTextView,
-            menu: NSMenu,
-            for event: NSEvent,
-            at charIndex: Int
-        ) -> NSMenu? {
-            guard hasSummary, !model.sentences.isEmpty else { return menu }
+        deinit {
+            if let selectionObserver {
+                NotificationCenter.default.removeObserver(selectionObserver)
+            }
+        }
+
+        /// Write the selection programmatically without it being adopted back.
+        func restoreSelection(_ range: NSRange) {
+            guard let textView else { return }
+            lastProgrammaticRange = range
+            isRestoringSelection = true
+            textView.setSelectedRange(range)
+            isRestoringSelection = false
+        }
+
+        private func adoptLiveSelection() {
+            guard !isRestoringSelection, let liveRange = textView?.selectedRange() else { return }
+            if liveRange == lastProgrammaticRange, model.selectedRange != liveRange {
+                return
+            }
+            lastProgrammaticRange = nil
+            if model.selectedRange != liveRange {
+                model.selectedRange = liveRange
+            }
+        }
+
+        /// Resolve the read-from anchor for a right-click, preferring the
+        /// selection when the click falls inside it.
+        func menu(for event: NSEvent, in view: SummaryTextView) -> NSMenu? {
+            let point = view.convert(event.locationInWindow, from: nil)
+            let clicked = view.characterIndexForInsertion(at: point)
             let plainLength = (model.plainText as NSString).length
-            let clicked = min(max(0, charIndex), plainLength)
+            let clamped = min(max(0, clicked), plainLength)
             let selection = view.selectedRange()
             if selection.length > 0,
                selection.location != NSNotFound,
-               clicked >= selection.location, clicked <= NSMaxRange(selection) {
+               clamped >= selection.location, clamped <= NSMaxRange(selection) {
                 menuAnchor = selection.location
             } else {
-                menuAnchor = clicked
+                menuAnchor = clamped
             }
+            return combinedMenu(proposed: view.standardMenu(for: event), selection: selection)
+        }
+
+        private func combinedMenu(proposed menu: NSMenu?, selection: NSRange) -> NSMenu? {
+            guard hasSummary, !model.sentences.isEmpty else { return menu }
+            let plainLength = (model.plainText as NSString).length
+            let anchor = menuAnchor != NSNotFound ? menuAnchor : selection.location
             let combined = NSMenu()
+            let sentenceAtAnchor = anchor != NSNotFound
+                ? model.sentenceIndex(at: min(anchor, max(0, plainLength - 1)))
+                : nil
             let fromHere = NSMenuItem(
                 title: "Read Summary from Here",
                 action: #selector(readFromHere(_:)),
@@ -761,7 +946,7 @@ struct SummarySentenceTextView: NSViewRepresentable {
             )
             fromHere.target = self
             fromHere.image = NSImage(systemSymbolName: "text.cursor", accessibilityDescription: nil)
-            fromHere.isEnabled = model.sentenceIndex(at: min(menuAnchor, max(0, plainLength - 1))) != nil
+            fromHere.isEnabled = sentenceAtAnchor != nil
             combined.addItem(fromHere)
             let thisSentence = NSMenuItem(
                 title: "Read This Sentence",
@@ -770,7 +955,7 @@ struct SummarySentenceTextView: NSViewRepresentable {
             )
             thisSentence.target = self
             thisSentence.image = NSImage(systemSymbolName: "text.bubble", accessibilityDescription: nil)
-            thisSentence.isEnabled = model.sentenceIndex(at: min(menuAnchor, max(0, plainLength - 1))) != nil
+            thisSentence.isEnabled = sentenceAtAnchor != nil
             combined.addItem(thisSentence)
             let selected = NSMenuItem(
                 title: "Read Selected Text",
@@ -804,8 +989,12 @@ struct SummarySentenceTextView: NSViewRepresentable {
             stop.isEnabled = model.isReading
             combined.addItem(stop)
             combined.addItem(.separator())
-            for item in menu.items {
-                combined.addItem(item)
+            // Copy: the proposed menu may be a shared instance whose items
+            // cannot be moved into another menu.
+            for item in menu?.items ?? [] {
+                if let copy = item.copy() as? NSMenuItem {
+                    combined.addItem(copy)
+                }
             }
             return combined
         }
@@ -820,11 +1009,8 @@ struct SummarySentenceTextView: NSViewRepresentable {
                   let index = model.sentenceIndex(
                     at: min(menuAnchor, max(0, (model.plainText as NSString).length - 1))
                   ) else { return }
-            model.error = nil
-            // Restart through the same path as transport controls.
-            model.playFrom(location: model.lineRange(forSentence: index)?.location ?? menuAnchor)
-            // playFrom snaps to the containing word; for a whole sentence the anchor
-            // is the line start, whose offset is zero, so the full sentence reads.
+            // Single-sentence read: stops at the sentence end.
+            model.readSentence(at: index)
         }
 
         @objc private func readSelectedText(_ sender: NSMenuItem) {
@@ -832,11 +1018,8 @@ struct SummarySentenceTextView: NSViewRepresentable {
         }
 
         @objc private func pauseResume(_ sender: NSMenuItem) {
-            if model.isReading, !model.isPaused {
-                model.pause()
-            } else if model.isPaused {
-                model.play()
-            }
+            guard model.isReading else { return }
+            model.togglePlayPause()
         }
 
         @objc private func stopReading(_ sender: NSMenuItem) {
@@ -891,19 +1074,15 @@ struct SummaryReaderView: View {
     private var readbackControls: some View {
         HStack(spacing: 10) {
             Button(model.isReading && !model.isPaused ? "Pause" : "Play", systemImage: model.isReading && !model.isPaused ? "pause.fill" : "play.fill") {
-                if model.isReading && !model.isPaused {
-                    model.pause()
-                } else {
-                    model.play()
-                }
+                model.togglePlayPause()
             }
             .buttonStyle(.borderedProminent)
             .disabled(!hasSummary || model.sentences.isEmpty)
             .help(model.isReading && !model.isPaused
                 ? "Pause summary reading (right-click for more options)"
-                : "Read the summary aloud from the current sentence (right-click for more options)")
+                : "Read the summary aloud from the selected text, or from the start when nothing is selected (right-click for more options)")
             .accessibilityLabel(model.isReading && !model.isPaused ? "Pause summary reading" : "Play summary reading")
-            .accessibilityHint("Reads summary sentences aloud with synchronized word highlighting. Right-click for read-from options.")
+            .accessibilityHint("Reads the selected summary text aloud, or the whole summary from the start, with synchronized word highlighting. Right-click for read-from options.")
             .contextMenu { summaryOptionsMenu }
 
             Button("Stop", systemImage: "stop.fill") { model.stop() }

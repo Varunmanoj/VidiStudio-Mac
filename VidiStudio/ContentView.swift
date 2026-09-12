@@ -967,9 +967,7 @@ struct ProjectEditor: View {
         case "narration": playback.narrationEnabled.toggle()
         case "follow": followTranscript.toggle()
         case "descriptions", "transcript", "summary", "ad-transcript", "ad-overview": tab = action
-        case "summary-play-pause":
-            if summaryReader.isReading, !summaryReader.isPaused { summaryReader.pause() }
-            else { summaryReader.play() }
+        case "summary-play-pause": summaryReader.togglePlayPause()
         case "summary-stop": summaryReader.stop()
         case "summary-from-start": summaryReader.playFromStart()
         case "summary-from-selection": summaryReader.playFromSelection()

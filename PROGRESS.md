@@ -597,6 +597,24 @@ The same options appear in Playback → Summary Reading in the menu bar (enabled
 
 Validation: Debug build succeeded, `script/build_and_run.sh --verify` passed with all 13 Help pages verified and the app launched, all 25 engine tests passed, and `git diff --check` passed. Live right-click/menu-bar interaction was not separately observed in this pass.
 
+### Bounded selection/sentence reads plus smart Play — 2026-09-12
+
+Read Selected Text and Read This Sentence now stop automatically at the end of the selection or sentence instead of continuing like Read from Here, which still reads through to the end. Single-sentence reads go through a new `readSentence(at:)` path that keeps full sentence/word highlighting while stopping after one sentence. Play is now smart across the button, menus, and shortcut: it resumes when paused, reads from the text selection when one exists, and otherwise starts from the beginning. A headless run also exposed a stale-callback race where a late finish from stopped speech could wipe newly started reading, so delegate callbacks now verify utterance identity and rapid stop-then-start is covered by a regression check.
+
+Validation: 10 headless checks passed covering one-shot stop, single-sentence stop, continuous advance (no regression), smart Play from selection and from start, and stale-finish immunity. Debug build succeeded, `script/build_and_run.sh --verify` passed with all 13 Help pages verified and the app launched, all 25 engine tests passed, and `git diff --check` passed. Live interaction was not separately observed in this pass.
+
+### Standardized summary triggers plus deselect-on-start — 2026-09-12
+
+Menu- and right-click-triggered reading now behaves exactly like the Play button: a headless harness driving the real model proved observation emissions fire for menu-path starts (the signal the Play/Pause label depends on), so Play/Pause/Stop reflect reading no matter which surface started it. All triggers share one `togglePlayPause()` and the same speak paths. Every user-initiated start also collapses the text selection first (via a view-wired hook called before speech state changes), so sentence/word highlighting is visible instead of hiding under the blue selection; chained sentence advances never clear, preserving select-while-reading.
+
+Validation: headless checks passed for menu-path observation/state, deselect-on-start, one-shot setup, and the shared toggle start/pause/resume/stop cycle. Debug build succeeded, `script/build_and_run.sh --verify` passed with all 13 Help pages verified and the app launched, all 25 engine tests passed, and `git diff --check` passed. Live interaction was not separately observed in this pass.
+
+### Summary selection/menu delivery fix — 2026-09-12
+
+The read-from-selection options were unreachable: the summary right-click menu never opened and the menu-bar selection items stayed disabled with text selected. A headless harness instantiating the real coordinator and text view reproduced it: AppKit posts the selection notification but never invokes the `NSTextViewDelegate` optional callbacks, so no selection ever reached the model. Selection tracking now observes `didChangeSelectionNotification` directly (the post is only a signal; the view's live range is re-read, so deferred posts can't install stale ranges) and the right-click menu is served by a `SummaryTextView.menu(for:)` subclass override with the standard menu extended in place. Programmatic restores during highlight refreshes are recorded and their echoes ignored, while any genuine user change is adopted. Item copying (instead of moving) fixed an `already is in another menu` crash with shared proposed menus.
+
+Validation: 17 headless checks passed covering parsing, live selection reporting, both selection flags, menu contents/enabled state, ObjC action dispatch, sentence mapping, and restore-echo suppression. Debug build succeeded, `script/build_and_run.sh --verify` passed with all 13 Help pages verified and the app launched, all 25 engine tests passed, and `git diff --check` passed. Live right-click/menu-bar interaction was not separately observed in this pass.
+
 ### Summary Dark Mode text legibility — 2026-09-12
 
 The summary text view rendered near-black text on the dark text background in Dark Mode while Light Mode was fine. The programmatically created `NSTextView` kept a fixed default foreground and the generated attributed string set no foreground of its own. The text view now uses the semantic `labelColor` (plus matching insertion-point color) and every generated range carries an explicit semantic foreground (`labelColor`, `secondaryLabelColor` for quotes), so the summary adapts to both appearances. Highlight and contrasting word-text colors are unchanged.
