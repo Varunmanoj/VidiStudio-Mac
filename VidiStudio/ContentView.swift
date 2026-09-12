@@ -413,13 +413,8 @@ struct ProcessingInspector: View {
                     Text("PROCESSING").font(.caption).foregroundStyle(.secondary)
                     Button("Run All Analysis", systemImage: "sparkles") { studio.execute("analyze") }.disabled(studio.busy)
                     Button { studio.execute("regenerate-all") } label: {
-                        HStack { MaterialIcon(glyph: "\u{e86a}"); Text("Regenerate All…") }
+                        HStack { MaterialIcon(glyph: ""); Text("Regenerate All…") }
                     }.disabled(studio.busy)
-                    Text("Individual actions replace only their own content. Regenerate All deletes generated content and recreates the transcript, summary, and AD segments. Narration and exports can then be generated separately.")
-                        .font(.caption).foregroundStyle(.secondary)
-                    Text("Transcription, summary, and AD generation retry automatically 3 times for local and YouTube videos. If all retries fail, use the alert's Retry button to try manually once more.")
-                        .font(.caption).foregroundStyle(.secondary)
-                        .accessibilityLabel("Transcription, summary, and description generation retry automatically 3 times before asking for a manual retry.")
                     ForEach(stages.filter { stage in
                         stage.0 != "export-final-video" || !p.isYouTubeURLProject
                     }, id: \.0) { stage in
@@ -898,9 +893,10 @@ struct ProjectEditor: View {
                                     .accessibilityLabel("Play from description starting at \(timecode(cue.start))")
                                     Button("Skip to Description", systemImage: "forward.end.fill") {
                                         playback.seek(cue.start)
+                                        playback.pausePlayback()
                                     }
-                                    .help("Move the playhead to this description's start time")
-                                    .accessibilityLabel("Skip to description at \(timecode(cue.start))")
+                                    .help("Move the playhead to this description's start time and pause the video")
+                                    .accessibilityLabel("Skip to description at \(timecode(cue.start)) and pause")
                                 }
                             }
                     }.listStyle(.inset)

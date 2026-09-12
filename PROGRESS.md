@@ -609,6 +609,18 @@ The Descriptions tab Edit button now pauses video playback (and stops narration)
 
 Validation: Debug build succeeded and `git diff --check` passed.
 
+### Inspector explanatory captions removed — 2026-09-12
+
+Removed the two caption paragraphs below Regenerate All in the Project Inspector (replacement-effects note and 3-attempt retry note), leaving just the action buttons.
+
+Validation: Debug build succeeded and `git diff --check` passed.
+
+### Skip-to vs play-from description behavior split — 2026-09-12
+
+Skip to Description now seeks to the segment's start time and pauses the video (stopping narration) via a new `PlaybackModel.pausePlayback()` covering both local and YouTube playback, while Play from Description seeks and plays from that time with narration on. The two right-click options are now functionally distinct.
+
+Validation: Debug build succeeded and `git diff --check` passed.
+
 ### Description row right-click playback options — 2026-09-12
 
 AD segment rows now expose a right-click context menu with Play from Description (starts video playback from the segment's start time with narration enabled, mirroring the transcript play action) and Skip to Description (moves the playhead there without starting playback). Both carry help text and VoiceOver labels with the segment's start timecode.

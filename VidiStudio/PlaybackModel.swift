@@ -268,6 +268,13 @@ final class PlaybackModel {
         if let webView { webView.evaluateJavaScript("player?.seekTo(\(time),true)", completionHandler: nil) }
         else { player.seek(to: CMTime(seconds: time, preferredTimescale: 600)) }
     }
+    /// Pause video playback and stop narration without moving the playhead.
+    func pausePlayback() {
+        stopNarration()
+        playing = false
+        if let webView { webView.evaluateJavaScript("player?.pauseVideo()", completionHandler: nil) }
+        else { player.pause() }
+    }
 }
 
 struct YouTubePlayer: NSViewRepresentable {
