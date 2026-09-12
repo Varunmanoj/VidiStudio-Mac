@@ -144,8 +144,13 @@ private struct NewProjectView: View {
             youtubeFetchError = nil
         }
         .alert(studio.errorTitle, isPresented: Binding(get: { studio.error != nil }, set: { if !$0 { studio.dismissError() } })) {
+            if studio.canRetryLastFailure {
+                Button("Retry \(studio.lastFailureTitle ?? "Analysis")") { studio.retryLastFailure() }
+            }
             Button("OK", role: .cancel) { studio.dismissError() }
-        } message: { Text(studio.error ?? "") }
+        } message: {
+            Text((studio.error ?? "") + (studio.canRetryLastFailure ? "\n\nThe app already retried automatically 3 times. You can retry manually once more." : ""))
+        }
     }
 
     private func chooseVideo() {
@@ -251,8 +256,13 @@ struct ContentView: View {
             NewProjectView(studio: studio)
         }
         .alert(studio.errorTitle, isPresented: Binding(get: { studio.error != nil }, set: { if !$0 { studio.dismissError() } })) {
+            if studio.canRetryLastFailure {
+                Button("Retry \(studio.lastFailureTitle ?? "Analysis")") { studio.retryLastFailure() }
+            }
             Button("OK", role: .cancel) { studio.dismissError() }
-        } message: { Text(studio.error ?? "") }
+        } message: {
+            Text((studio.error ?? "") + (studio.canRetryLastFailure ? "\n\nThe app already retried automatically 3 times. You can retry manually once more." : ""))
+        }
         .onReceive(NotificationCenter.default.publisher(for: .vidiStudioSettingsDidChange)) { notification in
             guard let source = notification.object as? StudioModel,
                   source !== studio,
@@ -334,8 +344,13 @@ struct ProjectEditorWindow: View {
             }
         }
         .alert(studio.errorTitle, isPresented: Binding(get: { studio.error != nil }, set: { if !$0 { studio.dismissError() } })) {
+            if studio.canRetryLastFailure {
+                Button("Retry \(studio.lastFailureTitle ?? "Analysis")") { studio.retryLastFailure() }
+            }
             Button("OK", role: .cancel) { studio.dismissError() }
-        } message: { Text(studio.error ?? "") }
+        } message: {
+            Text((studio.error ?? "") + (studio.canRetryLastFailure ? "\n\nThe app already retried automatically 3 times. You can retry manually once more." : ""))
+        }
         .onAppear {
             studio.reload()
             studio.selectedID = projectID
@@ -402,6 +417,9 @@ struct ProcessingInspector: View {
                     }.disabled(studio.busy)
                     Text("Individual actions replace only their own content. Regenerate All deletes generated content and recreates the transcript, summary, and AD segments. Narration and exports can then be generated separately.")
                         .font(.caption).foregroundStyle(.secondary)
+                    Text("Transcription, summary, and AD generation retry automatically 3 times for local and YouTube videos. If all retries fail, use the alert's Retry button to try manually once more.")
+                        .font(.caption).foregroundStyle(.secondary)
+                        .accessibilityLabel("Transcription, summary, and description generation retry automatically 3 times before asking for a manual retry.")
                     ForEach(stages.filter { stage in
                         stage.0 != "export-final-video" || !p.isYouTubeURLProject
                     }, id: \.0) { stage in

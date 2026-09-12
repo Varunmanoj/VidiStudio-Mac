@@ -174,6 +174,47 @@ def thumbnails(root, p):
     p['thumbnails'] = paths
 
 
+AI_MAX_ATTEMPTS = 3
+AI_RETRY_BASE_DELAY_SECONDS = 2.0
+AI_RETRYABLE_STAGES = ('transcribe', 'generate-summary', 'generate-ad-cues')
+
+# Deterministic configuration/validation failures that a retry cannot fix.
+AI_NON_RETRYABLE_SUBSTRINGS = (
+    'add a gemini api key',
+    'choose a gemini model',
+    'up to 2 gb',
+    'is unavailable. set its path',
+    'run transcription first',
+    'generate the summary first',
+    'read video metadata before',
+    'transcript timing is invalid',
+    'already processing',
+    'project contains a path outside',
+)
+
+
+def ai_retry_delay_seconds(attempt):
+    """Exponential backoff between AI attempts (1-indexed failed attempt)."""
+    try:
+        override = float(os.environ.get('VIDISTUDIO_AI_RETRY_DELAY', ''))
+        if math.isfinite(override) and override >= 0:
+            return override
+    except (TypeError, ValueError):
+        pass
+    return AI_RETRY_BASE_DELAY_SECONDS * (2 ** max(0, attempt - 1))
+
+
+def is_retryable_ai_error(exc):
+    if isinstance(exc, ProcessingCancelled):
+        return False
+    message = str(exc).lower()
+    return not any(marker in message for marker in AI_NON_RETRYABLE_SUBSTRINGS)
+
+
+def ai_stage_label(stage):
+    return {'transcribe': 'Transcription', 'generate-summary': 'Summary', 'generate-ad-cues': 'AD segment generation'}.get(stage, stage)
+
+
 def gemini_client():
     from google import genai
     cfg = config()
@@ -212,7 +253,7 @@ def list_models():
         client.close()
 
 
-def ai_video(root, p, stage):
+def _ai_video_once(root, p, stage):
     cfg=config(); key={'transcribe':'transcript','generate-summary':'summary','generate-ad-cues':'audio_descriptions'}[stage]
     youtube=p.get('sourceType')=='youtube' and not p.get('source')
     if stage=='transcribe' and youtube: key='youtube_transcript'
@@ -274,6 +315,38 @@ def ai_video(root, p, stage):
             try: client.files.delete(name=uploaded.name)
             except Exception: emit('Temporary Gemini file cleanup failed; the remote file will expire.',warning=True)
         client.close()
+
+
+def ai_video(root, p, stage, max_attempts=AI_MAX_ATTEMPTS):
+    """Run an AI analysis stage with bounded retries for local and YouTube projects.
+
+    Retries transient Gemini/media failures up to ``max_attempts`` (default 3)
+    with exponential backoff. The same path covers local videos and YouTube
+    URL projects because the branching lives in ``_ai_video_once``.
+    """
+    if stage not in AI_RETRYABLE_STAGES:
+        return _ai_video_once(root, p, stage)
+    attempts = max(1, int(max_attempts or 1))
+    label = ai_stage_label(stage)
+    last_error = None
+    for attempt in range(1, attempts + 1):
+        try:
+            return _ai_video_once(root, p, stage)
+        except Exception as exc:
+            if isinstance(exc, ProcessingCancelled):
+                raise
+            last_error = exc
+            retryable = is_retryable_ai_error(exc)
+            if attempt >= attempts or not retryable:
+                if not retryable and attempts > 1 and attempt == 1:
+                    raise
+                detail = safe_error(exc)
+                raise ValueError(f'{label} failed after {attempt} attempt(s): {detail} Please try again manually.') from exc
+            emit(f'Retrying {stage} (attempt {attempt + 1} of {attempts}) after error: {safe_error(exc)}',
+                 retryStage=stage, retryAttempt=attempt + 1, retryAttempts=attempts)
+            time.sleep(ai_retry_delay_seconds(attempt))
+    if last_error is not None:
+        raise last_error
 
 
 def gemini_speech(output, text, project):

@@ -372,10 +372,50 @@ final class StudioModel {
     var geminiModelsLoaded = false
     var engineCheckStatus: EngineCheckStatus = .unchecked
     var selected: StudioProject? { projects.first { $0.id == selectedID } }
+    /// Last AI analysis request that exhausted its automatic retries, kept so the
+    /// failure alert can offer a one-tap manual retry for local and YouTube projects alike.
+    var lastFailedCommand: String?
+    var lastFailedExtra: [String] = []
+    var lastFailedProjectID: String?
+    static let retryableAnalysisCommands: Set<String> = [
+        "transcribe", "generate-summary", "generate-ad-cues", "analyze", "regenerate-all",
+    ]
+    var canRetryLastFailure: Bool {
+        error != nil
+            && lastFailedCommand.map(Self.retryableAnalysisCommands.contains) == true
+            && !busy
+    }
+    var lastFailureTitle: String? {
+        guard let command = lastFailedCommand else { return nil }
+        switch command {
+        case "transcribe": return "transcription"
+        case "generate-summary": return "summary"
+        case "generate-ad-cues": return "AD segments"
+        case "analyze": return "analysis"
+        case "regenerate-all": return "full regeneration"
+        default: return command
+        }
+    }
 
     func dismissError() {
         error = nil
         errorTitle = StudioModel.defaultErrorTitle
+        lastFailedCommand = nil
+        lastFailedExtra = []
+        lastFailedProjectID = nil
+    }
+
+    func retryLastFailure() {
+        guard canRetryLastFailure,
+              let command = lastFailedCommand else { return }
+        let project = projects.first { $0.id == lastFailedProjectID } ?? selected
+        let extra = lastFailedExtra
+        lastFailedCommand = nil
+        lastFailedExtra = []
+        lastFailedProjectID = nil
+        error = nil
+        errorTitle = StudioModel.defaultErrorTitle
+        execute(command, extra: extra, project: project, isManualRetry: true)
     }
 
     init() {
@@ -799,7 +839,7 @@ final class StudioModel {
         return ["--allow-incomplete-narration"]
     }
 
-    func execute(_ command: String, extra: [String] = [], project: StudioProject? = nil, configurationURL: URL? = nil, cleanupURL: URL? = nil) {
+    func execute(_ command: String, extra: [String] = [], project: StudioProject? = nil, configurationURL: URL? = nil, cleanupURL: URL? = nil, isManualRetry: Bool = false) {
         guard !busy else { return }
         errorTitle = command == "capture-frame" ? "Read Frame Text Processing" : StudioModel.defaultErrorTitle
         if command == "doctor" {
@@ -807,6 +847,12 @@ final class StudioModel {
             engineCheckStatus = .checking
         }
         let target = project ?? (["import-video", "import-youtube", "doctor", "validate-config", "list-models"].contains(command) ? nil : selected)
+        // A fresh analysis run supersedes any previous manual-retry offer.
+        if Self.retryableAnalysisCommands.contains(command), !isManualRetry {
+            lastFailedCommand = nil
+            lastFailedExtra = []
+            lastFailedProjectID = nil
+        }
         if command == "export-final-video", let target, target.isYouTubeURLProject {
             error = "Final video export is unavailable for YouTube URL projects. You can export text and narration audio instead."
             return
@@ -815,7 +861,7 @@ final class StudioModel {
             error = "Generate the transcript and summary before generating descriptions."
             return
         }
-        if let target, !confirmAnalysisReplacement(command, project: target) { return }
+        if let target, !isManualRetry, !confirmAnalysisReplacement(command, project: target) { return }
         var exportOptions: [String] = []
         if ["export-final-video", "export-audio"].contains(command), let target {
             guard let options = confirmIncompleteNarrationExport(project: target, audioOnly: command == "export-audio") else { return }
@@ -872,7 +918,24 @@ final class StudioModel {
             if let cleanupURL { try? FileManager.default.removeItem(at: cleanupURL) }
             busy = false; process = nil; reload()
             if task.terminationStatus != 0 && self.error == nil { self.error = "Processing stopped. Your previously completed results are saved." }
-            if task.terminationStatus == 0 { self.errorTitle = StudioModel.defaultErrorTitle }
+            if task.terminationStatus == 0 {
+                self.errorTitle = StudioModel.defaultErrorTitle
+                if Self.retryableAnalysisCommands.contains(command) {
+                    lastFailedCommand = nil
+                    lastFailedExtra = []
+                    lastFailedProjectID = nil
+                }
+            } else if Self.retryableAnalysisCommands.contains(command) {
+                // The engine already retried transient failures 3 times; keep the
+                // request so the alert can offer one manual retry. Works for local
+                // and YouTube projects because both share this execution path.
+                lastFailedCommand = command
+                lastFailedExtra = extra
+                lastFailedProjectID = target?.id ?? selected?.id
+                if let current = self.error, !current.localizedCaseInsensitiveContains("try again") {
+                    self.error = current + " Please try again manually."
+                }
+            }
             if command == "doctor" {
                 engineCheckStatus = task.terminationStatus == 0
                     ? .ready
