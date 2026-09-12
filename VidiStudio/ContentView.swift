@@ -859,7 +859,9 @@ struct ProjectEditor: View {
                                     .help(activePreviewCueID == cue.id
                                         ? "Stop this AD segment’s narration and return to the beginning"
                                         : "This AD segment’s narration is not active")
-                                Button("Edit", systemImage: "pencil") { cueToEdit = cue }.labelStyle(.iconOnly).disabled(studio.busy)
+                                Button("Edit", systemImage: "pencil") {
+                                    playback.pauseAndCaptureTime { _ in cueToEdit = cue }
+                                }.labelStyle(.iconOnly).disabled(studio.busy)
                                 Menu {
                                     Button(previewControlTitle(for: cue), systemImage: previewControlIcon(for: cue)) { previewNarration(for: cue) }
                                         .disabled(playableNarrationURL(for: cue) == nil)
@@ -886,6 +888,21 @@ struct ProjectEditor: View {
                             .accessibilityElement(children: .contain)
                             .id(row.id)
                             .listRowBackground(playback.time >= cue.start && playback.time < cue.end ? Color.accentColor.opacity(0.15) : Color.clear)
+                            .contextMenu {
+                                if row.isDescription {
+                                    Button("Play from Description", systemImage: "play.fill") {
+                                        playback.narrationEnabled = true
+                                        playback.play(from: cue.start)
+                                    }
+                                    .help("Play the video from this description's start time with narration on")
+                                    .accessibilityLabel("Play from description starting at \(timecode(cue.start))")
+                                    Button("Skip to Description", systemImage: "forward.end.fill") {
+                                        playback.seek(cue.start)
+                                    }
+                                    .help("Move the playhead to this description's start time")
+                                    .accessibilityLabel("Skip to description at \(timecode(cue.start))")
+                                }
+                            }
                     }.listStyle(.inset)
                     .onChange(of: segments.first(where: { playback.time >= $0.segment.start && playback.time < $0.segment.end })?.id) { _, id in
                         if followTranscript, let id { if reduceMotion { reader.scrollTo(id, anchor: .center) } else { withAnimation { reader.scrollTo(id, anchor: .center) } } }

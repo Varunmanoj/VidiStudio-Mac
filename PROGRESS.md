@@ -603,6 +603,18 @@ The summary text view rendered near-black text on the dark text background in Da
 
 Validation: Debug build succeeded, `script/build_and_run.sh --verify` passed with all 13 Help pages verified and the app launched, and `git diff --check` passed. Rendered Dark Mode legibility was not separately observed in this pass.
 
+### Segment editing pauses video playback — 2026-09-12
+
+The Descriptions tab Edit button now pauses video playback (and stops narration) via the existing capture-time path before opening the segment editor, so editing never races a running playhead. This mirrors the Add Segment flow.
+
+Validation: Debug build succeeded and `git diff --check` passed.
+
+### Description row right-click playback options — 2026-09-12
+
+AD segment rows now expose a right-click context menu with Play from Description (starts video playback from the segment's start time with narration enabled, mirroring the transcript play action) and Skip to Description (moves the playhead there without starting playback). Both carry help text and VoiceOver labels with the segment's start timecode.
+
+Validation: Debug build succeeded, `script/build_and_run.sh --verify` passed with all 13 Help pages verified and the app launched, and `git diff --check` passed.
+
 ### AD Overview narration card text removal and working Narration deep link — 2026-09-12
 
 Removed all caption text below the Voice and Narration Settings button, leaving the narration card with just the speech-engine picker, voice readout, generate buttons, and the settings button. Fixed the Narration deep link properly: the earlier notification-only attempt failed because the Settings view does not exist yet when the button is tapped, so there is no observer alive to receive it and Settings still opened on Appearance. The request is now also stored in UserDefaults (`VidiStudioRequestedSettingsSection`) and consumed by `SettingsView` on appear, with the notification path retained for when Settings is already open.
