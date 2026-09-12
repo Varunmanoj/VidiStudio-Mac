@@ -10,6 +10,7 @@ struct ProjectGridView: View {
     let rename: (StudioProject) -> Void
     let delete: (StudioProject) -> Void
     let process: (StudioProject) -> Void
+    let export: (StudioProject, StudioExportAction) -> Void
     let clear: (StudioProject) -> Void
 
     var body: some View {
@@ -51,6 +52,9 @@ struct ProjectGridView: View {
                             if let folder = project.folder { NSWorkspace.shared.open(folder) }
                         }
                         Button(project.canReprocess ? "Reprocess Video" : "Process Video", systemImage: "sparkles") { process(project) }.disabled(busy)
+                        ProjectExportMenu(project: project, busy: busy) { action in
+                            export(project, action)
+                        }
                         Divider()
                         Button("Choose Content to Delete…", systemImage: "eraser", role: .destructive) { clear(project) }.disabled(busy || !project.hasGeneratedContent)
                         Button("Delete Project", systemImage: "trash", role: .destructive) { delete(project) }.disabled(busy)

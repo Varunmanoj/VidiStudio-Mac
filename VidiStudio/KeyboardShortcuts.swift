@@ -5,8 +5,16 @@ import AppKit
 final class EditorShortcutActions {
     var previewHidden = false
     var available = false
+    var activeSection = "transcript"
     var canGenerateDescriptions = false
     var hasNarrationAudio = false
+    var hasDescriptions = false
+    var hasGeneratedTranscript = false
+    var hasGeneratedSummary = false
+    var hasLocalSource = false
+    var sourceHasAudio = false
+    var isYouTubeProject = false
+    var exportableText: Set<String> = []
     /// Summary section readback state, synced by the project editor.
     var summaryActive = false
     var summaryReadable = false
@@ -17,6 +25,51 @@ final class EditorShortcutActions {
     /// A non-empty summary text selection (read-selection content).
     var summaryHasTextSelection = false
     var handler: ((String) -> Void)?
+    var exportHandler: ((StudioExportAction) -> Void)?
+
+    var currentGenerationAction: String? {
+        switch activeSection {
+        case "transcript": return "transcribe"
+        case "summary": return "generate-summary"
+        case "descriptions": return "generate-ad-cues"
+        default: return nil
+        }
+    }
+
+    var currentGenerationTitle: String? {
+        switch activeSection {
+        case "transcript": return hasGeneratedTranscript ? "Regenerate Transcript" : "Generate Transcript"
+        case "summary": return hasGeneratedSummary ? "Regenerate Summary" : "Generate Summary"
+        case "descriptions": return hasDescriptions ? "Regenerate Descriptions" : "Generate Descriptions"
+        default: return nil
+        }
+    }
+
+    var currentGenerationIcon: String {
+        switch activeSection {
+        case "transcript": return "text.bubble"
+        case "summary": return "text.alignleft"
+        default: return "sparkles"
+        }
+    }
+
+    var currentDeleteAction: String? {
+        switch activeSection {
+        case "transcript": return "delete-transcript"
+        case "summary": return "delete-summary"
+        case "descriptions": return "delete-descriptions"
+        default: return nil
+        }
+    }
+
+    var currentDeleteTitle: String {
+        switch activeSection {
+        case "transcript": return "Delete Transcript…"
+        case "summary": return "Delete Summary…"
+        case "descriptions": return "Delete Descriptions…"
+        default: return "Delete Current Page…"
+        }
+    }
 
     func run(_ action: String) {
         guard canRun(action) else { return }
@@ -26,9 +79,36 @@ final class EditorShortcutActions {
     func canRun(_ action: String) -> Bool {
         guard available, handler != nil else { return false }
         if action.hasPrefix("summary-") { return canRunSummary(action) }
-        if action == "generate-ad-cues" { return canGenerateDescriptions }
-        if action == "delete-narration" { return hasNarrationAudio }
-        return true
+        switch action {
+        case "transcribe": return activeSection == "transcript"
+        case "generate-summary": return activeSection == "summary"
+        case "generate-ad-cues": return activeSection == "descriptions" && canGenerateDescriptions
+        case "probe-video", "generate-thumbnails": return hasLocalSource
+        case "extract-audio": return hasLocalSource && sourceHasAudio
+        case "synthesize-tts", "synthesize-changed": return hasDescriptions
+        case "delete-transcript": return hasGeneratedTranscript
+        case "delete-summary": return hasGeneratedSummary
+        case "delete-descriptions": return hasDescriptions
+        case "delete-narration": return hasNarrationAudio
+        default: return true
+        }
+    }
+
+    func canExport(_ action: StudioExportAction) -> Bool {
+        guard available, exportHandler != nil else { return false }
+        switch action {
+        case .selectableVideo, .mixedVideo:
+            return !isYouTubeProject && hasLocalSource
+        case .narrationAudio:
+            return hasNarrationAudio
+        case .text(let content, _):
+            return exportableText.contains(content)
+        }
+    }
+
+    func performExport(_ action: StudioExportAction) {
+        guard canExport(action) else { return }
+        exportHandler?(action)
     }
 
     func canRunSummary(_ action: String) -> Bool {
@@ -121,6 +201,17 @@ struct StudioCommands: Commands {
             .keyboardShortcut("o", modifiers: .command)
             .disabled(browser?.hasSelectedProject != true || browser?.openSelectedProject == nil)
         }
+        CommandGroup(after: .newItem) {
+            Divider()
+            Menu("Export", systemImage: "square.and.arrow.up") {
+                ExportMenuContent(
+                    supportsVideo: editor?.isYouTubeProject != true,
+                    canPerform: { editor?.canExport($0) == true },
+                    perform: { editor?.performExport($0) }
+                )
+            }
+            .disabled(editor?.available != true)
+        }
         CommandGroup(after: .sidebar) {
             Button(editor?.previewHidden == true ? "Show Preview" : "Hide Preview", systemImage: editor?.previewHidden == true ? "video" : "video.slash") {
                 editor?.run("preview")
@@ -174,10 +265,42 @@ struct StudioCommands: Commands {
                 shortcutEntries(StudioShortcut.editor.filter { ["transcript", "summary", "descriptions", "ad-overview", "ad-transcript"].contains($0.id) })
             }
             Menu("Segments") {
-                shortcutEntries(StudioShortcut.editor.filter { ["add", "follow", "delete-narration", "undo", "redo"].contains($0.id) })
+                shortcutEntries(StudioShortcut.editor.filter { ["add", "follow", "undo", "redo"].contains($0.id) })
             }
+            Menu("Analysis") {
+                shortcutEntries(StudioShortcut.editor.filter { ["analyze", "regenerate-all"].contains($0.id) })
+                Divider()
+                Button(editor?.currentGenerationTitle ?? "Generate Current Page…", systemImage: editor?.currentGenerationIcon ?? "sparkles") {
+                    guard let action = editor?.currentGenerationAction else { return }
+                    editor?.run(action)
+                }
+                .keyboardShortcut(currentGenerationKey, modifiers: [.command, .option, .shift])
+                .disabled(editor?.currentGenerationAction == nil || editor?.canRun(editor?.currentGenerationAction ?? "") != true)
+            }
+            Menu("Media Preparation") {
+                Button("Read Metadata", systemImage: "info.circle") { editor?.run("probe-video") }
+                    .disabled(editor?.canRun("probe-video") != true)
+                Button("Generate Thumbnails", systemImage: "photo.on.rectangle") { editor?.run("generate-thumbnails") }
+                    .disabled(editor?.canRun("generate-thumbnails") != true)
+                Button("Extract Audio", systemImage: "waveform") { editor?.run("extract-audio") }
+                    .disabled(editor?.canRun("extract-audio") != true)
+            }
+            Menu("Narration") {
+                Button("Synthesize Narration", systemImage: "speaker.wave.2") { editor?.run("synthesize-tts") }
+                    .disabled(editor?.canRun("synthesize-tts") != true)
+                Button("Synthesize Changed Segments", systemImage: "waveform") { editor?.run("synthesize-changed") }
+                    .disabled(editor?.canRun("synthesize-changed") != true)
+                Divider()
+                shortcutEntries(StudioShortcut.editor.filter { $0.id == "delete-narration" })
+            }
+            Button(editor?.currentDeleteTitle ?? "Delete Current Page…", systemImage: "trash", role: .destructive) {
+                guard let action = editor?.currentDeleteAction else { return }
+                editor?.run(action)
+            }
+            .disabled(editor?.currentDeleteAction == nil || editor?.canRun(editor?.currentDeleteAction ?? "") != true)
             Divider()
-            Menu("Analysis & Regeneration") { entries("Analysis") }
+            Button("Show Project in Finder", systemImage: "folder") { editor?.run("show-in-finder") }
+                .disabled(editor?.canRun("show-in-finder") != true)
         }
         CommandGroup(replacing: .help) {
             Button("VidiStudio Help", systemImage: "questionmark.circle") { StudioHelp.open() }.keyboardShortcut("/", modifiers: [.command, .option])
@@ -185,6 +308,13 @@ struct StudioCommands: Commands {
     }
     @ViewBuilder private func entries(_ group: String) -> some View {
         shortcutEntries(StudioShortcut.editor.filter { $0.group == group })
+    }
+    private var currentGenerationKey: KeyEquivalent {
+        switch editor?.activeSection {
+        case "summary": return "s"
+        case "descriptions": return "d"
+        default: return "t"
+        }
     }
     @ViewBuilder private func shortcutEntries(_ shortcuts: [StudioShortcut]) -> some View {
         ForEach(shortcuts) { shortcut in
@@ -209,7 +339,7 @@ struct ShortcutReferenceView: View {
         VStack(alignment: .leading, spacing: 14) {
             Text("Keyboard Shortcuts").font(.title2).accessibilityAddTraits(.isHeader)
             Text("These shortcuts apply to the native macOS app. Editor commands are available with a project open and no editing sheet or processing operation active.")
-            Text("The Playback menu contains video and narration controls. The Project menu groups Editor Sections, Segments, and Analysis & Regeneration. Generation shortcuts use Command + Option + Shift. Existing content is replaced only after confirmation; Regenerate All asks before deleting generated content.")
+            Text("The File menu contains Export with Video, Audio, and Text submenus. The Project menu groups editor sections, segment commands, current-page analysis, media preparation, and narration. Generation shortcuts use Command + Option + Shift and are enabled only on the matching editor page. Existing content is replaced only after confirmation; Regenerate All asks before deleting generated content.")
             shortcutRow("New Project", value: "Command + N")
             shortcutRow("Open Selected Project", value: "Command + O")
             shortcutRow("Open Project Folder", value: "Command + Shift + O")

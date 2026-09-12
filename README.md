@@ -21,7 +21,7 @@ Other flags: `--build-only`, `--debug`, `--logs`, `--telemetry`. `script/package
    Transcript, Summary, and Descriptions each expose a right-aligned Generate or Regenerate action. Descriptions keeps Add Segment beside that action.
    Read Frame Text pauses on the selected playhead position, shows its AI processing status, and uses the final valid frame when the playhead is at the exact end of the video.
 5. Synthesize narration. Text that exceeds its time slot must be shortened or retimed.
-6. Export Final Video mixes the original audio with narration into a new local MP4. Changed or missing narration blocks export.
+6. Export a local video either with Audio Description mixed permanently into an MP4 or as a selectable, Apple-tagged Audio Description track in a MOV. Changed or missing narration blocks export.
 
 Gemini analysis sends a processing copy through the Files API, polls for ACTIVE with a deadline, saves results locally, and deletes the temporary remote file in a finally block. API keys never enter project folders or process command lines. Settings are saved to `~/Library/Application Support/VidiStudio/config.json` with owner-only permissions. This is a local plaintext config, not an encrypted credential vault.
 
@@ -42,7 +42,7 @@ python3 -m venv .venv
 
 Additional commands: `import-youtube`, `validate-config`, `analyze`, `capture-frame`, `rewrite-cue`, `export-subtitles`, `export-audio`, `rename-project`, `undo-cues`, `redo-cues`, `update-metadata`, `attach-video`, and `delete-export`. Use `--help` for arguments.
 
-Core commands: `doctor`, `import-video`, `probe-video`, `generate-thumbnails`, `extract-audio`, `transcribe`, `generate-summary`, `generate-ad-cues`, `save-cues`, `synthesize-tts`, `export-final-video`. Progress and errors are JSON lines on stdout; failure exit code is 1. Set `VIDISTUDIO_CONFIG` to choose an alternate settings file.
+Core commands: `doctor`, `import-video`, `probe-video`, `generate-thumbnails`, `extract-audio`, `transcribe`, `generate-summary`, `generate-ad-cues`, `save-cues`, `synthesize-tts`, `export-final-video`, `export-selectable-video`. Progress and errors are JSON lines on stdout; failure exit code is 1. Set `VIDISTUDIO_CONFIG` to choose an alternate settings file.
 
 Windows uses Python 3.11+ and FFmpeg/FFprobe on PATH (or configured paths), `%APPDATA%/VidiStudio/config.json`, and PowerShell System.Speech for offline voices. Build Windows executables with PyInstaller on Windows; macOS binaries cannot run there. The macOS UI is deliberately separate from the portable engine.
 
@@ -68,7 +68,7 @@ Current delivery evidence and known feature/validation limits are recorded in `P
 
 ## Keyboard shortcuts and Help
 
-Open **Help → VidiStudio Help** (Command+Option+/), or **Settings → Help and keyboard shortcuts** for the complete reference. The View and Project menus show available commands and their key equivalents. New Project: Command+N; open folder: Command+O; Settings: Command+Comma; show/hide preview: Command+Shift+V; play/pause: Command+Shift+Space; seek five seconds: Command+Option+Left/Right; transcript/summary/descriptions/AD overview/AD transcript: Command+1/2/3/4/5; add segment: Command+Shift+N; follow: Command+Shift+F; narration: Command+Shift+D; play/pause summary reading: Command+Shift+P; segment undo/redo: Command+Option+Z / Command+Option+Shift+Z. With the Summary section selected, Playback → Summary Reading offers read-from-start, read-from-selection, selected-text, sentence, stop, and sentence-step commands; the summary text right-click menu and the Play button options carry the same choices. Save Settings with Command+S and Save Segment with Return in their respective views. Escape cancels a sheet or closes Help.
+Open **Help → VidiStudio Help** (Command+Option+/), or **Settings → Help and keyboard shortcuts** for the complete reference. **File → Export** mirrors the inspector's Video, Audio, and Text export menu. The Project menu groups page-aware analysis, media preparation, narration, editor-section, and segment commands; generation commands are enabled only on their matching page. New Project: Command+N; open folder: Command+O; Settings: Command+Comma; show/hide preview: Command+Shift+V; play/pause: Command+Shift+Space; seek five seconds: Command+Option+Left/Right; transcript/summary/descriptions/AD overview/AD transcript: Command+1/2/3/4/5; add segment: Command+Shift+N; follow: Command+Shift+F; narration: Command+Shift+D; play/pause summary reading: Command+Shift+P; segment undo/redo: Command+Option+Z / Command+Option+Shift+Z. With the Summary section selected, Playback → Summary Reading offers read-from-start, read-from-selection, selected-text, sentence, stop, and sentence-step commands; the summary text right-click menu and the Play button options carry the same choices. Save Settings with Command+S and Save Segment with Return in their respective views. Escape cancels a sheet or closes Help.
 
 Editor commands disable during processing and editing sheets. Standard text undo and VoiceOver Control+Option commands are preserved. Enable macOS Keyboard navigation to Tab through all controls. Windows web shortcuts are documented in the online application; a Windows desktop UI is not yet shipped.
 
@@ -90,4 +90,4 @@ Use **View → Hide Preview** or Command+Shift+V to collapse the video and timel
 
 ### Fixed project list and inspector
 
-The project list (252 points) and inspector (272 points) have fixed widths and no resize handles. Their toolbar buttons show or hide them independently; the center editor takes the remaining width. Long project names wrap. Right-click a project for Open in Project Folder, Rename, and Delete; Delete moves the folder to macOS Trash. The center preview/editor divider remains adjustable.
+The project list (252 points) and inspector (272 points) have fixed widths and no resize handles. Their toolbar buttons show or hide them independently; the center editor takes the remaining width. Long project names wrap. Right-click a project in List or Grid View for a project-specific Export menu, Open in Project Folder, Rename, and Delete. Local projects expose Video, Audio, and Text export submenus; YouTube projects omit Video while retaining available Audio and Text exports. Delete moves the folder to macOS Trash. The center preview/editor divider remains adjustable.

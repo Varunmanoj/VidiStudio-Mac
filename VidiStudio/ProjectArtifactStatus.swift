@@ -79,13 +79,14 @@ private struct ProjectArtifactState {
             if project.isYouTubeURLProject {
                 count = 0
                 availability = .unavailable
-                accessibilityLabel = "Final video export unavailable for YouTube projects"
+                accessibilityLabel = "Video export unavailable for YouTube projects"
             } else {
-                count = project.exports.filter { URL(fileURLWithPath: $0).pathExtension.caseInsensitiveCompare("mp4") == .orderedSame }.count
+                let videoExtensions = Set(["mp4", "mov", "m4v"])
+                count = project.exports.filter { videoExtensions.contains(URL(fileURLWithPath: $0).pathExtension.lowercased()) }.count
                 availability = count > 0 ? .generated : .notGenerated
                 accessibilityLabel = count > 0
-                    ? "\(count) final video \(count == 1 ? "export" : "exports") generated"
-                    : "Final video export not generated"
+                    ? "\(count) video \(count == 1 ? "export" : "exports") generated"
+                    : "Video export not generated"
             }
         case .narrationAudio:
             let audioExtensions = Set(["m4a", "aac", "mp3", "wav"])

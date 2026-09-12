@@ -884,7 +884,7 @@ final class StudioModel {
             lastFailedExtra = []
             lastFailedProjectID = nil
         }
-        if command == "export-final-video", let target, target.isYouTubeURLProject {
+        if ["export-final-video", "export-selectable-video"].contains(command), let target, target.isYouTubeURLProject {
             error = "Final video export is unavailable for YouTube URL projects. You can export text and narration audio instead."
             return
         }
@@ -894,7 +894,7 @@ final class StudioModel {
         }
         if let target, !isManualRetry, !confirmAnalysisReplacement(command, project: target) { return }
         var exportOptions: [String] = []
-        if ["export-final-video", "export-audio"].contains(command), let target {
+        if ["export-final-video", "export-selectable-video", "export-audio"].contains(command), let target {
             guard let options = confirmIncompleteNarrationExport(project: target, audioOnly: command == "export-audio") else { return }
             exportOptions = options
         }
@@ -905,6 +905,7 @@ final class StudioModel {
             return
         }
         busy = true
+        let exportsBeforeCommand = Set(target?.exports ?? [])
         progress = 0
         message = command == "capture-frame" ? "Processing text from the selected frame…" : command.replacingOccurrences(of: "-", with: " ").capitalized
         let task = Process(); task.executableURL = engine
@@ -947,6 +948,19 @@ final class StudioModel {
             task.waitUntilExit()
             stderr.fileHandleForReading.readabilityHandler = nil
             if let cleanupURL { try? FileManager.default.removeItem(at: cleanupURL) }
+            reload()
+            if task.terminationStatus == 0, command == "export-selectable-video", let folder = target?.folder {
+                do {
+                    guard let refreshed = projects.first(where: { $0.id == target?.id }),
+                          let path = refreshed.exports.last(where: { !exportsBeforeCommand.contains($0) && URL(fileURLWithPath: $0).pathExtension.lowercased() == "mov" }) else {
+                        throw AccessibilityMetadataWriterError.exportNotFound
+                    }
+                    try await AppleAccessibilityMetadataWriter().finalizeSelectableDescriptionTrack(at: folder.appendingPathComponent(path))
+                    message = "Selectable Audio Description export complete"
+                } catch {
+                    self.error = "The two-track video was created, but macOS could not apply or verify its Audio Description metadata: \(error.localizedDescription)"
+                }
+            }
             busy = false; process = nil; reload()
             if task.terminationStatus != 0 && self.error == nil { self.error = "Processing stopped. Your previously completed results are saved." }
             if task.terminationStatus == 0 {

@@ -557,18 +557,110 @@ def export_relative_path(root, project, export_type, extension, stamp=None):
 EXPORT_DUCKING_LEVEL = 0.2
 
 
-def original_audio_filter(narration_intervals):
+def original_audio_filter(narration_intervals, input_label='[0:a]'):
     """Duck the source only while saved narration is actually audible."""
     if not narration_intervals:
-        return '[0:a]anull[original]'
+        return f'{input_label}anull[original]'
     expression = '+'.join(
         f'between(t,{start:.6f},{end:.6f})'
         for start, end in narration_intervals
     )
-    return f"[0:a]volume={EXPORT_DUCKING_LEVEL:.4f}:enable='{expression}'[original]"
+    return f"{input_label}volume={EXPORT_DUCKING_LEVEL:.4f}:enable='{expression}'[original]"
 
 
-def export(root,p,audio_only=False,allow_incomplete=False):
+def audio_description_mix(root, p, cues, audio_only=False, program_audio_input=None, narration_input_offset=1):
+    """Build the complete program-audio-plus-description mix."""
+    args = []
+    filters=[]; tracks=[]; narration_intervals=[]
+    for i,c in enumerate(cues,1):
+        if not narration_audio_is_usable(root, c): raise ValueError('Synthesize all changed AD segments before exporting.')
+        audio = local(root,c['audio'])
+        audio_duration = float(probe(audio)['format']['duration'])
+        if audio_duration > c['end']-c['start']+.02: raise ValueError('Narration exceeds its AD segment. Adjust timing or regenerate.')
+        args += ['-i',audio]
+        input_index = narration_input_offset + i - 1
+        filters.append(f'[{input_index}:a]adelay={round(c["start"]*1000)}:all=1[n{i}]'); tracks.append(f'[n{i}]')
+        narration_intervals.append((c['start'], min(c['end'], c['start'] + audio_duration)))
+    if not audio_only and (p.get('hasAudio') or program_audio_input is not None):
+        source_index = 0 if program_audio_input is None else program_audio_input
+        filters.append(original_audio_filter(narration_intervals, f'[{source_index}:a]')); tracks.insert(0,'[original]')
+    if not tracks:
+        filters.append('anullsrc=r=48000:cl=stereo[silence]');tracks.append('[silence]')
+    filters.append(''.join(tracks)+f'amix=inputs={len(tracks)}:duration=longest:normalize=0,alimiter=limit=0.95,apad,atrim=duration={p["duration"]}[mix]')
+    return args, filters
+
+
+def validate_selectable_export(output, expected_duration):
+    """Verify stream count, order, labels, language, defaults, and timing."""
+    info = probe(output)
+    videos = [stream for stream in info['streams'] if stream.get('codec_type') == 'video']
+    audio = [stream for stream in info['streams'] if stream.get('codec_type') == 'audio']
+    if len(videos) != 1 or len(audio) != 2:
+        raise ValueError('Selectable Audio Description export did not contain one video and two audio tracks.')
+    if audio[0].get('disposition', {}).get('default') != 1 or audio[1].get('disposition', {}).get('default') != 0:
+        raise ValueError('Selectable Audio Description export has incorrect default audio-track ordering.')
+    expected = [('Original Audio', 'eng'), ('English - Audio Description', 'eng')]
+    for stream, (title, language) in zip(audio, expected):
+        tags = stream.get('tags', {})
+        actual_title = tags.get('title') or tags.get('handler_name')
+        if actual_title != title or tags.get('language') != language:
+            raise ValueError('Selectable Audio Description export is missing audio-track titles or language metadata.')
+        start = float(stream.get('start_time', 0))
+        duration = float(stream.get('duration', info.get('format', {}).get('duration', 0)))
+        if abs(start) > .05 or abs(duration - expected_duration) > .25:
+            raise ValueError('Selectable Audio Description audio tracks do not match the video timeline.')
+    duration = float(info.get('format', {}).get('duration', videos[0].get('duration', 0)))
+    if abs(duration - expected_duration) > .25:
+        raise ValueError('Selectable Audio Description export duration does not match the project.')
+
+
+def mux_selectable_audio_description(root, p, cues):
+    """Mux original and complete described audio as switchable MOV tracks."""
+    source = local(root,p['source'])
+    has_program_audio = bool(p.get('hasAudio'))
+    program_audio_input = 0 if has_program_audio else 1
+    silent_program_input = [] if has_program_audio else [
+        '-f','lavfi','-i','anullsrc=r=48000:cl=stereo'
+    ]
+    narration_args, filters = audio_description_mix(
+        root, p, cues,
+        program_audio_input=program_audio_input,
+        narration_input_offset=program_audio_input + 1,
+    )
+    relative = export_relative_path(root, p, 'Selectable Audio Description', 'mov')
+    output = root/relative
+    common = [
+        tool('ffmpeg'),'-y','-v','error','-i',source,*silent_program_input,*narration_args,
+        '-filter_complex',';'.join(filters),
+        '-map','0:v:0','-map',f'{program_audio_input}:a:0','-map','[mix]',
+        '-metadata:s:a:0','language=eng','-metadata:s:a:0','handler_name=Original Audio',
+        '-metadata:s:a:1','language=eng','-metadata:s:a:1','handler_name=English - Audio Description',
+        '-disposition:a:0','default','-disposition:a:1','visual_impaired',
+        '-c:a:1','aac','-movflags','+faststart','-t',str(p['duration']),
+    ]
+    # Preserve compatible source streams first. If the container rejects a
+    # source codec, transcode only audio and then video as bounded fallbacks.
+    original_audio_codec = 'copy' if has_program_audio else 'aac'
+    attempts = [
+        ['-c:v','copy','-c:a:0',original_audio_codec],
+        ['-c:v','copy','-c:a:0','aac'],
+        ['-c:v','libx264','-preset','fast','-crf','20','-c:a:0','aac'],
+    ]
+    last_error = None
+    for codecs in attempts:
+        output.unlink(missing_ok=True)
+        try:
+            run([*common,*codecs,output])
+            validate_selectable_export(output, float(p['duration']))
+            p['exports'].append(relative)
+            return
+        except ValueError as error:
+            last_error = error
+    output.unlink(missing_ok=True)
+    raise last_error or ValueError('Selectable Audio Description export failed.')
+
+
+def export(root,p,audio_only=False,allow_incomplete=False,selectable=False):
     if not audio_only and p.get('sourceType') == 'youtube':
         raise ValueError('Final video export is unavailable for YouTube URL projects. Export text or narration audio instead.')
     cues = validate_cues(p['cues'],p['duration'],p['transcript'])
@@ -584,24 +676,18 @@ def export(root,p,audio_only=False,allow_incomplete=False):
     cues=available
     if audio_only and not cues:
         raise ValueError('Generate narration for at least one AD segment before exporting narration audio.')
+    if selectable:
+        if not p.get('source'):
+            raise ValueError('A local source video is required for Selectable Audio Description export.')
+        emit('Creating video with selectable Audio Description')
+        mux_selectable_audio_description(root, p, cues)
+        return
     args = [tool('ffmpeg'),'-y','-v','error']
     if p.get('source'): args += ['-i',local(root,p['source'])]
     elif audio_only: args += ['-f','lavfi','-i','anullsrc=r=48000:cl=stereo']
     else: raise ValueError('A local source video is required to render a final video. Narration-only export is available now.')
-    filters=[]; tracks=[]; narration_intervals=[]
-    for i,c in enumerate(cues,1):
-        if not narration_audio_is_usable(root, c): raise ValueError('Synthesize all changed AD segments before exporting.')
-        audio = local(root,c['audio'])
-        audio_duration = float(probe(audio)['format']['duration'])
-        if audio_duration > c['end']-c['start']+.02: raise ValueError('Narration exceeds its AD segment. Adjust timing or regenerate.')
-        args += ['-i',audio]
-        filters.append(f'[{i}:a]adelay={round(c["start"]*1000)}:all=1[n{i}]'); tracks.append(f'[n{i}]')
-        narration_intervals.append((c['start'], min(c['end'], c['start'] + audio_duration)))
-    if p.get('hasAudio') and not audio_only:
-        filters.append(original_audio_filter(narration_intervals)); tracks.insert(0,'[original]')
-    if not tracks:
-        filters.append('anullsrc=r=48000:cl=stereo[silence]');tracks.append('[silence]')
-    filters.append(''.join(tracks)+f'amix=inputs={len(tracks)}:duration=longest:normalize=0,alimiter=limit=0.95,apad,atrim=duration={p["duration"]}[mix]')
+    narration_args, filters = audio_description_mix(root, p, cues, audio_only=audio_only)
+    args += narration_args
     relative = export_relative_path(
         root,
         p,
@@ -741,7 +827,7 @@ def validate_analysis_prerequisites(command, root, project):
 
 def main():
     parser=argparse.ArgumentParser(description=__doc__)
-    parser.add_argument('command',choices=['clear-generated','delete-generated','delete-segment-audio','list-models','preview-tts','import-video','probe-video','generate-thumbnails','extract-audio','transcribe','generate-summary','generate-ad-cues','synthesize-tts','export-final-video','save-cues','doctor',*parity.COMMANDS])
+    parser.add_argument('command',choices=['clear-generated','delete-generated','delete-segment-audio','list-models','preview-tts','import-video','probe-video','generate-thumbnails','extract-audio','transcribe','generate-summary','generate-ad-cues','synthesize-tts','export-final-video','export-selectable-video','save-cues','doctor',*parity.COMMANDS])
     parser.add_argument('--project',type=Path); parser.add_argument('--video',type=Path); parser.add_argument('--library',type=Path); parser.add_argument('--input',type=Path)
     parser.add_argument('--content',choices=['transcript','summary','descriptions','combined'],default='descriptions'); parser.add_argument('--url'); parser.add_argument('--name'); parser.add_argument('--timestamp',type=float,default=0); parser.add_argument('--duration',type=float); parser.add_argument('--segment'); parser.add_argument('--format',choices=['srt','vtt','txt','json','md'],default='srt'); parser.add_argument('--changed',action='store_true'); parser.add_argument('--start-stage',default='transcribe')
     parser.add_argument('--output', type=Path); parser.add_argument('--text')
@@ -798,6 +884,7 @@ def main():
                 ai_video(root,p,args.command)
             elif args.command=='synthesize-tts': synthesize(root,p,args.segment,args.changed)
             elif args.command=='export-final-video': export(root,p,allow_incomplete=args.allow_incomplete_narration)
+            elif args.command=='export-selectable-video': export(root,p,allow_incomplete=args.allow_incomplete_narration,selectable=True)
             elif args.command=='save-cues':
                 if not args.input: raise ValueError('--input is required.')
                 cues=validate_cues(json.loads(args.input.read_text()),p['duration'],p['transcript'])

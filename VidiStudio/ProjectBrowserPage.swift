@@ -15,6 +15,7 @@ struct ProjectBrowserPage: View {
     let rename: (StudioProject) -> Void
     let delete: (StudioProject) -> Void
     let process: (StudioProject) -> Void
+    let export: (StudioProject, StudioExportAction) -> Void
     let clear: (StudioProject) -> Void
 
     private var filteredProjects: [StudioProject] {
@@ -101,6 +102,7 @@ struct ProjectBrowserPage: View {
                     rename: rename,
                     delete: delete,
                     process: process,
+                    export: export,
                     clear: clear
                 )
             } else {
@@ -213,6 +215,9 @@ struct ProjectBrowserPage: View {
             process(project)
         }
         .disabled(busy)
+        ProjectExportMenu(project: project, busy: busy) { action in
+            export(project, action)
+        }
         Divider()
         Button("Choose Content to Delete…", systemImage: "eraser", role: .destructive) {
             clear(project)

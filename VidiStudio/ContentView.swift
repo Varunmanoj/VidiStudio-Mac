@@ -233,6 +233,9 @@ struct ContentView: View {
             rename: { p in studio.selectedID = p.id; rename = p.name; renaming = true },
             delete: { studio.trashProject($0) },
             process: { p in studio.selectedID = p.id; studio.execute("analyze", project: p) },
+            export: { project, action in
+                studio.execute(action.command, extra: action.arguments, project: project)
+            },
             clear: { deletionProject = $0 }
         )
         .background(WindowFitter().frame(width: 0, height: 0))
@@ -310,7 +313,7 @@ struct ProjectEditorWindow: View {
                     .frame(width: max(0, geometry.size.width - (showInspector ? 273 : 0)), height: geometry.size.height)
                     if showInspector {
                         Divider()
-                        ProcessingInspector(studio: studio)
+                        ProcessingInspector(studio: studio, editorActions: editorShortcutActions)
                             .frame(width: 272, height: geometry.size.height)
                             .background(.bar)
                     }
@@ -372,115 +375,137 @@ struct ProjectEditorWindow: View {
 
 struct ProcessingInspector: View {
     @Bindable var studio: StudioModel
-    private let stages: [(String,String,String)] = [
-        ("probe-video","Read Metadata","info.circle"), ("generate-thumbnails","Generate Thumbnails","photo.on.rectangle"),
-        ("extract-audio","Extract Audio","waveform"), ("transcribe","Transcribe Video","text.bubble"),
-        ("generate-summary","Generate Summary","text.alignleft"), ("generate-ad-cues","Generate Descriptions","sparkles"),
-        ("synthesize-tts","Synthesize Narration","speaker.wave.2"), ("export-final-video","Export Final Video","square.and.arrow.up")]
+    let editorActions: EditorShortcutActions
 
-    private func title(for stage: (String, String, String), project: StudioProject) -> String {
-        switch stage.0 {
-        case "transcribe": return project.hasGeneratedTranscript ? "Regenerate Transcript" : "Generate Transcript"
-        case "generate-summary": return project.summary.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? "Generate Summary" : "Regenerate Summary"
-        case "generate-ad-cues": return project.cues.isEmpty ? "Generate Descriptions" : "Regenerate Descriptions"
-        default: return stage.1
-        }
-    }
-
-    private func deletableComponent(for stage: String) -> GeneratedContentComponent? {
-        switch stage {
-        case "transcribe": return .transcript
-        case "generate-summary": return .summary
-        case "generate-ad-cues": return .descriptions
-        case "synthesize-tts": return .narration
+    private var currentComponent: GeneratedContentComponent? {
+        switch editorActions.activeSection {
+        case "transcript": return .transcript
+        case "summary": return .summary
+        case "descriptions": return .descriptions
         default: return nil
         }
     }
 
-    private func stageIsDisabled(_ stage: String, project: StudioProject) -> Bool {
-        studio.busy
-            || (project.source.isEmpty && ["probe-video", "generate-thumbnails", "extract-audio"].contains(stage))
-            || (stage == "generate-ad-cues" && !project.canGenerateDescriptions)
+    private var currentSectionTitle: String? {
+        switch editorActions.activeSection {
+        case "transcript": return "Transcript"
+        case "summary": return "Summary"
+        case "descriptions": return "Descriptions"
+        case "ad-overview": return "Narration"
+        default: return nil
+        }
     }
 
     var body: some View {
         ScrollView {
-            VStack(alignment: .leading, spacing: 18) {
-                Text("Project Inspector").font(.headline)
+            VStack(alignment: .leading, spacing: 12) {
                 if let p = studio.selected {
-                    LabeledContent("Duration", value: timecode(p.duration))
-                    LabeledContent("Resolution", value: "\(p.width) × \(p.height)")
-                    LabeledContent("Status", value: p.status)
-                    Divider()
-                    Text("PROCESSING").font(.caption).foregroundStyle(.secondary)
-                    Button("Run All Analysis", systemImage: "sparkles") { studio.execute("analyze") }.disabled(studio.busy)
-                    Button { studio.execute("regenerate-all") } label: {
-                        HStack { MaterialIcon(glyph: ""); Text("Regenerate All…") }
-                    }.disabled(studio.busy)
-                    ForEach(stages.filter { stage in
-                        stage.0 != "export-final-video" || !p.isYouTubeURLProject
-                    }, id: \.0) { stage in
-                        HStack(spacing: 6) {
-                            Button { studio.execute(stage.0) } label: {
-                                HStack {
-                                    MaterialIcon(glyph: stage.0 == "transcribe" ? "\u{e8af}" : stage.0 == "synthesize-tts" ? "\u{e050}" : "\u{e037}")
-                                    Text(title(for: stage, project: p))
-                                }
-                                .frame(maxWidth: .infinity, alignment: .leading)
+                    GroupBox("Analysis") {
+                        VStack(alignment: .leading, spacing: 8) {
+                            Button("Run All Analysis", systemImage: "sparkles") { editorActions.run("analyze") }
+                                .disabled(!editorActions.canRun("analyze"))
+                                .help("Generate the transcript, summary, and audio descriptions in sequence")
+                            Button { editorActions.run("regenerate-all") } label: {
+                                HStack { MaterialIcon(glyph: ""); Text("Regenerate All…") }
                             }
-                            .disabled(stageIsDisabled(stage.0, project: p))
-                            .help(stage.0 == "generate-ad-cues" && !p.canGenerateDescriptions ? "Generate the transcript and summary first" : title(for: stage, project: p))
-                            if let component = deletableComponent(for: stage.0), component.hasContent(in: p) {
-                                Button("Delete \(component.title)", systemImage: "trash", role: .destructive) {
-                                    studio.confirmDeleteGeneratedContent(p, component: component)
+                            .disabled(!editorActions.canRun("regenerate-all"))
+                            .help("Delete generated analysis and recreate the transcript, summary, and descriptions")
+                        }
+                    }
+                    if let sectionTitle = currentSectionTitle {
+                        GroupBox(sectionTitle) {
+                            VStack(alignment: .leading, spacing: 8) {
+                                if let action = editorActions.currentGenerationAction,
+                                   let title = editorActions.currentGenerationTitle {
+                                    HStack(spacing: 6) {
+                                        Button(title, systemImage: editorActions.currentGenerationIcon) {
+                                            editorActions.run(action)
+                                        }
+                                        .frame(maxWidth: .infinity, alignment: .leading)
+                                        .disabled(!editorActions.canRun(action))
+                                        .help(action == "generate-ad-cues" && !p.canGenerateDescriptions
+                                            ? "Generate the transcript and summary first"
+                                            : title.hasPrefix("Regenerate")
+                                                ? "Replace the current \(sectionTitle.lowercased()) after confirmation"
+                                                : "Generate the \(sectionTitle.lowercased()) for this project")
+                                        if let component = currentComponent, component.hasContent(in: p) {
+                                            Button("Delete \(component.title)", systemImage: "trash", role: .destructive) {
+                                                studio.confirmDeleteGeneratedContent(p, component: component)
+                                            }
+                                            .labelStyle(.iconOnly)
+                                            .help("Delete \(component.title.lowercased())")
+                                            .disabled(studio.busy)
+                                        }
+                                    }
                                 }
-                                .labelStyle(.iconOnly)
-                                .help("Delete \(component.title.lowercased())")
-                                .disabled(studio.busy)
+                                if editorActions.activeSection == "descriptions" || editorActions.activeSection == "ad-overview" {
+                                    HStack(spacing: 6) {
+                                        Button("Synthesize Narration", systemImage: "speaker.wave.2") {
+                                            editorActions.run("synthesize-tts")
+                                        }
+                                        .frame(maxWidth: .infinity, alignment: .leading)
+                                        .disabled(!editorActions.canRun("synthesize-tts"))
+                                        .help("Create narration audio for all Audio Description segments")
+                                        if GeneratedContentComponent.narration.hasContent(in: p) {
+                                            Button("Delete Narration Audio", systemImage: "trash", role: .destructive) {
+                                                studio.confirmDeleteGeneratedContent(p, component: .narration)
+                                            }
+                                            .labelStyle(.iconOnly)
+                                            .help("Delete narration audio while keeping description text and timing")
+                                            .disabled(studio.busy)
+                                        }
+                                    }
+                                    Button("Synthesize Changed Segments", systemImage: "waveform") {
+                                        editorActions.run("synthesize-changed")
+                                    }
+                                    .disabled(!editorActions.canRun("synthesize-changed"))
+                                    .help("Recreate narration only for descriptions whose text changed")
+                                }
+                                if editorActions.activeSection == "descriptions" {
+                                    HStack(spacing: 6) {
+                                        Button("Undo Segment Edit", systemImage: "arrow.uturn.backward") { editorActions.run("undo") }
+                                            .help("Undo the most recent saved description edit")
+                                        Button("Redo", systemImage: "arrow.uturn.forward") { editorActions.run("redo") }
+                                            .help("Redo the most recently undone description edit")
+                                    }
+                                    .disabled(studio.busy)
+                                }
                             }
                         }
-                        .controlSize(.large)
                     }
-                    Menu("Export Text", systemImage: "square.and.arrow.up") {
-                        ForEach(["transcript", "summary", "descriptions", "combined"], id: \.self) { content in
-                            Menu(content.capitalized, systemImage: "doc.text") {
-                                ForEach(content == "summary" ? ["md"] : ["srt", "vtt", "txt", "json"], id: \.self) { format in
-                                    Button(format == "md" ? "Markdown" : format.uppercased(), systemImage: "doc") {
-                                        studio.execute("export-subtitles", extra: ["--content", content, "--format", format])
+                    GroupBox("Export") {
+                        ProjectExportMenu(
+                            project: p,
+                            busy: studio.busy,
+                            perform: { action in studio.execute(action.command, extra: action.arguments) }
+                        )
+                        .help("Export video, narration audio, or text in the format you need")
+                    }
+                    GroupBox("Project") {
+                        Button("Show Project in Finder", systemImage: "folder") { if let folder = p.folder { NSWorkspace.shared.open(folder) } }
+                            .help("Open this project’s local folder in Finder")
+                    }
+                    if !p.exports.isEmpty {
+                        GroupBox("Created Exports") {
+                            VStack(alignment: .leading, spacing: 8) {
+                                ForEach(p.exports, id: \.self) { path in
+                                    HStack(spacing: 6) {
+                                        Button(URL(fileURLWithPath: path).lastPathComponent, systemImage: "play.rectangle") {
+                                            if let url = p.url(path) { NSWorkspace.shared.open(url) }
+                                        }
+                                        .frame(maxWidth: .infinity, alignment: .leading)
+                                        Button("Delete Export", systemImage: "trash", role: .destructive) {
+                                            studio.confirmDeleteExport(p, path: path)
+                                        }
+                                        .labelStyle(.iconOnly)
+                                        .help("Delete \(URL(fileURLWithPath: path).lastPathComponent)")
+                                        .disabled(studio.busy)
                                     }
                                 }
                             }
-                            .disabled(!p.canExportText(content))
-                            .help(p.canExportText(content) ? "Export \(content) text" : "No \(content) text is available to export")
-                        }
-                    }.disabled(studio.busy)
-                    Button("Export Narration Audio", systemImage: "square.and.arrow.up") { studio.execute("export-audio") }
-                        .disabled(studio.busy || !p.hasExportableNarration())
-                        .help(p.hasExportableNarration()
-                            ? "Export available synchronized narration audio"
-                            : "Generate narration audio for at least one AD segment first")
-                    Button("Synthesize Changed Segments", systemImage: "waveform") { studio.execute("synthesize-tts", extra: ["--changed"]) }.disabled(studio.busy)
-                    HStack { Button("Undo Segment Edit", systemImage: "arrow.uturn.backward") { studio.execute("undo-cues") }; Button("Redo", systemImage: "arrow.uturn.forward") { studio.execute("redo-cues") } }.disabled(studio.busy)
-                    Text("Generate Descriptions creates timed text only. Review and edit it, then choose Synthesize Narration to create audio.").font(.caption).foregroundStyle(.secondary)
-                    Button("Show Project in Finder", systemImage: "folder") { if let folder = p.folder { NSWorkspace.shared.open(folder) } }
-                    if !p.exports.isEmpty {
-                        Divider(); Text("Exports").font(.headline)
-                        ForEach(p.exports, id: \.self) { path in
-                            HStack(spacing: 6) {
-                                Button(URL(fileURLWithPath: path).lastPathComponent, systemImage: "play.rectangle") {
-                                    if let url = p.url(path) { NSWorkspace.shared.open(url) }
-                                }
-                                .frame(maxWidth: .infinity, alignment: .leading)
-                                Button("Delete Export", systemImage: "trash", role: .destructive) {
-                                    studio.confirmDeleteExport(p, path: path)
-                                }
-                                .labelStyle(.iconOnly)
-                                .help("Delete \(URL(fileURLWithPath: path).lastPathComponent)")
-                                .disabled(studio.busy)
-                            }
                         }
                     }
-                } else { Text("Select a project to see its media and processing tools.").foregroundStyle(.secondary) }
+                }
             }.padding(20)
         }
     }
@@ -979,8 +1004,14 @@ struct ProjectEditor: View {
         case "summary-previous": summaryReader.previous()
         case "add": presentNewSegment()
         case "delete-narration": studio.confirmDeleteGeneratedContent(project, component: .narration)
+        case "delete-transcript": studio.confirmDeleteGeneratedContent(project, component: .transcript)
+        case "delete-summary": studio.confirmDeleteGeneratedContent(project, component: .summary)
+        case "delete-descriptions": studio.confirmDeleteGeneratedContent(project, component: .descriptions)
         case "undo": studio.execute("undo-cues")
         case "redo": studio.execute("redo-cues")
+        case "probe-video", "generate-thumbnails", "extract-audio", "synthesize-tts": studio.execute(action)
+        case "synthesize-changed": studio.execute("synthesize-tts", extra: ["--changed"])
+        case "show-in-finder": if let folder = project.folder { NSWorkspace.shared.open(folder) }
         case "analyze", "transcribe", "generate-summary", "regenerate-all": studio.execute(action)
         case "generate-ad-cues":
             if project.canGenerateDescriptions { studio.execute(action) }
@@ -991,11 +1022,22 @@ struct ProjectEditor: View {
     private func refreshEditorShortcutActions(updateHandler: Bool = false) {
         if updateHandler {
             shortcutActions.handler = { action in runEditorShortcut(action) }
+            shortcutActions.exportHandler = { action in
+                studio.execute(action.command, extra: action.arguments)
+            }
         }
         shortcutActions.previewHidden = previewHidden
         shortcutActions.available = !shortcutsBlocked && !studio.busy && cueToEdit == nil && studio.screenText == nil
+        shortcutActions.activeSection = tab
         shortcutActions.canGenerateDescriptions = project.canGenerateDescriptions
         shortcutActions.hasNarrationAudio = GeneratedContentComponent.narration.hasContent(in: project)
+        shortcutActions.hasDescriptions = GeneratedContentComponent.descriptions.hasContent(in: project)
+        shortcutActions.hasGeneratedTranscript = GeneratedContentComponent.transcript.hasContent(in: project)
+        shortcutActions.hasGeneratedSummary = GeneratedContentComponent.summary.hasContent(in: project)
+        shortcutActions.hasLocalSource = !project.source.isEmpty
+        shortcutActions.sourceHasAudio = project.hasAudio
+        shortcutActions.isYouTubeProject = project.isYouTubeURLProject
+        shortcutActions.exportableText = Set(["transcript", "summary", "descriptions", "combined"].filter { project.canExportText($0) })
         shortcutActions.summaryActive = (tab == "summary")
         shortcutActions.summaryReadable = !project.summary.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty && !studio.busy
         shortcutActions.summaryIsReading = summaryReader.isReading
@@ -1071,6 +1113,7 @@ struct ProjectEditor: View {
         .onDisappear {
             shortcutActions.available = false
             shortcutActions.handler = nil
+            shortcutActions.exportHandler = nil
             playback.stop()
             stopNarrationPreview()
         }

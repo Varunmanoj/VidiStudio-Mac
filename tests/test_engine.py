@@ -339,6 +339,28 @@ class Validation(unittest.TestCase):
             }
             with self.assertRaisesRegex(ValueError, 'unavailable for YouTube URL projects'):
                 engine.export(root, project, allow_incomplete=True)
+            with self.assertRaisesRegex(ValueError, 'unavailable for YouTube URL projects'):
+                engine.export(root, project, allow_incomplete=True, selectable=True)
+    def test_selectable_export_adds_original_track_for_silent_local_video(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            (root/'source').mkdir()
+            (root/'exports').mkdir()
+            source = root/'source/silent.mp4'
+            engine.run([
+                engine.tool('ffmpeg'), '-y', '-v', 'error', '-f', 'lavfi',
+                '-i', 'testsrc2=size=320x180:rate=24', '-t', '1', '-c:v', 'libx264', source,
+            ])
+            project = {
+                'name': 'Silent', 'sourceType': 'upload', 'source': 'source/silent.mp4',
+                'duration': 1, 'hasAudio': False, 'transcript': [], 'cues': [], 'exports': [],
+            }
+            engine.export(root, project, allow_incomplete=True, selectable=True)
+            info = engine.probe(root/project['exports'][0])
+            audio = [stream for stream in info['streams'] if stream['codec_type'] == 'audio']
+            self.assertEqual(len(audio), 2)
+            self.assertEqual(audio[0]['tags']['handler_name'], 'Original Audio')
+            self.assertEqual(audio[1]['tags']['handler_name'], 'English - Audio Description')
     def test_path_escape(self):
         with self.assertRaises(ValueError): engine.local(Path('/tmp/project'),'../../etc/passwd')
     def test_pipeline(self):
@@ -385,8 +407,24 @@ class Validation(unittest.TestCase):
             output=folder/project()['exports'][0]
             self.assertRegex(project()['exports'][0],r'^exports/sample video - Final Video - \d{8}-\d{6}\.mp4$')
             self.assertAlmostEqual(float(engine.probe(output)['format']['duration']),8,delta=.2)
+            cli('export-selectable-video','--project',folder)
+            selectable=folder/project()['exports'][1]
+            self.assertRegex(project()['exports'][1],r'^exports/sample video - Selectable Audio Description - \d{8}-\d{6}\.mov$')
+            selectable_info=engine.probe(selectable)
+            self.assertEqual(len([s for s in selectable_info['streams'] if s['codec_type']=='video']),1)
+            selectable_audio=[s for s in selectable_info['streams'] if s['codec_type']=='audio']
+            self.assertEqual(len(selectable_audio),2)
+            self.assertEqual(selectable_audio[0]['disposition']['default'],1)
+            self.assertEqual(selectable_audio[1]['disposition']['default'],0)
+            self.assertEqual(selectable_audio[0]['tags']['language'],'eng')
+            self.assertEqual(selectable_audio[1]['tags']['language'],'eng')
+            self.assertEqual(selectable_audio[0]['tags']['handler_name'],'Original Audio')
+            self.assertEqual(selectable_audio[1]['tags']['handler_name'],'English - Audio Description')
+            self.assertAlmostEqual(float(selectable_info['format']['duration']),8,delta=.2)
             cli('delete-export','--project',folder,'--name',project()['exports'][0])
             self.assertFalse(output.exists())
+            cli('delete-export','--project',folder,'--name',project()['exports'][0])
+            self.assertFalse(selectable.exists())
             self.assertEqual(project()['exports'],[])
             self.assertTrue(any((folder/'metadata/trash').iterdir()))
             stale=project()['cues']; stale[0]['text']='Changed narration.'; cues.write_text(json.dumps(stale))
