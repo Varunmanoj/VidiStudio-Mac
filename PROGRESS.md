@@ -597,6 +597,12 @@ The same options appear in Playback → Summary Reading in the menu bar (enabled
 
 Validation: Debug build succeeded, `script/build_and_run.sh --verify` passed with all 13 Help pages verified and the app launched, all 25 engine tests passed, and `git diff --check` passed. Live right-click/menu-bar interaction was not separately observed in this pass.
 
+### Project source icons and All Projects source filter — 2026-09-12
+
+Local video and YouTube projects are now visually distinct in both browser views using the New Project dialog's own icons: a `film` icon for local video files and a red `play.rectangle` icon for YouTube videos, replacing the generic row icon in List View and appearing beside the duration line on grid cards, with source names in pointer help and VoiceOver labels. A segmented source filter (All / Video File / YouTube, same icons) sits beside the layout picker and combines with search; the project count and empty state account for both, with a Clear Search & Filters action when either is active. Projects Help documents the icons and filter.
+
+Validation: Debug build succeeded, `script/build_and_run.sh --verify` passed with all 13 Help pages verified and the app launched, all 25 engine tests passed, and `git diff --check` passed. Rendered layout was not separately observed in this pass.
+
 ### Full-screen preview restore fix — 2026-09-12
 
 Exiting full-screen video (Escape) left the local preview collapsed, recoverable only by reopening the project. Root cause: `removeFromSuperview()` drops the superview-owned Auto Layout constraints SwiftUI laid the preview out with, and the exit path restored only the frame, which is meaningless without constraints — the next host re-layout (driven by the 150 ms playback observer) collapsed the view. The exit path now saves the surface's superview constraints on entry and re-adds them on exit before refreshing layout, with the frame restore kept as fallback. The full-screen container also exits on Escape directly as a backup to the key event monitor. A headless AppKit check confirmed the old path collapses to zero on host re-layout while the fixed path restores full size.

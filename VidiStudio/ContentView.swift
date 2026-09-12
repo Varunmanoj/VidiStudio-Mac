@@ -201,6 +201,7 @@ struct ContentView: View {
     @Bindable var studio: StudioModel
     @Environment(\.openWindow) private var openWindow
     @State private var search = ""
+    @State private var sourceFilter = ProjectSourceFilter.all
     @State private var rename = ""
     @State private var renaming = false
     @State private var deletionProject: StudioProject?
@@ -218,6 +219,7 @@ struct ContentView: View {
         ProjectBrowserPage(
             projects: studio.projects,
             search: $search,
+            sourceFilter: $sourceFilter,
             grid: $projectGrid,
             gridItemSize: $projectGridItemSize,
             selection: $studio.selectedID,

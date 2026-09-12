@@ -4,6 +4,7 @@ import AppKit
 struct ProjectBrowserPage: View {
     let projects: [StudioProject]
     @Binding var search: String
+    @Binding var sourceFilter: ProjectSourceFilter
     @Binding var grid: Bool
     @Binding var gridItemSize: Double
     @Binding var selection: String?
@@ -17,7 +18,13 @@ struct ProjectBrowserPage: View {
     let clear: (StudioProject) -> Void
 
     private var filteredProjects: [StudioProject] {
-        projects.filter { search.isEmpty || $0.name.localizedStandardContains(search) }
+        projects.filter {
+            (search.isEmpty || $0.name.localizedStandardContains(search)) && sourceFilter.matches($0)
+        }
+    }
+
+    private var isFiltering: Bool {
+        !search.isEmpty || sourceFilter != .all
     }
 
     var body: some View {
@@ -45,6 +52,16 @@ struct ProjectBrowserPage: View {
                     .textFieldStyle(.roundedBorder)
                     .frame(maxWidth: 420)
                 Spacer()
+                Picker("Project source", selection: $sourceFilter) {
+                    ForEach(ProjectSourceFilter.allCases) { filter in
+                        Label(filter.title, systemImage: filter.iconName).tag(filter)
+                    }
+                }
+                .pickerStyle(.segmented)
+                .fixedSize()
+                .accessibilityLabel("Filter projects by source")
+                .accessibilityHint("Show all projects, only local video file projects, or only YouTube video projects")
+                .help("Filter projects by source")
                 Picker("Project layout", selection: $grid) {
                     Label("List View", systemImage: "list.bullet").tag(false)
                     Label("Grid View", systemImage: "square.grid.2x2").tag(true)
@@ -59,16 +76,19 @@ struct ProjectBrowserPage: View {
 
             if filteredProjects.isEmpty {
                 ContentUnavailableView {
-                    Label(search.isEmpty ? "No Projects" : "No Matching Projects", systemImage: "film.stack")
+                    Label(isFiltering ? "No Matching Projects" : "No Projects", systemImage: "film.stack")
                 } description: {
-                    Text(search.isEmpty
-                         ? "Create a project from a video file on this Mac or a YouTube video."
-                         : "Try a different project name or clear the search field.")
+                    Text(isFiltering
+                          ? "Try a different project name or source filter."
+                          : "Create a project from a video file on this Mac or a YouTube video.")
                 } actions: {
-                    if search.isEmpty {
-                        Button("New Project…", systemImage: "plus", action: newProject)
+                    if isFiltering {
+                        Button(sourceFilter == .all ? "Clear Search" : "Clear Search & Filters") {
+                            search = ""
+                            sourceFilter = .all
+                        }
                     } else {
-                        Button("Clear Search") { search = "" }
+                        Button("New Project…", systemImage: "plus", action: newProject)
                     }
                 }
             } else if grid {
@@ -87,13 +107,16 @@ struct ProjectBrowserPage: View {
                 Table(filteredProjects, selection: $selection) {
                     TableColumn("Name") { project in
                         HStack(spacing: 8) {
-                            MaterialIcon(glyph: "\u{e02c}")
+                            Image(systemName: project.sourceIconName)
+                                .foregroundStyle(project.isYouTubeURLProject ? .red : .secondary)
+                                .help(project.sourceTitle)
+                                .accessibilityHidden(true)
                             Text(project.name)
                                 .fontWeight(.medium)
                                 .lineLimit(2)
                         }
                         .accessibilityElement(children: .ignore)
-                        .accessibilityLabel("Project name: \(project.name)")
+                        .accessibilityLabel("Project name: \(project.name), source: \(project.sourceTitle)")
                     }
                     .width(min: 190, ideal: 280)
                     TableColumn("Duration") { project in

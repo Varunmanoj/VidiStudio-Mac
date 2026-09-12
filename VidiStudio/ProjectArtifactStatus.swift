@@ -150,3 +150,49 @@ extension StudioProject {
             .joined(separator: ", ")
     }
 }
+
+/// Project source kinds matching the New Project dialog's Video File / YouTube
+/// Video options, reusing the same SF Symbols so sources read identically
+/// across creation, browsing, and filtering.
+enum ProjectSourceFilter: String, CaseIterable, Identifiable {
+    case all
+    case local
+    case youtube
+
+    var id: Self { self }
+
+    var title: String {
+        switch self {
+        case .all: return "All"
+        case .local: return "Video File"
+        case .youtube: return "YouTube"
+        }
+    }
+
+    var iconName: String {
+        switch self {
+        case .all: return "square.stack"
+        case .local: return "film"
+        case .youtube: return "play.rectangle"
+        }
+    }
+
+    func matches(_ project: StudioProject) -> Bool {
+        switch self {
+        case .all: return true
+        case .local: return !project.isYouTubeURLProject
+        case .youtube: return project.isYouTubeURLProject
+        }
+    }
+}
+
+extension StudioProject {
+    /// SF Symbol shared with the New Project dialog's source picker.
+    var sourceIconName: String {
+        isYouTubeURLProject ? ProjectSourceFilter.youtube.iconName : ProjectSourceFilter.local.iconName
+    }
+
+    var sourceTitle: String {
+        isYouTubeURLProject ? "YouTube Video" : "Video File"
+    }
+}
