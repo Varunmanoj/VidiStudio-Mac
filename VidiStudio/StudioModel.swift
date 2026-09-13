@@ -814,6 +814,7 @@ final class StudioModel {
         if (all || command == "transcribe"), !current.transcript.isEmpty { existing.append("transcription") }
         if (all || command == "generate-summary"), !current.summary.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty { existing.append("summary") }
         if (all || command == "generate-ad-cues"), !current.cues.isEmpty { existing.append("audio description segments") }
+        if (all || command == "generate-ad-cues"), current.cues.contains(where: { $0.audio != nil }) { existing.append("narration audio") }
         let subtitleExtensions: Set<String> = ["srt", "vtt"]
         let savedSubtitles = current.exports.contains { subtitleExtensions.contains(URL(fileURLWithPath: $0).pathExtension.lowercased()) }
         let exportFiles = current.url("exports").flatMap { try? FileManager.default.contentsOfDirectory(at: $0, includingPropertiesForKeys: nil) } ?? []
@@ -825,9 +826,9 @@ final class StudioModel {
         switch command {
         case "regenerate-all": impact = "All generated content, including transcripts, summaries, AD segments, narration, subtitles, exports, thumbnails, and edit history, will be deleted. The transcript, summary, and AD segments will then be recreated. Your original video and project are kept. Generate narration and exports separately afterward. If analysis fails, deleted content will not be restored."
         case "generate-summary": impact = "Only the summary will be overwritten. Other content will be kept."
-        case "generate-ad-cues": impact = "Only the AD segments will be overwritten. Other content will be kept."
+        case "generate-ad-cues": impact = "The Audio Description segments and their rows in AD Transcript will be replaced. Any generated narration audio for those descriptions will be deleted immediately before description generation starts. Other project content and existing exports will be kept. New narration is not generated automatically. If description generation then fails, deleted narration audio will not be restored."
         case "transcribe": impact = "Only the transcription will be overwritten. Other content will be kept."
-        default: impact = "The transcript, summary, and AD segments will be regenerated. Narration files and existing exports will be kept."
+        default: impact = "The transcript, summary, Audio Description segments, and AD Transcript rows will be replaced. Any generated narration audio for the current descriptions will be deleted immediately before the description stage starts. Existing exports will be kept, and new narration is not generated automatically. If description generation then fails, deleted narration audio will not be restored."
         }
         let alert = NSAlert()
         alert.messageText = command == "regenerate-all" ? "Regenerate all content in “\(current.name)”?" : "Replace existing content in “\(current.name)”?"

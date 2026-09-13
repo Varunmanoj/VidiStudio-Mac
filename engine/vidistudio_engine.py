@@ -253,6 +253,31 @@ def list_models():
         client.close()
 
 
+def delete_description_narration(root, project):
+    """Remove saved narration while preserving the current description text and timing."""
+    folder = root/'audio-description'
+    if folder.is_symlink():
+        raise ValueError('Cannot delete narration from a symbolic-link folder.')
+    resolved = local(root, 'audio-description')
+    resolved.mkdir(parents=True, exist_ok=True)
+    removed = False
+    for path in resolved.iterdir():
+        if path.name == 'cues.json':
+            continue
+        removed = True
+        if path.is_symlink():
+            path.unlink()
+        elif path.is_dir():
+            shutil.rmtree(path)
+        else:
+            path.unlink()
+    for cue in project.get('cues', []):
+        for key in ('audio', 'audioText', 'audioDuration', 'audioSettings'):
+            removed = cue.pop(key, None) is not None or removed
+    atomic_json(resolved/'cues.json', project.get('cues', []))
+    return removed
+
+
 def _ai_video_once(root, p, stage):
     cfg=config(); key={'transcribe':'transcript','generate-summary':'summary','generate-ad-cues':'audio_descriptions'}[stage]
     youtube=p.get('sourceType')=='youtube' and not p.get('source')
@@ -280,6 +305,8 @@ def _ai_video_once(root, p, stage):
             prompt=parity.render(pair['user_prompt'],p)
             if stage=='generate-ad-cues':
                 prompt+=parity.description_context(p)
+                if delete_description_narration(root, p):
+                    emit('Deleted existing narration audio before replacing Audio Descriptions')
             emit('Generating '+stage)
             raw=gemini_adapter.video_interaction(client,model,uri,mime,prompt,pair.get('system_instruction',''),processing=cfg.get('videoProcessing','agentic') if stage!='transcribe' else 'static')
             if stage=='generate-summary': data={'summary':raw}
@@ -941,19 +968,7 @@ def delete_generated_components(root, p, components):
         p['undoStack'] = []
         p['redoStack'] = []
     elif 'narration' in selected:
-        folder = root/'audio-description'
-        if folder.is_symlink(): raise ValueError('Cannot delete narration from a symbolic-link folder.')
-        resolved = local(root, 'audio-description')
-        resolved.mkdir(parents=True, exist_ok=True)
-        for path in resolved.iterdir():
-            if path.name == 'cues.json': continue
-            if path.is_symlink(): path.unlink()
-            elif path.is_dir(): shutil.rmtree(path)
-            else: path.unlink()
-        for cue in p.get('cues', []):
-            for key in ('audio', 'audioText', 'audioDuration', 'audioSettings'):
-                cue.pop(key, None)
-        atomic_json(resolved/'cues.json', p.get('cues', []))
+        delete_description_narration(root, p)
     if 'thumbnails' in selected:
         reset_generated_directory(root, p, 'thumbnails')
         p['thumbnails'] = []

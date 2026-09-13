@@ -170,7 +170,7 @@ class Validation(unittest.TestCase):
             self.assertEqual(p['summary'],'new summary')
             self.assertEqual(p['cues'],['new AD'])
 
-    def test_individual_analysis_preserves_other_content(self):
+    def test_individual_analysis_preserves_unrelated_content_and_replaces_description_audio(self):
         original = dict(source='', sourceType='youtube', youtubeURL='https://www.youtube.com/watch?v=abcdefghijk', duration=10,
                         transcript=[dict(id='t', start=1, end=2, text='Old dialogue')], summary='Old summary',
                         cues=[dict(id='ad', start=4, end=5, text='Old AD', audio='audio-description/old.wav')],
@@ -190,9 +190,43 @@ class Validation(unittest.TestCase):
                     engine.ai_video(root,p,stage)
                 self.assertNotEqual(p[changed], original[changed])
                 for key in original:
-                    if key != changed: self.assertEqual(p[key], original[key], key)
+                    if key != changed:
+                        self.assertEqual(p[key], original[key], key)
                 self.assertEqual((root/'exports/old.srt').read_text(),'saved subtitles')
-                self.assertEqual((root/'audio-description/old.wav').read_bytes(),b'saved narration')
+                if stage == 'generate-ad-cues':
+                    self.assertFalse((root/'audio-description/old.wav').exists())
+                    self.assertNotIn('audio', p['cues'][0])
+                else:
+                    self.assertEqual((root/'audio-description/old.wav').read_bytes(),b'saved narration')
+
+    def test_description_reanalysis_deletes_narration_before_generation(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            for folder in ('transcript', 'metadata', 'audio-description', 'exports'):
+                (root/folder).mkdir()
+            (root/'transcript/transcript.json').write_text('[]')
+            narration = root/'audio-description/old.wav'
+            narration.write_bytes(b'saved narration')
+            project = dict(
+                source='', sourceType='youtube', youtubeURL='https://www.youtube.com/watch?v=abcdefghijk',
+                duration=10, transcript=[], summary='Summary', exports=[],
+                cues=[dict(id='old', start=1, end=2, text='Old description',
+                           audio='audio-description/old.wav', audioText='Old description',
+                           audioSettings='system|voice|1|1|1')],
+            )
+            prompts = {key: dict(user_prompt='Generate', system_instruction='')
+                       for key in ('transcript', 'youtube_transcript', 'summary', 'audio_descriptions')}
+            client = Mock()
+            with patch.object(engine, 'config', return_value={'prompts': prompts}), \
+                 patch.object(engine, 'client_and_model', return_value=(client, 'gemini-video')), \
+                 patch.object(engine.gemini_adapter, 'video_interaction', side_effect=RuntimeError('generation failed')):
+                with self.assertRaisesRegex(ValueError, 'generation failed'):
+                    engine.ai_video(root, project, 'generate-ad-cues', max_attempts=1)
+            self.assertFalse(narration.exists())
+            self.assertEqual(project['cues'][0]['text'], 'Old description')
+            self.assertNotIn('audio', project['cues'][0])
+            self.assertNotIn('audioText', project['cues'][0])
+            self.assertNotIn('audioSettings', project['cues'][0])
 
     def test_clear_generated_preserves_source(self):
         with tempfile.TemporaryDirectory() as temp:
