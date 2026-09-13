@@ -9,7 +9,7 @@ This documentation is intended for the bundled macOS Help Viewer. The current ap
 - Projects: browser, list/grid, search, icon size, rename, independent windows, reopen, folders and backup.
 - Editor: player, timeline, transcript, summary, descriptions, AD Overview, AD Transcript, inspector.
 - Description authoring: add/edit/delete, timing, overlap, rewrite, frame text, origin and narration status, undo/redo.
-- Analysis: the streamlined video workflow, page-specific generation or replacement, automatic technical preparation, prerequisites, failure handling, and deletion.
+- Analysis: the complete and individual workflows, page-specific generation or regeneration, non-AI metadata and thumbnail preparation, prerequisites, failure handling, and deletion.
 - Narration: saved audio versus live speech, Apple and Gemini generation, voice selection, samples, fit, old-voice file preservation, indication sounds.
 - Export: closed or open Audio Description video, closed- or open-caption video, M4A narration, SRT/VTT/TXT/JSON text, completeness checks, and URL-backed YouTube limits.
 - Settings: Appearance, Projects, Narration, Gemini API, Developer prompts, Storage, Help; each visible control and its scope.

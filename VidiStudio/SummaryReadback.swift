@@ -210,11 +210,8 @@ final class SummaryReadbackModel: NSObject, @preconcurrency AVSpeechSynthesizerD
 
     var progressLabel: String {
         guard !sentences.isEmpty else { return "No summary to read" }
-        if let currentIndex, sentences.indices.contains(currentIndex) {
-            if isPaused { return "Paused at sentence \(currentIndex + 1) of \(sentences.count)" }
-            return "Reading sentence \(currentIndex + 1) of \(sentences.count)"
-        }
-        return isReading ? "Reading summary" : "Ready to read \(sentences.count) sentences"
+        if isPaused { return "Paused" }
+        return isReading ? "Reading summary" : "Ready to read"
     }
 
     /// A selection anchored inside a known sentence, usable as a read-from point.
@@ -363,24 +360,6 @@ final class SummaryReadbackModel: NSObject, @preconcurrency AVSpeechSynthesizerD
             isReading = false
             isPaused = false
         }
-    }
-
-    func next() {
-        guard !sentences.isEmpty else { return }
-        let target = (currentIndex ?? -1) + 1
-        guard sentences.indices.contains(target) else {
-            stop()
-            return
-        }
-        error = nil
-        restart(at: target)
-    }
-
-    func previous() {
-        guard !sentences.isEmpty else { return }
-        let target = max(0, (currentIndex ?? 1) - 1)
-        error = nil
-        restart(at: target)
     }
 
     // MARK: Display cache
@@ -1006,20 +985,6 @@ struct SummaryReaderView: View {
                 .disabled(!model.isReading && model.currentIndex == nil)
                 .help("Stop summary reading and clear highlighting")
                 .accessibilityLabel("Stop summary reading")
-
-            Button("Previous sentence", systemImage: "backward.fill") { model.previous() }
-                .buttonStyle(.bordered)
-                .labelStyle(.iconOnly)
-                .disabled(!hasSummary || model.sentences.isEmpty)
-                .help("Read the previous summary sentence")
-                .accessibilityLabel("Previous summary sentence")
-
-            Button("Next sentence", systemImage: "forward.fill") { model.next() }
-                .buttonStyle(.bordered)
-                .labelStyle(.iconOnly)
-                .disabled(!hasSummary || model.sentences.isEmpty)
-                .help("Read the next summary sentence")
-                .accessibilityLabel("Next summary sentence")
 
             Text(model.progressLabel)
                 .font(.callout)

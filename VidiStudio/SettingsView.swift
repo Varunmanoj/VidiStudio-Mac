@@ -185,14 +185,14 @@ struct SettingsView: View {
                             .font(.caption).foregroundStyle(.secondary)
                         ColorPicker("Sentence highlight", selection: summaryColorBinding(\.summarySentenceHighlight))
                             .accessibilityLabel("Sentence highlight background color")
-                            .accessibilityHint("Background color used for the summary sentence being read")
+                            .accessibilityHint("Background color used for the summary text being read")
                         ColorPicker("Spoken word highlight", selection: summaryColorBinding(\.summaryWordHighlight))
                             .accessibilityLabel("Spoken word highlight background color")
                             .accessibilityHint("Background color used for the word currently spoken in the summary")
                         Button("Restore Highlight Defaults", systemImage: "arrow.counterclockwise") {
                             studio.settings.restoreSummaryHighlightDefaults()
                         }
-                        .accessibilityHint("Restores the summary sentence and word highlight colors")
+                        .accessibilityHint("Restores the summary text and word highlight colors")
                     }
                     .padding(.vertical, 4)
                 }

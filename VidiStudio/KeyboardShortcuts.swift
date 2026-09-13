@@ -13,6 +13,7 @@ final class EditorShortcutActions {
     var hasDescriptions = false
     var hasGeneratedTranscript = false
     var hasGeneratedSummary = false
+    var hasGeneratedThumbnails = false
     var hasLocalSource = false
     var isYouTubeProject = false
     var exportableText: Set<String> = []
@@ -21,7 +22,7 @@ final class EditorShortcutActions {
     var summaryReadable = false
     var summaryIsReading = false
     var summaryIsPaused = false
-    /// A text selection anchored inside a summary sentence (read-from point).
+    /// A text selection anchored inside the summary (read-from point).
     var summaryHasSelection = false
     /// A non-empty summary text selection (read-selection content).
     var summaryHasTextSelection = false
@@ -43,9 +44,9 @@ final class EditorShortcutActions {
 
     var currentGenerationTitle: String? {
         switch activeSection {
-        case "transcript": return hasGeneratedTranscript ? "Replace Transcript…" : "Generate Transcript"
-        case "summary": return hasGeneratedSummary ? "Replace Summary…" : "Generate Summary"
-        case "descriptions": return hasDescriptions ? "Replace Descriptions…" : "Generate Descriptions"
+        case "transcript": return hasGeneratedTranscript ? "Regenerate Transcript…" : "Generate Transcript"
+        case "summary": return hasGeneratedSummary ? "Regenerate Summary…" : "Generate Summary"
+        case "descriptions": return hasDescriptions ? "Regenerate Audio Descriptions…" : "Generate Audio Descriptions"
         default: return nil
         }
     }
@@ -89,9 +90,9 @@ final class EditorShortcutActions {
         case "caption-off": return captionControlsAvailable
         case "caption-transcript": return captionControlsAvailable && hasTranscriptText
         case "caption-ad-transcript": return captionControlsAvailable && (hasTranscriptText || hasDescriptions)
-        case "transcribe": return activeSection == "transcript"
-        case "generate-summary": return activeSection == "summary"
-        case "generate-ad-cues": return activeSection == "descriptions" && canGenerateDescriptions
+        case "prepare-video": return true
+        case "transcribe", "generate-summary": return true
+        case "generate-ad-cues": return canGenerateDescriptions
         case "synthesize-tts", "synthesize-changed": return hasDescriptions
         case "delete-transcript": return hasGeneratedTranscript
         case "delete-summary": return hasGeneratedSummary
@@ -123,7 +124,7 @@ final class EditorShortcutActions {
     func canRunSummary(_ action: String) -> Bool {
         guard available, handler != nil, summaryActive, summaryReadable else { return false }
         switch action {
-        case "summary-play-pause", "summary-from-start", "summary-next", "summary-previous":
+        case "summary-play-pause", "summary-from-start":
             return true
         case "summary-from-selection":
             return summaryHasSelection
@@ -199,9 +200,9 @@ struct StudioShortcut: Identifiable {
         .init(id: "undo", title: "Undo Segment Edit", key: "z", modifiers: [.command, .option], spoken: "Command + Option + Z", group: "Editor"),
         .init(id: "redo", title: "Redo Segment Edit", key: "z", modifiers: [.command, .option, .shift], spoken: "Command + Option + Shift + Z", group: "Editor"),
         .init(id: "analyze", title: "Analyze Video…", key: "a", modifiers: [.command, .option, .shift], spoken: "Command + Option + Shift + A", group: "Analysis"),
-        .init(id: "transcribe", title: "Generate or Replace Transcript…", key: "t", modifiers: [.command, .option, .shift], spoken: "Command + Option + Shift + T", group: "Analysis"),
-        .init(id: "generate-summary", title: "Generate or Replace Summary…", key: "s", modifiers: [.command, .option, .shift], spoken: "Command + Option + Shift + S", group: "Analysis"),
-        .init(id: "generate-ad-cues", title: "Generate or Replace Descriptions…", key: "d", modifiers: [.command, .option, .shift], spoken: "Command + Option + Shift + D", group: "Analysis")
+        .init(id: "transcribe", title: "Generate or Regenerate Transcript…", key: "t", modifiers: [.command, .option, .shift], spoken: "Command + Option + Shift + T", group: "Analysis"),
+        .init(id: "generate-summary", title: "Generate or Regenerate Summary…", key: "s", modifiers: [.command, .option, .shift], spoken: "Command + Option + Shift + S", group: "Analysis"),
+        .init(id: "generate-ad-cues", title: "Generate or Regenerate Audio Descriptions…", key: "d", modifiers: [.command, .option, .shift], spoken: "Command + Option + Shift + D", group: "Analysis")
     ]
 }
 struct StudioCommands: Commands {
@@ -209,13 +210,6 @@ struct StudioCommands: Commands {
     @FocusedValue(\.editorShortcuts) private var editor
     @Environment(\.openWindow) private var openWindow
     var body: some Commands {
-        CommandGroup(after: .newItem) {
-            Button("Open Selected Project", systemImage: "macwindow.badge.plus") {
-                browser?.openSelectedProject?()
-            }
-            .keyboardShortcut("o", modifiers: .command)
-            .disabled(browser?.hasSelectedProject != true || browser?.openSelectedProject == nil)
-        }
         CommandGroup(after: .newItem) {
             Divider()
             Menu("Export", systemImage: "square.and.arrow.up") {
@@ -276,10 +270,6 @@ struct StudioCommands: Commands {
                 Divider()
                 Button("Stop Summary Reading", systemImage: "stop.fill") { editor?.run("summary-stop") }
                     .disabled(editor?.canRun("summary-stop") != true)
-                Button("Previous Summary Sentence", systemImage: "backward.fill") { editor?.run("summary-previous") }
-                    .disabled(editor?.canRun("summary-previous") != true)
-                Button("Next Summary Sentence", systemImage: "forward.fill") { editor?.run("summary-next") }
-                    .disabled(editor?.canRun("summary-next") != true)
             }
             .disabled(editor?.summaryActive != true)
         }
@@ -293,12 +283,17 @@ struct StudioCommands: Commands {
             Menu("Analysis") {
                 shortcutEntries(StudioShortcut.editor.filter { $0.id == "analyze" })
                 Divider()
-                Button(editor?.currentGenerationTitle ?? "Generate Current Page…", systemImage: editor?.currentGenerationIcon ?? "sparkles") {
-                    guard let action = editor?.currentGenerationAction else { return }
-                    editor?.run(action)
-                }
-                .keyboardShortcut(currentGenerationKey, modifiers: [.command, .option, .shift])
-                .disabled(editor?.currentGenerationAction == nil || editor?.canRun(editor?.currentGenerationAction ?? "") != true)
+                Button(editor?.hasGeneratedThumbnails == true ? "Regenerate Metadata & Thumbnails…" : "Generate Metadata & Thumbnails", systemImage: "photo.on.rectangle.angled") { editor?.run("prepare-video") }
+                    .disabled(editor?.canRun("prepare-video") != true)
+                Button(editor?.hasGeneratedTranscript == true ? "Regenerate Transcript…" : "Generate Transcript", systemImage: "text.bubble") { editor?.run("transcribe") }
+                    .keyboardShortcut("t", modifiers: [.command, .option, .shift])
+                    .disabled(editor?.canRun("transcribe") != true)
+                Button(editor?.hasGeneratedSummary == true ? "Regenerate Summary…" : "Generate Summary", systemImage: "text.alignleft") { editor?.run("generate-summary") }
+                    .keyboardShortcut("s", modifiers: [.command, .option, .shift])
+                    .disabled(editor?.canRun("generate-summary") != true)
+                Button(editor?.hasDescriptions == true ? "Regenerate Audio Descriptions…" : "Generate Audio Descriptions", systemImage: "sparkles") { editor?.run("generate-ad-cues") }
+                    .keyboardShortcut("d", modifiers: [.command, .option, .shift])
+                    .disabled(editor?.canRun("generate-ad-cues") != true)
             }
             Menu("Narration") {
                 Button("Synthesize Narration", systemImage: "speaker.wave.2") { editor?.run("synthesize-tts") }
@@ -323,13 +318,6 @@ struct StudioCommands: Commands {
     }
     @ViewBuilder private func entries(_ group: String) -> some View {
         shortcutEntries(StudioShortcut.editor.filter { $0.group == group })
-    }
-    private var currentGenerationKey: KeyEquivalent {
-        switch editor?.activeSection {
-        case "summary": return "s"
-        case "descriptions": return "d"
-        default: return "t"
-        }
     }
     private var captionModeTitle: String {
         switch editor?.captionDisplayMode {
@@ -377,9 +365,8 @@ struct ShortcutReferenceView: View {
         VStack(alignment: .leading, spacing: 14) {
             Text("Keyboard Shortcuts").font(.title2).accessibilityAddTraits(.isHeader)
             Text("These shortcuts apply to the native macOS app. Editor commands are available with a project open and no editing sheet or processing operation active.")
-            Text("The File menu contains Export with Video, Audio, and Text submenus. Playback contains the Transcript Overlay controls while Transcript, Descriptions, or AD Transcript is open. The Project menu groups editor sections, segment commands, analysis, and narration. Analyze Video creates the transcript, summary, and descriptions in order. Page-specific generation shortcuts use Command + Option + Shift and are enabled only on the matching editor page. Existing content is replaced only after confirmation.")
+            Text("The File menu contains Export with Video, Audio, and Text submenus. Playback contains Transcript Overlay controls while Transcript, Descriptions, or AD Transcript is open. Project > Analysis contains non-AI metadata and thumbnail preparation, Analyze Video, and the individual Transcript, Summary, and Audio Description stages. The inspector stays specific to its open section. Existing content is regenerated only after confirmation.")
             shortcutRow("New Project", value: "Command + N")
-            shortcutRow("Open Selected Project", value: "Command + O")
             shortcutRow("Open Project Folder", value: "Command + Shift + O")
             shortcutRow("Rename Selected Project", value: "Return; All Projects")
             shortcutRow("Settings", value: "Command + Comma")

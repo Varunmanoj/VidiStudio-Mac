@@ -74,6 +74,51 @@ class Validation(unittest.TestCase):
                 engine.ensure_unique_youtube_video(library, 'https://youtu.be/4fYlQtcm6qY')
             engine.ensure_unique_youtube_video(library, 'https://youtu.be/abcdefghijk')
 
+    def test_prepare_video_refreshes_local_metadata_and_thumbnails_without_ai(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            for folder in ('source', 'metadata', 'thumbnails'):
+                (root/folder).mkdir()
+            source = root/'source/video.mp4'
+            source.write_bytes(b'video')
+            project = dict(source='source/video.mp4', sourceType='upload', duration=1,
+                           width=1, height=1, hasAudio=False, thumbnails=[])
+            info = {'format': {'duration': '12.5'}, 'streams': [
+                {'codec_type': 'video', 'width': 1920, 'height': 1080},
+                {'codec_type': 'audio'},
+            ]}
+            with patch.object(engine, 'ensure_supported_local_video'), \
+                 patch.object(engine, 'probe', return_value=info), \
+                 patch.object(engine, 'thumbnails') as thumbnails, \
+                 patch.object(engine, 'emit'):
+                engine.parity.prepare_video(root, project, engine)
+            self.assertEqual(project['duration'], 12.5)
+            self.assertEqual((project['width'], project['height'], project['hasAudio']), (1920, 1080, True))
+            self.assertEqual(json.loads((root/'metadata/probe.json').read_text()), info)
+            thumbnails.assert_called_once_with(root, project)
+
+    def test_prepare_youtube_video_refreshes_metadata_without_ai(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            (root/'metadata').mkdir()
+            (root/'thumbnails').mkdir()
+            project = dict(name='YouTube video', source='', sourceType='youtube',
+                           youtubeURL='https://youtu.be/abcdefghijk', thumbnails=[])
+            response = Mock()
+            response.__enter__ = Mock(return_value=response)
+            response.__exit__ = Mock(return_value=False)
+            response.__iter__ = Mock()
+            with patch.object(engine.parity, 'urlopen', return_value=response), \
+                 patch.object(engine.parity.json, 'load', return_value={'title': 'Example Video'}), \
+                 patch.object(engine.parity, 'download_youtube_thumbnail', return_value='thumbnails/youtube-thumbnail.jpg'), \
+                 patch.object(engine, 'emit'):
+                engine.parity.prepare_video(root, project, engine)
+            self.assertEqual(project['name'], 'Example Video')
+            self.assertEqual(project['thumbnails'], ['thumbnails/youtube-thumbnail.jpg'])
+            metadata = json.loads((root/'metadata/source.json').read_text())
+            self.assertEqual(metadata['sourceType'], 'youtube')
+            self.assertEqual(metadata['youtubeURL'], 'https://www.youtube.com/watch?v=abcdefghijk')
+
     def test_read_and_speak_voice_resolution(self):
         preferences = {
             'SpokenContentDefaultVoiceSelectionsByLanguage': [

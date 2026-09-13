@@ -1,6 +1,37 @@
 import SwiftUI
 import AppKit
 
+struct ProjectAnalysisMenu: View {
+    let project: StudioProject
+    let busy: Bool
+    let perform: (String) -> Void
+
+    var body: some View {
+        Menu("Analysis", systemImage: "sparkles") {
+            Button(project.thumbnails.isEmpty ? "Generate Metadata & Thumbnails" : "Regenerate Metadata & Thumbnails…", systemImage: "photo.on.rectangle.angled") {
+                perform("prepare-video")
+            }
+            .help("Refresh video metadata and thumbnails without using AI")
+            Divider()
+            Button("Analyze Video…", systemImage: "sparkles") { perform("analyze") }
+                .help("Generate the transcript, summary, and Audio Descriptions in sequence")
+            Divider()
+            Button(project.hasGeneratedTranscript ? "Regenerate Transcript…" : "Generate Transcript", systemImage: "text.bubble") {
+                perform("transcribe")
+            }
+            Button(project.summary.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? "Generate Summary" : "Regenerate Summary…", systemImage: "text.alignleft") {
+                perform("generate-summary")
+            }
+            Button(project.cues.isEmpty ? "Generate Audio Descriptions" : "Regenerate Audio Descriptions…", systemImage: "sparkles") {
+                perform("generate-ad-cues")
+            }
+            .disabled(!project.canGenerateDescriptions)
+            .help(project.canGenerateDescriptions ? "Generate timed Audio Description text" : "Generate the transcript and summary first")
+        }
+        .disabled(busy)
+    }
+}
+
 struct ProjectBrowserPage: View {
     let projects: [StudioProject]
     @Binding var search: String
@@ -14,7 +45,7 @@ struct ProjectBrowserPage: View {
     let openEditor: (StudioProject) -> Void
     let rename: (StudioProject) -> Void
     let delete: (StudioProject) -> Void
-    let process: (StudioProject) -> Void
+    let process: (StudioProject, String) -> Void
     let export: (StudioProject, StudioExportAction) -> Void
     let clear: (StudioProject) -> Void
 
@@ -171,12 +202,15 @@ struct ProjectBrowserPage: View {
         .navigationTitle("All Projects")
         .safeAreaInset(edge: .bottom) {
             HStack(spacing: 8) {
-                SettingsLink {
-                    Label("Settings", systemImage: "gearshape")
-                        .labelStyle(.iconOnly)
+                Button("Show Selected Project in Finder", systemImage: "folder") {
+                    guard let selection,
+                          let folder = projects.first(where: { $0.id == selection })?.folder else { return }
+                    NSWorkspace.shared.open(folder)
                 }
-                .help("Open VidiStudio Settings")
-                .accessibilityLabel("Settings")
+                .labelStyle(.iconOnly)
+                .help("Open the selected project’s folder in Finder")
+                .accessibilityLabel("Show Selected Project in Finder")
+                .disabled(busy || projects.first(where: { $0.id == selection })?.folder == nil)
                 Spacer()
                 if grid {
                     Image(systemName: "square.grid.3x3")
@@ -190,6 +224,12 @@ struct ProjectBrowserPage: View {
                         .font(.title3)
                         .accessibilityHidden(true)
                 }
+                SettingsLink {
+                    Label("Settings", systemImage: "gearshape")
+                        .labelStyle(.iconOnly)
+                }
+                .help("Open VidiStudio Settings")
+                .accessibilityLabel("Settings")
             }
             .padding(.horizontal, 16)
             .padding(.vertical, 8)
@@ -211,10 +251,9 @@ struct ProjectBrowserPage: View {
         Button("Open in Project Folder", systemImage: "folder") {
             if let folder = project.folder { NSWorkspace.shared.open(folder) }
         }
-        Button("Analyze Video…", systemImage: "sparkles") {
-            process(project)
+        ProjectAnalysisMenu(project: project, busy: busy) { command in
+            process(project, command)
         }
-        .disabled(busy)
         ProjectExportMenu(project: project, busy: busy) { action in
             export(project, action)
         }

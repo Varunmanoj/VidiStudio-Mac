@@ -6,7 +6,7 @@ from urllib.request import urlopen
 import gemini_adapter
 import ssl
 import certifi
-COMMANDS=['import-youtube','validate-config','analyze','regenerate-all','capture-frame','rewrite-cue','export-subtitles','export-audio','rename-project','undo-cues','redo-cues','update-metadata','attach-video','delete-export']
+COMMANDS=['import-youtube','prepare-video','validate-config','analyze','regenerate-all','capture-frame','rewrite-cue','export-subtitles','export-audio','rename-project','undo-cues','redo-cues','update-metadata','attach-video','delete-export']
 
 def youtube_url(raw):
     parsed=urlparse(raw)
@@ -41,6 +41,35 @@ def download_youtube_thumbnail(root, video_id):
         (root/relative).write_bytes(data)
         return relative
     except Exception:return None
+
+def prepare_video(root,p,e):
+    """Refresh technical metadata and thumbnails without invoking an AI model."""
+    if p.get('sourceType') == 'youtube':
+        url=youtube_url(p.get('youtubeURL',''));ident=url.split('=')[-1]
+        e.emit('Refreshing YouTube video metadata',progress=.2)
+        title=''
+        try:
+            with urlopen('https://www.youtube.com/oembed?format=json&url='+url,timeout=10,context=ssl.create_default_context(cafile=certifi.where())) as r:
+                title=str(json.load(r).get('title') or '').strip()
+        except Exception:pass
+        placeholders=('YouTube video','YouTube Project','YouTube '+ident)
+        if title and p.get('name') in placeholders:p['name']=title[:200]
+        thumbnail=download_youtube_thumbnail(root,ident)
+        if thumbnail:p['thumbnails']=[thumbnail]
+        e.atomic_json(root/'metadata/source.json',dict(sourceType='youtube',youtubeURL=url,title=title or p.get('name','')))
+        e.emit('YouTube metadata and thumbnail refreshed',progress=1)
+        return
+    if not p.get('source'):raise ValueError('This project has no local video source.')
+    source=e.local(root,p['source']);e.ensure_supported_local_video(source)
+    e.emit('Reading video metadata',progress=.1)
+    info=e.probe(source);streams=info['streams'];video=next((s for s in streams if s.get('codec_type')=='video'),None)
+    if not video:raise ValueError('The selected file has no video stream.')
+    duration=float(info['format'].get('duration',video.get('duration',0)))
+    if not math.isfinite(duration) or duration<=0:raise ValueError('The video duration could not be determined.')
+    p['duration']=duration;p['width']=video.get('width',0);p['height']=video.get('height',0)
+    p['hasAudio']=any(s.get('codec_type')=='audio' for s in streams)
+    e.atomic_json(root/'metadata/probe.json',info)
+    e.thumbnails(root,p)
 
 def timestamp(value):
     if isinstance(value,str) and ':' in value:
@@ -122,6 +151,8 @@ def execute(args,root,p,e):
         thumbnail=download_youtube_thumbnail(root,ident)
         p=dict(schemaVersion=1,id=str(uuid.uuid4()),name=name,source='',sourceType='youtube',youtubeURL=url,duration=args.duration or 0,width=0,height=0,hasAudio=True,createdAt=time.time(),updatedAt=time.time(),thumbnails=[thumbnail] if thumbnail else [],transcript=[],summary='',cues=[],exports=[],status='Imported')
         e.save(root,p);e.emit('YouTube project imported',project=str(root));return
+    if command=='prepare-video':
+        prepare_video(root,p,e);return
     if command in ('analyze', 'regenerate-all'):
         stages=['transcribe','generate-summary','generate-ad-cues']
         if args.start_stage not in stages:raise ValueError('Unknown analysis stage.')

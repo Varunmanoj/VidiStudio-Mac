@@ -229,7 +229,7 @@ struct ContentView: View {
             openEditor: openEditor,
             rename: { p in studio.selectedID = p.id; rename = p.name; renaming = true },
             delete: { studio.trashProject($0) },
-            process: { p in studio.selectedID = p.id; studio.execute("analyze", project: p) },
+            process: { p, command in studio.selectedID = p.id; studio.execute(command, project: p) },
             export: { project, action in
                 studio.execute(action.command, extra: action.arguments, project: project)
             },
@@ -240,9 +240,7 @@ struct ContentView: View {
             showProjects: nil,
             showInspector: nil,
             grid: $projectGrid,
-            hasProject: false,
-            hasSelectedProject: studio.selected != nil,
-            openSelectedProject: { if let project = studio.selected { openEditor(project) } }
+            hasProject: false
         ))
         .preferredColorScheme(studio.settings.theme == "dark" ? .dark : studio.settings.theme == "light" ? .light : nil)
         .sheet(isPresented: $renaming) {
@@ -321,9 +319,7 @@ struct ProjectEditorWindow: View {
             showProjects: nil,
             showInspector: $showInspector,
             grid: nil,
-            hasProject: studio.selected != nil,
-            hasSelectedProject: false,
-            openSelectedProject: nil
+            hasProject: studio.selected != nil
         ))
         // Keep the focused command bridge above the playhead-driven editor.
         // Its identity now remains stable while playback updates every 150 ms,
@@ -388,16 +384,19 @@ struct ProcessingInspector: View {
     }
 
     var body: some View {
-        ScrollView {
-            VStack(alignment: .leading, spacing: 12) {
-                if let p = studio.selected {
-                    GroupBox("Analysis") {
-                        Button("Analyze Video…", systemImage: "sparkles") { editorActions.run("analyze") }
-                            .disabled(!editorActions.canRun("analyze"))
-                            .help("Create the transcript, summary, and audio descriptions in sequence; existing analysis is replaced only after confirmation")
-                    }
-                    if let sectionTitle = currentSectionTitle {
-                        GroupBox(sectionTitle) {
+        VStack(spacing: 0) {
+            if let project = studio.selected {
+                ProjectVideoInformationView(project: project)
+                    .padding(.horizontal, 20)
+                    .padding(.top, 20)
+                    .padding(.bottom, 12)
+                Divider()
+            }
+            ScrollView {
+                VStack(alignment: .leading, spacing: 12) {
+                    if let p = studio.selected {
+                        if let sectionTitle = currentSectionTitle {
+                            GroupBox(sectionTitle) {
                             VStack(alignment: .leading, spacing: 8) {
                                 if let action = editorActions.currentGenerationAction,
                                    let title = editorActions.currentGenerationTitle {
@@ -409,9 +408,11 @@ struct ProcessingInspector: View {
                                         .disabled(!editorActions.canRun(action))
                                         .help(action == "generate-ad-cues" && !p.canGenerateDescriptions
                                             ? "Generate the transcript and summary first"
-                                            : title.hasPrefix("Replace")
-                                                ? "Replace the current \(sectionTitle.lowercased()) after confirmation"
-                                                : "Generate the \(sectionTitle.lowercased()) for this project")
+                                            : action == "prepare-video"
+                                                ? "Read technical video metadata and create timeline thumbnails without using AI"
+                                                : title.hasPrefix("Regenerate")
+                                                    ? "Regenerate the current \(sectionTitle.lowercased()) after confirmation"
+                                                    : "Generate the \(sectionTitle.lowercased()) for this project")
                                         if let component = currentComponent, component.hasContent(in: p) {
                                             Button("Delete \(component.title)", systemImage: "trash", role: .destructive) {
                                                 studio.confirmDeleteGeneratedContent(p, component: component)
@@ -455,43 +456,105 @@ struct ProcessingInspector: View {
                                     .disabled(studio.busy)
                                 }
                             }
+                            }
                         }
-                    }
-                    GroupBox("Export") {
-                        ProjectExportMenu(
-                            project: p,
-                            busy: studio.busy,
-                            perform: { action in studio.execute(action.command, extra: action.arguments) }
-                        )
-                        .help("Export video, narration audio, or text in the format you need")
-                    }
-                    GroupBox("Project") {
-                        Button("Show Project in Finder", systemImage: "folder") { if let folder = p.folder { NSWorkspace.shared.open(folder) } }
-                            .help("Open this project’s local folder in Finder")
-                    }
-                    if !p.exports.isEmpty {
-                        GroupBox("Created Exports") {
-                            VStack(alignment: .leading, spacing: 8) {
-                                ForEach(p.exports, id: \.self) { path in
-                                    HStack(spacing: 6) {
-                                        Button(URL(fileURLWithPath: path).lastPathComponent, systemImage: "play.rectangle") {
-                                            if let url = p.url(path) { NSWorkspace.shared.open(url) }
+                        GroupBox("Export") {
+                            VStack(alignment: .leading, spacing: 10) {
+                                ProjectExportMenu(
+                                    project: p,
+                                    busy: studio.busy,
+                                    perform: { action in studio.execute(action.command, extra: action.arguments) }
+                                )
+                                .help("Export video, narration audio, or text in the format you need")
+                                if !p.exports.isEmpty {
+                                    Divider()
+                                    Text("Created Exports")
+                                        .font(.headline)
+                                    ForEach(p.exports, id: \.self) { path in
+                                        HStack(spacing: 6) {
+                                            Button(URL(fileURLWithPath: path).lastPathComponent, systemImage: "play.rectangle") {
+                                                if let url = p.url(path) { NSWorkspace.shared.open(url) }
+                                            }
+                                            .frame(maxWidth: .infinity, alignment: .leading)
+                                            Button("Delete Export", systemImage: "trash", role: .destructive) {
+                                                studio.confirmDeleteExport(p, path: path)
+                                            }
+                                            .labelStyle(.iconOnly)
+                                            .help("Delete \(URL(fileURLWithPath: path).lastPathComponent)")
+                                            .disabled(studio.busy)
                                         }
-                                        .frame(maxWidth: .infinity, alignment: .leading)
-                                        Button("Delete Export", systemImage: "trash", role: .destructive) {
-                                            studio.confirmDeleteExport(p, path: path)
-                                        }
-                                        .labelStyle(.iconOnly)
-                                        .help("Delete \(URL(fileURLWithPath: path).lastPathComponent)")
-                                        .disabled(studio.busy)
                                     }
                                 }
                             }
                         }
                     }
+                }.padding(20)
+            }
+            Divider()
+            HStack {
+                if let p = studio.selected {
+                    Button("Show Project in Finder", systemImage: "folder") {
+                        if let folder = p.folder { NSWorkspace.shared.open(folder) }
+                    }
+                    .labelStyle(.iconOnly)
+                    .help("Open this project’s folder in Finder")
+                    .accessibilityLabel("Show Project in Finder")
+                    .disabled(p.folder == nil)
                 }
-            }.padding(20)
+                Spacer()
+                SettingsLink {
+                    Label("Settings", systemImage: "gearshape")
+                        .labelStyle(.iconOnly)
+                }
+                .help("Open VidiStudio Settings")
+                .accessibilityLabel("Settings")
+            }
+            .controlSize(.regular)
+            .padding(.horizontal, 16)
+            .padding(.vertical, 10)
         }
+    }
+}
+
+private struct ProjectVideoInformationView: View {
+    let information: ProjectVideoInformation
+
+    init(project: StudioProject) {
+        information = ProjectVideoInformation(project: project)
+    }
+
+    var body: some View {
+        GroupBox("Video Information") {
+            VStack(alignment: .leading, spacing: 5) {
+                informationRow("Project", information.projectName)
+                informationRow("Source", information.source)
+                informationRow(information.sourceDetailLabel, information.sourceDetail)
+                informationRow("Duration", information.duration)
+                informationRow("Frame Rate", information.frameRate)
+                informationRow("Resolution", information.resolution)
+                informationRow("Video", information.videoCodec)
+                informationRow("Audio", information.audio)
+                informationRow("Container", information.container)
+                if let fileSize = information.fileSize {
+                    informationRow("File Size", fileSize)
+                }
+            }
+            .font(.caption)
+            .accessibilityElement(children: .contain)
+            .accessibilityLabel("Video information")
+        }
+    }
+
+    private func informationRow(_ label: String, _ value: String) -> some View {
+        LabeledContent(label) {
+            Text(value)
+                .foregroundStyle(.secondary)
+                .multilineTextAlignment(.trailing)
+                .lineLimit(2)
+                .help(value)
+        }
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel("\(label): \(value)")
     }
 }
 
@@ -599,12 +662,12 @@ struct ProjectEditor: View {
     private var generationAction: (command: String, title: String, icon: String)? {
         switch tab {
         case "transcript":
-            return ("transcribe", project.hasGeneratedTranscript ? "Replace Transcript…" : "Generate Transcript", "text.bubble")
+            return ("transcribe", project.hasGeneratedTranscript ? "Regenerate Transcript…" : "Generate Transcript", "text.bubble")
         case "summary":
             let hasSummary = !project.summary.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
-            return ("generate-summary", hasSummary ? "Replace Summary…" : "Generate Summary", "text.alignleft")
+            return ("generate-summary", hasSummary ? "Regenerate Summary…" : "Generate Summary", "text.alignleft")
         case "descriptions":
-            return ("generate-ad-cues", project.cues.isEmpty ? "Generate Descriptions" : "Replace Descriptions…", "sparkles")
+            return ("generate-ad-cues", project.cues.isEmpty ? "Generate Audio Descriptions" : "Regenerate Audio Descriptions…", "sparkles")
         default:
             return nil
         }
@@ -726,7 +789,7 @@ struct ProjectEditor: View {
                     .disabled(studio.busy || (action.command == "generate-ad-cues" && !project.canGenerateDescriptions))
                     .help(action.command == "generate-ad-cues" && !project.canGenerateDescriptions
                         ? "Generate the transcript and summary first"
-                        : action.title.hasPrefix("Replace") ? "Replace the existing content after confirmation" : "Generate content for this section")
+                        : action.command == "prepare-video" ? "Read video metadata and create timeline thumbnails without using AI" : action.title.hasPrefix("Regenerate") ? "Regenerate the existing content after confirmation" : "Generate content for this section")
                     .fixedSize()
             }
             if tab == "descriptions" {
@@ -1123,8 +1186,6 @@ struct ProjectEditor: View {
         case "summary-from-start": summaryReader.playFromStart()
         case "summary-from-selection": summaryReader.playFromSelection()
         case "summary-read-selection": summaryReader.readSelectedText()
-        case "summary-next": summaryReader.next()
-        case "summary-previous": summaryReader.previous()
         case "add": presentNewSegment()
         case "delete-narration": studio.confirmDeleteGeneratedContent(project, component: .narration)
         case "delete-transcript": studio.confirmDeleteGeneratedContent(project, component: .transcript)
@@ -1135,7 +1196,7 @@ struct ProjectEditor: View {
         case "synthesize-tts": studio.execute(action)
         case "synthesize-changed": studio.execute("synthesize-tts", extra: ["--changed"])
         case "show-in-finder": if let folder = project.folder { NSWorkspace.shared.open(folder) }
-        case "analyze", "transcribe", "generate-summary": studio.execute(action)
+        case "analyze", "prepare-video", "transcribe", "generate-summary": studio.execute(action)
         case "generate-ad-cues":
             if project.canGenerateDescriptions { studio.execute(action) }
         default: break
@@ -1159,6 +1220,7 @@ struct ProjectEditor: View {
         shortcutActions.hasDescriptions = GeneratedContentComponent.descriptions.hasContent(in: project)
         shortcutActions.hasGeneratedTranscript = GeneratedContentComponent.transcript.hasContent(in: project)
         shortcutActions.hasGeneratedSummary = GeneratedContentComponent.summary.hasContent(in: project)
+        shortcutActions.hasGeneratedThumbnails = !project.thumbnails.isEmpty
         shortcutActions.hasLocalSource = !project.source.isEmpty
         shortcutActions.isYouTubeProject = project.isYouTubeURLProject
         shortcutActions.exportableText = Set(["transcript", "summary", "descriptions", "combined"].filter { project.canExportText($0) })

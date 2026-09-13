@@ -9,7 +9,7 @@ struct ProjectGridView: View {
     let open: (StudioProject) -> Void
     let rename: (StudioProject) -> Void
     let delete: (StudioProject) -> Void
-    let process: (StudioProject) -> Void
+    let process: (StudioProject, String) -> Void
     let export: (StudioProject, StudioExportAction) -> Void
     let clear: (StudioProject) -> Void
 
@@ -51,7 +51,9 @@ struct ProjectGridView: View {
                         Button("Open in Project Folder", systemImage: "folder") {
                             if let folder = project.folder { NSWorkspace.shared.open(folder) }
                         }
-                        Button("Analyze Video…", systemImage: "sparkles") { process(project) }.disabled(busy)
+                        ProjectAnalysisMenu(project: project, busy: busy) { command in
+                            process(project, command)
+                        }
                         ProjectExportMenu(project: project, busy: busy) { action in
                             export(project, action)
                         }
@@ -110,8 +112,6 @@ struct ProjectBrowserActions {
     var showInspector: Binding<Bool>?
     var grid: Binding<Bool>?
     var hasProject: Bool
-    var hasSelectedProject: Bool
-    var openSelectedProject: (() -> Void)?
 }
 private struct ProjectBrowserKey: FocusedValueKey { typealias Value = ProjectBrowserActions }
 extension FocusedValues {

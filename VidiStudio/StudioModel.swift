@@ -212,6 +212,135 @@ struct StudioProject: Codable, Identifiable {
         return resolved
     }
 }
+
+struct ProjectVideoInformation {
+    let projectName: String
+    let source: String
+    let sourceDetailLabel: String
+    let sourceDetail: String
+    let duration: String
+    let frameRate: String
+    let resolution: String
+    let videoCodec: String
+    let audio: String
+    let container: String
+    let fileSize: String?
+
+    init(project: StudioProject) {
+        let probe = Self.loadProbe(project)
+        let streams = probe?["streams"] as? [[String: Any]] ?? []
+        let video = streams.first { $0["codec_type"] as? String == "video" }
+        let audioStream = streams.first { $0["codec_type"] as? String == "audio" }
+        let format = probe?["format"] as? [String: Any]
+
+        projectName = project.name
+        source = project.isYouTubeURLProject ? "YouTube" : "Local Video"
+        sourceDetailLabel = project.isYouTubeURLProject ? "Video ID" : "File"
+        if project.isYouTubeURLProject {
+            sourceDetail = project.youtubeURL.flatMap(StudioModel.youtubeVideoID(from:)) ?? "Not available"
+        } else {
+            let filename = URL(fileURLWithPath: project.source).lastPathComponent
+            sourceDetail = filename.isEmpty ? "Not available" : filename
+        }
+
+        let probedDuration = Self.number(format?["duration"]) ?? Self.number(video?["duration"])
+        duration = Self.duration(project.duration > 0 ? project.duration : probedDuration)
+
+        let width = project.width > 0 ? project.width : Self.integer(video?["width"])
+        let height = project.height > 0 ? project.height : Self.integer(video?["height"])
+        resolution = width > 0 && height > 0 ? "\(width) × \(height)" : "Not available"
+
+        let rate = Self.rate(video?["avg_frame_rate"]) ?? Self.rate(video?["r_frame_rate"])
+        frameRate = rate.map(Self.frameRate) ?? "Not available"
+        videoCodec = Self.codecDescription(video) ?? "Not available"
+        audio = Self.audioDescription(audioStream, hasAudio: project.hasAudio)
+        container = Self.text(format?["format_long_name"])
+            ?? Self.text(format?["format_name"])?.replacingOccurrences(of: ",", with: ", ")
+            ?? (project.isYouTubeURLProject ? "YouTube stream" : "Not available")
+
+        let byteCount = Self.integer64(format?["size"]) ?? Self.localFileSize(project)
+        fileSize = byteCount.map {
+            ByteCountFormatter.string(fromByteCount: $0, countStyle: .file)
+        }
+    }
+
+    private static func loadProbe(_ project: StudioProject) -> [String: Any]? {
+        guard let url = project.url("metadata/probe.json"),
+              let data = try? Data(contentsOf: url),
+              let object = try? JSONSerialization.jsonObject(with: data) else { return nil }
+        return object as? [String: Any]
+    }
+
+    private static func localFileSize(_ project: StudioProject) -> Int64? {
+        guard !project.isYouTubeURLProject,
+              let url = project.url(project.source),
+              let attributes = try? FileManager.default.attributesOfItem(atPath: url.path),
+              let size = attributes[.size] as? NSNumber else { return nil }
+        return size.int64Value
+    }
+
+    private static func text(_ value: Any?) -> String? {
+        guard let value = value as? String else { return nil }
+        let trimmed = value.trimmingCharacters(in: .whitespacesAndNewlines)
+        return trimmed.isEmpty ? nil : trimmed
+    }
+
+    private static func number(_ value: Any?) -> Double? {
+        if let number = value as? NSNumber { return number.doubleValue }
+        guard let text = text(value), let number = Double(text), number.isFinite else { return nil }
+        return number
+    }
+
+    private static func integer(_ value: Any?) -> Int {
+        if let number = value as? NSNumber { return number.intValue }
+        return text(value).flatMap(Int.init) ?? 0
+    }
+
+    private static func integer64(_ value: Any?) -> Int64? {
+        if let number = value as? NSNumber { return number.int64Value }
+        return text(value).flatMap(Int64.init)
+    }
+
+    private static func rate(_ value: Any?) -> Double? {
+        guard let raw = text(value) else { return nil }
+        let parts = raw.split(separator: "/", omittingEmptySubsequences: false)
+        let result: Double?
+        if parts.count == 2, let numerator = Double(parts[0]), let denominator = Double(parts[1]), denominator != 0 {
+            result = numerator / denominator
+        } else {
+            result = Double(raw)
+        }
+        guard let result, result.isFinite, result > 0 else { return nil }
+        return result
+    }
+
+    private static func frameRate(_ value: Double) -> String {
+        if abs(value.rounded() - value) < 0.005 { return "\(Int(value.rounded())) fps" }
+        return String(format: "%.2f fps", value)
+    }
+
+    private static func duration(_ value: Double?) -> String {
+        guard let value, value.isFinite, value > 0 else { return "Not available" }
+        let seconds = Int(value.rounded())
+        let hours = seconds / 3_600
+        let minutes = seconds / 60 % 60
+        let remainder = seconds % 60
+        return hours > 0
+            ? String(format: "%d:%02d:%02d", hours, minutes, remainder)
+            : String(format: "%d:%02d", minutes, remainder)
+    }
+
+    private static func codecDescription(_ stream: [String: Any]?) -> String? {
+        text(stream?["codec_long_name"]) ?? text(stream?["codec_name"])?.uppercased()
+    }
+
+    private static func audioDescription(_ stream: [String: Any]?, hasAudio: Bool) -> String {
+        guard let stream else { return hasAudio ? "Present" : "No audio track" }
+        let codec = codecDescription(stream) ?? "Audio track"
+        guard let channels = number(stream["channels"]).map(Int.init), channels > 0 else { return codec }
+        return "\(codec), \(channels) ch"
+    }
+}
 enum SystemCaptionPreferences {
     static var prefersSubtitlesAndSDH: Bool {
         let characteristics = MACaptionAppearanceCopyPreferredCaptioningMediaCharacteristics(.user)
@@ -825,17 +954,22 @@ final class StudioModel {
         let impact: String
         switch command {
         case "regenerate-all": impact = "All generated content, including transcripts, summaries, AD segments, narration, subtitles, exports, thumbnails, and edit history, will be deleted. The transcript, summary, and AD segments will then be recreated. Your original video and project are kept. Generate narration and exports separately afterward. If analysis fails, deleted content will not be restored."
-        case "generate-summary": impact = "Only the summary will be overwritten. Other content will be kept."
-        case "generate-ad-cues": impact = "The Audio Description segments and their rows in AD Transcript will be replaced. Any generated narration audio for those descriptions will be deleted immediately before description generation starts. Other project content and existing exports will be kept. New narration is not generated automatically. If description generation then fails, deleted narration audio will not be restored."
-        case "transcribe": impact = "Only the transcription will be overwritten. Other content will be kept."
-        default: impact = "The transcript, summary, Audio Description segments, and AD Transcript rows will be replaced. Any generated narration audio for the current descriptions will be deleted immediately before the description stage starts. Existing exports will be kept, and new narration is not generated automatically. If description generation then fails, deleted narration audio will not be restored."
+        case "generate-summary": impact = "Only the summary will be regenerated. Other content will be kept."
+        case "generate-ad-cues": impact = "The Audio Description segments and their rows in AD Transcript will be regenerated. Any generated narration audio for those descriptions will be deleted immediately before description generation starts. Other project content and existing exports will be kept. New narration is not generated automatically. If description generation then fails, deleted narration audio will not be restored."
+        case "transcribe": impact = "Only the transcript will be regenerated. Other content will be kept."
+        default: impact = "The transcript, summary, Audio Description segments, and AD Transcript rows will be regenerated. Any generated narration audio for the current descriptions will be deleted immediately before the description stage starts. Existing exports will be kept, and new narration is not generated automatically. If description generation then fails, deleted narration audio will not be restored."
         }
         let alert = NSAlert()
-        alert.messageText = command == "regenerate-all" ? "Regenerate all content in “\(current.name)”?" : "Replace existing content in “\(current.name)”?"
+        switch command {
+        case "transcribe": alert.messageText = "Regenerate transcript in “\(current.name)”?"
+        case "generate-summary": alert.messageText = "Regenerate summary in “\(current.name)”?"
+        case "generate-ad-cues": alert.messageText = "Regenerate Audio Descriptions in “\(current.name)”?"
+        default: alert.messageText = "Reanalyze “\(current.name)”?"
+        }
         alert.informativeText = (existing.isEmpty ? "" : "This project already contains \(existing.joined(separator: ", ")). ") + impact + " Do you want to continue?"
         alert.alertStyle = .warning
         alert.addButton(withTitle: "Cancel")
-        alert.addButton(withTitle: "Continue Analysis")
+        alert.addButton(withTitle: command == "analyze" ? "Reanalyze" : "Regenerate")
         return alert.runModal() == .alertSecondButtonReturn
     }
 
