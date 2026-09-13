@@ -40,5 +40,5 @@ class Parity(unittest.TestCase):
             parity.execute(args,root,project,e)
             self.assertNotIn(deleted,project['exports'])
             self.assertFalse((root/deleted).exists())
-            self.assertTrue(any((root/'metadata/trash').iterdir()))
+            self.assertFalse((root/'metadata/trash').exists())
 if __name__=='__main__':unittest.main()

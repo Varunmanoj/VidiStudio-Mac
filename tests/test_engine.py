@@ -115,9 +115,7 @@ class Validation(unittest.TestCase):
                 engine.parity.prepare_video(root, project, engine)
             self.assertEqual(project['name'], 'Example Video')
             self.assertEqual(project['thumbnails'], ['thumbnails/youtube-thumbnail.jpg'])
-            metadata = json.loads((root/'metadata/source.json').read_text())
-            self.assertEqual(metadata['sourceType'], 'youtube')
-            self.assertEqual(metadata['youtubeURL'], 'https://www.youtube.com/watch?v=abcdefghijk')
+            self.assertFalse((root/'metadata/source.json').exists())
 
     def test_read_and_speak_voice_resolution(self):
         preferences = {
@@ -155,13 +153,12 @@ class Validation(unittest.TestCase):
             (root/'transcript').mkdir()
             with self.assertRaisesRegex(ValueError, 'Run transcription first'):
                 engine.validate_analysis_prerequisites('generate-ad-cues', root, {'transcript': [], 'summary': 'Summary'})
-            (root/'transcript/transcript.json').write_text('[]')
             with self.assertRaisesRegex(ValueError, 'Generate the summary first'):
-                engine.validate_analysis_prerequisites('generate-ad-cues', root, {'transcript': [{'text': 'Dialogue'}], 'summary': '   '})
+                engine.validate_analysis_prerequisites('generate-ad-cues', root, {'transcriptGenerated': True, 'transcript': [{'text': 'Dialogue'}], 'summary': '   '})
             engine.validate_analysis_prerequisites(
                 'generate-ad-cues',
                 root,
-                {'transcript': [], 'summary': 'Summary'},
+                {'transcriptGenerated': True, 'transcript': [], 'summary': 'Summary'},
             )
 
     def test_frame_timestamp_uses_last_valid_frame_at_video_end(self):
@@ -249,12 +246,11 @@ class Validation(unittest.TestCase):
             root = Path(temp)
             for folder in ('transcript', 'metadata', 'audio-description', 'exports'):
                 (root/folder).mkdir()
-            (root/'transcript/transcript.json').write_text('[]')
             narration = root/'audio-description/old.wav'
             narration.write_bytes(b'saved narration')
             project = dict(
                 source='', sourceType='youtube', youtubeURL='https://www.youtube.com/watch?v=abcdefghijk',
-                duration=10, transcript=[], summary='Summary', exports=[],
+                duration=10, transcriptGenerated=True, transcript=[], summary='Summary', exports=[],
                 cues=[dict(id='old', start=1, end=2, text='Old description',
                            audio='audio-description/old.wav', audioText='Old description',
                            audioSettings='system|voice|1|1|1')],
@@ -289,8 +285,9 @@ class Validation(unittest.TestCase):
             self.assertEqual(p['summary'], '')
             self.assertFalse(p['hasProcessed'])
             self.assertEqual(p['undoStack'], [])
-            self.assertFalse(any((root/'exports').iterdir()))
+            self.assertFalse((root/'exports').exists())
             p['source'] = 'transcript/original.mp4'
+            (root/'transcript').mkdir()
             (root/p['source']).write_bytes(b'protected')
             with self.assertRaises(ValueError): engine.clear_generated(root, p)
             self.assertEqual((root/p['source']).read_bytes(), b'protected')
@@ -322,7 +319,7 @@ class Validation(unittest.TestCase):
             self.assertFalse((root/'metadata/summary.json').exists())
             self.assertEqual(p['cues'][0], {'text': 'Description'})
             self.assertFalse((root/'audio-description/cue.wav').exists())
-            self.assertTrue((root/'audio-description/cues.json').exists())
+            self.assertFalse((root/'audio-description/cues.json').exists())
             self.assertTrue((root/'transcript/transcript.json').exists())
             self.assertTrue((root/'source/video.mp4').exists())
 
@@ -330,7 +327,57 @@ class Validation(unittest.TestCase):
             self.assertEqual((p['transcript'], p['cues'], p['thumbnails'], p['exports'], p['undoStack']), ([], [], [], [], []))
             self.assertFalse(p['hasProcessed'])
             self.assertTrue((root/'source/video.mp4').exists())
-            self.assertFalse(any((root/'metadata/history').iterdir()))
+            self.assertFalse((root/'metadata/history').exists())
+
+    def test_cleanup_project_storage_keeps_only_canonical_and_referenced_files(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            for folder in ('source', 'metadata/history', 'metadata/trash', 'thumbnails',
+                           'transcript', 'audio-description', 'exports'):
+                (root/folder).mkdir(parents=True, exist_ok=True)
+            (root/'source/video.mp4').write_bytes(b'original')
+            (root/'source/old.mp4').write_bytes(b'old source')
+            (root/'metadata/probe.json').write_text('{}')
+            (root/'metadata/summary.json').write_text('{"summary":"Summary"}')
+            (root/'metadata/source.json').write_text('{}')
+            (root/'metadata/ocr-1.json').write_text('{}')
+            (root/'metadata/history/edit.json').write_text('{}')
+            (root/'metadata/trash/deleted.mp4').write_bytes(b'deleted export')
+            (root/'thumbnails/frame.jpg').write_bytes(b'current frame')
+            (root/'thumbnails/capture-1.jpg').write_bytes(b'temporary frame')
+            (root/'transcript/transcript.json').write_text('[]')
+            (root/'transcript/source.wav').write_bytes(b'temporary audio')
+            (root/'audio-description/current.wav').write_bytes(b'current narration')
+            (root/'audio-description/orphan.wav').write_bytes(b'orphan narration')
+            (root/'audio-description/cues.json').write_text('[]')
+            (root/'audio-description/speech-input.txt').write_text('private text')
+            (root/'exports/current.mp4').write_bytes(b'current export')
+            (root/'exports/old.mp4').write_bytes(b'unlisted export')
+            (root/'.DS_Store').write_bytes(b'finder')
+            project = dict(
+                schemaVersion=1, source='source/video.mp4', transcript=[], summary='Summary',
+                cues=[{'audio': 'audio-description/current.wav'}],
+                thumbnails=['thumbnails/frame.jpg'], exports=['exports/current.mp4'],
+            )
+
+            result = engine.cleanup_project_storage(root, project)
+
+            self.assertGreater(result['bytes'], 0)
+            self.assertEqual(project['schemaVersion'], 2)
+            self.assertTrue(project['transcriptGenerated'])
+            self.assertTrue(project['summaryGenerated'])
+            self.assertTrue(project['descriptionsGenerated'])
+            self.assertTrue((root/'source/video.mp4').exists())
+            self.assertTrue((root/'metadata/probe.json').exists())
+            self.assertTrue((root/'thumbnails/frame.jpg').exists())
+            self.assertTrue((root/'audio-description/current.wav').exists())
+            self.assertTrue((root/'exports/current.mp4').exists())
+            for removed in ('source/old.mp4', 'metadata/summary.json', 'metadata/source.json',
+                            'metadata/ocr-1.json', 'metadata/history', 'metadata/trash',
+                            'thumbnails/capture-1.jpg', 'transcript', 'audio-description/orphan.wav',
+                            'audio-description/cues.json', 'audio-description/speech-input.txt',
+                            'exports/old.mp4', '.DS_Store'):
+                self.assertFalse((root/removed).exists(), removed)
 
     def test_delete_segment_audio_preserves_descriptions_and_other_audio(self):
         with tempfile.TemporaryDirectory() as temp:
@@ -354,8 +401,7 @@ class Validation(unittest.TestCase):
             self.assertIn('audio', project['cues'][1])
             self.assertFalse(first_audio.exists())
             self.assertTrue(second_audio.exists())
-            saved = json.loads((root/'audio-description/cues.json').read_text())
-            self.assertEqual(saved, project['cues'])
+            self.assertFalse((root/'audio-description/cues.json').exists())
 
     def test_overlap_and_boundaries(self):
         for cues in [[{'start':-1,'end':2,'text':'a'}],[{'start':0,'end':11,'text':'a'}],[{'start':0,'end':3,'text':'a'},{'start':2,'end':5,'text':'b'}],[{'start':0,'end':float('nan'),'text':'a'}]]:
@@ -523,9 +569,8 @@ class Validation(unittest.TestCase):
             timed_transcript = [{'id':'dialogue','start':6.2,'end':7.5,'text':'The final caption.'}]
             caption_ready = project()
             caption_ready['transcript'] = timed_transcript
+            caption_ready['transcriptGenerated'] = True
             (folder/'project.json').write_text(json.dumps(caption_ready))
-            (folder/'transcript/transcript.json').write_text(json.dumps(timed_transcript))
-            cli('extract-audio','--project',folder)
             cues=root/'cues.json'; cues.write_text(json.dumps([{'id':'test','start':1,'end':6,'text':'Colorful shapes move.'}]))
             cli('save-cues','--project',folder,'--input',cues)
             cli('synthesize-tts','--project',folder)
@@ -580,7 +625,7 @@ class Validation(unittest.TestCase):
             cli('delete-export','--project',folder,'--name',project()['exports'][0])
             self.assertFalse(open_caption.exists())
             self.assertEqual(project()['exports'],[])
-            self.assertTrue(any((folder/'metadata/trash').iterdir()))
+            self.assertFalse((folder/'metadata/trash').exists())
             stale=project()['cues']; stale[0]['text']='Changed narration.'; cues.write_text(json.dumps(stale))
             cli('save-cues','--project',folder,'--input',cues)
             cli('export-open-audio-description-video','--project',folder,success=False)

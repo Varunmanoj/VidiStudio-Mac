@@ -9,7 +9,7 @@ Reference: the authenticated accessivideo.pages.dev application and its React/Py
 | YouTube project | Canonical URL validation, oEmbed title, embedded YouTube playback; generated results stay local |
 | Project overview and advanced editor | Native split editor with summary, transcript, descriptions, timeline, inspector |
 | Staged transcript, summary, descriptions | Individual commands and sequential Analyze Video workflow |
-| Retry processing | Individual stage commands, saved JSON history, existing completed output retained on request failure |
+| Retry processing | Individual stage commands, bounded retries, atomic project saves, and existing completed output retained on request failure |
 | Dedicated speech model | Extracted mono WAV chunks, word timestamps, speaker grouping |
 | YouTube analysis | Separate configured video-understanding model; no audio-only request sent a YouTube URI |
 | Transcript synchronization | Active-row highlighting, seek from timestamp, follow toggle |

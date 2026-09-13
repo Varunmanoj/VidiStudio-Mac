@@ -16,7 +16,7 @@ Other flags: `--build-only`, `--debug`, `--logs`, `--telemetry`. `script/package
 
 1. New Project (Command-N) lets you choose a video file or YouTube video. Video files are copied into the project library and receive metadata and eight thumbnails; YouTube projects fetch their title and thumbnail.
 2. In Settings (Command-comma), save your Gemini API key and model names. System narration works without a key.
-3. Choose Analyze Video for the complete AI workflow: transcript, summary, then Audio Description text. To work one stage at a time, choose Generate Transcript, Generate Summary, and Generate Audio Descriptions; once content exists, those labels become Regenerate. Regenerate Metadata & Thumbnails refreshes only non-AI preparation. Video Information remains at the top of the inspector on every editor section, while the generation controls below it stay specific to the selected section. Project > Analysis and each project's contextual Analysis menu contain the complete and individual workflows.
+3. Choose Analyze Video for the complete AI workflow: transcript, summary, then Audio Description text. To work one stage at a time, choose Generate Transcript, Generate Summary, and Generate Audio Descriptions; once content exists, those labels become Regenerate. Regenerate Metadata & Thumbnails refreshes only non-AI preparation. Project Information and Video Information remain at the top of the inspector on every editor section. Project Information shows the complete folder size and location; Video Information reports the actual local source file or YouTube source and its available technical metadata. The generation controls below stay specific to the selected section. Project > Analysis and each project's contextual Analysis menu contain the complete and individual workflows.
 4. Review cues, seek from their timestamps or the thumbnail timeline, and add/edit/delete cues. The timeline shows a synchronized playhead and millisecond-precision current/total time; click or drag its thumbnail strip to seek. Save rejects overlaps with dialogue and other descriptions.
    Transcript, Summary, and Descriptions each expose a right-aligned Generate action, or an explicit Regenerate action when that result already exists. Regenerating Audio Descriptions also removes narration audio associated with the old description segments before generating the new descriptions. Descriptions keeps Add Segment beside that action.
    Read Frame Text pauses on the selected playhead position, shows its AI processing status, and uses the final valid frame when the playhead is at the exact end of the video.
@@ -27,7 +27,9 @@ Gemini analysis sends a processing copy through the Files API, polls for ACTIVE 
 
 ## Project format
 
-Each portable folder contains `project.json` and `source/`, `metadata/`, `thumbnails/`, `transcript/`, `audio-description/`, `exports/`. Paths inside project data are relative and confined to the project folder. Saves replace JSON atomically. OS-level locks prevent concurrent engine writes and release on process exit. Stages preserve completed outputs on failure. Regenerating a transcript invalidates dependent summary/cues/export references; old files are retained on disk.
+Each portable folder uses `project.json` as the single source of truth for metadata, transcript text, summary, Audio Description segments, undo/redo states, and referenced paths. Local projects keep the imported video in `source/`; `metadata/probe.json` supplies technical video information; `thumbnails/` holds only images referenced by the project; `audio-description/` holds only current synthesized narration; and `exports/` holds only current listed exports. Empty generated folders are removed and recreated when needed. YouTube projects do not create a local `source/` folder. Paths are relative and confined to the project folder, and saves replace JSON atomically. OS-level locks prevent concurrent engine writes and release on process exit.
+
+Processing audio chunks, speech input, captured OCR frames, duplicate transcript/summary/cue JSON files, unreferenced narration or exports, operation snapshots, and internal export trash are automatically removed. `cleanup-project --project /path/project` migrates and cleans an older project folder while preserving its source or YouTube link and all currently referenced content.
 
 Open Project Folder (Command-Shift-O) opens a project in another location without copying it. New projects default to `~/Documents/VidiStudio Projects`; choose another folder from Settings → Storage → Browse.
 
@@ -40,9 +42,9 @@ python3 -m venv .venv
 .venv/bin/python engine/vidistudio_engine.py transcribe --project /path/project
 ```
 
-Additional commands: `import-youtube`, `prepare-video`, `validate-config`, `analyze`, `capture-frame`, `rewrite-cue`, `export-subtitles`, `export-audio`, `rename-project`, `undo-cues`, `redo-cues`, `update-metadata`, `attach-video`, and `delete-export`. Use `--help` for arguments.
+Additional commands: `import-youtube`, `prepare-video`, `validate-config`, `analyze`, `cleanup-project`, `capture-frame`, `rewrite-cue`, `export-subtitles`, `export-audio`, `rename-project`, `undo-cues`, `redo-cues`, `update-metadata`, `attach-video`, and `delete-export`. Use `--help` for arguments.
 
-Core commands: `doctor`, `import-video`, `probe-video`, `generate-thumbnails`, `extract-audio`, `transcribe`, `generate-summary`, `generate-ad-cues`, `save-cues`, `synthesize-tts`, `export-open-audio-description-video`, `export-closed-audio-description-video`, `export-closed-caption-video`, and `export-open-caption-video`. The older `export-final-video` and `export-selectable-video` names remain accepted for command-line compatibility. Progress and errors are JSON lines on stdout; failure exit code is 1. Set `VIDISTUDIO_CONFIG` to choose an alternate settings file.
+Core commands: `doctor`, `import-video`, `probe-video`, `generate-thumbnails`, `transcribe`, `generate-summary`, `generate-ad-cues`, `save-cues`, `synthesize-tts`, `export-open-audio-description-video`, `export-closed-audio-description-video`, `export-closed-caption-video`, and `export-open-caption-video`. The older `export-final-video` and `export-selectable-video` names remain accepted for command-line compatibility. Progress and errors are JSON lines on stdout; failure exit code is 1. Set `VIDISTUDIO_CONFIG` to choose an alternate settings file.
 
 Windows uses Python 3.11+ and FFmpeg/FFprobe on PATH (or configured paths), `%APPDATA%/VidiStudio/config.json`, and PowerShell System.Speech for offline voices. Build Windows executables with PyInstaller on Windows; macOS binaries cannot run there. The macOS UI is deliberately separate from the portable engine.
 
@@ -60,7 +62,7 @@ This direct-distribution app intentionally runs outside App Sandbox to launch it
 
 API references: https://ai.google.dev/api/files and https://ai.google.dev/gemini-api/docs/generate-content/speech-generation . Website interaction reference: https://accessivideo.pages.dev/ .
 
-Engine operations retain pre-operation project snapshots in `metadata/history/` for manual recovery. Windows engine packaging is provided by `script/build_engine_windows.ps1` and must run on Windows. It does not download or silently install media binaries.
+AD segment undo and redo states are bounded and stored in `project.json`; the app no longer creates a second, unbounded folder of whole-project snapshots. Windows engine packaging is provided by `script/build_engine_windows.ps1` and must run on Windows. It does not download or silently install media binaries.
 
 Settings exposes model IDs for every stage, API version, processing mode, prompt pairs, voices, and light/dark/system appearance. Initial values come from `engine/ai-defaults.json`; saved user choices override them. Dedicated speech transcription uses extracted audio; YouTube uses its own configurable video-understanding model.
 

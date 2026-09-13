@@ -524,24 +524,36 @@ private struct ProjectVideoInformationView: View {
     }
 
     var body: some View {
-        GroupBox("Video Information") {
-            VStack(alignment: .leading, spacing: 5) {
-                informationRow("Project", information.projectName)
-                informationRow("Source", information.source)
-                informationRow(information.sourceDetailLabel, information.sourceDetail)
-                informationRow("Duration", information.duration)
-                informationRow("Frame Rate", information.frameRate)
-                informationRow("Resolution", information.resolution)
-                informationRow("Video", information.videoCodec)
-                informationRow("Audio", information.audio)
-                informationRow("Container", information.container)
-                if let fileSize = information.fileSize {
-                    informationRow("File Size", fileSize)
+        VStack(alignment: .leading, spacing: 10) {
+            GroupBox("Project Information") {
+                VStack(alignment: .leading, spacing: 5) {
+                    informationRow("Name", information.projectName)
+                    informationRow("Type", information.projectType)
+                    informationRow("Project Size", information.projectSize)
+                    informationRow("Folder", information.projectFolder)
                 }
+                .font(.caption)
+                .accessibilityElement(children: .contain)
+                .accessibilityLabel("Project information")
             }
-            .font(.caption)
-            .accessibilityElement(children: .contain)
-            .accessibilityLabel("Video information")
+            GroupBox("Video Information") {
+                VStack(alignment: .leading, spacing: 5) {
+                    informationRow(information.sourceDetailLabel, information.sourceDetail)
+                    if let sourceURL = information.sourceURL {
+                        informationRow("Source URL", sourceURL)
+                    }
+                    informationRow("Duration", information.duration)
+                    informationRow("Frame Rate", information.frameRate)
+                    informationRow("Resolution", information.resolution)
+                    informationRow("Video", information.videoCodec)
+                    informationRow("Audio", information.audio)
+                    informationRow("Container", information.container)
+                    informationRow("Source Size", information.sourceFileSize)
+                }
+                .font(.caption)
+                .accessibilityElement(children: .contain)
+                .accessibilityLabel("Video information")
+            }
         }
     }
 

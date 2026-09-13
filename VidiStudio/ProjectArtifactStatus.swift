@@ -64,12 +64,12 @@ private struct ProjectArtifactState {
             accessibilityLabel = count > 0 ? "Transcript generated" : "Transcript not generated"
         case .summary:
             let generated = !project.summary.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
-                || project.hasFile("metadata/summary.json")
+                || project.summaryGenerated == true
             count = generated ? 1 : 0
             availability = generated ? .generated : .notGenerated
             accessibilityLabel = generated ? "Summary generated" : "Summary not generated"
         case .descriptions:
-            let generated = !project.cues.isEmpty || project.hasFile("audio-description/cues.json")
+            let generated = !project.cues.isEmpty || project.descriptionsGenerated == true
             count = project.cues.count
             availability = generated ? .generated : .notGenerated
             accessibilityLabel = generated

@@ -19,7 +19,7 @@ enum GeneratedContentComponent: String, CaseIterable, Identifiable, Hashable {
         case .narration: return "Narration Audio"
         case .thumbnails: return "Thumbnails"
         case .exports: return "Exports"
-        case .history: return "Edit History"
+        case .history: return "Segment Undo History"
         }
     }
 
@@ -31,7 +31,7 @@ enum GeneratedContentComponent: String, CaseIterable, Identifiable, Hashable {
         case .narration: return "Removes synthesized audio while keeping AD text and timing."
         case .thumbnails: return "Removes generated timeline thumbnails."
         case .exports: return "Removes generated subtitle, audio, and video exports."
-        case .history: return "Removes saved AD edit undo and redo history."
+        case .history: return "Removes the saved AD segment undo and redo states."
         }
     }
 
@@ -41,9 +41,9 @@ enum GeneratedContentComponent: String, CaseIterable, Identifiable, Hashable {
             return project.hasGeneratedTranscript
         case .summary:
             return !project.summary.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
-                || project.hasFile("metadata/summary.json")
+                || project.summaryGenerated == true
         case .descriptions:
-            return !project.cues.isEmpty || project.hasFile("audio-description/cues.json")
+            return !project.cues.isEmpty || project.descriptionsGenerated == true
         case .narration:
             return project.cues.contains { $0.audio != nil }
         case .thumbnails:
@@ -51,7 +51,7 @@ enum GeneratedContentComponent: String, CaseIterable, Identifiable, Hashable {
         case .exports:
             return !project.exports.isEmpty || project.directoryHasContent("exports")
         case .history:
-            return project.directoryHasContent("metadata/history")
+            return !(project.undoStack ?? []).isEmpty || !(project.redoStack ?? []).isEmpty
         }
     }
 }

@@ -79,7 +79,102 @@ def local(root, relative):
     return result
 
 
+def remove_empty_directory(path):
+    try:
+        path.rmdir()
+    except OSError:
+        pass
+
+
+def migrate_project_schema(root, project):
+    """Make project.json the single source of truth for editable project data."""
+    if 'transcriptGenerated' not in project:
+        project['transcriptGenerated'] = bool(project.get('transcript')) or (root/'transcript/transcript.json').is_file()
+    if 'summaryGenerated' not in project:
+        project['summaryGenerated'] = bool(str(project.get('summary', '')).strip()) or (root/'metadata/summary.json').is_file()
+    if 'descriptionsGenerated' not in project:
+        project['descriptionsGenerated'] = bool(project.get('cues')) or (root/'audio-description/cues.json').is_file()
+    project['schemaVersion'] = 2
+    return project
+
+
+def cleanup_project_storage(root, project):
+    """Delete reproducible, unreferenced, or legacy duplicate project artifacts."""
+    root = root.resolve()
+    migrate_project_schema(root, project)
+    removed_files = 0
+    removed_bytes = 0
+
+    def remove(path):
+        nonlocal removed_files, removed_bytes
+        path = Path(path)
+        if not path.exists() and not path.is_symlink():
+            return
+        lexical = Path(os.path.abspath(path))
+        if not lexical.is_relative_to(root):
+            raise ValueError('Cleanup encountered a path outside the project folder.')
+        if path.is_symlink():
+            try: removed_bytes += path.lstat().st_size
+            except OSError: pass
+            path.unlink(missing_ok=True);removed_files += 1
+        elif path.is_file():
+            resolved = path.resolve()
+            if not resolved.is_relative_to(root):
+                raise ValueError('Cleanup encountered a path outside the project folder.')
+            try: removed_bytes += path.lstat().st_size
+            except OSError: pass
+            path.unlink(missing_ok=True);removed_files += 1
+        elif path.is_dir():
+            for child in list(path.iterdir()): remove(child)
+            remove_empty_directory(path)
+
+    # These files repeat project.json or are processing intermediates/audit logs
+    # that no current application feature reads or restores.
+    remove(root/'transcript')
+    for duplicate in ('summary.json', 'source.json'):
+        remove(root/'metadata'/duplicate)
+    for pattern in ('ocr-*.json',):
+        for path in (root/'metadata').glob(pattern): remove(path)
+    remove(root/'metadata/history')
+    remove(root/'metadata/trash')
+    for finder_file in root.rglob('.DS_Store'):
+        remove(finder_file)
+
+    referenced_thumbnails = {local(root, path) for path in project.get('thumbnails', [])}
+    thumbnail_root = root/'thumbnails'
+    if thumbnail_root.exists():
+        for path in list(thumbnail_root.iterdir()):
+            if path.resolve() not in referenced_thumbnails: remove(path)
+        remove_empty_directory(thumbnail_root)
+
+    referenced_audio = {local(root, cue['audio']) for cue in project.get('cues', []) if cue.get('audio')}
+    audio_root = root/'audio-description'
+    if audio_root.exists():
+        for path in list(audio_root.iterdir()):
+            if path.resolve() not in referenced_audio: remove(path)
+        remove_empty_directory(audio_root)
+
+    referenced_exports = {local(root, path) for path in project.get('exports', [])}
+    exports_root = root/'exports'
+    if exports_root.exists():
+        for path in list(exports_root.iterdir()):
+            if path.resolve() not in referenced_exports: remove(path)
+        remove_empty_directory(exports_root)
+
+    source_path = local(root, project['source']) if project.get('source') else None
+    source_root = root/'source'
+    if source_root.exists():
+        for path in list(source_root.iterdir()):
+            resolved = path.resolve()
+            if source_path is None or (resolved != source_path.resolve() and resolved not in source_path.resolve().parents): remove(path)
+        remove_empty_directory(source_root)
+
+    remove_empty_directory(root/'metadata')
+    return dict(files=removed_files, bytes=removed_bytes)
+
+
 def save(root, p):
+    p['schemaVersion'] = 2
     p['updatedAt'] = time.time()
     atomic_json(root / 'project.json', p)
 
@@ -165,6 +260,7 @@ def validate_cues(cues, duration, transcript=()):
 
 
 def thumbnails(root, p):
+    (root/'thumbnails').mkdir(parents=True, exist_ok=True)
     paths = []
     for i in range(8):
         emit(f'Generating thumbnail {i+1} of 8', progress=(i+1)/8)
@@ -259,11 +355,13 @@ def delete_description_narration(root, project):
     if folder.is_symlink():
         raise ValueError('Cannot delete narration from a symbolic-link folder.')
     resolved = local(root, 'audio-description')
-    resolved.mkdir(parents=True, exist_ok=True)
+    if not resolved.exists():
+        for cue in project.get('cues', []):
+            for key in ('audio', 'audioText', 'audioDuration', 'audioSettings'):
+                cue.pop(key, None)
+        return False
     removed = False
     for path in resolved.iterdir():
-        if path.name == 'cues.json':
-            continue
         removed = True
         if path.is_symlink():
             path.unlink()
@@ -274,7 +372,10 @@ def delete_description_narration(root, project):
     for cue in project.get('cues', []):
         for key in ('audio', 'audioText', 'audioDuration', 'audioSettings'):
             removed = cue.pop(key, None) is not None or removed
-    atomic_json(resolved/'cues.json', project.get('cues', []))
+    try:
+        resolved.rmdir()
+    except OSError:
+        pass
     return removed
 
 
@@ -290,11 +391,15 @@ def _ai_video_once(root, p, stage):
                 data=[]
             else:
                 data=[]
+                (root/'transcript').mkdir(parents=True, exist_ok=True)
                 for start in range(0,math.ceil(p['duration']),1200):
                     chunk=root/'transcript'/f'audio-{start}.wav'
                     emit(f'Transcribing audio from {start//60} minutes')
-                    run([tool('ffmpeg'),'-y','-v','error','-ss',str(start),'-i',local(root,p['source']),'-t','1200','-vn','-ac','1','-ar','16000',chunk])
-                    data.extend(gemini_adapter.transcribe_audio(client,model,chunk,start,lambda text:emit(text)))
+                    try:
+                        run([tool('ffmpeg'),'-y','-v','error','-ss',str(start),'-i',local(root,p['source']),'-t','1200','-vn','-ac','1','-ar','16000',chunk])
+                        data.extend(gemini_adapter.transcribe_audio(client,model,chunk,start,lambda text:emit(text)))
+                    finally:
+                        chunk.unlink(missing_ok=True)
         else:
             if youtube: uri=p['youtubeURL'];mime=None
             else:
@@ -322,9 +427,9 @@ def _ai_video_once(root, p, stage):
                 transcript.append(dict(id=str(uuid.uuid4()),start=a,end=b,text=t['text'],speaker=t.get('speaker','')))
             if not transcript and p.get('hasAudio') and data: raise ValueError('No usable transcript returned.')
             p['transcript']=sorted(transcript,key=lambda t:t['start'])
-            atomic_json(root/'transcript/transcript.json',p['transcript'])
+            p['transcriptGenerated']=True
         elif stage=='generate-summary':
-            p['summary']=data['summary'];atomic_json(root/'metadata/summary.json',data)
+            p['summary']=data['summary'];p['summaryGenerated']=True
         else:
             descriptions=data.get('audioDescriptions',data.get('cues',[])) if isinstance(data,dict) else data
             if not isinstance(descriptions,list):
@@ -336,7 +441,7 @@ def _ai_video_once(root, p, stage):
                 cues.append(dict(id=str(uuid.uuid4()),start=parity.timestamp(c['start']),
                                  end=parity.timestamp(c['end']),text=c['text'],
                                  origin='ai',aiOriginalText=c['text']))
-            p['cues']=validate_cues(cues,p['duration'],p['transcript']);atomic_json(root/'audio-description/cues.json',p['cues'])
+            p['cues']=validate_cues(cues,p['duration'],p['transcript']);p['descriptionsGenerated']=True
     finally:
         if uploaded:
             try: client.files.delete(name=uploaded.name)
@@ -519,43 +624,53 @@ def synthesize(root,p,segment=None,changed=False):
     if not cues: raise ValueError('Create audio description segments first.')
     cfg = config()
     signature = narration_signature(cfg)
+    (root/'audio-description').mkdir(parents=True, exist_ok=True)
     for i,c in enumerate(cues):
         if segment and c['id']!=segment: continue
         if changed and c.get('audioText')==c['text'] and c.get('audioSettings')==signature and c.get('audio') and local(root,c['audio']).exists(): continue
         emit(f'Synthesizing AD segment {i+1} of {len(cues)}', progress=i/len(cues))
         name = 'audio-description/' + str(uuid.uuid4()) + '.wav'
         output = root/name
-        textfile = root/'audio-description/speech-input.txt'
-        textfile.write_text(c['text'],encoding='utf-8')
-        if cfg.get('ttsMode','system') == 'gemini':
-            gemini_speech(output, c['text'], p)
-        elif sys.platform == 'darwin':
-            raw = output.with_suffix('.aiff')
-            args = ['/usr/bin/say', '-f', textfile, '-o', raw]
-            rate, _, _ = speech_controls(cfg)
-            args += ['-r', str(round(180 * rate))]
-            if voice := effective_system_voice(cfg): args += ['-v', voice]
-            run(args)
-            finish_system_speech(raw, output, cfg); raw.unlink()
-        elif os.name == 'nt':
-            raw = output.with_name(output.stem + '-raw.wav')
-            rate, _, volume = speech_controls(cfg)
-            script = "$ErrorActionPreference='Stop'; Add-Type -AssemblyName System.Speech; $s=New-Object System.Speech.Synthesis.SpeechSynthesizer; if ($env:VDS_VOICE) { $s.SelectVoice($env:VDS_VOICE) }; $s.Rate=[int]$env:VDS_RATE; $s.Volume=[int]$env:VDS_VOLUME; $s.SetOutputToWaveFile($env:VDS_OUT); $s.Speak([IO.File]::ReadAllText($env:VDS_TEXT)); $s.Dispose()"
-            env = os.environ | {'VDS_OUT':str(raw),'VDS_TEXT':str(textfile),'VDS_VOICE':cfg.get('systemVoice',''),'VDS_RATE':str(round((rate-1.0)*10)),'VDS_VOLUME':str(round(volume*100))}
-            result = subprocess.run(['powershell','-NoProfile','-NonInteractive','-Command',script],env=env,capture_output=True,text=True)
-            if result.returncode: raise ValueError('Windows system speech failed: '+result.stderr[-500:])
-            finish_system_speech(raw, output, cfg); raw.unlink()
-        else: raise ValueError('System voices are supported on macOS and Windows.')
-        actual = float(probe(output)['format'].get('duration', 0))
-        if actual <= 0:
+        previous_audio = c.get('audio')
+        raw = None
+        with tempfile.NamedTemporaryFile('w', encoding='utf-8', prefix='vidistudio-speech-', suffix='.txt', delete=False) as text_stream:
+            text_stream.write(c['text'])
+            textfile = Path(text_stream.name)
+        try:
+            if cfg.get('ttsMode','system') == 'gemini':
+                gemini_speech(output, c['text'], p)
+            elif sys.platform == 'darwin':
+                raw = output.with_suffix('.aiff')
+                args = ['/usr/bin/say', '-f', textfile, '-o', raw]
+                rate, _, _ = speech_controls(cfg)
+                args += ['-r', str(round(180 * rate))]
+                if voice := effective_system_voice(cfg): args += ['-v', voice]
+                run(args)
+                finish_system_speech(raw, output, cfg)
+            elif os.name == 'nt':
+                raw = output.with_name(output.stem + '-raw.wav')
+                rate, _, volume = speech_controls(cfg)
+                script = "$ErrorActionPreference='Stop'; Add-Type -AssemblyName System.Speech; $s=New-Object System.Speech.Synthesis.SpeechSynthesizer; if ($env:VDS_VOICE) { $s.SelectVoice($env:VDS_VOICE) }; $s.Rate=[int]$env:VDS_RATE; $s.Volume=[int]$env:VDS_VOLUME; $s.SetOutputToWaveFile($env:VDS_OUT); $s.Speak([IO.File]::ReadAllText($env:VDS_TEXT)); $s.Dispose()"
+                env = os.environ | {'VDS_OUT':str(raw),'VDS_TEXT':str(textfile),'VDS_VOICE':cfg.get('systemVoice',''),'VDS_RATE':str(round((rate-1.0)*10)),'VDS_VOLUME':str(round(volume*100))}
+                result = subprocess.run(['powershell','-NoProfile','-NonInteractive','-Command',script],env=env,capture_output=True,text=True)
+                if result.returncode: raise ValueError('Windows system speech failed: '+result.stderr[-500:])
+                finish_system_speech(raw, output, cfg)
+            else: raise ValueError('System voices are supported on macOS and Windows.')
+            actual = float(probe(output)['format'].get('duration', 0))
+            if actual <= 0:
+                raise ValueError('System speech produced no audio. Choose an installed voice in Settings and check macOS speech availability.')
+            if actual > c['end']-c['start']:
+                raise ValueError(narration_fit_error_message(i+1, actual, c['end']-c['start']))
+            c['audio'] = name; c['audioText'] = c['text']; c['audioDuration'] = actual; c['audioSettings'] = signature
+            p['cues'] = cues; save(root,p)
+            if previous_audio and previous_audio != name and not any(item.get('audio') == previous_audio for item in cues):
+                local(root, previous_audio).unlink(missing_ok=True)
+        except Exception:
             output.unlink(missing_ok=True)
-            raise ValueError('System speech produced no audio. Choose an installed voice in Settings and check macOS speech availability.')
-        if actual > c['end']-c['start']:
-            output.unlink(missing_ok=True)
-            raise ValueError(narration_fit_error_message(i+1, actual, c['end']-c['start']))
-        c['audio'] = name; c['audioText'] = c['text']; c['audioDuration'] = actual; c['audioSettings'] = signature
-        p['cues'] = cues; save(root,p)
-    atomic_json(root/'audio-description/cues.json',cues)
+            raise
+        finally:
+            textfile.unlink(missing_ok=True)
+            if raw is not None: raw.unlink(missing_ok=True)
 
 
 def narration_audio_is_usable(root, cue):
@@ -566,6 +681,7 @@ def narration_audio_is_usable(root, cue):
 
 def export_relative_path(root, project, export_type, extension, stamp=None):
     """Create a portable, descriptive, collision-safe path for a new export."""
+    (root/'exports').mkdir(parents=True, exist_ok=True)
     project_name = str(project.get('name') or 'Project').strip()
     project_name = re.sub(r'[<>:"/\\|?*\x00-\x1f]+', '-', project_name)
     project_name = re.sub(r'\s*-\s*', ' - ', project_name)
@@ -929,10 +1045,12 @@ def clear_generated(root, p):
     for name in folders:
         folder = root / name
         if folder.exists(): shutil.rmtree(folder)
-        folder.mkdir()
     for key in ('thumbnails', 'transcript', 'cues', 'exports', 'undoStack', 'redoStack'):
         p[key] = []
     p['summary'] = ''
+    p['transcriptGenerated'] = False
+    p['summaryGenerated'] = False
+    p['descriptionsGenerated'] = False
     p['hasProcessed'] = False
     p.pop('error', None)
 
@@ -946,7 +1064,6 @@ def reset_generated_directory(root, p, relative):
         raise ValueError('Cannot delete generated content because it contains the source video.')
     if resolved.exists():
         shutil.rmtree(resolved)
-    resolved.mkdir(parents=True)
 
 def delete_generated_components(root, p, components):
     selected = set(components)
@@ -957,14 +1074,17 @@ def delete_generated_components(root, p, components):
     if 'transcript' in selected:
         reset_generated_directory(root, p, 'transcript')
         p['transcript'] = []
+        p['transcriptGenerated'] = False
     if 'summary' in selected:
         summary = root/'metadata/summary.json'
         if summary.is_symlink(): raise ValueError('Cannot delete a symbolic-link summary.')
         local(root, 'metadata/summary.json').unlink(missing_ok=True)
         p['summary'] = ''
+        p['summaryGenerated'] = False
     if 'descriptions' in selected:
         reset_generated_directory(root, p, 'audio-description')
         p['cues'] = []
+        p['descriptionsGenerated'] = False
         p['undoStack'] = []
         p['redoStack'] = []
     elif 'narration' in selected:
@@ -980,7 +1100,8 @@ def delete_generated_components(root, p, components):
         p['undoStack'] = []
         p['redoStack'] = []
 
-    p['hasProcessed'] = bool(p.get('transcript') or p.get('summary') or p.get('cues') or p.get('exports'))
+    p['hasProcessed'] = bool(p.get('transcriptGenerated') or p.get('summaryGenerated') or p.get('descriptionsGenerated')
+                             or p.get('transcript') or p.get('summary') or p.get('cues') or p.get('exports'))
 
 
 def delete_segment_audio(root, p, segment_id):
@@ -1004,17 +1125,17 @@ def delete_segment_audio(root, p, segment_id):
         audio_path.unlink(missing_ok=True)
     for key in ('audio', 'audioText', 'audioDuration', 'audioSettings'):
         cue.pop(key, None)
-    atomic_json(audio_root/'cues.json', p.get('cues', []))
+    remove_empty_directory(audio_root)
 
 def validate_analysis_prerequisites(command, root, project):
-    if command != 'transcribe' and not (root/'transcript/transcript.json').exists():
+    if command != 'transcribe' and not (project.get('transcriptGenerated') or project.get('transcript')):
         raise ValueError('Run transcription first.')
     if command == 'generate-ad-cues' and not project['summary'].strip():
         raise ValueError('Generate the summary first.')
 
 def main():
     parser=argparse.ArgumentParser(description=__doc__)
-    parser.add_argument('command',choices=['clear-generated','delete-generated','delete-segment-audio','list-models','preview-tts','import-video','probe-video','generate-thumbnails','extract-audio','transcribe','generate-summary','generate-ad-cues','synthesize-tts','export-final-video','export-selectable-video','export-closed-audio-description-video','export-open-audio-description-video','export-closed-caption-video','export-open-caption-video','save-cues','doctor',*parity.COMMANDS])
+    parser.add_argument('command',choices=['cleanup-project','clear-generated','delete-generated','delete-segment-audio','list-models','preview-tts','import-video','probe-video','generate-thumbnails','transcribe','generate-summary','generate-ad-cues','synthesize-tts','export-final-video','export-selectable-video','export-closed-audio-description-video','export-open-audio-description-video','export-closed-caption-video','export-open-caption-video','save-cues','doctor',*parity.COMMANDS])
     parser.add_argument('--project',type=Path); parser.add_argument('--video',type=Path); parser.add_argument('--library',type=Path); parser.add_argument('--input',type=Path)
     parser.add_argument('--content',choices=['transcript','summary','descriptions','combined'],default='descriptions'); parser.add_argument('--url'); parser.add_argument('--name'); parser.add_argument('--timestamp',type=float,default=0); parser.add_argument('--duration',type=float); parser.add_argument('--segment'); parser.add_argument('--format',choices=['srt','vtt','txt','json','md'],default='srt'); parser.add_argument('--changed',action='store_true'); parser.add_argument('--start-stage',default='transcribe')
     parser.add_argument('--output', type=Path); parser.add_argument('--text')
@@ -1040,32 +1161,30 @@ def main():
         duration=float(info['format'].get('duration',video.get('duration',0)))
         if not math.isfinite(duration) or duration<=0: raise ValueError('The video duration could not be determined.')
         root=args.library.resolve()/(args.video.stem[:60]+'-'+str(uuid.uuid4())[:8])
-        for folder in ['source','metadata','thumbnails','transcript','audio-description','exports']: (root/folder).mkdir(parents=True,exist_ok=True)
+        for folder in ['source','metadata','thumbnails']: (root/folder).mkdir(parents=True,exist_ok=True)
         source='source/'+args.video.name
         emit('Copying source video into local project')
         shutil.copy2(args.video,root/source)
-        p=dict(schemaVersion=1,id=str(uuid.uuid4()),name=args.video.stem,source=source,duration=duration,width=video.get('width',0),height=video.get('height',0),hasAudio=any(s['codec_type']=='audio' for s in streams),createdAt=time.time(),updatedAt=time.time(),thumbnails=[],transcript=[],summary='',cues=[],exports=[],status='Imported')
+        p=dict(schemaVersion=2,id=str(uuid.uuid4()),name=args.video.stem,source=source,duration=duration,width=video.get('width',0),height=video.get('height',0),hasAudio=any(s['codec_type']=='audio' for s in streams),createdAt=time.time(),updatedAt=time.time(),thumbnails=[],transcript=[],summary='',cues=[],exports=[],status='Imported',transcriptGenerated=False,summaryGenerated=False,descriptionsGenerated=False)
         atomic_json(root/'metadata/probe.json',info); save(root,p)
         emit('Project imported',project=str(root))
-        with project_lock(root): thumbnails(root,p); save(root,p)
+        with project_lock(root): thumbnails(root,p);cleanup_project_storage(root,p);save(root,p)
         emit('Import complete',project=str(root),progress=1); return
     if not args.project: raise ValueError('--project is required.')
     root=args.project.resolve()
     with project_lock(root):
-        p=json.loads((root/'project.json').read_text())
-        atomic_json(root/'metadata/history'/f'{time.time_ns()}-{args.command}.json',p)
+        p=migrate_project_schema(root,json.loads((root/'project.json').read_text()))
         p['status']='Processing '+args.command; save(root,p)
         try:
             if args.command in ('analyze', 'transcribe', 'generate-summary', 'generate-ad-cues', 'synthesize-tts'):
                 p['hasProcessed'] = True
-            if args.command=='clear-generated': clear_generated(root,p)
+            if args.command=='cleanup-project':
+                result=cleanup_project_storage(root,p);emit('Project storage cleaned',removedFiles=result['files'],removedBytes=result['bytes'])
+            elif args.command=='clear-generated': clear_generated(root,p)
             elif args.command=='delete-generated': delete_generated_components(root,p,args.component)
             elif args.command=='delete-segment-audio': delete_segment_audio(root,p,args.segment)
             elif args.command=='probe-video': atomic_json(root/'metadata/probe.json',probe(local(root,p['source'])))
             elif args.command=='generate-thumbnails': thumbnails(root,p)
-            elif args.command=='extract-audio':
-                if not p['hasAudio']: raise ValueError('This video has no audio track.')
-                run([tool('ffmpeg'),'-y','-v','error','-i',local(root,p['source']),'-vn','-ac','1','-ar','16000',root/'transcript/source.wav'])
             elif args.command in ('transcribe','generate-summary','generate-ad-cues'):
                 validate_analysis_prerequisites(args.command, root, p)
                 ai_video(root,p,args.command)
@@ -1078,9 +1197,10 @@ def main():
                 if not args.input: raise ValueError('--input is required.')
                 cues=validate_cues(json.loads(args.input.read_text()),p['duration'],p['transcript'])
                 track_cue_origins(cues,p['cues']);parity.remember(p);p['cues']=cues
+                p['descriptionsGenerated']=True
                 p['exports']=[]
-                atomic_json(root/'audio-description/cues.json',p['cues'])
             elif args.command in parity.COMMANDS: parity.execute(args,root,p,core)
+            cleanup_project_storage(root,p)
             p['status']='Ready'; p.pop('error',None); save(root,p)
         except Exception as e:
             p['status']='Needs attention'; p['error']=safe_error(e); save(root,p); raise

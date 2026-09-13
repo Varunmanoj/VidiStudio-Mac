@@ -38,7 +38,7 @@ def download_youtube_thumbnail(root, video_id):
             if response.headers.get_content_type()!='image/jpeg':return None
             data=response.read(5*1024*1024+1)
         if len(data)>5*1024*1024 or not data.startswith(b'\xff\xd8\xff'):return None
-        (root/relative).write_bytes(data)
+        (root/relative).parent.mkdir(parents=True,exist_ok=True);(root/relative).write_bytes(data)
         return relative
     except Exception:return None
 
@@ -56,7 +56,6 @@ def prepare_video(root,p,e):
         if title and p.get('name') in placeholders:p['name']=title[:200]
         thumbnail=download_youtube_thumbnail(root,ident)
         if thumbnail:p['thumbnails']=[thumbnail]
-        e.atomic_json(root/'metadata/source.json',dict(sourceType='youtube',youtubeURL=url,title=title or p.get('name','')))
         e.emit('YouTube metadata and thumbnail refreshed',progress=1)
         return
     if not p.get('source'):raise ValueError('This project has no local video source.')
@@ -147,9 +146,10 @@ def execute(args,root,p,e):
                 if title and not args.name:name=title[:200]
         except Exception:pass
         root=args.library.resolve()/('YouTube-'+ident+'-'+uuid.uuid4().hex[:8])
-        for folder in ('source','metadata','thumbnails','transcript','audio-description','exports'):(root/folder).mkdir(parents=True,exist_ok=True)
+        root.mkdir(parents=True,exist_ok=True)
         thumbnail=download_youtube_thumbnail(root,ident)
-        p=dict(schemaVersion=1,id=str(uuid.uuid4()),name=name,source='',sourceType='youtube',youtubeURL=url,duration=args.duration or 0,width=0,height=0,hasAudio=True,createdAt=time.time(),updatedAt=time.time(),thumbnails=[thumbnail] if thumbnail else [],transcript=[],summary='',cues=[],exports=[],status='Imported')
+        p=dict(schemaVersion=2,id=str(uuid.uuid4()),name=name,source='',sourceType='youtube',youtubeURL=url,duration=args.duration or 0,width=0,height=0,hasAudio=True,createdAt=time.time(),updatedAt=time.time(),thumbnails=[thumbnail] if thumbnail else [],transcript=[],summary='',cues=[],exports=[],status='Imported')
+        p['transcriptGenerated']=False;p['summaryGenerated']=False;p['descriptionsGenerated']=False
         e.save(root,p);e.emit('YouTube project imported',project=str(root));return
     if command=='prepare-video':
         prepare_video(root,p,e);return
@@ -185,7 +185,7 @@ def execute(args,root,p,e):
     elif command in ('undo-cues','redo-cues'):
         source='undoStack' if command=='undo-cues' else 'redoStack';target='redoStack' if command=='undo-cues' else 'undoStack'
         if not p.get(source):raise ValueError('No edit history in this direction.')
-        p.setdefault(target,[]).append(copy.deepcopy(p['cues']));p['cues']=p[source].pop();p['exports']=[];e.atomic_json(root/'audio-description/cues.json',p['cues'])
+        p.setdefault(target,[]).append(copy.deepcopy(p['cues']));p['cues']=p[source].pop();p['exports']=[]
     elif command=='rewrite-cue':
         cue=next((c for c in p['cues'] if c['id']==args.segment),None)
         if not cue:raise ValueError('Select a description to rewrite.')
@@ -202,7 +202,7 @@ def execute(args,root,p,e):
                 else:
                     cue['origin']='ai'
                     cue['aiOriginalText']=text
-            cue['text']=text;p['exports']=[];e.atomic_json(root/'audio-description/cues.json',p['cues'])
+            cue['text']=text;p['exports']=[]
         finally:client.close()
     elif command=='capture-frame':
         args.timestamp=frame_timestamp(args.timestamp,p['duration'])
@@ -212,9 +212,14 @@ def execute(args,root,p,e):
             prompt=render(pair['user_prompt'],p,timestamp_seconds=args.timestamp,timestamp_timestamp=clock(args.timestamp))
             if youtube:raw=gemini_adapter.video_interaction(client,model,p['youtubeURL'],None,prompt,pair['system_instruction'],processing=cfg.get('videoProcessing','agentic'))
             else:
-                frame=root/'thumbnails'/f'capture-{time.time_ns()}.jpg';e.run([e.tool('ffmpeg'),'-y','-v','error','-ss',str(args.timestamp),'-i',e.local(root,p['source']),'-frames:v','1',frame])
-                result=client.interactions.create(model=model,input=[{'type':'image','data':base64.b64encode(frame.read_bytes()).decode(),'mime_type':'image/jpeg'},{'type':'text','text':prompt}],system_instruction=pair['system_instruction']);raw=gemini_adapter.output_text(result)
-            data=parse_json(raw);text=data.get('screenText','');e.atomic_json(root/'metadata'/f'ocr-{time.time_ns()}.json',dict(timestamp=args.timestamp,screenText=text))
+                import tempfile
+                with tempfile.NamedTemporaryFile(suffix='.jpg',delete=False) as temporary:
+                    frame=Path(temporary.name)
+                try:
+                    e.run([e.tool('ffmpeg'),'-y','-v','error','-ss',str(args.timestamp),'-i',e.local(root,p['source']),'-frames:v','1',frame])
+                    result=client.interactions.create(model=model,input=[{'type':'image','data':base64.b64encode(frame.read_bytes()).decode(),'mime_type':'image/jpeg'},{'type':'text','text':prompt}],system_instruction=pair['system_instruction']);raw=gemini_adapter.output_text(result)
+                finally:frame.unlink(missing_ok=True)
+            data=parse_json(raw);text=data.get('screenText','')
             e.emit('Frame text extracted',screenText=text,timestamp=args.timestamp)
         finally:client.close()
     elif command=='export-subtitles':
@@ -240,4 +245,6 @@ def execute(args,root,p,e):
     elif command=='export-audio':e.export(root,p,audio_only=True,allow_incomplete=getattr(args,'allow_incomplete_narration',False))
     elif command=='delete-export':
         if args.name not in p['exports']:raise ValueError('Select an existing export.')
-        source=e.local(root,args.name);trash=root/'metadata/trash';trash.mkdir(parents=True,exist_ok=True);shutil.move(source,trash/(str(time.time_ns())+'-'+source.name));p['exports'].remove(args.name)
+        source=e.local(root,args.name)
+        if source.is_dir() and not source.is_symlink():raise ValueError('The selected export is not a file.')
+        source.unlink(missing_ok=True);p['exports'].remove(args.name)

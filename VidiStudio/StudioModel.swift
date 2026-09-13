@@ -161,6 +161,11 @@ struct StudioProject: Codable, Identifiable {
     var error: String?
     var sourceType: String?
     var youtubeURL: String?
+    var transcriptGenerated: Bool?
+    var summaryGenerated: Bool?
+    var descriptionsGenerated: Bool?
+    var undoStack: [[Segment]]?
+    var redoStack: [[Segment]]?
     var folder: URL?
     var isYouTubeURLProject: Bool {
         sourceType == "youtube"
@@ -171,11 +176,10 @@ struct StudioProject: Codable, Identifiable {
     }
     var hasGeneratedContent: Bool {
         canReprocess || !thumbnails.isEmpty
-            || hasFile("transcript/transcript.json")
-            || hasFile("metadata/summary.json")
             || directoryHasContent("audio-description")
             || directoryHasContent("exports")
-            || directoryHasContent("metadata/history")
+            || !(undoStack ?? []).isEmpty
+            || !(redoStack ?? []).isEmpty
     }
     func hasFile(_ relative: String) -> Bool {
         url(relative).map { FileManager.default.fileExists(atPath: $0.path) } == true
@@ -186,7 +190,7 @@ struct StudioProject: Codable, Identifiable {
         return !contents.isEmpty
     }
     var hasGeneratedTranscript: Bool {
-        !transcript.isEmpty || hasFile("transcript/transcript.json")
+        transcriptGenerated == true || !transcript.isEmpty
     }
     var canGenerateDescriptions: Bool {
         hasGeneratedTranscript && !summary.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
@@ -215,16 +219,19 @@ struct StudioProject: Codable, Identifiable {
 
 struct ProjectVideoInformation {
     let projectName: String
-    let source: String
+    let projectType: String
+    let projectSize: String
+    let projectFolder: String
     let sourceDetailLabel: String
     let sourceDetail: String
+    let sourceURL: String?
     let duration: String
     let frameRate: String
     let resolution: String
     let videoCodec: String
     let audio: String
     let container: String
-    let fileSize: String?
+    let sourceFileSize: String
 
     init(project: StudioProject) {
         let probe = Self.loadProbe(project)
@@ -234,13 +241,17 @@ struct ProjectVideoInformation {
         let format = probe?["format"] as? [String: Any]
 
         projectName = project.name
-        source = project.isYouTubeURLProject ? "YouTube" : "Local Video"
-        sourceDetailLabel = project.isYouTubeURLProject ? "Video ID" : "File"
+        projectType = project.isYouTubeURLProject ? "YouTube Video" : "Local Video"
+        projectSize = Self.formattedByteCount(Self.projectFolderSize(project)) ?? "Not available"
+        projectFolder = project.folder?.path ?? "Not available"
+        sourceDetailLabel = project.isYouTubeURLProject ? "Video ID" : "Source File"
         if project.isYouTubeURLProject {
             sourceDetail = project.youtubeURL.flatMap(StudioModel.youtubeVideoID(from:)) ?? "Not available"
+            sourceURL = project.youtubeURL
         } else {
             let filename = URL(fileURLWithPath: project.source).lastPathComponent
             sourceDetail = filename.isEmpty ? "Not available" : filename
+            sourceURL = nil
         }
 
         let probedDuration = Self.number(format?["duration"]) ?? Self.number(video?["duration"])
@@ -258,10 +269,10 @@ struct ProjectVideoInformation {
             ?? Self.text(format?["format_name"])?.replacingOccurrences(of: ",", with: ", ")
             ?? (project.isYouTubeURLProject ? "YouTube stream" : "Not available")
 
-        let byteCount = Self.integer64(format?["size"]) ?? Self.localFileSize(project)
-        fileSize = byteCount.map {
-            ByteCountFormatter.string(fromByteCount: $0, countStyle: .file)
-        }
+        let byteCount = Self.localFileSize(project) ?? Self.integer64(format?["size"])
+        sourceFileSize = project.isYouTubeURLProject
+            ? "Not stored locally"
+            : Self.formattedByteCount(byteCount) ?? "Not available"
     }
 
     private static func loadProbe(_ project: StudioProject) -> [String: Any]? {
@@ -277,6 +288,28 @@ struct ProjectVideoInformation {
               let attributes = try? FileManager.default.attributesOfItem(atPath: url.path),
               let size = attributes[.size] as? NSNumber else { return nil }
         return size.int64Value
+    }
+
+    private static func projectFolderSize(_ project: StudioProject) -> Int64? {
+        guard let folder = project.folder,
+              let enumerator = FileManager.default.enumerator(
+                at: folder,
+                includingPropertiesForKeys: [.isRegularFileKey, .isSymbolicLinkKey, .fileSizeKey],
+                options: [.skipsPackageDescendants]
+              ) else { return nil }
+        var total: Int64 = 0
+        for case let file as URL in enumerator {
+            guard let values = try? file.resourceValues(forKeys: [.isRegularFileKey, .isSymbolicLinkKey, .fileSizeKey]),
+                  values.isRegularFile == true,
+                  values.isSymbolicLink != true,
+                  let size = values.fileSize else { continue }
+            total += Int64(size)
+        }
+        return total
+    }
+
+    private static func formattedByteCount(_ value: Int64?) -> String? {
+        value.map { ByteCountFormatter.string(fromByteCount: $0, countStyle: .file) }
     }
 
     private static func text(_ value: Any?) -> String? {
@@ -829,7 +862,7 @@ final class StudioModel {
         let name = URL(fileURLWithPath: path).lastPathComponent
         let alert = NSAlert()
         alert.messageText = "Delete “\(name)”?"
-        alert.informativeText = "The export will be removed from the project’s Exports list and moved to the project’s internal Trash folder."
+        alert.informativeText = "The export will be permanently removed from the project to free storage. This cannot be undone."
         alert.alertStyle = .warning
         alert.addButton(withTitle: "Cancel")
         alert.addButton(withTitle: "Delete Export")
