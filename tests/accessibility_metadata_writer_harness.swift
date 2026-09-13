@@ -9,6 +9,6 @@ struct AccessibilityMetadataWriterHarness {
         try await AppleAccessibilityMetadataWriter().finalizeClosedDescriptionTrack(
             at: URL(fileURLWithPath: CommandLine.arguments[1])
         )
-        print("Apple descriptive-audio characteristic verified")
+        print("Apple descriptive-audio and caption characteristics verified")
     }
 }

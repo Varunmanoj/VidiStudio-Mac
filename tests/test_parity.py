@@ -17,24 +17,33 @@ class Parity(unittest.TestCase):
             old={'id':'a','start':1.,'end':2.5,'text':'Hello'}
             project={'name':'Dilemma / Episode: 3','transcript':[old.copy()],'cues':[old.copy()],'exports':[]}
             parity.remember(project);project['cues'][0]['text']='Edited'
-            e=SimpleNamespace(atomic_json=engine.atomic_json,local=engine.local,export_relative_path=engine.export_relative_path)
+            e=SimpleNamespace(
+                atomic_json=engine.atomic_json,
+                local=engine.local,
+                write_text_export=engine.write_text_export,
+            )
             args=SimpleNamespace(command='undo-cues')
             parity.execute(args,root,project,e)
             self.assertEqual(project['cues'][0]['text'],'Hello')
             args.command='redo-cues';parity.execute(args,root,project,e)
             self.assertEqual(project['cues'][0]['text'],'Edited')
-            args=SimpleNamespace(command='export-subtitles',content='transcript',format='vtt')
+            args=SimpleNamespace(command='export-subtitles',content='transcript',format='vtt',replace_existing=False)
             parity.execute(args,root,project,e)
             text=(root/project['exports'][0]).read_text()
             self.assertIn('00:00:01.000 --> 00:00:02.500',text)
             self.assertTrue(text.startswith('WEBVTT'))
-            self.assertRegex(project['exports'][0],r'^exports/Dilemma - Episode - 3 - Transcript - \d{8}-\d{6}\.vtt$')
+            self.assertEqual(project['exports'][0],'exports/Dilemma - Episode - 3 - Transcript.vtt')
+            with self.assertRaisesRegex(ValueError,'Confirm replacement'):
+                parity.execute(args,root,project,e)
+            args.replace_existing=True
+            parity.execute(args,root,project,e)
+            self.assertEqual(project['exports'],['exports/Dilemma - Episode - 3 - Transcript.vtt'])
             project['summary']='A concise project summary.'
-            args=SimpleNamespace(command='export-subtitles',content='summary',format='md')
+            args=SimpleNamespace(command='export-subtitles',content='summary',format='md',replace_existing=False)
             parity.execute(args,root,project,e)
             summary=(root/project['exports'][1]).read_text()
             self.assertEqual(summary,'# Summary\n\nA concise project summary.\n')
-            self.assertRegex(project['exports'][1],r'^exports/Dilemma - Episode - 3 - Summary - \d{8}-\d{6}\.md$')
+            self.assertEqual(project['exports'][1],'exports/Dilemma - Episode - 3 - Summary.md')
             deleted=project['exports'][0]
             args=SimpleNamespace(command='delete-export',name=deleted)
             parity.execute(args,root,project,e)

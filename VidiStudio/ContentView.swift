@@ -252,8 +252,12 @@ struct ContentView: View {
             GeneratedContentDeletionView(studio: studio, project: project)
         }
         .sheet(item: $exportProject) { project in
-            ExportDialog(project: project, busy: studio.busy) { action in
-                studio.execute(action.command, extra: action.arguments, project: project)
+            ExportDialog(project: project, busy: studio.busy) { action, replacingExisting in
+                studio.execute(
+                    action.command,
+                    extra: action.arguments(replacingExisting: replacingExisting),
+                    project: project
+                )
             }
         }
         .sheet(isPresented: $studio.isCreatingProject) {
@@ -355,8 +359,12 @@ struct ProjectEditorWindow: View {
         }
         .sheet(isPresented: $showingExportDialog) {
             if let project = studio.selected {
-                ExportDialog(project: project, busy: studio.busy) { action in
-                    studio.execute(action.command, extra: action.arguments, project: project)
+                ExportDialog(project: project, busy: studio.busy) { action, replacingExisting in
+                    studio.execute(
+                        action.command,
+                        extra: action.arguments(replacingExisting: replacingExisting),
+                        project: project
+                    )
                 }
             }
         }
@@ -494,6 +502,14 @@ struct ProcessingInspector: View {
                                                 if let url = p.url(path) { NSWorkspace.shared.open(url) }
                                             }
                                             .frame(maxWidth: .infinity, alignment: .leading)
+                                            Button("Show Export in Finder", systemImage: "folder") {
+                                                if let url = p.url(path) {
+                                                    NSWorkspace.shared.activateFileViewerSelecting([url])
+                                                }
+                                            }
+                                            .labelStyle(.iconOnly)
+                                            .help("Show \(URL(fileURLWithPath: path).lastPathComponent) in Finder")
+                                            .disabled(studio.busy || p.url(path) == nil)
                                             Button("Delete Export", systemImage: "trash", role: .destructive) {
                                                 studio.confirmDeleteExport(p, path: path)
                                             }

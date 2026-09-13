@@ -228,7 +228,7 @@ def execute(args,root,p,e):
             if not summary:raise ValueError('No summary available to export.')
             if args.format!='md':raise ValueError('Summary export is available as Markdown.')
             text='# Summary\n\n'+summary+'\n'
-            rel=e.export_relative_path(root,p,'Summary','md');(root/rel).write_text(text,encoding='utf-8');p['exports'].append(rel)
+            e.write_text_export(root,p,'Summary','md',text,args.replace_existing)
             return
         if args.format=='md':raise ValueError('Markdown export is available for the summary.')
         segments=p['transcript'] if args.content=='transcript' else p['cues'] if args.content=='descriptions' else sorted(p['transcript']+p['cues'],key=lambda s:s['start'])
@@ -241,8 +241,8 @@ def execute(args,root,p,e):
                 sep='.' if args.format=='vtt' else ','
                 text+=f"{i}\n{clock(c['start'],sep)} --> {clock(c['end'],sep)}\n{c['text']}\n\n"
         export_type={'transcript':'Transcript','descriptions':'Descriptions','combined':'Combined Text'}[args.content]
-        rel=e.export_relative_path(root,p,export_type,args.format);(root/rel).write_text(text,encoding='utf-8');p['exports'].append(rel)
-    elif command=='export-audio':e.export(root,p,audio_only=True,allow_incomplete=getattr(args,'allow_incomplete_narration',False))
+        e.write_text_export(root,p,export_type,args.format,text,args.replace_existing)
+    elif command=='export-audio':e.export(root,p,audio_only=True,allow_incomplete=getattr(args,'allow_incomplete_narration',False),replace_existing=args.replace_existing)
     elif command=='delete-export':
         if args.name not in p['exports']:raise ValueError('Select an existing export.')
         source=e.local(root,args.name)

@@ -1074,7 +1074,7 @@ final class StudioModel {
             return
         }
         busy = true
-        let exportsBeforeCommand = Set(target?.exports ?? [])
+        var completedExportPath: String?
         progress = 0
         message = command == "capture-frame" ? "Processing text from the selected frame…" : command.replacingOccurrences(of: "-", with: " ").capitalized
         let task = Process(); task.executableURL = engine
@@ -1104,6 +1104,7 @@ final class StudioModel {
                         chooseAvailableGeminiModels()
                     }
                     if let value = event["progress"] as? Double { progress = value }
+                    if let path = event["export"] as? String { completedExportPath = path }
                     if event["error"] as? Bool == true {
                         self.error = message
                         if command == "doctor" { engineCheckStatus = .failed(message) }
@@ -1120,8 +1121,8 @@ final class StudioModel {
             reload()
             if task.terminationStatus == 0, ["export-selectable-video", "export-closed-audio-description-video"].contains(command), let folder = target?.folder {
                 do {
-                    guard let refreshed = projects.first(where: { $0.id == target?.id }),
-                          let path = refreshed.exports.last(where: { !exportsBeforeCommand.contains($0) && URL(fileURLWithPath: $0).pathExtension.lowercased() == "mov" }) else {
+                    guard let path = completedExportPath,
+                          URL(fileURLWithPath: path).pathExtension.lowercased() == "mov" else {
                         throw AccessibilityMetadataWriterError.exportNotFound
                     }
                     try await AppleAccessibilityMetadataWriter().finalizeClosedDescriptionTrack(at: folder.appendingPathComponent(path))

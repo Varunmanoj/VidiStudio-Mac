@@ -24,6 +24,17 @@ enum VideoCaptionOption: Hashable {
             return content
         }
     }
+
+    var exportTypeSuffix: String {
+        switch self {
+        case .none:
+            return ""
+        case .closed(let content):
+            return " with \(content == "combined" ? "AD Transcript" : "Transcript") Closed Captions"
+        case .open(let content):
+            return " with \(content == "combined" ? "AD Transcript" : "Transcript") Open Captions"
+        }
+    }
 }
 
 enum StudioExportAction: Hashable {
@@ -60,6 +71,61 @@ enum StudioExportAction: Hashable {
         default:
             return []
         }
+    }
+
+    func arguments(replacingExisting: Bool) -> [String] {
+        arguments + (replacingExisting ? ["--replace-existing"] : [])
+    }
+
+    func targetRelativePath(for project: StudioProject) -> String {
+        let descriptor: (type: String, extension: String)
+        switch self {
+        case .selectableVideo(let captions):
+            descriptor = ("Closed Audio Description" + captions.exportTypeSuffix, "mov")
+        case .mixedVideo(let captions):
+            descriptor = ("Open Audio Description" + captions.exportTypeSuffix, "mp4")
+        case .closedCaptionVideo(let content):
+            descriptor = ("\(content == "combined" ? "AD Transcript" : "Transcript") Closed Caption Video", "mp4")
+        case .openCaptionVideo(let content):
+            descriptor = ("\(content == "combined" ? "AD Transcript" : "Transcript") Open Caption Video", "mp4")
+        case .originalAudio:
+            descriptor = ("Original Video Audio", "mp3")
+        case .describedAudio:
+            descriptor = ("Final Audio with Audio Description", "mp3")
+        case .narrationAudio:
+            descriptor = ("Narration Audio", "m4a")
+        case .text(let content, let format):
+            let type = [
+                "transcript": "Transcript",
+                "summary": "Summary",
+                "descriptions": "Descriptions",
+                "combined": "Combined Text",
+            ][content] ?? "Text"
+            descriptor = (type, format)
+        }
+        return "exports/\(Self.portableProjectName(project.name)) - \(descriptor.type).\(descriptor.extension)"
+    }
+
+    private static func portableProjectName(_ rawName: String) -> String {
+        let illegal = CharacterSet(charactersIn: "<>:\"/\\|?*").union(.controlCharacters)
+        var name = ""
+        var replacingIllegalRun = false
+        for scalar in rawName.trimmingCharacters(in: .whitespacesAndNewlines).unicodeScalars {
+            if illegal.contains(scalar) {
+                if !replacingIllegalRun { name.append("-") }
+                replacingIllegalRun = true
+            } else {
+                name.append(String(scalar))
+                replacingIllegalRun = false
+            }
+        }
+        name = name.replacingOccurrences(of: #"\s*-\s*"#, with: " - ", options: .regularExpression)
+        name = name.replacingOccurrences(of: #"\s+"#, with: " ", options: .regularExpression)
+        let trimming = CharacterSet(charactersIn: " .-")
+        name = name.trimmingCharacters(in: trimming)
+        if name.isEmpty { name = "Project" }
+        name = String(name.prefix(100)).trimmingCharacters(in: trimming)
+        return name.isEmpty ? "Project" : name
     }
 }
 
@@ -155,13 +221,14 @@ struct ExportDialog: View {
     @Environment(\.dismiss) private var dismiss
     let project: StudioProject
     let busy: Bool
-    let perform: (StudioExportAction) -> Void
+    let perform: (StudioExportAction, Bool) -> Void
     @State private var category: ExportCategory
     @State private var videoAudio = VideoAudioChoice.closedDescription
     @State private var videoTranscript = VideoTranscriptChoice.none
     @State private var audioChoice: AudioExportChoice
     @State private var textContent: String
     @State private var textFormat: String
+    @State private var replacementAction: StudioExportAction?
 
     private let textTypes: [(title: String, content: String)] = [
         ("Transcript", "transcript"),
@@ -170,7 +237,7 @@ struct ExportDialog: View {
         ("Combined", "combined"),
     ]
 
-    init(project: StudioProject, busy: Bool, perform: @escaping (StudioExportAction) -> Void) {
+    init(project: StudioProject, busy: Bool, perform: @escaping (StudioExportAction, Bool) -> Void) {
         self.project = project
         self.busy = busy
         self.perform = perform
@@ -182,6 +249,7 @@ struct ExportDialog: View {
         _audioChoice = State(initialValue: project.isYouTubeURLProject ? .narration : .described)
         _textContent = State(initialValue: firstText)
         _textFormat = State(initialValue: firstText == "summary" ? "md" : "srt")
+        _replacementAction = State(initialValue: nil)
     }
 
     private var availableCategories: [ExportCategory] {
@@ -328,6 +396,25 @@ struct ExportDialog: View {
                 textFormat = textFormats[0]
             }
         }
+        .alert(
+            "Replace Existing Export?",
+            isPresented: Binding(
+                get: { replacementAction != nil },
+                set: { if !$0 { replacementAction = nil } }
+            ),
+            presenting: replacementAction
+        ) { action in
+            Button("Cancel", role: .cancel) {
+                replacementAction = nil
+            }
+            Button("Replace Export", role: .destructive) {
+                replacementAction = nil
+                dismiss()
+                perform(action, true)
+            }
+        } message: { action in
+            Text("\(URL(fileURLWithPath: action.targetRelativePath(for: project)).lastPathComponent) already exists. Replacing it permanently deletes the current file and saves the new export in its place.")
+        }
     }
 
     private func canPerform(_ action: StudioExportAction) -> Bool {
@@ -350,8 +437,13 @@ struct ExportDialog: View {
 
     private func save() {
         guard canSave, let selectedAction else { return }
+        let relative = selectedAction.targetRelativePath(for: project)
+        if let target = project.url(relative), FileManager.default.fileExists(atPath: target.path) {
+            replacementAction = selectedAction
+            return
+        }
         dismiss()
-        perform(selectedAction)
+        perform(selectedAction, false)
     }
 }
 
