@@ -516,6 +516,7 @@ class Validation(unittest.TestCase):
             self.assertIn('Dialogue: 0,0:00:01.20,0:00:01.40,AudioDescription,', ass_text)
             with patch.object(engine, 'config', return_value=caption_settings):
                 engine.export_captioned_video(root, project)
+                engine.export_captioned_video(root, project, dual_closed=True)
                 engine.export_captioned_video(root, project, open_captions=True, content='combined')
 
             self.assertEqual(project['exports'][0], 'exports/Caption Demo - Transcript Closed Caption Video.mp4')
@@ -527,8 +528,33 @@ class Validation(unittest.TestCase):
             self.assertEqual((closed_subtitles[0]['width'], closed_subtitles[0]['height']), (320, 180))
             self.assertEqual(closed_subtitles[0]['tags']['language'], 'eng')
 
-            self.assertEqual(project['exports'][1], 'exports/Caption Demo - AD Transcript Open Caption Video.mp4')
-            open_info = engine.probe(root/project['exports'][1])
+            self.assertEqual(
+                project['exports'][1],
+                'exports/Caption Demo - Transcript and Descriptive Transcript Closed Caption Video.mp4',
+            )
+            dual_output = root/project['exports'][1]
+            dual_info = engine.probe(dual_output)
+            dual_subtitles = [stream for stream in dual_info['streams'] if stream['codec_type'] == 'subtitle']
+            self.assertEqual(len(dual_subtitles), 2)
+            self.assertEqual(
+                tuple(stream['tags']['handler_name'] for stream in dual_subtitles),
+                ('English Transcript', 'English Descriptive Transcript'),
+            )
+            for stream in dual_subtitles:
+                self.assertEqual(stream['codec_tag_string'], 'tx3g')
+                self.assertEqual((stream['width'], stream['height']), (320, 180))
+                self.assertEqual(stream['tags']['language'], 'eng')
+            normal_srt = root/'normal-track.srt'
+            descriptive_srt = root/'descriptive-track.srt'
+            engine.run([engine.tool('ffmpeg'), '-y', '-v', 'error', '-i', dual_output, '-map', '0:s:0', normal_srt])
+            engine.run([engine.tool('ffmpeg'), '-y', '-v', 'error', '-i', dual_output, '-map', '0:s:1', descriptive_srt])
+            self.assertIn('A caption appears.', normal_srt.read_text())
+            self.assertNotIn('Audio description:', normal_srt.read_text())
+            self.assertIn('A caption appears.', descriptive_srt.read_text())
+            self.assertIn('Audio description: A shape fades.', descriptive_srt.read_text())
+
+            self.assertEqual(project['exports'][2], 'exports/Caption Demo - AD Transcript Open Caption Video.mp4')
+            open_info = engine.probe(root/project['exports'][2])
             self.assertFalse([stream for stream in open_info['streams'] if stream['codec_type'] == 'subtitle'])
             self.assertEqual(len([stream for stream in open_info['streams'] if stream['codec_type'] == 'video']), 1)
 
@@ -566,6 +592,7 @@ class Validation(unittest.TestCase):
                 ('open', 'transcript'),
                 ('closed', 'combined'),
                 ('open', 'combined'),
+                ('dual-closed', 'combined'),
             ]
             with patch.object(engine, 'config', return_value={}):
                 for selectable in (True, False):
@@ -579,12 +606,19 @@ class Validation(unittest.TestCase):
                         audio = [stream for stream in info['streams'] if stream['codec_type'] == 'audio']
                         subtitles = [stream for stream in info['streams'] if stream['codec_type'] == 'subtitle']
                         self.assertEqual(len(audio), 2 if selectable else 1)
-                        self.assertEqual(len(subtitles), 1 if captions == 'closed' else 0)
+                        expected_subtitle_count = 2 if captions == 'dual-closed' else 1 if captions == 'closed' else 0
+                        self.assertEqual(len(subtitles), expected_subtitle_count)
                         if subtitles:
-                            self.assertEqual(subtitles[0]['codec_name'], 'mov_text')
-                            self.assertEqual(subtitles[0]['codec_tag_string'], 'tx3g')
-                            self.assertEqual((subtitles[0]['width'], subtitles[0]['height']), (320, 180))
-                            self.assertEqual(subtitles[0]['tags']['language'], 'eng')
+                            for subtitle in subtitles:
+                                self.assertEqual(subtitle['codec_name'], 'mov_text')
+                                self.assertEqual(subtitle['codec_tag_string'], 'tx3g')
+                                self.assertEqual((subtitle['width'], subtitle['height']), (320, 180))
+                                self.assertEqual(subtitle['tags']['language'], 'eng')
+                        if captions == 'dual-closed':
+                            self.assertEqual(
+                                tuple(subtitle['tags']['handler_name'] for subtitle in subtitles),
+                                ('English Transcript', 'English Descriptive Transcript'),
+                            )
                         expected_extension = '.mov' if selectable else '.mp4'
                         self.assertTrue(output.name.endswith(expected_extension), output)
 
@@ -731,23 +765,32 @@ class Validation(unittest.TestCase):
             closed_caption=folder/project()['exports'][2]
             closed_info=engine.probe(closed_caption)
             self.assertEqual(len([s for s in closed_info['streams'] if s['codec_type']=='subtitle']),1)
+            cli('export-dual-closed-caption-video','--project',folder)
+            dual_closed_caption=folder/project()['exports'][3]
+            dual_closed_info=engine.probe(dual_closed_caption)
+            dual_closed_subtitles=[s for s in dual_closed_info['streams'] if s['codec_type']=='subtitle']
+            self.assertEqual(len(dual_closed_subtitles),2)
+            self.assertEqual(
+                tuple(s['tags']['handler_name'] for s in dual_closed_subtitles),
+                ('English Transcript','English Descriptive Transcript'),
+            )
             cli('export-open-caption-video','--project',folder,'--content','combined')
-            open_caption=folder/project()['exports'][3]
+            open_caption=folder/project()['exports'][4]
             open_info=engine.probe(open_caption)
             self.assertFalse([s for s in open_info['streams'] if s['codec_type']=='subtitle'])
             cli('export-original-audio','--project',folder)
-            original_audio=folder/project()['exports'][4]
+            original_audio=folder/project()['exports'][5]
             self.assertEqual(engine.probe(original_audio)['streams'][0]['codec_name'],'mp3')
             cli('export-original-audio','--project',folder,success=False)
             self.assertTrue(original_audio.exists())
-            self.assertEqual(len(project()['exports']),5)
+            self.assertEqual(len(project()['exports']),6)
             cli('export-original-audio','--project',folder,'--replace-existing')
             self.assertEqual(project()['exports'][-1],original_audio.relative_to(folder).as_posix())
-            self.assertEqual(len(project()['exports']),5)
+            self.assertEqual(len(project()['exports']),6)
             cli('export-described-audio','--project',folder)
-            described_audio=folder/project()['exports'][5]
+            described_audio=folder/project()['exports'][6]
             self.assertEqual(engine.probe(described_audio)['streams'][0]['codec_name'],'mp3')
-            for expected in [output,selectable,closed_caption,open_caption,original_audio,described_audio]:
+            for expected in [output,selectable,closed_caption,dual_closed_caption,open_caption,original_audio,described_audio]:
                 cli('delete-export','--project',folder,'--name',project()['exports'][0])
                 self.assertFalse(expected.exists())
             self.assertEqual(project()['exports'],[])

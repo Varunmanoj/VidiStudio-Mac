@@ -1045,7 +1045,7 @@ final class StudioModel {
             engineCheckStatus = .checking
         }
         let target = project ?? (["import-video", "import-youtube", "doctor", "validate-config", "list-models"].contains(command) ? nil : selected)
-        if ["export-final-video", "export-selectable-video", "export-closed-audio-description-video", "export-open-audio-description-video", "export-closed-caption-video", "export-open-caption-video"].contains(command), let target, target.isYouTubeURLProject {
+        if ["export-final-video", "export-selectable-video", "export-closed-audio-description-video", "export-open-audio-description-video", "export-closed-caption-video", "export-dual-closed-caption-video", "export-open-caption-video"].contains(command), let target, target.isYouTubeURLProject {
             error = "Video export is unavailable for YouTube URL projects. You can export text and narration audio instead."
             return
         }

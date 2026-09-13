@@ -73,7 +73,30 @@ struct AppleAccessibilityMetadataWriter: AccessibilityMetadataWriting {
             characteristicMetadata(.describesVideoForAccessibility),
         ]
 
-        let legibleTracks = movie.tracks(withMediaType: .subtitle) + movie.tracks(withMediaType: .text)
+        func portableLegibleHandlerName(_ track: AVMutableMovieTrack) async throws -> String {
+            var values: [String] = []
+            for item in track.metadata {
+                if let value = try await item.load(.stringValue) {
+                    values.append(value)
+                }
+            }
+            return values.contains(where: {
+                $0.localizedCaseInsensitiveContains("descriptive transcript")
+                    || $0.localizedCaseInsensitiveContains("AD transcript")
+            }) ? "AD Transcript" : "Transcript"
+        }
+
+        let subtitleTracks = movie.tracks(withMediaType: .subtitle)
+        let textTracks = movie.tracks(withMediaType: .text)
+        var subtitleHandlerNames: [String] = []
+        for track in subtitleTracks {
+            subtitleHandlerNames.append(try await portableLegibleHandlerName(track))
+        }
+        var textHandlerNames: [String] = []
+        for track in textTracks {
+            textHandlerNames.append(try await portableLegibleHandlerName(track))
+        }
+        let legibleTracks = subtitleTracks + textTracks
         for track in legibleTracks {
             track.extendedLanguageTag = "en"
             track.alternateGroupID = 2
@@ -88,7 +111,11 @@ struct AppleAccessibilityMetadataWriter: AccessibilityMetadataWriting {
             fileType: .mov,
             options: .addMovieHeaderToDestination
         )
-        try restorePortableHandlerNames(at: url)
+        try restorePortableHandlerNames(
+            at: url,
+            subtitleNames: subtitleHandlerNames,
+            textNames: textHandlerNames
+        )
 
         let verifiedAsset = AVURLAsset(url: url)
         let verifiedAudioTracks = try await verifiedAsset.loadTracks(withMediaType: .audio)
@@ -114,7 +141,11 @@ struct AppleAccessibilityMetadataWriter: AccessibilityMetadataWriting {
     /// portable fallbacks for tools that expose handler names instead of the
     /// richer track-title metadata. Rewrite only the Pascal-string payloads in
     /// the final `moov` atom, preserving every atom's byte length.
-    private func restorePortableHandlerNames(at url: URL) throws {
+    private func restorePortableHandlerNames(
+        at url: URL,
+        subtitleNames: [String],
+        textNames: [String]
+    ) throws {
         let handle = try FileHandle(forUpdating: url)
         defer { try? handle.close() }
         let fileLength = try handle.seekToEnd()
@@ -162,8 +193,8 @@ struct AppleAccessibilityMetadataWriter: AccessibilityMetadataWriting {
         guard audioCount == 2 else {
             throw AccessibilityMetadataWriterError.handlerNamesMissing(audioCount)
         }
-        _ = try data.replacePascalHandlerNames(named: "Core Media Subtitle", with: ["AD Transcript"])
-        _ = try data.replacePascalHandlerNames(named: "Core Media Text", with: ["AD Transcript"])
+        _ = try data.replacePascalHandlerNames(named: "Core Media Subtitle", with: subtitleNames)
+        _ = try data.replacePascalHandlerNames(named: "Core Media Text", with: textNames)
 
         try handle.seek(toOffset: movieHeader.offset)
         try handle.write(contentsOf: data)

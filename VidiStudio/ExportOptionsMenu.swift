@@ -4,6 +4,7 @@ enum VideoCaptionOption: Hashable {
     case none
     case closed(content: String)
     case open(content: String)
+    case dualClosed
 
     var arguments: [String] {
         switch self {
@@ -13,15 +14,19 @@ enum VideoCaptionOption: Hashable {
             return ["--captions", "closed", "--content", content]
         case .open(let content):
             return ["--captions", "open", "--content", content]
+        case .dualClosed:
+            return ["--captions", "dual-closed"]
         }
     }
 
-    var requiredContent: String? {
+    var requiredContents: [String] {
         switch self {
         case .none:
-            return nil
+            return []
         case .closed(let content), .open(let content):
-            return content
+            return [content]
+        case .dualClosed:
+            return ["transcript", "combined"]
         }
     }
 
@@ -33,6 +38,8 @@ enum VideoCaptionOption: Hashable {
             return " with \(content == "combined" ? "AD Transcript" : "Transcript") Closed Captions"
         case .open(let content):
             return " with \(content == "combined" ? "AD Transcript" : "Transcript") Open Captions"
+        case .dualClosed:
+            return " with Transcript and Descriptive Transcript Closed Captions"
         }
     }
 }
@@ -41,6 +48,7 @@ enum StudioExportAction: Hashable {
     case selectableVideo(captions: VideoCaptionOption)
     case mixedVideo(captions: VideoCaptionOption)
     case closedCaptionVideo(content: String)
+    case dualClosedCaptionVideo
     case openCaptionVideo(content: String)
     case originalAudio
     case describedAudio
@@ -52,6 +60,7 @@ enum StudioExportAction: Hashable {
         case .selectableVideo: return "export-closed-audio-description-video"
         case .mixedVideo: return "export-open-audio-description-video"
         case .closedCaptionVideo: return "export-closed-caption-video"
+        case .dualClosedCaptionVideo: return "export-dual-closed-caption-video"
         case .openCaptionVideo: return "export-open-caption-video"
         case .originalAudio: return "export-original-audio"
         case .describedAudio: return "export-described-audio"
@@ -86,6 +95,8 @@ enum StudioExportAction: Hashable {
             descriptor = ("Open Audio Description" + captions.exportTypeSuffix, "mp4")
         case .closedCaptionVideo(let content):
             descriptor = ("\(content == "combined" ? "AD Transcript" : "Transcript") Closed Caption Video", "mp4")
+        case .dualClosedCaptionVideo:
+            descriptor = ("Transcript and Descriptive Transcript Closed Caption Video", "mp4")
         case .openCaptionVideo(let content):
             descriptor = ("\(content == "combined" ? "AD Transcript" : "Transcript") Open Caption Video", "mp4")
         case .originalAudio:
@@ -166,6 +177,7 @@ private enum VideoTranscriptChoice: String, CaseIterable, Identifiable {
     case transcriptOpen
     case adTranscriptClosed
     case adTranscriptOpen
+    case transcriptAndDescriptiveTranscriptClosed
 
     var id: Self { self }
     var title: String {
@@ -175,13 +187,16 @@ private enum VideoTranscriptChoice: String, CaseIterable, Identifiable {
         case .transcriptOpen: return "Transcript — Open Captions"
         case .adTranscriptClosed: return "AD Transcript — Closed Captions"
         case .adTranscriptOpen: return "AD Transcript — Open Captions"
+        case .transcriptAndDescriptiveTranscriptClosed:
+            return "Transcript and Descriptive Transcript — Two Closed-Caption Tracks"
         }
     }
-    var content: String? {
+    var requiredContents: [String] {
         switch self {
-        case .none: return nil
-        case .transcriptClosed, .transcriptOpen: return "transcript"
-        case .adTranscriptClosed, .adTranscriptOpen: return "combined"
+        case .none: return []
+        case .transcriptClosed, .transcriptOpen: return ["transcript"]
+        case .adTranscriptClosed, .adTranscriptOpen: return ["combined"]
+        case .transcriptAndDescriptiveTranscriptClosed: return ["transcript", "combined"]
         }
     }
     var captions: VideoCaptionOption {
@@ -191,6 +206,7 @@ private enum VideoTranscriptChoice: String, CaseIterable, Identifiable {
         case .transcriptOpen: return .open(content: "transcript")
         case .adTranscriptClosed: return .closed(content: "combined")
         case .adTranscriptOpen: return .open(content: "combined")
+        case .transcriptAndDescriptiveTranscriptClosed: return .dualClosed
         }
     }
 }
@@ -269,6 +285,7 @@ struct ExportDialog: View {
                 case .none: return nil
                 case .closed(let content): return .closedCaptionVideo(content: content)
                 case .open(let content): return .openCaptionVideo(content: content)
+                case .dualClosed: return .dualClosedCaptionVideo
                 }
             case .closedDescription:
                 return .selectableVideo(captions: videoTranscript.captions)
@@ -325,10 +342,15 @@ struct ExportDialog: View {
                                 ForEach(VideoTranscriptChoice.allCases) { option in
                                     Text(option.title)
                                         .tag(option)
-                                        .disabled(option.content.map(project.canExportText) == false)
+                                        .disabled(!option.requiredContents.allSatisfy(project.canExportText))
                                 }
                             }
                             .pickerStyle(.radioGroup)
+                            if videoTranscript == .transcriptAndDescriptiveTranscriptClosed {
+                                Text("Adds two switchable English tracks so viewers can choose standard captions or a descriptive transcript containing dialogue and visual descriptions.")
+                                    .font(.caption)
+                                    .foregroundStyle(.secondary)
+                            }
                             if videoAudio == .original && videoTranscript == .none {
                                 Label("Choose Audio Description or a transcript to create an accessible video export.", systemImage: "exclamationmark.triangle")
                                     .font(.caption)
@@ -421,9 +443,14 @@ struct ExportDialog: View {
         switch action {
         case .selectableVideo(let captions), .mixedVideo(let captions):
             guard !project.isYouTubeURLProject, !project.source.isEmpty else { return false }
-            return captions.requiredContent.map(project.canExportText) ?? true
+            return captions.requiredContents.allSatisfy(project.canExportText)
         case .closedCaptionVideo(let content), .openCaptionVideo(let content):
             return !project.isYouTubeURLProject && !project.source.isEmpty && project.canExportText(content)
+        case .dualClosedCaptionVideo:
+            return !project.isYouTubeURLProject
+                && !project.source.isEmpty
+                && project.canExportText("transcript")
+                && project.canExportText("combined")
         case .originalAudio:
             return !project.isYouTubeURLProject && !project.source.isEmpty && project.hasAudio
         case .describedAudio:
