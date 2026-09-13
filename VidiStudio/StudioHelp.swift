@@ -4,8 +4,8 @@ import AppKit
 @MainActor enum StudioHelp {
     static let bookName = "Varunmanojkumar.VidiStudio.help.v2"
 
-    static func open() {
+    static func open(anchor: String = "index") {
         NSHelpManager.shared.registerBooks(in: Bundle.main)
-        NSHelpManager.shared.openHelpAnchor("index", inBook: bookName)
+        NSHelpManager.shared.openHelpAnchor(anchor, inBook: bookName)
     }
 }

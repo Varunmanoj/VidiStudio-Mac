@@ -305,6 +305,12 @@ struct ExportDialog: View {
                 .formStyle(.grouped)
                 Divider()
                 HStack {
+                    Button("Export Help", systemImage: "questionmark.circle") {
+                        StudioHelp.open(anchor: "exports")
+                    }
+                    .labelStyle(.iconOnly)
+                    .help("Open Export Help")
+                    .accessibilityHint("Opens the Export your work topic in VidiStudio Help")
                     Spacer()
                     Button("Cancel", role: .cancel) { dismiss() }
                         .keyboardShortcut(.cancelAction)
