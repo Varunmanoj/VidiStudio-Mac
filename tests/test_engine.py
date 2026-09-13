@@ -524,6 +524,100 @@ class Validation(unittest.TestCase):
             open_info = engine.probe(root/project['exports'][1])
             self.assertFalse([stream for stream in open_info['streams'] if stream['codec_type'] == 'subtitle'])
             self.assertEqual(len([stream for stream in open_info['streams'] if stream['codec_type'] == 'video']), 1)
+
+    def test_audio_description_video_exports_support_every_caption_choice(self):
+        with tempfile.TemporaryDirectory(prefix='vidistudio-described-caption-test-') as temp:
+            root = Path(temp)
+            (root/'source').mkdir()
+            (root/'exports').mkdir()
+            (root/'audio-description').mkdir()
+            source = root/'source/video.mp4'
+            narration = root/'audio-description/narration.wav'
+            engine.run([
+                engine.tool('ffmpeg'), '-y', '-v', 'error', '-f', 'lavfi',
+                '-i', 'testsrc2=size=320x180:rate=24', '-f', 'lavfi',
+                '-i', 'sine=frequency=440:sample_rate=48000', '-t', '1.5',
+                '-c:v', 'libx264', '-c:a', 'aac', source,
+            ])
+            engine.run([
+                engine.tool('ffmpeg'), '-y', '-v', 'error', '-f', 'lavfi',
+                '-i', 'sine=frequency=880:sample_rate=48000', '-t', '0.2', narration,
+            ])
+            project = {
+                'name': 'Accessible Demo', 'sourceType': 'upload', 'source': 'source/video.mp4',
+                'duration': 1.5, 'width': 320, 'height': 180, 'hasAudio': True,
+                'transcript': [{'id':'t','start':.8,'end':1.2,'text':'The dialogue.'}],
+                'cues': [{
+                    'id':'ad', 'start':.1, 'end':.5, 'text':'A shape appears.',
+                    'audio':'audio-description/narration.wav', 'audioText':'A shape appears.',
+                }],
+                'exports': [],
+            }
+            choices = [
+                ('none', 'transcript'),
+                ('closed', 'transcript'),
+                ('open', 'transcript'),
+                ('closed', 'combined'),
+                ('open', 'combined'),
+            ]
+            with patch.object(engine, 'config', return_value={}):
+                for selectable in (True, False):
+                    for captions, content in choices:
+                        engine.export(
+                            root, project, selectable=selectable,
+                            captions=captions, content=content,
+                        )
+                        output = root/project['exports'][-1]
+                        info = engine.probe(output)
+                        audio = [stream for stream in info['streams'] if stream['codec_type'] == 'audio']
+                        subtitles = [stream for stream in info['streams'] if stream['codec_type'] == 'subtitle']
+                        self.assertEqual(len(audio), 2 if selectable else 1)
+                        self.assertEqual(len(subtitles), 1 if captions == 'closed' else 0)
+                        if subtitles:
+                            self.assertEqual(subtitles[0]['codec_name'], 'mov_text')
+                            self.assertEqual(subtitles[0]['tags']['language'], 'eng')
+                        expected_extension = '.mov' if selectable else '.mp4'
+                        self.assertTrue(output.name.endswith(expected_extension), output)
+
+    def test_original_and_described_program_audio_export_as_mp3(self):
+        with tempfile.TemporaryDirectory(prefix='vidistudio-audio-export-test-') as temp:
+            root = Path(temp)
+            (root/'source').mkdir()
+            (root/'exports').mkdir()
+            (root/'audio-description').mkdir()
+            source = root/'source/video.mp4'
+            narration = root/'audio-description/narration.wav'
+            engine.run([
+                engine.tool('ffmpeg'), '-y', '-v', 'error', '-f', 'lavfi',
+                '-i', 'testsrc2=size=320x180:rate=24', '-f', 'lavfi',
+                '-i', 'sine=frequency=440:sample_rate=48000', '-t', '1.5',
+                '-c:v', 'libx264', '-c:a', 'aac', source,
+            ])
+            engine.run([
+                engine.tool('ffmpeg'), '-y', '-v', 'error', '-f', 'lavfi',
+                '-i', 'sine=frequency=880:sample_rate=48000', '-t', '0.2', narration,
+            ])
+            project = {
+                'name': 'Audio Demo', 'sourceType': 'upload', 'source': 'source/video.mp4',
+                'duration': 1.5, 'hasAudio': True,
+                'transcript': [{'id':'t','start':.8,'end':1.2,'text':'The dialogue.'}],
+                'cues': [{
+                    'id':'ad', 'start':.1, 'end':.5, 'text':'A shape appears.',
+                    'audio':'audio-description/narration.wav', 'audioText':'A shape appears.',
+                }],
+                'exports': [],
+            }
+            engine.export_program_audio(root, project)
+            engine.export_program_audio(root, project, described=True)
+            self.assertRegex(project['exports'][0], r'^exports/Audio Demo - Original Video Audio - \d{8}-\d{6}\.mp3$')
+            self.assertRegex(project['exports'][1], r'^exports/Audio Demo - Final Audio with Audio Description - \d{8}-\d{6}\.mp3$')
+            for relative in project['exports']:
+                info = engine.probe(root/relative)
+                self.assertFalse([stream for stream in info['streams'] if stream['codec_type'] == 'video'])
+                audio = [stream for stream in info['streams'] if stream['codec_type'] == 'audio']
+                self.assertEqual(len(audio), 1)
+                self.assertEqual(audio[0]['codec_name'], 'mp3')
+
     def test_selectable_export_adds_original_track_for_silent_local_video(self):
         with tempfile.TemporaryDirectory() as temp:
             root = Path(temp)
@@ -590,13 +684,14 @@ class Validation(unittest.TestCase):
                 'systemSpeechPitch': 0.8,
                 'systemSpeechVolume': 0.5,
             }))
-            cli('export-open-audio-description-video','--project',folder)
+            cli('export-open-audio-description-video','--project',folder,'--captions','open','--content','transcript')
             output=folder/project()['exports'][0]
-            self.assertRegex(project()['exports'][0],r'^exports/sample video - Open Audio Description - \d{8}-\d{6}\.mp4$')
+            self.assertRegex(project()['exports'][0],r'^exports/sample video - Open Audio Description with Transcript Open Captions - \d{8}-\d{6}\.mp4$')
             self.assertAlmostEqual(float(engine.probe(output)['format']['duration']),8,delta=.2)
-            cli('export-closed-audio-description-video','--project',folder)
+            self.assertFalse([stream for stream in engine.probe(output)['streams'] if stream['codec_type']=='subtitle'])
+            cli('export-closed-audio-description-video','--project',folder,'--captions','closed','--content','combined')
             selectable=folder/project()['exports'][1]
-            self.assertRegex(project()['exports'][1],r'^exports/sample video - Closed Audio Description - \d{8}-\d{6}\.mov$')
+            self.assertRegex(project()['exports'][1],r'^exports/sample video - Closed Audio Description with AD Transcript Closed Captions - \d{8}-\d{6}\.mov$')
             selectable_info=engine.probe(selectable)
             self.assertEqual(len([s for s in selectable_info['streams'] if s['codec_type']=='video']),1)
             selectable_audio=[s for s in selectable_info['streams'] if s['codec_type']=='audio']
@@ -607,6 +702,9 @@ class Validation(unittest.TestCase):
             self.assertEqual(selectable_audio[1]['tags']['language'],'eng')
             self.assertEqual(selectable_audio[0]['tags']['handler_name'],'Original Audio')
             self.assertEqual(selectable_audio[1]['tags']['handler_name'],'English - Audio Description')
+            selectable_subtitles=[s for s in selectable_info['streams'] if s['codec_type']=='subtitle']
+            self.assertEqual(len(selectable_subtitles),1)
+            self.assertEqual(selectable_subtitles[0]['codec_name'],'mov_text')
             self.assertAlmostEqual(float(selectable_info['format']['duration']),8,delta=.2)
             cli('export-closed-caption-video','--project',folder,'--content','transcript')
             closed_caption=folder/project()['exports'][2]
@@ -616,14 +714,15 @@ class Validation(unittest.TestCase):
             open_caption=folder/project()['exports'][3]
             open_info=engine.probe(open_caption)
             self.assertFalse([s for s in open_info['streams'] if s['codec_type']=='subtitle'])
-            cli('delete-export','--project',folder,'--name',project()['exports'][0])
-            self.assertFalse(output.exists())
-            cli('delete-export','--project',folder,'--name',project()['exports'][0])
-            self.assertFalse(selectable.exists())
-            cli('delete-export','--project',folder,'--name',project()['exports'][0])
-            self.assertFalse(closed_caption.exists())
-            cli('delete-export','--project',folder,'--name',project()['exports'][0])
-            self.assertFalse(open_caption.exists())
+            cli('export-original-audio','--project',folder)
+            original_audio=folder/project()['exports'][4]
+            self.assertEqual(engine.probe(original_audio)['streams'][0]['codec_name'],'mp3')
+            cli('export-described-audio','--project',folder)
+            described_audio=folder/project()['exports'][5]
+            self.assertEqual(engine.probe(described_audio)['streams'][0]['codec_name'],'mp3')
+            for expected in [output,selectable,closed_caption,open_caption,original_audio,described_audio]:
+                cli('delete-export','--project',folder,'--name',project()['exports'][0])
+                self.assertFalse(expected.exists())
             self.assertEqual(project()['exports'],[])
             self.assertFalse((folder/'metadata/trash').exists())
             stale=project()['cues']; stale[0]['text']='Changed narration.'; cues.write_text(json.dumps(stale))

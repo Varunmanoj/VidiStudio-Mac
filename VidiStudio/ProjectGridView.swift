@@ -10,7 +10,7 @@ struct ProjectGridView: View {
     let rename: (StudioProject) -> Void
     let delete: (StudioProject) -> Void
     let process: (StudioProject, String) -> Void
-    let export: (StudioProject, StudioExportAction) -> Void
+    let export: (StudioProject) -> Void
     let clear: (StudioProject) -> Void
 
     var body: some View {
@@ -54,8 +54,8 @@ struct ProjectGridView: View {
                         ProjectAnalysisMenu(project: project, busy: busy) { command in
                             process(project, command)
                         }
-                        ProjectExportMenu(project: project, busy: busy) { action in
-                            export(project, action)
+                        ProjectExportButton(project: project, busy: busy) {
+                            export(project)
                         }
                         Divider()
                         Button("Choose Content to Delete…", systemImage: "eraser", role: .destructive) { clear(project) }.disabled(busy || !project.hasGeneratedContent)

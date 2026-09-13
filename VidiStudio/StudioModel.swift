@@ -1006,7 +1006,7 @@ final class StudioModel {
         return alert.runModal() == .alertSecondButtonReturn
     }
 
-    private func confirmIncompleteNarrationExport(project: StudioProject, audioOnly: Bool) -> [String]? {
+    private func confirmIncompleteNarrationExport(project: StudioProject, audioOnly: Bool, exportKindOverride: String? = nil) -> [String]? {
         var current = project
         do {
             guard let folder = project.folder else { return nil }
@@ -1025,7 +1025,7 @@ final class StudioModel {
         }
         guard !missing.isEmpty || current.cues.isEmpty else { return [] }
         let alert = NSAlert()
-        let exportKind = audioOnly ? "narration audio" : "video"
+        let exportKind = exportKindOverride ?? (audioOnly ? "narration audio" : "video")
         alert.messageText = "Export \(exportKind) with incomplete audio descriptions?"
         alert.informativeText = current.cues.isEmpty
             ? "This project has no AD segments. Continuing exports \(exportKind) without audio descriptions."
@@ -1046,7 +1046,11 @@ final class StudioModel {
         }
         let target = project ?? (["import-video", "import-youtube", "doctor", "validate-config", "list-models"].contains(command) ? nil : selected)
         if ["export-final-video", "export-selectable-video", "export-closed-audio-description-video", "export-open-audio-description-video", "export-closed-caption-video", "export-open-caption-video"].contains(command), let target, target.isYouTubeURLProject {
-            error = "Audio Description video export is unavailable for YouTube URL projects. You can export text and narration audio instead."
+            error = "Video export is unavailable for YouTube URL projects. You can export text and narration audio instead."
+            return
+        }
+        if ["export-original-audio", "export-described-audio"].contains(command), let target, target.isYouTubeURLProject {
+            error = "Original and final program-audio export require a local video file. You can export narration audio or text from this YouTube project."
             return
         }
         if command == "generate-ad-cues", let target, !target.canGenerateDescriptions {
@@ -1055,8 +1059,12 @@ final class StudioModel {
         }
         if let target, !confirmAnalysisReplacement(command, project: target) { return }
         var exportOptions: [String] = []
-        if ["export-final-video", "export-selectable-video", "export-closed-audio-description-video", "export-open-audio-description-video", "export-audio"].contains(command), let target {
-            guard let options = confirmIncompleteNarrationExport(project: target, audioOnly: command == "export-audio") else { return }
+        if ["export-final-video", "export-selectable-video", "export-closed-audio-description-video", "export-open-audio-description-video", "export-described-audio", "export-audio"].contains(command), let target {
+            guard let options = confirmIncompleteNarrationExport(
+                project: target,
+                audioOnly: command == "export-audio",
+                exportKindOverride: command == "export-described-audio" ? "final audio" : nil
+            ) else { return }
             exportOptions = options
         }
         guard let engine = Bundle.main.resourceURL?.appendingPathComponent("Engine/vidistudio-engine"), FileManager.default.isExecutableFile(atPath: engine.path) else {

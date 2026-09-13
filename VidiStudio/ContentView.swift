@@ -202,6 +202,7 @@ struct ContentView: View {
     @State private var rename = ""
     @State private var renaming = false
     @State private var deletionProject: StudioProject?
+    @State private var exportProject: StudioProject?
     @AppStorage("projectBrowserGrid") private var projectGrid = false
     @AppStorage("projectGridItemSize") private var projectGridItemSize = 180.0
 
@@ -230,9 +231,7 @@ struct ContentView: View {
             rename: { p in studio.selectedID = p.id; rename = p.name; renaming = true },
             delete: { studio.trashProject($0) },
             process: { p, command in studio.selectedID = p.id; studio.execute(command, project: p) },
-            export: { project, action in
-                studio.execute(action.command, extra: action.arguments, project: project)
-            },
+            export: { exportProject = $0 },
             clear: { deletionProject = $0 }
         )
         .background(WindowFitter().frame(width: 0, height: 0))
@@ -251,6 +250,11 @@ struct ContentView: View {
         }
         .sheet(item: $deletionProject) { project in
             GeneratedContentDeletionView(studio: studio, project: project)
+        }
+        .sheet(item: $exportProject) { project in
+            ExportDialog(project: project, busy: studio.busy) { action in
+                studio.execute(action.command, extra: action.arguments, project: project)
+            }
         }
         .sheet(isPresented: $studio.isCreatingProject) {
             NewProjectView(studio: studio)
@@ -275,6 +279,7 @@ struct ProjectEditorWindow: View {
     @State private var studio: StudioModel
     @State private var editorShortcutActions = EditorShortcutActions()
     @State private var showInspector = true
+    @State private var showingExportDialog = false
     @Environment(\.openWindow) private var openWindow
     @Environment(\.dismiss) private var dismiss
 
@@ -299,13 +304,18 @@ struct ProjectEditorWindow: View {
                         shortcutsBlocked: studio.error != nil,
                         studio: studio,
                         project: project,
-                        shortcutActions: editorShortcutActions
+                        shortcutActions: editorShortcutActions,
+                        showExportDialog: { showingExportDialog = true }
                     )
                     .id(project.id)
                     .frame(width: max(0, geometry.size.width - (showInspector ? 273 : 0)), height: geometry.size.height)
                     if showInspector {
                         Divider()
-                        ProcessingInspector(studio: studio, editorActions: editorShortcutActions)
+                        ProcessingInspector(
+                            studio: studio,
+                            editorActions: editorShortcutActions,
+                            showExportDialog: { showingExportDialog = true }
+                        )
                             .frame(width: 272, height: geometry.size.height)
                             .background(.bar)
                     }
@@ -343,6 +353,13 @@ struct ProjectEditorWindow: View {
         } message: {
             Text(studio.error ?? "")
         }
+        .sheet(isPresented: $showingExportDialog) {
+            if let project = studio.selected {
+                ExportDialog(project: project, busy: studio.busy) { action in
+                    studio.execute(action.command, extra: action.arguments, project: project)
+                }
+            }
+        }
         .onAppear {
             studio.reload()
             studio.selectedID = projectID
@@ -363,6 +380,7 @@ struct ProjectEditorWindow: View {
 struct ProcessingInspector: View {
     @Bindable var studio: StudioModel
     let editorActions: EditorShortcutActions
+    let showExportDialog: () -> Void
 
     private var currentComponent: GeneratedContentComponent? {
         switch editorActions.activeSection {
@@ -460,10 +478,10 @@ struct ProcessingInspector: View {
                         }
                         GroupBox("Export") {
                             VStack(alignment: .leading, spacing: 10) {
-                                ProjectExportMenu(
+                                ProjectExportButton(
                                     project: p,
                                     busy: studio.busy,
-                                    perform: { action in studio.execute(action.command, extra: action.arguments) }
+                                    showDialog: showExportDialog
                                 )
                                 .help("Export video, narration audio, or text in the format you need")
                                 if !p.exports.isEmpty {
@@ -646,6 +664,7 @@ struct ProjectEditor: View {
     @Bindable var studio: StudioModel
     let project: StudioProject
     let shortcutActions: EditorShortcutActions
+    let showExportDialog: () -> Void
     @State private var playback = PlaybackModel()
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @State private var tab = "transcript"
@@ -1218,9 +1237,7 @@ struct ProjectEditor: View {
     private func refreshEditorShortcutActions(updateHandler: Bool = false) {
         if updateHandler {
             shortcutActions.handler = { action in runEditorShortcut(action) }
-            shortcutActions.exportHandler = { action in
-                studio.execute(action.command, extra: action.arguments)
-            }
+            shortcutActions.exportHandler = showExportDialog
         }
         shortcutActions.previewHidden = previewHidden
         shortcutActions.available = !shortcutsBlocked && !studio.busy && cueToEdit == nil && studio.screenText == nil
@@ -1233,9 +1250,6 @@ struct ProjectEditor: View {
         shortcutActions.hasGeneratedTranscript = GeneratedContentComponent.transcript.hasContent(in: project)
         shortcutActions.hasGeneratedSummary = GeneratedContentComponent.summary.hasContent(in: project)
         shortcutActions.hasGeneratedThumbnails = !project.thumbnails.isEmpty
-        shortcutActions.hasLocalSource = !project.source.isEmpty
-        shortcutActions.isYouTubeProject = project.isYouTubeURLProject
-        shortcutActions.exportableText = Set(["transcript", "summary", "descriptions", "combined"].filter { project.canExportText($0) })
         shortcutActions.summaryActive = (tab == "summary")
         shortcutActions.summaryReadable = !project.summary.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty && !studio.busy
         shortcutActions.summaryIsReading = summaryReader.isReading

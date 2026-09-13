@@ -14,9 +14,6 @@ final class EditorShortcutActions {
     var hasGeneratedTranscript = false
     var hasGeneratedSummary = false
     var hasGeneratedThumbnails = false
-    var hasLocalSource = false
-    var isYouTubeProject = false
-    var exportableText: Set<String> = []
     /// Summary section readback state, synced by the project editor.
     var summaryActive = false
     var summaryReadable = false
@@ -27,7 +24,7 @@ final class EditorShortcutActions {
     /// A non-empty summary text selection (read-selection content).
     var summaryHasTextSelection = false
     var handler: ((String) -> Void)?
-    var exportHandler: ((StudioExportAction) -> Void)?
+    var exportHandler: (() -> Void)?
 
     var captionControlsAvailable: Bool {
         ["transcript", "descriptions", "ad-transcript"].contains(activeSection)
@@ -102,23 +99,9 @@ final class EditorShortcutActions {
         }
     }
 
-    func canExport(_ action: StudioExportAction) -> Bool {
-        guard available, exportHandler != nil else { return false }
-        switch action {
-        case .selectableVideo, .mixedVideo:
-            return !isYouTubeProject && hasLocalSource
-        case .closedCaptionVideo(let content), .openCaptionVideo(let content):
-            return !isYouTubeProject && hasLocalSource && exportableText.contains(content)
-        case .narrationAudio:
-            return hasNarrationAudio
-        case .text(let content, _):
-            return exportableText.contains(content)
-        }
-    }
-
-    func performExport(_ action: StudioExportAction) {
-        guard canExport(action) else { return }
-        exportHandler?(action)
+    func showExportDialog() {
+        guard available else { return }
+        exportHandler?()
     }
 
     func canRunSummary(_ action: String) -> Bool {
@@ -212,14 +195,10 @@ struct StudioCommands: Commands {
     var body: some Commands {
         CommandGroup(after: .newItem) {
             Divider()
-            Menu("Export", systemImage: "square.and.arrow.up") {
-                ExportMenuContent(
-                    supportsVideo: editor?.isYouTubeProject != true,
-                    canPerform: { editor?.canExport($0) == true },
-                    perform: { editor?.performExport($0) }
-                )
+            Button("Export…", systemImage: "square.and.arrow.up") {
+                editor?.showExportDialog()
             }
-            .disabled(editor?.available != true)
+            .disabled(editor?.available != true || editor?.exportHandler == nil)
         }
         CommandGroup(after: .sidebar) {
             Button(editor?.previewHidden == true ? "Show Preview" : "Hide Preview", systemImage: editor?.previewHidden == true ? "video" : "video.slash") {
