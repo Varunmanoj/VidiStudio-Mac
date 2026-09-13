@@ -8,7 +8,7 @@ Reference: the authenticated accessivideo.pages.dev application and its React/Py
 | Local video import | Copies source into a local project; FFprobe metadata and eight thumbnails |
 | YouTube project | Canonical URL validation, oEmbed title, embedded YouTube playback; generated results stay local |
 | Project overview and advanced editor | Native split editor with summary, transcript, descriptions, timeline, inspector |
-| Staged transcript, summary, descriptions | Individual commands and sequential Run All Analysis |
+| Staged transcript, summary, descriptions | Individual commands and sequential Analyze Video workflow |
 | Retry processing | Individual stage commands, saved JSON history, existing completed output retained on request failure |
 | Dedicated speech model | Extracted mono WAV chunks, word timestamps, speaker grouping |
 | YouTube analysis | Separate configured video-understanding model; no audio-only request sent a YouTube URI |
@@ -19,7 +19,7 @@ Reference: the authenticated accessivideo.pages.dev application and its React/Py
 | Narration | Offline system voices, optional Gemini TTS; one cue, all, or changed cues; optional live on-device playback without files |
 | Narration preview | Individual audio preview and synchronized description playback |
 | Exports | SRT, VTT, text, JSON; narration M4A; final MP4 with original audio |
-| YouTube final video | Attach a matching local copy before muxing; narration/subtitles do not require a copy |
+| YouTube video export | Not available for URL-backed projects; narration and text exports remain available |
 | Appearance | Light, dark, system; standard macOS controls and typography; bundled Material Symbols |
 | Settings | Two-column native sidebar; searchable language/region voice browser with samples and refresh; personal key, per-stage model IDs, API version, processing mode, prompt pairs, voice and tool paths |
 | Accessibility | Named native controls, keyboard access, standard menus, reduced-motion-aware transcript scrolling |
@@ -27,4 +27,4 @@ Reference: the authenticated accessivideo.pages.dev application and its React/Py
 
 ## Verification limits
 
-Local media import, metadata, thumbnails, system speech, final video rendering, URL validation, subtitles, and edit history have automated coverage. Native editor and settings have been inspected through the macOS accessibility tree. Live Gemini processing requires a configured personal key in desktop Settings. Windows uses the same engine and a packaging script, but Windows runtime validation and a Windows native UI are not completed on this Mac. Public macOS distribution still requires Developer ID signing and notarization.
+Local media import, metadata, thumbnails, system speech, open and closed Audio Description rendering, URL validation, captions, and edit history have automated coverage. Native editor and settings have been inspected through the macOS accessibility tree. Live Gemini processing requires a configured personal key in desktop Settings. Windows uses the same engine and a packaging script, but Windows runtime validation and a Windows native UI are not completed on this Mac. Public macOS distribution still requires Developer ID signing and notarization.

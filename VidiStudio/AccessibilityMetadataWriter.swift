@@ -2,7 +2,7 @@ import AVFoundation
 import Foundation
 
 protocol AccessibilityMetadataWriting {
-    func finalizeSelectableDescriptionTrack(at url: URL) async throws
+    func finalizeClosedDescriptionTrack(at url: URL) async throws
 }
 
 enum AccessibilityMetadataWriterError: LocalizedError {
@@ -13,7 +13,7 @@ enum AccessibilityMetadataWriterError: LocalizedError {
     var errorDescription: String? {
         switch self {
         case .exportNotFound:
-            return "The new selectable export could not be found."
+            return "The new Closed Audio Description export could not be found."
         case .wrongAudioTrackCount(let count):
             return "Expected two audio tracks, but found \(count)."
         case .characteristicMissing:
@@ -23,7 +23,7 @@ enum AccessibilityMetadataWriterError: LocalizedError {
 }
 
 struct AppleAccessibilityMetadataWriter: AccessibilityMetadataWriting {
-    func finalizeSelectableDescriptionTrack(at url: URL) async throws {
+    func finalizeClosedDescriptionTrack(at url: URL) async throws {
         let movie = AVMutableMovie(
             url: url,
             options: [AVURLAssetPreferPreciseDurationAndTimingKey: true]

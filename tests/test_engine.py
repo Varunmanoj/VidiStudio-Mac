@@ -341,6 +341,64 @@ class Validation(unittest.TestCase):
                 engine.export(root, project, allow_incomplete=True)
             with self.assertRaisesRegex(ValueError, 'unavailable for YouTube URL projects'):
                 engine.export(root, project, allow_incomplete=True, selectable=True)
+            project['transcript'] = [{'id':'t','start':0,'end':1,'text':'Existing dialogue'}]
+            with self.assertRaisesRegex(ValueError, 'unavailable for YouTube URL projects'):
+                engine.export_captioned_video(root, project)
+            with self.assertRaisesRegex(ValueError, 'unavailable for YouTube URL projects'):
+                engine.export_captioned_video(root, project, open_captions=True)
+
+    def test_closed_and_open_caption_video_exports(self):
+        with tempfile.TemporaryDirectory(prefix='vidistudio-caption-test-') as temp:
+            root = Path(temp)
+            (root/'source').mkdir()
+            (root/'exports').mkdir()
+            source = root/'source/video.mp4'
+            engine.run([
+                engine.tool('ffmpeg'), '-y', '-v', 'error', '-f', 'lavfi',
+                '-i', 'testsrc2=size=320x180:rate=24', '-f', 'lavfi',
+                '-i', 'sine=frequency=440:sample_rate=48000', '-t', '1.5',
+                '-c:v', 'libx264', '-c:a', 'aac', source,
+            ])
+            project = {
+                'name': 'Caption Demo', 'sourceType': 'upload', 'source': 'source/video.mp4',
+                'duration': 1.5, 'width': 320, 'height': 180, 'hasAudio': True,
+                'transcript': [{'id':'t','start':0.1,'end':1.2,'text':'A caption appears.'}],
+                'cues': [{'id':'ad','start':1.2,'end':1.4,'text':'A shape fades.'}], 'exports': [],
+            }
+            caption_settings = {
+                'captionFontSize': 28,
+                'captionTextColor': '#112233',
+                'captionBackgroundColor': '#445566',
+                'adCaptionTextColor': '#AABBCC',
+                'adCaptionBackgroundColor': '#DDEEFF',
+                'captionBackgroundOpacity': .65,
+                'captionPosition': 'top',
+            }
+            segments = engine.validated_caption_segments(project, content='combined')
+            ass_text = engine.ass_caption_text(project, segments, caption_settings)
+            self.assertIn('Style: Dialogue,Arial,', ass_text)
+            self.assertIn('&H00332211', ass_text)
+            self.assertIn('&H59665544', ass_text)
+            self.assertIn('Style: AudioDescription,Arial,', ass_text)
+            self.assertIn('&H00CCBBAA', ass_text)
+            self.assertIn('&H59FFEEDD', ass_text)
+            self.assertIn('Dialogue: 0,0:00:00.10,0:00:01.20,Dialogue,', ass_text)
+            self.assertIn('Dialogue: 0,0:00:01.20,0:00:01.40,AudioDescription,', ass_text)
+            with patch.object(engine, 'config', return_value=caption_settings):
+                engine.export_captioned_video(root, project)
+                engine.export_captioned_video(root, project, open_captions=True, content='combined')
+
+            self.assertRegex(project['exports'][0], r'^exports/Caption Demo - Transcript Closed Caption Video - \d{8}-\d{6}\.mp4$')
+            closed_info = engine.probe(root/project['exports'][0])
+            closed_subtitles = [stream for stream in closed_info['streams'] if stream['codec_type'] == 'subtitle']
+            self.assertEqual(len(closed_subtitles), 1)
+            self.assertEqual(closed_subtitles[0]['codec_name'], 'mov_text')
+            self.assertEqual(closed_subtitles[0]['tags']['language'], 'eng')
+
+            self.assertRegex(project['exports'][1], r'^exports/Caption Demo - AD Transcript Open Caption Video - \d{8}-\d{6}\.mp4$')
+            open_info = engine.probe(root/project['exports'][1])
+            self.assertFalse([stream for stream in open_info['streams'] if stream['codec_type'] == 'subtitle'])
+            self.assertEqual(len([stream for stream in open_info['streams'] if stream['codec_type'] == 'video']), 1)
     def test_selectable_export_adds_original_track_for_silent_local_video(self):
         with tempfile.TemporaryDirectory() as temp:
             root = Path(temp)
@@ -383,6 +441,11 @@ class Validation(unittest.TestCase):
             project=lambda:json.loads((folder/'project.json').read_text())
             self.assertEqual(len(project()['thumbnails']),8)
             self.assertTrue((folder/project()['source']).exists())
+            timed_transcript = [{'id':'dialogue','start':6.2,'end':7.5,'text':'The final caption.'}]
+            caption_ready = project()
+            caption_ready['transcript'] = timed_transcript
+            (folder/'project.json').write_text(json.dumps(caption_ready))
+            (folder/'transcript/transcript.json').write_text(json.dumps(timed_transcript))
             cli('extract-audio','--project',folder)
             cues=root/'cues.json'; cues.write_text(json.dumps([{'id':'test','start':1,'end':6,'text':'Colorful shapes move.'}]))
             cli('save-cues','--project',folder,'--input',cues)
@@ -403,13 +466,13 @@ class Validation(unittest.TestCase):
                 'systemSpeechPitch': 0.8,
                 'systemSpeechVolume': 0.5,
             }))
-            cli('export-final-video','--project',folder)
+            cli('export-open-audio-description-video','--project',folder)
             output=folder/project()['exports'][0]
-            self.assertRegex(project()['exports'][0],r'^exports/sample video - Final Video - \d{8}-\d{6}\.mp4$')
+            self.assertRegex(project()['exports'][0],r'^exports/sample video - Open Audio Description - \d{8}-\d{6}\.mp4$')
             self.assertAlmostEqual(float(engine.probe(output)['format']['duration']),8,delta=.2)
-            cli('export-selectable-video','--project',folder)
+            cli('export-closed-audio-description-video','--project',folder)
             selectable=folder/project()['exports'][1]
-            self.assertRegex(project()['exports'][1],r'^exports/sample video - Selectable Audio Description - \d{8}-\d{6}\.mov$')
+            self.assertRegex(project()['exports'][1],r'^exports/sample video - Closed Audio Description - \d{8}-\d{6}\.mov$')
             selectable_info=engine.probe(selectable)
             self.assertEqual(len([s for s in selectable_info['streams'] if s['codec_type']=='video']),1)
             selectable_audio=[s for s in selectable_info['streams'] if s['codec_type']=='audio']
@@ -421,15 +484,27 @@ class Validation(unittest.TestCase):
             self.assertEqual(selectable_audio[0]['tags']['handler_name'],'Original Audio')
             self.assertEqual(selectable_audio[1]['tags']['handler_name'],'English - Audio Description')
             self.assertAlmostEqual(float(selectable_info['format']['duration']),8,delta=.2)
+            cli('export-closed-caption-video','--project',folder,'--content','transcript')
+            closed_caption=folder/project()['exports'][2]
+            closed_info=engine.probe(closed_caption)
+            self.assertEqual(len([s for s in closed_info['streams'] if s['codec_type']=='subtitle']),1)
+            cli('export-open-caption-video','--project',folder,'--content','combined')
+            open_caption=folder/project()['exports'][3]
+            open_info=engine.probe(open_caption)
+            self.assertFalse([s for s in open_info['streams'] if s['codec_type']=='subtitle'])
             cli('delete-export','--project',folder,'--name',project()['exports'][0])
             self.assertFalse(output.exists())
             cli('delete-export','--project',folder,'--name',project()['exports'][0])
             self.assertFalse(selectable.exists())
+            cli('delete-export','--project',folder,'--name',project()['exports'][0])
+            self.assertFalse(closed_caption.exists())
+            cli('delete-export','--project',folder,'--name',project()['exports'][0])
+            self.assertFalse(open_caption.exists())
             self.assertEqual(project()['exports'],[])
             self.assertTrue(any((folder/'metadata/trash').iterdir()))
             stale=project()['cues']; stale[0]['text']='Changed narration.'; cues.write_text(json.dumps(stale))
             cli('save-cues','--project',folder,'--input',cues)
-            cli('export-final-video','--project',folder,success=False)
+            cli('export-open-audio-description-video','--project',folder,success=False)
             cli('transcribe','--project',folder,success=False)
             self.assertIn('API key',project()['error'])
             cli('delete-generated','--project',folder,'--component','narration')

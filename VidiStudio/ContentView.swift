@@ -144,12 +144,9 @@ private struct NewProjectView: View {
             youtubeFetchError = nil
         }
         .alert(studio.errorTitle, isPresented: Binding(get: { studio.error != nil }, set: { if !$0 { studio.dismissError() } })) {
-            if studio.canRetryLastFailure {
-                Button("Retry \(studio.lastFailureTitle ?? "Analysis")") { studio.retryLastFailure() }
-            }
             Button("OK", role: .cancel) { studio.dismissError() }
         } message: {
-            Text((studio.error ?? "") + (studio.canRetryLastFailure ? "\n\nThe app already retried automatically 3 times. You can retry manually once more." : ""))
+            Text(studio.error ?? "")
         }
     }
 
@@ -261,12 +258,9 @@ struct ContentView: View {
             NewProjectView(studio: studio)
         }
         .alert(studio.errorTitle, isPresented: Binding(get: { studio.error != nil }, set: { if !$0 { studio.dismissError() } })) {
-            if studio.canRetryLastFailure {
-                Button("Retry \(studio.lastFailureTitle ?? "Analysis")") { studio.retryLastFailure() }
-            }
             Button("OK", role: .cancel) { studio.dismissError() }
         } message: {
-            Text((studio.error ?? "") + (studio.canRetryLastFailure ? "\n\nThe app already retried automatically 3 times. You can retry manually once more." : ""))
+            Text(studio.error ?? "")
         }
         .onReceive(NotificationCenter.default.publisher(for: .vidiStudioSettingsDidChange)) { notification in
             guard let source = notification.object as? StudioModel,
@@ -349,12 +343,9 @@ struct ProjectEditorWindow: View {
             }
         }
         .alert(studio.errorTitle, isPresented: Binding(get: { studio.error != nil }, set: { if !$0 { studio.dismissError() } })) {
-            if studio.canRetryLastFailure {
-                Button("Retry \(studio.lastFailureTitle ?? "Analysis")") { studio.retryLastFailure() }
-            }
             Button("OK", role: .cancel) { studio.dismissError() }
         } message: {
-            Text((studio.error ?? "") + (studio.canRetryLastFailure ? "\n\nThe app already retried automatically 3 times. You can retry manually once more." : ""))
+            Text(studio.error ?? "")
         }
         .onAppear {
             studio.reload()
@@ -401,16 +392,9 @@ struct ProcessingInspector: View {
             VStack(alignment: .leading, spacing: 12) {
                 if let p = studio.selected {
                     GroupBox("Analysis") {
-                        VStack(alignment: .leading, spacing: 8) {
-                            Button("Run All Analysis", systemImage: "sparkles") { editorActions.run("analyze") }
-                                .disabled(!editorActions.canRun("analyze"))
-                                .help("Generate the transcript, summary, and audio descriptions in sequence")
-                            Button { editorActions.run("regenerate-all") } label: {
-                                HStack { MaterialIcon(glyph: ""); Text("Regenerate All…") }
-                            }
-                            .disabled(!editorActions.canRun("regenerate-all"))
-                            .help("Delete generated analysis and recreate the transcript, summary, and descriptions")
-                        }
+                        Button("Analyze Video…", systemImage: "sparkles") { editorActions.run("analyze") }
+                            .disabled(!editorActions.canRun("analyze"))
+                            .help("Create the transcript, summary, and audio descriptions in sequence; existing analysis is replaced only after confirmation")
                     }
                     if let sectionTitle = currentSectionTitle {
                         GroupBox(sectionTitle) {
@@ -425,7 +409,7 @@ struct ProcessingInspector: View {
                                         .disabled(!editorActions.canRun(action))
                                         .help(action == "generate-ad-cues" && !p.canGenerateDescriptions
                                             ? "Generate the transcript and summary first"
-                                            : title.hasPrefix("Regenerate")
+                                            : title.hasPrefix("Replace")
                                                 ? "Replace the current \(sectionTitle.lowercased()) after confirmation"
                                                 : "Generate the \(sectionTitle.lowercased()) for this project")
                                         if let component = currentComponent, component.hasContent(in: p) {
@@ -522,6 +506,66 @@ private struct TranscriptRow: Identifiable {
     }
 }
 
+private struct TranscriptCaptionOverlay: View {
+    let project: StudioProject
+    let playbackTime: Double
+    let settings: StudioSettings
+
+    private struct Row: Identifiable {
+        let segment: Segment
+        let isDescription: Bool
+
+        var id: String { (isDescription ? "ad:" : "transcript:") + segment.id }
+        var text: String {
+            isDescription ? "Audio description: \(segment.text)" : segment.text
+        }
+    }
+
+    private var activeRows: [Row] {
+        let segments: [(segment: Segment, isDescription: Bool)]
+        switch settings.captionDisplayMode {
+        case "transcript":
+            segments = project.transcript.map { ($0, false) }
+        case "ad-transcript":
+            segments = project.transcript.map { ($0, false) } + project.cues.map { ($0, true) }
+        default:
+            return []
+        }
+        return segments
+            .filter { playbackTime >= $0.segment.start && playbackTime < $0.segment.end }
+            .sorted {
+                if $0.segment.start != $1.segment.start { return $0.segment.start < $1.segment.start }
+                return $0.segment.id < $1.segment.id
+            }
+            .map { Row(segment: $0.segment, isDescription: $0.isDescription) }
+    }
+
+    var body: some View {
+        if !activeRows.isEmpty {
+            VStack(spacing: 6) {
+                ForEach(activeRows) { row in
+                    Text(row.text)
+                        .font(.system(size: settings.captionFontSize, weight: .semibold))
+                        .foregroundStyle(SummaryHighlightColor.color(from: row.isDescription ? settings.adCaptionTextColor : settings.captionTextColor))
+                        .multilineTextAlignment(.center)
+                        .lineLimit(4)
+                        .padding(.horizontal, 12)
+                        .padding(.vertical, 7)
+                        .background(
+                            SummaryHighlightColor.color(from: row.isDescription ? settings.adCaptionBackgroundColor : settings.captionBackgroundColor)
+                                .opacity(settings.captionBackgroundOpacity),
+                            in: RoundedRectangle(cornerRadius: 6)
+                        )
+                }
+            }
+                .padding(16)
+                .frame(maxWidth: .infinity)
+                .allowsHitTesting(false)
+                .accessibilityHidden(true)
+        }
+    }
+}
+
 struct ProjectEditor: View {
     var shortcutsBlocked = false
     @Bindable var studio: StudioModel
@@ -555,15 +599,60 @@ struct ProjectEditor: View {
     private var generationAction: (command: String, title: String, icon: String)? {
         switch tab {
         case "transcript":
-            return ("transcribe", project.hasGeneratedTranscript ? "Regenerate Transcript" : "Generate Transcript", "text.bubble")
+            return ("transcribe", project.hasGeneratedTranscript ? "Replace Transcript…" : "Generate Transcript", "text.bubble")
         case "summary":
             let hasSummary = !project.summary.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
-            return ("generate-summary", hasSummary ? "Regenerate Summary" : "Generate Summary", "text.alignleft")
+            return ("generate-summary", hasSummary ? "Replace Summary…" : "Generate Summary", "text.alignleft")
         case "descriptions":
-            return ("generate-ad-cues", project.cues.isEmpty ? "Generate Descriptions" : "Regenerate Descriptions", "sparkles")
+            return ("generate-ad-cues", project.cues.isEmpty ? "Generate Descriptions" : "Replace Descriptions…", "sparkles")
         default:
             return nil
         }
+    }
+
+    private var captionControlsAvailable: Bool {
+        ["transcript", "descriptions", "ad-transcript"].contains(tab)
+    }
+
+    private var captionOverlayTitle: String {
+        switch studio.settings.captionDisplayMode {
+        case "transcript": return "Transcript"
+        case "ad-transcript": return "AD Transcript"
+        default: return "Off"
+        }
+    }
+
+    private var captionOverlayIcon: String {
+        switch studio.settings.captionDisplayMode {
+        case "transcript": return "captions.bubble.fill"
+        case "ad-transcript": return "text.quote"
+        default: return "captions.bubble"
+        }
+    }
+
+    private var captionOverlayColor: Color {
+        switch studio.settings.captionDisplayMode {
+        case "transcript": return .blue
+        case "ad-transcript": return .purple
+        default: return .secondary
+        }
+    }
+
+    private var availableCaptionDisplayModes: [String] {
+        var modes = ["off"]
+        if !project.transcript.isEmpty { modes.append("transcript") }
+        if !project.transcript.isEmpty || !project.cues.isEmpty { modes.append("ad-transcript") }
+        return modes
+    }
+
+    private func cycleCaptionDisplayMode() {
+        let modes = availableCaptionDisplayModes
+        guard modes.count > 1 else {
+            studio.settings.captionDisplayMode = "off"
+            return
+        }
+        let currentIndex = modes.firstIndex(of: studio.settings.captionDisplayMode) ?? 0
+        studio.settings.captionDisplayMode = modes[(currentIndex + 1) % modes.count]
     }
 
     private var editorToolbar: some View {
@@ -598,6 +687,30 @@ struct ProjectEditor: View {
                     .labelStyle(.iconOnly)
                     .help("Extract text from the current video frame")
                     .disabled(studio.busy)
+                    if captionControlsAvailable {
+                        Menu {
+                            Button("Off", systemImage: studio.settings.captionDisplayMode == "off" ? "checkmark" : "captions.bubble") {
+                                studio.settings.captionDisplayMode = "off"
+                            }
+                            Button("Transcript", systemImage: studio.settings.captionDisplayMode == "transcript" ? "checkmark" : "captions.bubble.fill") {
+                                studio.settings.captionDisplayMode = "transcript"
+                            }
+                            .disabled(project.transcript.isEmpty)
+                            Button("AD Transcript", systemImage: studio.settings.captionDisplayMode == "ad-transcript" ? "checkmark" : "text.quote") {
+                                studio.settings.captionDisplayMode = "ad-transcript"
+                            }
+                            .disabled(project.transcript.isEmpty && project.cues.isEmpty)
+                        } label: {
+                            Label("Transcript Overlay: \(captionOverlayTitle)", systemImage: captionOverlayIcon)
+                                .foregroundStyle(captionOverlayColor)
+                        } primaryAction: {
+                            cycleCaptionDisplayMode()
+                        }
+                        .tint(captionOverlayColor)
+                        .accessibilityLabel("Transcript overlay: \(captionOverlayTitle)")
+                        .accessibilityHint("Activate to cycle the overlay mode, or open the menu to choose Off, Transcript, or AD Transcript")
+                        .help("Transcript overlay is \(captionOverlayTitle). Click to cycle modes or open the menu for a direct choice. YouTube's own captions and shortcuts remain available.")
+                    }
                     if tab == "transcript" || tab == "ad-transcript" || tab == "descriptions" {
                         Toggle("Narration", isOn: $playback.narrationEnabled)
                             .toggleStyle(.button)
@@ -613,7 +726,7 @@ struct ProjectEditor: View {
                     .disabled(studio.busy || (action.command == "generate-ad-cues" && !project.canGenerateDescriptions))
                     .help(action.command == "generate-ad-cues" && !project.canGenerateDescriptions
                         ? "Generate the transcript and summary first"
-                        : action.title.hasPrefix("Regenerate") ? "Replace the existing content after confirmation" : "Generate content for this section")
+                        : action.title.hasPrefix("Replace") ? "Replace the existing content after confirmation" : "Generate content for this section")
                     .fixedSize()
             }
             if tab == "descriptions" {
@@ -786,9 +899,16 @@ struct ProjectEditor: View {
 
     private var previewPane: some View {
         VStack(spacing: 0) {
-            Group {
-                if project.isYouTubeURLProject, let url = project.youtubeURL { YouTubePlayer(url: url, playback: playback) }
-                else { NativeVideoPlayer(player: playback.player, playback: playback) }
+            ZStack(alignment: studio.settings.captionPosition == "top" ? .top : .bottom) {
+                Group {
+                    if project.isYouTubeURLProject, let url = project.youtubeURL { YouTubePlayer(url: url, playback: playback) }
+                    else { NativeVideoPlayer(player: playback.player, playback: playback) }
+                }
+                TranscriptCaptionOverlay(
+                    project: project,
+                    playbackTime: playback.time,
+                    settings: studio.settings
+                )
             }
             .frame(minWidth: 0, idealWidth: 700, maxWidth: .infinity, minHeight: 120, idealHeight: 340, maxHeight: .infinity)
             .background(.black)
@@ -992,6 +1112,10 @@ struct ProjectEditor: View {
         case "back": playback.seek(max(0, playback.time - 5))
         case "forward": playback.seek(min(project.duration, playback.time + 5))
         case "narration": playback.narrationEnabled.toggle()
+        case "caption-cycle": cycleCaptionDisplayMode()
+        case "caption-off": studio.settings.captionDisplayMode = "off"
+        case "caption-transcript": studio.settings.captionDisplayMode = "transcript"
+        case "caption-ad-transcript": studio.settings.captionDisplayMode = "ad-transcript"
         case "follow": followTranscript.toggle()
         case "descriptions", "transcript", "summary", "ad-transcript", "ad-overview": tab = action
         case "summary-play-pause": summaryReader.togglePlayPause()
@@ -999,7 +1123,6 @@ struct ProjectEditor: View {
         case "summary-from-start": summaryReader.playFromStart()
         case "summary-from-selection": summaryReader.playFromSelection()
         case "summary-read-selection": summaryReader.readSelectedText()
-        case "summary-read-sentence": summaryReader.readSentenceAtSelection()
         case "summary-next": summaryReader.next()
         case "summary-previous": summaryReader.previous()
         case "add": presentNewSegment()
@@ -1009,10 +1132,10 @@ struct ProjectEditor: View {
         case "delete-descriptions": studio.confirmDeleteGeneratedContent(project, component: .descriptions)
         case "undo": studio.execute("undo-cues")
         case "redo": studio.execute("redo-cues")
-        case "probe-video", "generate-thumbnails", "extract-audio", "synthesize-tts": studio.execute(action)
+        case "synthesize-tts": studio.execute(action)
         case "synthesize-changed": studio.execute("synthesize-tts", extra: ["--changed"])
         case "show-in-finder": if let folder = project.folder { NSWorkspace.shared.open(folder) }
-        case "analyze", "transcribe", "generate-summary", "regenerate-all": studio.execute(action)
+        case "analyze", "transcribe", "generate-summary": studio.execute(action)
         case "generate-ad-cues":
             if project.canGenerateDescriptions { studio.execute(action) }
         default: break
@@ -1029,13 +1152,14 @@ struct ProjectEditor: View {
         shortcutActions.previewHidden = previewHidden
         shortcutActions.available = !shortcutsBlocked && !studio.busy && cueToEdit == nil && studio.screenText == nil
         shortcutActions.activeSection = tab
+        shortcutActions.captionDisplayMode = studio.settings.captionDisplayMode
+        shortcutActions.hasTranscriptText = !project.transcript.isEmpty
         shortcutActions.canGenerateDescriptions = project.canGenerateDescriptions
         shortcutActions.hasNarrationAudio = GeneratedContentComponent.narration.hasContent(in: project)
         shortcutActions.hasDescriptions = GeneratedContentComponent.descriptions.hasContent(in: project)
         shortcutActions.hasGeneratedTranscript = GeneratedContentComponent.transcript.hasContent(in: project)
         shortcutActions.hasGeneratedSummary = GeneratedContentComponent.summary.hasContent(in: project)
         shortcutActions.hasLocalSource = !project.source.isEmpty
-        shortcutActions.sourceHasAudio = project.hasAudio
         shortcutActions.isYouTubeProject = project.isYouTubeURLProject
         shortcutActions.exportableText = Set(["transcript", "summary", "descriptions", "combined"].filter { project.canExportText($0) })
         shortcutActions.summaryActive = (tab == "summary")
@@ -1124,6 +1248,7 @@ struct ProjectEditor: View {
         .onChange(of: studio.busy) { _, _ in refreshEditorShortcutActions() }
         .onChange(of: project.updatedAt) { _, _ in refreshEditorShortcutActions(updateHandler: true) }
         .onChange(of: tab) { _, _ in refreshEditorShortcutActions() }
+        .onChange(of: studio.settings.captionDisplayMode) { _, _ in refreshEditorShortcutActions() }
         .onChange(of: project.summary) { _, _ in refreshEditorShortcutActions() }
         .onChange(of: summaryReader.isReading) { _, _ in refreshEditorShortcutActions() }
         .onChange(of: summaryReader.isPaused) { _, _ in refreshEditorShortcutActions() }

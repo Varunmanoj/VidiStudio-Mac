@@ -1,6 +1,7 @@
 import Foundation
 import SwiftUI
 import AppKit
+import MediaAccessibility
 import UniformTypeIdentifiers
 
 struct Segment: Codable, Identifiable, Hashable {
@@ -211,6 +212,20 @@ struct StudioProject: Codable, Identifiable {
         return resolved
     }
 }
+enum SystemCaptionPreferences {
+    static var prefersSubtitlesAndSDH: Bool {
+        let characteristics = MACaptionAppearanceCopyPreferredCaptioningMediaCharacteristics(.user)
+            .takeRetainedValue() as? [String] ?? []
+        return prefersSubtitlesAndSDH(in: characteristics)
+    }
+
+    static func prefersSubtitlesAndSDH(in characteristics: [String]) -> Bool {
+        let spokenDialogue = MAMediaCharacteristicTranscribesSpokenDialogForAccessibility as String
+        let musicAndSound = MAMediaCharacteristicDescribesMusicAndSoundForAccessibility as String
+        return characteristics.contains(spokenDialogue) || characteristics.contains(musicAndSound)
+    }
+}
+
 struct StudioSettings: Codable, Equatable {
     static let defaultLibraryURL = FileManager.default.homeDirectoryForCurrentUser
         .appendingPathComponent("Documents/VidiStudio Projects")
@@ -232,6 +247,14 @@ struct StudioSettings: Codable, Equatable {
     var systemSpeechVolume = 1.0
     var summarySentenceHighlight = SummaryHighlightColor.defaultSentenceHex
     var summaryWordHighlight = SummaryHighlightColor.defaultWordHex
+    var captionDisplayMode = "off"
+    var captionFontSize = 24.0
+    var captionTextColor = "#FFFFFF"
+    var captionBackgroundColor = "#000000"
+    var adCaptionTextColor = "#FFD60A"
+    var adCaptionBackgroundColor = "#3A2F00"
+    var captionBackgroundOpacity = 0.75
+    var captionPosition = "bottom"
     var geminiVoice = "Kore"
     var ffmpegPath = ""
     var ffprobePath = ""
@@ -269,6 +292,16 @@ struct StudioSettings: Codable, Equatable {
     mutating func restoreSummaryHighlightDefaults() {
         summarySentenceHighlight = SummaryHighlightColor.defaultSentenceHex
         summaryWordHighlight = SummaryHighlightColor.defaultWordHex
+    }
+
+    mutating func restoreCaptionAppearanceDefaults() {
+        captionFontSize = 24.0
+        captionTextColor = "#FFFFFF"
+        captionBackgroundColor = "#000000"
+        adCaptionTextColor = "#FFD60A"
+        adCaptionBackgroundColor = "#3A2F00"
+        captionBackgroundOpacity = 0.75
+        captionPosition = "bottom"
     }
 }
 
@@ -403,69 +436,35 @@ final class StudioModel {
     var geminiModelsLoaded = false
     var engineCheckStatus: EngineCheckStatus = .unchecked
     var selected: StudioProject? { projects.first { $0.id == selectedID } }
-    /// Last AI analysis request that exhausted its automatic retries, kept so the
-    /// failure alert can offer a one-tap manual retry for local and YouTube projects alike.
-    var lastFailedCommand: String?
-    var lastFailedExtra: [String] = []
-    var lastFailedProjectID: String?
-    static let retryableAnalysisCommands: Set<String> = [
-        "transcribe", "generate-summary", "generate-ad-cues", "analyze", "regenerate-all",
-    ]
-    var canRetryLastFailure: Bool {
-        error != nil
-            && lastFailedCommand.map(Self.retryableAnalysisCommands.contains) == true
-            && !busy
-    }
-    var lastFailureTitle: String? {
-        guard let command = lastFailedCommand else { return nil }
-        switch command {
-        case "transcribe": return "transcription"
-        case "generate-summary": return "summary"
-        case "generate-ad-cues": return "AD segments"
-        case "analyze": return "analysis"
-        case "regenerate-all": return "full regeneration"
-        default: return command
-        }
-    }
-
     func dismissError() {
         error = nil
         errorTitle = StudioModel.defaultErrorTitle
-        lastFailedCommand = nil
-        lastFailedExtra = []
-        lastFailedProjectID = nil
-    }
-
-    func retryLastFailure() {
-        guard canRetryLastFailure,
-              let command = lastFailedCommand else { return }
-        let project = projects.first { $0.id == lastFailedProjectID } ?? selected
-        let extra = lastFailedExtra
-        lastFailedCommand = nil
-        lastFailedExtra = []
-        lastFailedProjectID = nil
-        error = nil
-        errorTitle = StudioModel.defaultErrorTitle
-        execute(command, extra: extra, project: project, isManualRetry: true)
     }
 
     init() {
         var merged = (try? JSONSerialization.jsonObject(with: JSONEncoder().encode(settings))) as? [String: Any] ?? [:]
+        var hasSavedCaptionDisplayMode = false
         if let url = Bundle.main.resourceURL?.appendingPathComponent("Engine/_internal/ai-defaults.json"),
            let data = try? Data(contentsOf: url), let defaults = try? JSONSerialization.jsonObject(with: data) as? [String: Any] {
             for key in ["models", "prompts", "apiVersion", "videoProcessing"] { merged[key] = defaults[key] }
         }
         if let data = try? Data(contentsOf: StudioSettings.url), let saved = try? JSONSerialization.jsonObject(with: data) as? [String: Any] {
+            hasSavedCaptionDisplayMode = saved["captionDisplayMode"] is String
             for (key, value) in saved { merged[key] = value }
         }
         if let data = try? JSONSerialization.data(withJSONObject: merged), let decoded = try? JSONDecoder().decode(StudioSettings.self, from: data) { settings = decoded }
         var migratedLibrary = false
+        var seededCaptionDisplayMode = false
         if settings.libraryPath == StudioSettings.legacyDefaultLibraryURL.path {
             settings.libraryPath = StudioSettings.defaultLibraryURL.path
             migratedLibrary = true
         }
+        if !hasSavedCaptionDisplayMode, SystemCaptionPreferences.prefersSubtitlesAndSDH {
+            settings.captionDisplayMode = "transcript"
+            seededCaptionDisplayMode = true
+        }
         settingsPersistenceEnabled = true
-        if migratedLibrary { persistSettings(reloadProjects: false) }
+        if migratedLibrary || seededCaptionDisplayMode { persistSettings(reloadProjects: false) }
         reload()
         selectedID = UserDefaults.standard.string(forKey: "lastProjectID")
     }
@@ -870,7 +869,7 @@ final class StudioModel {
         return ["--allow-incomplete-narration"]
     }
 
-    func execute(_ command: String, extra: [String] = [], project: StudioProject? = nil, configurationURL: URL? = nil, cleanupURL: URL? = nil, isManualRetry: Bool = false) {
+    func execute(_ command: String, extra: [String] = [], project: StudioProject? = nil, configurationURL: URL? = nil, cleanupURL: URL? = nil) {
         guard !busy else { return }
         errorTitle = command == "capture-frame" ? "Read Frame Text Processing" : StudioModel.defaultErrorTitle
         if command == "doctor" {
@@ -878,23 +877,17 @@ final class StudioModel {
             engineCheckStatus = .checking
         }
         let target = project ?? (["import-video", "import-youtube", "doctor", "validate-config", "list-models"].contains(command) ? nil : selected)
-        // A fresh analysis run supersedes any previous manual-retry offer.
-        if Self.retryableAnalysisCommands.contains(command), !isManualRetry {
-            lastFailedCommand = nil
-            lastFailedExtra = []
-            lastFailedProjectID = nil
-        }
-        if ["export-final-video", "export-selectable-video"].contains(command), let target, target.isYouTubeURLProject {
-            error = "Final video export is unavailable for YouTube URL projects. You can export text and narration audio instead."
+        if ["export-final-video", "export-selectable-video", "export-closed-audio-description-video", "export-open-audio-description-video", "export-closed-caption-video", "export-open-caption-video"].contains(command), let target, target.isYouTubeURLProject {
+            error = "Audio Description video export is unavailable for YouTube URL projects. You can export text and narration audio instead."
             return
         }
         if command == "generate-ad-cues", let target, !target.canGenerateDescriptions {
             error = "Generate the transcript and summary before generating descriptions."
             return
         }
-        if let target, !isManualRetry, !confirmAnalysisReplacement(command, project: target) { return }
+        if let target, !confirmAnalysisReplacement(command, project: target) { return }
         var exportOptions: [String] = []
-        if ["export-final-video", "export-selectable-video", "export-audio"].contains(command), let target {
+        if ["export-final-video", "export-selectable-video", "export-closed-audio-description-video", "export-open-audio-description-video", "export-audio"].contains(command), let target {
             guard let options = confirmIncompleteNarrationExport(project: target, audioOnly: command == "export-audio") else { return }
             exportOptions = options
         }
@@ -949,14 +942,14 @@ final class StudioModel {
             stderr.fileHandleForReading.readabilityHandler = nil
             if let cleanupURL { try? FileManager.default.removeItem(at: cleanupURL) }
             reload()
-            if task.terminationStatus == 0, command == "export-selectable-video", let folder = target?.folder {
+            if task.terminationStatus == 0, ["export-selectable-video", "export-closed-audio-description-video"].contains(command), let folder = target?.folder {
                 do {
                     guard let refreshed = projects.first(where: { $0.id == target?.id }),
                           let path = refreshed.exports.last(where: { !exportsBeforeCommand.contains($0) && URL(fileURLWithPath: $0).pathExtension.lowercased() == "mov" }) else {
                         throw AccessibilityMetadataWriterError.exportNotFound
                     }
-                    try await AppleAccessibilityMetadataWriter().finalizeSelectableDescriptionTrack(at: folder.appendingPathComponent(path))
-                    message = "Selectable Audio Description export complete"
+                    try await AppleAccessibilityMetadataWriter().finalizeClosedDescriptionTrack(at: folder.appendingPathComponent(path))
+                    message = "Closed Audio Description export complete"
                 } catch {
                     self.error = "The two-track video was created, but macOS could not apply or verify its Audio Description metadata: \(error.localizedDescription)"
                 }
@@ -965,21 +958,6 @@ final class StudioModel {
             if task.terminationStatus != 0 && self.error == nil { self.error = "Processing stopped. Your previously completed results are saved." }
             if task.terminationStatus == 0 {
                 self.errorTitle = StudioModel.defaultErrorTitle
-                if Self.retryableAnalysisCommands.contains(command) {
-                    lastFailedCommand = nil
-                    lastFailedExtra = []
-                    lastFailedProjectID = nil
-                }
-            } else if Self.retryableAnalysisCommands.contains(command) {
-                // The engine already retried transient failures 3 times; keep the
-                // request so the alert can offer one manual retry. Works for local
-                // and YouTube projects because both share this execution path.
-                lastFailedCommand = command
-                lastFailedExtra = extra
-                lastFailedProjectID = target?.id ?? selected?.id
-                if let current = self.error, !current.localizedCaseInsensitiveContains("try again") {
-                    self.error = current + " Please try again manually."
-                }
             }
             if command == "doctor" {
                 engineCheckStatus = task.terminationStatus == 0

@@ -196,9 +196,6 @@ final class SummaryReadbackModel: NSObject, @preconcurrency AVSpeechSynthesizerD
     /// carrying any other utterance are stale (e.g. from speech stopped just
     /// before a new start) and must be ignored.
     @ObservationIgnored private var speakingUtterance: AVSpeechUtterance?
-    /// When true, the current utterance is a single unit (selected text or one
-    /// sentence): finishing it stops instead of advancing to the next sentence.
-    @ObservationIgnored private var stopAfterCurrent = false
     /// Hook for the text view to collapse its visual selection when user-initiated
     /// speech starts, so sentence/word highlighting is visible. Wired by the view;
     /// chained sentence advances never clear, so selecting text mid-reading works.
@@ -296,7 +293,6 @@ final class SummaryReadbackModel: NSObject, @preconcurrency AVSpeechSynthesizerD
         isPaused = false
         partialOffset = 0
         oneShotActive = false
-        stopAfterCurrent = false
         suppressAdvance = false
     }
 
@@ -369,49 +365,6 @@ final class SummaryReadbackModel: NSObject, @preconcurrency AVSpeechSynthesizerD
         }
     }
 
-    /// Read one sentence and stop at its end instead of continuing.
-    func readSentence(at index: Int) {
-        guard sentences.indices.contains(index) else { return }
-        error = nil
-        clearTextSelection?()
-        do {
-            let utterance = try SystemSpeechUtterance.make(text: sentences[index].text, settings: settings)
-            suppressAdvance = true
-            synthesizer.stopSpeaking(at: .immediate)
-            suppressAdvance = false
-            speakingIndex = index
-            partialOffset = 0
-            oneShotActive = false
-            stopAfterCurrent = true
-            currentIndex = index
-            wordRange = nil
-            isReading = true
-            isPaused = false
-            error = nil
-            speakingUtterance = utterance
-            synthesizer.speak(utterance)
-        } catch {
-            self.error = error.localizedDescription
-            stopAfterCurrent = false
-            isReading = false
-            isPaused = false
-            currentIndex = nil
-            wordRange = nil
-            speakingIndex = nil
-        }
-    }
-
-    /// Read the sentence under the selection or caret, stopping at its end.
-    func readSentenceAtSelection() {
-        if let location = selectedRange?.location,
-           location != NSNotFound,
-           let index = sentenceIndex(at: location) {
-            readSentence(at: index)
-            return
-        }
-        replayCurrent()
-    }
-
     func next() {
         guard !sentences.isEmpty else { return }
         let target = (currentIndex ?? -1) + 1
@@ -428,14 +381,6 @@ final class SummaryReadbackModel: NSObject, @preconcurrency AVSpeechSynthesizerD
         let target = max(0, (currentIndex ?? 1) - 1)
         error = nil
         restart(at: target)
-    }
-
-    func replayCurrent() {
-        guard let currentIndex, sentences.indices.contains(currentIndex) else {
-            play()
-            return
-        }
-        readSentence(at: currentIndex)
     }
 
     // MARK: Display cache
@@ -694,17 +639,6 @@ final class SummaryReadbackModel: NSObject, @preconcurrency AVSpeechSynthesizerD
                 return
             }
             guard let finished = self.speakingIndex else { return }
-            if self.stopAfterCurrent {
-                self.stopAfterCurrent = false
-                self.speakingUtterance = nil
-                self.speakingIndex = nil
-                self.currentIndex = nil
-                self.wordRange = nil
-                self.isReading = false
-                self.isPaused = false
-                self.partialOffset = 0
-                return
-            }
             let next = finished + 1
             if self.sentences.indices.contains(next) {
                 self.speak(at: next)
@@ -948,15 +882,6 @@ struct SummarySentenceTextView: NSViewRepresentable {
             fromHere.image = NSImage(systemSymbolName: "text.cursor", accessibilityDescription: nil)
             fromHere.isEnabled = sentenceAtAnchor != nil
             combined.addItem(fromHere)
-            let thisSentence = NSMenuItem(
-                title: "Read This Sentence",
-                action: #selector(readThisSentence(_:)),
-                keyEquivalent: ""
-            )
-            thisSentence.target = self
-            thisSentence.image = NSImage(systemSymbolName: "text.bubble", accessibilityDescription: nil)
-            thisSentence.isEnabled = sentenceAtAnchor != nil
-            combined.addItem(thisSentence)
             let selected = NSMenuItem(
                 title: "Read Selected Text",
                 action: #selector(readSelectedText(_:)),
@@ -1002,15 +927,6 @@ struct SummarySentenceTextView: NSViewRepresentable {
         @objc private func readFromHere(_ sender: NSMenuItem) {
             guard menuAnchor != NSNotFound else { return }
             model.playFrom(location: menuAnchor)
-        }
-
-        @objc private func readThisSentence(_ sender: NSMenuItem) {
-            guard menuAnchor != NSNotFound,
-                  let index = model.sentenceIndex(
-                    at: min(menuAnchor, max(0, (model.plainText as NSString).length - 1))
-                  ) else { return }
-            // Single-sentence read: stops at the sentence end.
-            model.readSentence(at: index)
         }
 
         @objc private func readSelectedText(_ sender: NSMenuItem) {
@@ -1136,8 +1052,6 @@ struct SummaryReaderView: View {
             .disabled(!hasSummary || !model.hasReadableSelection)
         Button("Read Selected Text Only", systemImage: "quote.bubble") { model.readSelectedText() }
             .disabled(!hasSummary || !model.hasNonEmptySelection)
-        Button("Read Current Sentence", systemImage: "text.bubble") { model.readSentenceAtSelection() }
-            .disabled(!hasSummary || model.sentences.isEmpty)
         Divider()
         Button("Stop", systemImage: "stop.fill") { model.stop() }
             .disabled(!model.isReading)

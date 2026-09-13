@@ -3,13 +3,17 @@ import SwiftUI
 enum StudioExportAction: Hashable {
     case selectableVideo
     case mixedVideo
+    case closedCaptionVideo(content: String)
+    case openCaptionVideo(content: String)
     case narrationAudio
     case text(content: String, format: String)
 
     var command: String {
         switch self {
-        case .selectableVideo: return "export-selectable-video"
-        case .mixedVideo: return "export-final-video"
+        case .selectableVideo: return "export-closed-audio-description-video"
+        case .mixedVideo: return "export-open-audio-description-video"
+        case .closedCaptionVideo: return "export-closed-caption-video"
+        case .openCaptionVideo: return "export-open-caption-video"
         case .narrationAudio: return "export-audio"
         case .text: return "export-subtitles"
         }
@@ -17,6 +21,8 @@ enum StudioExportAction: Hashable {
 
     var arguments: [String] {
         switch self {
+        case .closedCaptionVideo(let content), .openCaptionVideo(let content):
+            return ["--content", content]
         case .text(let content, let format):
             return ["--content", content, "--format", format]
         default:
@@ -40,14 +46,35 @@ struct ExportMenuContent: View {
     var body: some View {
         if supportsVideo {
             Menu("Video", systemImage: "film") {
-                Button("Selectable Audio Description", systemImage: "switch.2") {
+                Button("Closed Audio Description", systemImage: "switch.2") {
                     perform(.selectableVideo)
                 }
                 .disabled(!canPerform(.selectableVideo))
-                Button("Audio Description Mixed In", systemImage: "square.and.arrow.up") {
+                Button("Open Audio Description", systemImage: "speaker.wave.3") {
                     perform(.mixedVideo)
                 }
                 .disabled(!canPerform(.mixedVideo))
+                Divider()
+                Menu("Closed Captions", systemImage: "captions.bubble") {
+                    Button("Transcript", systemImage: "text.bubble") {
+                        perform(.closedCaptionVideo(content: "transcript"))
+                    }
+                    .disabled(!canPerform(.closedCaptionVideo(content: "transcript")))
+                    Button("AD Transcript", systemImage: "text.quote") {
+                        perform(.closedCaptionVideo(content: "combined"))
+                    }
+                    .disabled(!canPerform(.closedCaptionVideo(content: "combined")))
+                }
+                Menu("Open Captions", systemImage: "captions.bubble.fill") {
+                    Button("Transcript", systemImage: "text.bubble") {
+                        perform(.openCaptionVideo(content: "transcript"))
+                    }
+                    .disabled(!canPerform(.openCaptionVideo(content: "transcript")))
+                    Button("AD Transcript", systemImage: "text.quote") {
+                        perform(.openCaptionVideo(content: "combined"))
+                    }
+                    .disabled(!canPerform(.openCaptionVideo(content: "combined")))
+                }
             }
         }
         Menu("Audio", systemImage: "waveform") {
@@ -86,6 +113,8 @@ struct ProjectExportMenu: View {
                     switch action {
                     case .selectableVideo, .mixedVideo:
                         return !project.isYouTubeURLProject && !project.source.isEmpty
+                    case .closedCaptionVideo(let content), .openCaptionVideo(let content):
+                        return !project.isYouTubeURLProject && !project.source.isEmpty && project.canExportText(content)
                     case .narrationAudio:
                         return project.hasExportableNarration()
                     case .text(let content, _):

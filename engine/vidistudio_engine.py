@@ -341,7 +341,7 @@ def ai_video(root, p, stage, max_attempts=AI_MAX_ATTEMPTS):
                 if not retryable and attempts > 1 and attempt == 1:
                     raise
                 detail = safe_error(exc)
-                raise ValueError(f'{label} failed after {attempt} attempt(s): {detail} Please try again manually.') from exc
+                raise ValueError(f'{label} failed after {attempt} attempt(s): {detail} Check the issue, then start the action again.') from exc
             emit(f'Retrying {stage} (attempt {attempt + 1} of {attempts}) after error: {safe_error(exc)}',
                  retryStage=stage, retryAttempt=attempt + 1, retryAttempts=attempts)
             time.sleep(ai_retry_delay_seconds(attempt))
@@ -554,6 +554,178 @@ def export_relative_path(root, project, export_type, extension, stamp=None):
     return relative.as_posix()
 
 
+def validated_caption_segments(project, content='transcript'):
+    """Return caption-safe Transcript or AD Transcript rows without changing the project."""
+    if content not in ('transcript', 'combined'):
+        raise ValueError('Captioned video can use the Transcript or AD Transcript.')
+    duration = float(project.get('duration', 0))
+    segments = []
+    source = [(segment, False) for segment in project.get('transcript', [])]
+    if content == 'combined':
+        source += [(segment, True) for segment in project.get('cues', [])]
+    for segment, is_description in source:
+        start, end = float(segment['start']), float(segment['end'])
+        text = str(segment.get('text', '')).strip()
+        if not math.isfinite(start + end) or start < 0 or end <= start or end > duration + .1:
+            raise ValueError('Transcript timing is invalid. Correct or regenerate the transcript before exporting captions.')
+        if not text:
+            raise ValueError('Every transcript caption needs text.')
+        if is_description:
+            text = 'Audio description: ' + text
+        segments.append(dict(
+            segment,
+            start=start,
+            end=min(end, duration),
+            text=text,
+            _captionKind='description' if is_description else 'dialogue',
+        ))
+    if not segments:
+        raise ValueError('Generate a transcript before exporting captioned video.')
+    return sorted(segments, key=lambda segment: (segment['start'], segment['end'], str(segment.get('id', ''))))
+
+
+def srt_caption_text(segments):
+    text = ''
+    for index, segment in enumerate(segments, 1):
+        text += (
+            f"{index}\n{parity.clock(segment['start'], ',')} --> {parity.clock(segment['end'], ',')}\n"
+            f"{segment['text']}\n\n"
+        )
+    return text
+
+
+def ass_time(seconds):
+    centiseconds = max(0, int(round(float(seconds) * 100)))
+    return f'{centiseconds // 360000}:{centiseconds // 6000 % 60:02}:{centiseconds // 100 % 60:02}.{centiseconds % 100:02}'
+
+
+def ass_color(hex_color, alpha=0):
+    match = re.fullmatch(r'#?([0-9A-Fa-f]{6})', str(hex_color).strip())
+    rgb = match.group(1) if match else 'FFFFFF'
+    red, green, blue = rgb[0:2], rgb[2:4], rgb[4:6]
+    return f'&H{min(max(int(alpha), 0), 255):02X}{blue}{green}{red}'
+
+
+def ass_caption_text(project, segments, settings):
+    width = max(320, int(project.get('width') or 1920))
+    height = max(180, int(project.get('height') or 1080))
+    configured_size = min(max(float(settings.get('captionFontSize', 24)), 14), 48)
+    font_size = max(14, round(configured_size * height / 720))
+    opacity = min(max(float(settings.get('captionBackgroundOpacity', .75)), 0), 1)
+    background_alpha = round((1 - opacity) * 255)
+    alignment = 8 if settings.get('captionPosition') == 'top' else 2
+    margin = max(18, round(height * .04))
+    dialogue_primary = ass_color(settings.get('captionTextColor', '#FFFFFF'))
+    dialogue_background = ass_color(settings.get('captionBackgroundColor', '#000000'), background_alpha)
+    description_primary = ass_color(settings.get('adCaptionTextColor', '#FFD60A'))
+    description_background = ass_color(settings.get('adCaptionBackgroundColor', '#3A2F00'), background_alpha)
+    header = f"""[Script Info]
+ScriptType: v4.00+
+PlayResX: {width}
+PlayResY: {height}
+WrapStyle: 2
+ScaledBorderAndShadow: yes
+
+[V4+ Styles]
+Format: Name, Fontname, Fontsize, PrimaryColour, SecondaryColour, OutlineColour, BackColour, Bold, Italic, Underline, StrikeOut, ScaleX, ScaleY, Spacing, Angle, BorderStyle, Outline, Shadow, Alignment, MarginL, MarginR, MarginV, Encoding
+Style: Dialogue,Arial,{font_size},{dialogue_primary},{dialogue_primary},{dialogue_background},{dialogue_background},-1,0,0,0,100,100,0,0,3,5,0,{alignment},{margin},{margin},{margin},1
+Style: AudioDescription,Arial,{font_size},{description_primary},{description_primary},{description_background},{description_background},-1,0,0,0,100,100,0,0,3,5,0,{alignment},{margin},{margin},{margin},1
+
+[Events]
+Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
+"""
+    events = []
+    for segment in segments:
+        style = 'AudioDescription' if segment.get('_captionKind') == 'description' else 'Dialogue'
+        caption = str(segment['text']).replace('\\', r'\\').replace('{', r'\{').replace('}', r'\}')
+        caption = caption.replace('\r\n', r'\N').replace('\r', r'\N').replace('\n', r'\N')
+        events.append(f"Dialogue: 0,{ass_time(segment['start'])},{ass_time(segment['end'])},{style},,0,0,0,,{caption}")
+    return header + '\n'.join(events) + '\n'
+
+
+def ffmpeg_filter_path(path):
+    return str(path).replace('\\', r'\\').replace(':', r'\:').replace("'", r"\'").replace(',', r'\,').replace('[', r'\[').replace(']', r'\]')
+
+
+def validate_captioned_video(output, expected_duration, open_captions):
+    info = probe(output)
+    videos = [stream for stream in info.get('streams', []) if stream.get('codec_type') == 'video']
+    subtitles = [stream for stream in info.get('streams', []) if stream.get('codec_type') == 'subtitle']
+    if len(videos) != 1:
+        raise ValueError('Captioned video export did not contain exactly one video track.')
+    if open_captions:
+        if subtitles:
+            raise ValueError('Open-caption video unexpectedly contains a switchable subtitle track.')
+    else:
+        if len(subtitles) != 1 or subtitles[0].get('codec_name') != 'mov_text':
+            raise ValueError('Closed-caption video is missing its switchable caption track.')
+        tags = subtitles[0].get('tags', {})
+        if tags.get('language') != 'eng':
+            raise ValueError('Closed-caption video is missing caption language metadata.')
+    duration = float(info.get('format', {}).get('duration', videos[0].get('duration', 0)))
+    if abs(duration - expected_duration) > .25:
+        raise ValueError('Captioned video export duration does not match the project.')
+
+
+def export_captioned_video(root, project, open_captions=False, content='transcript'):
+    """Create either switchable closed captions or permanently burned open captions."""
+    if project.get('sourceType') == 'youtube':
+        raise ValueError('Captioned video export is unavailable for YouTube URL projects. Export subtitle text instead.')
+    if not project.get('source'):
+        raise ValueError('A local source video is required to export captioned video.')
+    segments = validated_caption_segments(project, content)
+    settings = config()
+    source_title = 'AD Transcript' if content == 'combined' else 'Transcript'
+    export_type = source_title + (' Open Caption Video' if open_captions else ' Closed Caption Video')
+    relative = export_relative_path(root, project, export_type, 'mp4')
+    output = root / relative
+    temporary_path = None
+    try:
+        if open_captions:
+            with tempfile.NamedTemporaryFile('w', encoding='utf-8', suffix='.ass', delete=False) as subtitle:
+                subtitle.write(ass_caption_text(project, segments, settings))
+                temporary_path = Path(subtitle.name)
+            common = [
+                tool('ffmpeg'), '-y', '-v', 'error', '-i', local(root, project['source']),
+                '-map', '0:v:0', '-map', '0:a:0?', '-vf', f"ass=filename='{ffmpeg_filter_path(temporary_path)}'",
+                '-c:v', 'libx264', '-preset', 'fast', '-crf', '20', '-movflags', '+faststart',
+                '-t', str(project['duration']),
+            ]
+            attempts = [['-c:a', 'copy'], ['-c:a', 'aac']]
+        else:
+            with tempfile.NamedTemporaryFile('w', encoding='utf-8', suffix='.srt', delete=False) as subtitle:
+                subtitle.write(srt_caption_text(segments))
+                temporary_path = Path(subtitle.name)
+            common = [
+                tool('ffmpeg'), '-y', '-v', 'error', '-i', local(root, project['source']),
+                '-f', 'srt', '-i', temporary_path,
+                '-map', '0:v:0', '-map', '0:a:0?', '-map', '1:s:0',
+                '-c:s', 'mov_text', '-metadata:s:s:0', 'language=eng',
+                '-metadata:s:s:0', 'handler_name=English Transcript', '-disposition:s:0', '0',
+                '-movflags', '+faststart', '-t', str(project['duration']),
+            ]
+            attempts = [
+                ['-c:v', 'copy', '-c:a', 'copy'],
+                ['-c:v', 'copy', '-c:a', 'aac'],
+                ['-c:v', 'libx264', '-preset', 'fast', '-crf', '20', '-c:a', 'aac'],
+            ]
+        last_error = None
+        for codecs in attempts:
+            output.unlink(missing_ok=True)
+            try:
+                run([*common, *codecs, output])
+                validate_captioned_video(output, float(project['duration']), open_captions)
+                project['exports'].append(relative)
+                return
+            except ValueError as error:
+                last_error = error
+        output.unlink(missing_ok=True)
+        raise last_error or ValueError('Captioned video export failed.')
+    finally:
+        if temporary_path is not None:
+            temporary_path.unlink(missing_ok=True)
+
+
 EXPORT_DUCKING_LEVEL = 0.2
 
 
@@ -590,32 +762,32 @@ def audio_description_mix(root, p, cues, audio_only=False, program_audio_input=N
     return args, filters
 
 
-def validate_selectable_export(output, expected_duration):
-    """Verify stream count, order, labels, language, defaults, and timing."""
+def validate_closed_audio_description_export(output, expected_duration):
+    """Verify the switchable tracks used for closed audio description."""
     info = probe(output)
     videos = [stream for stream in info['streams'] if stream.get('codec_type') == 'video']
     audio = [stream for stream in info['streams'] if stream.get('codec_type') == 'audio']
     if len(videos) != 1 or len(audio) != 2:
-        raise ValueError('Selectable Audio Description export did not contain one video and two audio tracks.')
+        raise ValueError('Closed Audio Description export did not contain one video and two audio tracks.')
     if audio[0].get('disposition', {}).get('default') != 1 or audio[1].get('disposition', {}).get('default') != 0:
-        raise ValueError('Selectable Audio Description export has incorrect default audio-track ordering.')
+        raise ValueError('Closed Audio Description export has incorrect default audio-track ordering.')
     expected = [('Original Audio', 'eng'), ('English - Audio Description', 'eng')]
     for stream, (title, language) in zip(audio, expected):
         tags = stream.get('tags', {})
         actual_title = tags.get('title') or tags.get('handler_name')
         if actual_title != title or tags.get('language') != language:
-            raise ValueError('Selectable Audio Description export is missing audio-track titles or language metadata.')
+            raise ValueError('Closed Audio Description export is missing audio-track titles or language metadata.')
         start = float(stream.get('start_time', 0))
         duration = float(stream.get('duration', info.get('format', {}).get('duration', 0)))
         if abs(start) > .05 or abs(duration - expected_duration) > .25:
-            raise ValueError('Selectable Audio Description audio tracks do not match the video timeline.')
+            raise ValueError('Closed Audio Description audio tracks do not match the video timeline.')
     duration = float(info.get('format', {}).get('duration', videos[0].get('duration', 0)))
     if abs(duration - expected_duration) > .25:
-        raise ValueError('Selectable Audio Description export duration does not match the project.')
+        raise ValueError('Closed Audio Description export duration does not match the project.')
 
 
-def mux_selectable_audio_description(root, p, cues):
-    """Mux original and complete described audio as switchable MOV tracks."""
+def mux_closed_audio_description(root, p, cues):
+    """Mux original and described program mixes as switchable MOV tracks."""
     source = local(root,p['source'])
     has_program_audio = bool(p.get('hasAudio'))
     program_audio_input = 0 if has_program_audio else 1
@@ -627,7 +799,7 @@ def mux_selectable_audio_description(root, p, cues):
         program_audio_input=program_audio_input,
         narration_input_offset=program_audio_input + 1,
     )
-    relative = export_relative_path(root, p, 'Selectable Audio Description', 'mov')
+    relative = export_relative_path(root, p, 'Closed Audio Description', 'mov')
     output = root/relative
     common = [
         tool('ffmpeg'),'-y','-v','error','-i',source,*silent_program_input,*narration_args,
@@ -651,18 +823,18 @@ def mux_selectable_audio_description(root, p, cues):
         output.unlink(missing_ok=True)
         try:
             run([*common,*codecs,output])
-            validate_selectable_export(output, float(p['duration']))
+            validate_closed_audio_description_export(output, float(p['duration']))
             p['exports'].append(relative)
             return
         except ValueError as error:
             last_error = error
     output.unlink(missing_ok=True)
-    raise last_error or ValueError('Selectable Audio Description export failed.')
+    raise last_error or ValueError('Closed Audio Description export failed.')
 
 
 def export(root,p,audio_only=False,allow_incomplete=False,selectable=False):
     if not audio_only and p.get('sourceType') == 'youtube':
-        raise ValueError('Final video export is unavailable for YouTube URL projects. Export text or narration audio instead.')
+        raise ValueError('Audio Description video export is unavailable for YouTube URL projects. Export text or narration audio instead.')
     cues = validate_cues(p['cues'],p['duration'],p['transcript'])
     if not cues and not allow_incomplete: raise ValueError('Create and synthesize AD segments before exporting.')
     available=[]
@@ -678,27 +850,27 @@ def export(root,p,audio_only=False,allow_incomplete=False,selectable=False):
         raise ValueError('Generate narration for at least one AD segment before exporting narration audio.')
     if selectable:
         if not p.get('source'):
-            raise ValueError('A local source video is required for Selectable Audio Description export.')
-        emit('Creating video with selectable Audio Description')
-        mux_selectable_audio_description(root, p, cues)
+            raise ValueError('A local source video is required for Closed Audio Description export.')
+        emit('Creating video with closed Audio Description')
+        mux_closed_audio_description(root, p, cues)
         return
     args = [tool('ffmpeg'),'-y','-v','error']
     if p.get('source'): args += ['-i',local(root,p['source'])]
     elif audio_only: args += ['-f','lavfi','-i','anullsrc=r=48000:cl=stereo']
-    else: raise ValueError('A local source video is required to render a final video. Narration-only export is available now.')
+    else: raise ValueError('A local source video is required to render an Open Audio Description video. Narration-only export is available now.')
     narration_args, filters = audio_description_mix(root, p, cues, audio_only=audio_only)
     args += narration_args
     relative = export_relative_path(
         root,
         p,
-        'Narration Audio' if audio_only else 'Final Video',
+        'Narration Audio' if audio_only else 'Open Audio Description',
         'm4a' if audio_only else 'mp4',
     )
     output = root/relative
     args += ['-filter_complex',';'.join(filters)]
     if not audio_only: args += ['-map','0:v:0','-c:v','libx264','-preset','fast','-crf','20']
     args += ['-map','[mix]','-c:a','aac','-movflags','+faststart','-t',str(p['duration']),output]
-    emit('Mixing narration and rendering final video')
+    emit('Mixing narration and rendering Open Audio Description')
     run(args)
     p['exports'].append(relative)
 
@@ -827,7 +999,7 @@ def validate_analysis_prerequisites(command, root, project):
 
 def main():
     parser=argparse.ArgumentParser(description=__doc__)
-    parser.add_argument('command',choices=['clear-generated','delete-generated','delete-segment-audio','list-models','preview-tts','import-video','probe-video','generate-thumbnails','extract-audio','transcribe','generate-summary','generate-ad-cues','synthesize-tts','export-final-video','export-selectable-video','save-cues','doctor',*parity.COMMANDS])
+    parser.add_argument('command',choices=['clear-generated','delete-generated','delete-segment-audio','list-models','preview-tts','import-video','probe-video','generate-thumbnails','extract-audio','transcribe','generate-summary','generate-ad-cues','synthesize-tts','export-final-video','export-selectable-video','export-closed-audio-description-video','export-open-audio-description-video','export-closed-caption-video','export-open-caption-video','save-cues','doctor',*parity.COMMANDS])
     parser.add_argument('--project',type=Path); parser.add_argument('--video',type=Path); parser.add_argument('--library',type=Path); parser.add_argument('--input',type=Path)
     parser.add_argument('--content',choices=['transcript','summary','descriptions','combined'],default='descriptions'); parser.add_argument('--url'); parser.add_argument('--name'); parser.add_argument('--timestamp',type=float,default=0); parser.add_argument('--duration',type=float); parser.add_argument('--segment'); parser.add_argument('--format',choices=['srt','vtt','txt','json','md'],default='srt'); parser.add_argument('--changed',action='store_true'); parser.add_argument('--start-stage',default='transcribe')
     parser.add_argument('--output', type=Path); parser.add_argument('--text')
@@ -883,8 +1055,10 @@ def main():
                 validate_analysis_prerequisites(args.command, root, p)
                 ai_video(root,p,args.command)
             elif args.command=='synthesize-tts': synthesize(root,p,args.segment,args.changed)
-            elif args.command=='export-final-video': export(root,p,allow_incomplete=args.allow_incomplete_narration)
-            elif args.command=='export-selectable-video': export(root,p,allow_incomplete=args.allow_incomplete_narration,selectable=True)
+            elif args.command in ('export-final-video','export-open-audio-description-video'): export(root,p,allow_incomplete=args.allow_incomplete_narration)
+            elif args.command in ('export-selectable-video','export-closed-audio-description-video'): export(root,p,allow_incomplete=args.allow_incomplete_narration,selectable=True)
+            elif args.command=='export-closed-caption-video': export_captioned_video(root,p,content=args.content)
+            elif args.command=='export-open-caption-video': export_captioned_video(root,p,open_captions=True,content=args.content)
             elif args.command=='save-cues':
                 if not args.input: raise ValueError('--input is required.')
                 cues=validate_cues(json.loads(args.input.read_text()),p['duration'],p['transcript'])

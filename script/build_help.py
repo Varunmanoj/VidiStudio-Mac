@@ -17,7 +17,7 @@ TOPICS = [
     ("projects", "Manage projects"),
     ("editor", "Explore the editor"),
     ("descriptions", "Write and edit descriptions"),
-    ("analysis", "Analyze and regenerate content"),
+    ("analysis", "Analyze and replace content"),
     ("narration", "Choose voices and play narration"),
     ("exports", "Export your work"),
     ("settings", "Settings reference"),
@@ -53,7 +53,7 @@ def keyboard():
                ("VidiStudio Help", "Command + Option + Slash")]
     rows = "".join(f"<tr><th scope='row'>{html.escape(title)}</th><td>{html.escape(keys)}</td></tr>" for title, keys in general + commands)
     return """<h1>Keyboard shortcuts and accessibility</h1>
-<p>Use the menu bar to discover commands and their shortcuts. Project commands require an open project and may be unavailable during processing or while a sheet is open. The Project menu groups Playback, Editor Sections, Segments, and Analysis &amp; Regeneration.</p>
+<p>Use the menu bar to discover commands and their shortcuts. Project commands require an open project and may be unavailable during processing or while a sheet is open. Playback includes Transcript Overlay commands on the Transcript, Descriptions, and AD Transcript pages. The Project menu groups Editor Sections, Segments, Analysis, and Narration. Media metadata, thumbnails, and transcription audio are prepared automatically.</p>
 <table><caption>Application shortcuts</caption><thead><tr><th scope='col'>Action</th><th scope='col'>Shortcut</th></tr></thead><tbody>""" + rows + """</tbody></table>
 <h2>Edit text and segments</h2><p>Command-Z and Command-Shift-Z undo and redo text editing. The separate segment-history commands above restore saved segment edits. Return activates Save Segment when the sheet's default action is available; Escape cancels a sheet or leaves full-screen video. Regeneration shortcuts still ask for confirmation before replacing existing content.</p>
 <h2>Navigate without a mouse</h2><p>Enable Keyboard navigation in macOS System Settings &gt; Keyboard to reach all controls using Tab and Shift-Tab. Use Space to activate a focused button or toggle, and arrow keys within lists and pickers. Select a project and press Command-O to open it. Focus the video timeline slider to seek without dragging. Description rows expose edit and other actions in their contextual menu.</p>
@@ -70,7 +70,7 @@ ILLUSTRATIONS = {
     "first-project": ("projects", "Start in All Projects. Choose New Project to import a video, or Open Project Folder to reopen existing work."),
     "projects": ("projects", "All Projects in Grid View, with search, project tiles, layout controls, and the icon-size slider."),
     "editor": ("editor", "Video preview and timeline occupy the top; the section picker and Transcript are below. Project Inspector is on the right."),
-    "analysis": ("editor", "Find Run All Analysis and individual processing actions in the Project Inspector on the right."),
+    "analysis": ("editor", "Find Analyze Video and page-specific generation actions in the Project Inspector on the right."),
     "narration": ("narration", "Narration settings separate the speech engine from playback mode, followed by indication sounds and Apple voice controls."),
     "settings": ("narration", "Use the Settings sidebar to choose a section. Narration includes playback, sound, and voice controls."),
 }

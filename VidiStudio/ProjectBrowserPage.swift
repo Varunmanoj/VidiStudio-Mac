@@ -211,7 +211,7 @@ struct ProjectBrowserPage: View {
         Button("Open in Project Folder", systemImage: "folder") {
             if let folder = project.folder { NSWorkspace.shared.open(folder) }
         }
-        Button(project.canReprocess ? "Reprocess Video" : "Process Video", systemImage: "sparkles") {
+        Button("Analyze Video…", systemImage: "sparkles") {
             process(project)
         }
         .disabled(busy)

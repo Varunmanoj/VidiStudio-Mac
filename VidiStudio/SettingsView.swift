@@ -64,6 +64,72 @@ struct SettingsView: View {
                 Picker("Appearance", selection: $studio.settings.theme) {
                     Label("System", systemImage: "desktopcomputer").tag("system"); Label("Light", systemImage: "sun.max").tag("light"); Label("Dark", systemImage: "moon").tag("dark")
                 }
+                Picker("Transcript overlay", selection: $studio.settings.captionDisplayMode) {
+                    Text("Off").tag("off")
+                    Text("Transcript").tag("transcript")
+                    Text("AD Transcript").tag("ad-transcript")
+                }
+                .accessibilityHint("Choose whether video previews show no app transcript, spoken dialogue, or dialogue and audio descriptions")
+                Text("When VidiStudio has no saved choice, macOS Accessibility → Captions → Prefer closed captions and SDH turns the Transcript overlay on automatically. You can change this choice here at any time. The overlay uses the transcript saved in this VidiStudio project. For YouTube projects, YouTube's own captions, transcript, and keyboard shortcuts remain unchanged; turn one display off if both would be shown.")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                GroupBox("Caption appearance") {
+                    VStack(alignment: .leading, spacing: 12) {
+                        LabeledContent("Text size") {
+                            HStack {
+                                Slider(value: $studio.settings.captionFontSize, in: 14...48, step: 1)
+                                    .frame(minWidth: 220)
+                                    .accessibilityLabel("Caption text size")
+                                    .accessibilityValue("\(Int(studio.settings.captionFontSize)) points")
+                                Text("\(Int(studio.settings.captionFontSize)) pt")
+                                    .monospacedDigit()
+                                    .foregroundStyle(.secondary)
+                                    .frame(width: 48, alignment: .trailing)
+                            }
+                        }
+                        GroupBox("Dialogue captions") {
+                            VStack(alignment: .leading, spacing: 10) {
+                                ColorPicker("Dialogue text color", selection: captionColorBinding(\.captionTextColor))
+                                    .accessibilityHint("Changes dialogue caption text in the video preview and future open-caption exports")
+                                ColorPicker("Dialogue background color", selection: captionColorBinding(\.captionBackgroundColor))
+                                    .accessibilityHint("Changes dialogue caption backgrounds in the video preview and future open-caption exports")
+                            }
+                            .padding(.vertical, 2)
+                        }
+                        GroupBox("Audio description captions") {
+                            VStack(alignment: .leading, spacing: 10) {
+                                ColorPicker("Audio description text color", selection: captionColorBinding(\.adCaptionTextColor))
+                                    .accessibilityHint("Changes audio description caption text in the video preview and future AD Transcript open-caption exports")
+                                ColorPicker("Audio description background color", selection: captionColorBinding(\.adCaptionBackgroundColor))
+                                    .accessibilityHint("Changes audio description caption backgrounds in the video preview and future AD Transcript open-caption exports")
+                            }
+                            .padding(.vertical, 2)
+                        }
+                        LabeledContent("Background opacity") {
+                            HStack {
+                                Slider(value: $studio.settings.captionBackgroundOpacity, in: 0...1, step: 0.05)
+                                    .frame(minWidth: 220)
+                                    .accessibilityLabel("Caption background opacity")
+                                    .accessibilityValue(studio.settings.captionBackgroundOpacity.formatted(.percent.precision(.fractionLength(0))))
+                                Text(studio.settings.captionBackgroundOpacity, format: .percent.precision(.fractionLength(0)))
+                                    .monospacedDigit()
+                                    .foregroundStyle(.secondary)
+                                    .frame(width: 48, alignment: .trailing)
+                            }
+                        }
+                        Picker("Position", selection: $studio.settings.captionPosition) {
+                            Text("Top").tag("top")
+                            Text("Bottom").tag("bottom")
+                        }
+                        .pickerStyle(.segmented)
+                        CaptionAppearancePreview(settings: studio.settings)
+                        Button("Restore Caption Defaults", systemImage: "arrow.counterclockwise") {
+                            studio.settings.restoreCaptionAppearanceDefaults()
+                        }
+                        .accessibilityHint("Restores caption size, colors, opacity, and position")
+                    }
+                    .padding(.vertical, 4)
+                }
             }
             }
             if section == "Projects" {
@@ -230,6 +296,13 @@ struct SettingsView: View {
         )
     }
 
+    private func captionColorBinding(_ keyPath: WritableKeyPath<StudioSettings, String>) -> Binding<Color> {
+        Binding(
+            get: { SummaryHighlightColor.color(from: studio.settings[keyPath: keyPath]) },
+            set: { studio.settings[keyPath: keyPath] = SummaryHighlightColor.hex(from: $0) }
+        )
+    }
+
     private func speechSlider(_ title: String, value: Binding<Double>, range: ClosedRange<Double>) -> some View {
         VStack(alignment: .leading, spacing: 5) {
             HStack {
@@ -243,5 +316,51 @@ struct SettingsView: View {
                 .accessibilityLabel(title)
                 .accessibilityValue(value.wrappedValue.formatted(.percent.precision(.fractionLength(0))))
         }
+    }
+}
+
+private struct CaptionAppearancePreview: View {
+    let settings: StudioSettings
+
+    var body: some View {
+        ZStack(alignment: settings.captionPosition == "top" ? .top : .bottom) {
+            Rectangle()
+                .fill(.black)
+                .overlay {
+                    LinearGradient(colors: [.blue.opacity(0.55), .purple.opacity(0.45)], startPoint: .topLeading, endPoint: .bottomTrailing)
+                }
+            VStack(spacing: 6) {
+                previewCaption(
+                    "Dialogue caption preview",
+                    textColor: settings.captionTextColor,
+                    backgroundColor: settings.captionBackgroundColor
+                )
+                previewCaption(
+                    "Audio description: A person enters the room.",
+                    textColor: settings.adCaptionTextColor,
+                    backgroundColor: settings.adCaptionBackgroundColor
+                )
+            }
+                .padding(14)
+        }
+        .frame(maxWidth: .infinity, minHeight: 120)
+        .clipShape(.rect(cornerRadius: 8))
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel("Dialogue and audio description caption appearance preview")
+        .accessibilityValue("Separate dialogue and audio description colors, \(Int(settings.captionFontSize)) point text, positioned at the \(settings.captionPosition)")
+    }
+
+    private func previewCaption(_ text: String, textColor: String, backgroundColor: String) -> some View {
+        Text(text)
+            .font(.system(size: settings.captionFontSize, weight: .semibold))
+            .foregroundStyle(SummaryHighlightColor.color(from: textColor))
+            .multilineTextAlignment(.center)
+            .padding(.horizontal, 12)
+            .padding(.vertical, 7)
+            .background(
+                SummaryHighlightColor.color(from: backgroundColor)
+                    .opacity(settings.captionBackgroundOpacity),
+                in: RoundedRectangle(cornerRadius: 6)
+            )
     }
 }

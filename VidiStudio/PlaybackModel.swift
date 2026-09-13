@@ -347,7 +347,10 @@ struct YouTubePlayer: NSViewRepresentable {
             }
         }
         setInterval(updateNarrationVolume,150);
-        var player; function onYouTubeIframeAPIReady(){player=new YT.Player('player',{videoId:'\(id)',playerVars:{playsinline:1,origin:'https://accessivideo.pages.dev'},events:{onReady:function(){setInterval(function(){window.webkit.messageHandlers.playback.postMessage({time:player.getCurrentTime(),duration:player.getDuration(),state:player.getPlayerState(),title:player.getVideoData().title || ''});},150);}}});}
+        // Keep YouTube's own captions/transcript state and keyboard controls
+        // under YouTube's ownership. The SwiftUI transcript overlay sits above
+        // this view without hit testing, so it does not replace or intercept them.
+        var player; function onYouTubeIframeAPIReady(){player=new YT.Player('player',{videoId:'\(id)',playerVars:{playsinline:1,disablekb:0,origin:'https://accessivideo.pages.dev'},events:{onReady:function(){setInterval(function(){window.webkit.messageHandlers.playback.postMessage({time:player.getCurrentTime(),duration:player.getDuration(),state:player.getPlayerState(),title:player.getVideoData().title || ''});},150);}}});}
         </script></body></html>
         """
         view.loadHTMLString(html, baseURL: URL(string: "https://accessivideo.pages.dev"))

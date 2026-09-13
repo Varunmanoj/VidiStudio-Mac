@@ -6,7 +6,7 @@ struct AccessibilityMetadataWriterHarness {
         guard CommandLine.arguments.count == 2 else {
             throw AccessibilityMetadataWriterError.exportNotFound
         }
-        try await AppleAccessibilityMetadataWriter().finalizeSelectableDescriptionTrack(
+        try await AppleAccessibilityMetadataWriter().finalizeClosedDescriptionTrack(
             at: URL(fileURLWithPath: CommandLine.arguments[1])
         )
         print("Apple descriptive-audio characteristic verified")

@@ -51,7 +51,7 @@ struct ProjectGridView: View {
                         Button("Open in Project Folder", systemImage: "folder") {
                             if let folder = project.folder { NSWorkspace.shared.open(folder) }
                         }
-                        Button(project.canReprocess ? "Reprocess Video" : "Process Video", systemImage: "sparkles") { process(project) }.disabled(busy)
+                        Button("Analyze Video…", systemImage: "sparkles") { process(project) }.disabled(busy)
                         ProjectExportMenu(project: project, busy: busy) { action in
                             export(project, action)
                         }
