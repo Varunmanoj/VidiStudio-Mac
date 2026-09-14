@@ -213,6 +213,41 @@ struct ContentView: View {
         openWindow(id: "project-editor", value: project.id)
     }
 
+    private func handleSharedURL(_ url: URL) {
+        guard let source = VidiStudioShareLink.parse(url) else {
+            studio.errorTitle = "Unsupported Shared Item"
+            studio.error = "VidiStudio can create a project from one local video file or a supported YouTube video link."
+            return
+        }
+        guard !studio.busy else {
+            studio.errorTitle = "VidiStudio Is Busy"
+            studio.error = "Wait for the current operation to finish, then share the video again."
+            return
+        }
+
+        studio.dismissError()
+        NSApp.activate(ignoringOtherApps: true)
+        switch source {
+        case .videoFile(let fileURL):
+            if let existing = studio.existingProject(forVideoAt: fileURL) {
+                openEditor(existing)
+                return
+            }
+            _ = studio.importVideo(at: fileURL) { project in
+                if let project { openEditor(project) }
+            }
+        case .youtube(let webURL):
+            let rawURL = webURL.absoluteString
+            if let existing = studio.existingProject(forYouTubeURL: rawURL) {
+                openEditor(existing)
+                return
+            }
+            _ = studio.importYouTube(at: rawURL) { project in
+                if let project { openEditor(project) }
+            }
+        }
+    }
+
     var body: some View {
         ProjectBrowserPage(
             projects: studio.projects,
@@ -274,6 +309,7 @@ struct ContentView: View {
                   let settings = notification.userInfo?["settings"] as? StudioSettings else { return }
             studio.applyExternalSettings(settings)
         }
+        .onOpenURL(perform: handleSharedURL)
     }
 }
 

@@ -13,7 +13,15 @@ xcodebuild -project VidiStudio.xcodeproj -scheme VidiStudio -configuration "$CON
 APP="$PWD/build/DerivedData/Build/Products/$CONFIGURATION/VidiStudio.app"
 python3 script/verify_help.py "$APP"
 
+SHARE_EXTENSION="$APP/Contents/PlugIns/VidiStudioShareExtension.appex"
+if [[ ! -d "$SHARE_EXTENSION" ]]; then
+  echo "Missing embedded VidiStudio Share extension: $SHARE_EXTENSION" >&2
+  exit 1
+fi
 codesign --force --deep --sign - "$APP" > build/codesign.log 2>&1
+codesign --force --sign - --entitlements Config/VidiStudioShareExtension.entitlements "$SHARE_EXTENSION" >> build/codesign.log 2>&1
+codesign --force --sign - "$APP" >> build/codesign.log 2>&1
+codesign --verify --deep --strict "$APP" >> build/codesign.log 2>&1
 case "$MODE" in
   --build-only) echo "$APP" ;;
   --debug) lldb -- "$APP/Contents/MacOS/VidiStudio" ;;

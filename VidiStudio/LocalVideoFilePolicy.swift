@@ -1,4 +1,5 @@
 import Foundation
+import UniformTypeIdentifiers
 
 enum LocalVideoFilePolicy {
     static let maximumSizeBytes: Int64 = 2_000_000_000
@@ -9,6 +10,16 @@ enum LocalVideoFilePolicy {
             throw CocoaError(.fileReadUnknown)
         }
         return fileSize.int64Value
+    }
+
+    static func isSupportedVideo(_ url: URL) -> Bool {
+        guard url.isFileURL else { return false }
+        if let contentType = try? url.resourceValues(forKeys: [.contentTypeKey]).contentType,
+           contentType.conforms(to: .movie) || contentType.conforms(to: .video) {
+            return true
+        }
+        guard let type = UTType(filenameExtension: url.pathExtension) else { return false }
+        return type.conforms(to: .movie) || type.conforms(to: .video)
     }
 
     static func exceedsMaximumSize(_ url: URL) throws -> Bool {

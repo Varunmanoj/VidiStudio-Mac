@@ -6,7 +6,7 @@ This documentation is intended for the bundled macOS Help Viewer. The current ap
 
 - Welcome: purpose, audio description concepts, local projects, online analysis versus offline narration.
 - First project: setup, import, analysis, review, narration, export, final listening check.
-- Projects: browser, list/grid, search, icon size, rename, independent windows, reopen, folders and backup.
+- Projects: browser, Finder/Safari Share extension, list/grid, search, icon size, rename, independent windows, reopen, folders and backup.
 - Editor: player, timeline, transcript, summary, descriptions, AD Overview, AD Transcript, inspector.
 - Description authoring: add/edit/delete, timing, overlap, rewrite, frame text, origin and narration status, undo/redo.
 - Analysis: the complete and individual workflows, page-specific generation or regeneration, non-AI metadata and thumbnail preparation, prerequisites, failure handling, and deletion.

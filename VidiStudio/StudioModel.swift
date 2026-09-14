@@ -246,7 +246,7 @@ struct ProjectVideoInformation {
         projectFolder = project.folder?.path ?? "Not available"
         sourceDetailLabel = project.isYouTubeURLProject ? "Video ID" : "Source File"
         if project.isYouTubeURLProject {
-            sourceDetail = project.youtubeURL.flatMap(StudioModel.youtubeVideoID(from:)) ?? "Not available"
+            sourceDetail = project.youtubeURL.flatMap { VidiStudioShareLink.youtubeVideoID(from: $0) } ?? "Not available"
             sourceURL = project.youtubeURL
         } else {
             let filename = URL(fileURLWithPath: project.source).lastPathComponent
@@ -679,21 +679,27 @@ final class StudioModel {
         }
     }
     @discardableResult
-    func importVideo(at url: URL) -> Bool {
+    func importVideo(at url: URL, completion: ((StudioProject?) -> Void)? = nil) -> Bool {
         guard !busy else { return false }
         guard validateLocalVideoForCreation(url) else { return false }
-        let filename = url.lastPathComponent
-        if let existing = projects.first(where: {
-            !$0.isYouTubeURLProject
-                && URL(fileURLWithPath: $0.source).lastPathComponent.caseInsensitiveCompare(filename) == .orderedSame
-        }) {
+        if let existing = existingProject(forVideoAt: url) {
             showDuplicateProjectError(existing)
             return false
         }
-        execute("import-video", extra: ["--video", url.path, "--library", settings.libraryPath], project: nil)
+        execute(
+            "import-video",
+            extra: ["--video", url.path, "--library", settings.libraryPath],
+            project: nil,
+            completion: completion
+        )
         return true
     }
     func validateLocalVideoForCreation(_ url: URL) -> Bool {
+        guard LocalVideoFilePolicy.isSupportedVideo(url) else {
+            errorTitle = "Unsupported Video File"
+            error = "VidiStudio can create shared projects from local video files. Choose a movie such as MP4, MOV, or another macOS-recognized video format."
+            return false
+        }
         do {
             let size = try LocalVideoFilePolicy.size(at: url)
             guard size <= LocalVideoFilePolicy.maximumSizeBytes else {
@@ -709,29 +715,40 @@ final class StudioModel {
         }
     }
     @discardableResult
-    func importYouTube(at rawURL: String, name: String? = nil) -> Bool {
+    func importYouTube(at rawURL: String, name: String? = nil, completion: ((StudioProject?) -> Void)? = nil) -> Bool {
         guard !busy else { return false }
         guard validateYouTubeForCreation(rawURL) else { return false }
         var arguments = ["--url", rawURL, "--library", settings.libraryPath]
         if let name, !name.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
             arguments += ["--name", name]
         }
-        execute("import-youtube", extra: arguments, project: nil)
+        execute("import-youtube", extra: arguments, project: nil, completion: completion)
         return true
     }
     func validateYouTubeForCreation(_ rawURL: String) -> Bool {
-        let candidate = Self.youtubeVideoID(from: rawURL)
-        if let existing = projects.first(where: { project in
-            guard project.isYouTubeURLProject, let existingURL = project.youtubeURL else { return false }
-            if let candidate, let existingID = Self.youtubeVideoID(from: existingURL) {
-                return candidate == existingID
-            }
-            return existingURL.trimmingCharacters(in: .whitespacesAndNewlines) == rawURL.trimmingCharacters(in: .whitespacesAndNewlines)
-        }) {
+        if let existing = existingProject(forYouTubeURL: rawURL) {
             showDuplicateProjectError(existing)
             return false
         }
         return true
+    }
+    func existingProject(forVideoAt url: URL) -> StudioProject? {
+        let filename = url.lastPathComponent
+        return projects.first {
+            !$0.isYouTubeURLProject
+                && URL(fileURLWithPath: $0.source).lastPathComponent.caseInsensitiveCompare(filename) == .orderedSame
+        }
+    }
+    func existingProject(forYouTubeURL rawURL: String) -> StudioProject? {
+        let candidate = Self.youtubeVideoID(from: rawURL)
+        return projects.first { project in
+            guard project.isYouTubeURLProject, let existingURL = project.youtubeURL else { return false }
+            if let candidate, let existingID = Self.youtubeVideoID(from: existingURL) {
+                return candidate == existingID
+            }
+            return existingURL.trimmingCharacters(in: .whitespacesAndNewlines)
+                == rawURL.trimmingCharacters(in: .whitespacesAndNewlines)
+        }
     }
     private func showDuplicateProjectError(_ project: StudioProject) {
         selectedID = project.id
@@ -739,29 +756,7 @@ final class StudioModel {
         error = "A project for this video already exists as “\(project.name)”. Please continue with the existing project or delete the existing project before continuing."
     }
     static func youtubeVideoID(from rawURL: String) -> String? {
-        guard let components = URLComponents(string: rawURL.trimmingCharacters(in: .whitespacesAndNewlines)),
-              ["http", "https"].contains(components.scheme?.lowercased() ?? ""),
-              let host = components.host?.lowercased() else { return nil }
-        let pathParts = components.path.split(separator: "/").map(String.init)
-        let identifier: String?
-        switch host {
-        case "youtu.be", "www.youtu.be":
-            identifier = pathParts.first
-        case "youtube.com", "www.youtube.com", "m.youtube.com", "youtube-nocookie.com", "www.youtube-nocookie.com":
-            if components.path == "/watch" {
-                identifier = components.queryItems?.first(where: { $0.name == "v" })?.value
-            } else if pathParts.count > 1, ["shorts", "embed", "live"].contains(pathParts[0]) {
-                identifier = pathParts[1]
-            } else {
-                identifier = nil
-            }
-        default:
-            identifier = nil
-        }
-        guard let identifier,
-              identifier.count == 11,
-              identifier.unicodeScalars.allSatisfy({ CharacterSet.alphanumerics.union(CharacterSet(charactersIn: "_-")).contains($0) }) else { return nil }
-        return identifier
+        VidiStudioShareLink.youtubeVideoID(from: rawURL)
     }
     func chooseProjectLibrary() {
         guard !busy else { return }
@@ -1037,7 +1032,14 @@ final class StudioModel {
         return ["--allow-incomplete-narration"]
     }
 
-    func execute(_ command: String, extra: [String] = [], project: StudioProject? = nil, configurationURL: URL? = nil, cleanupURL: URL? = nil) {
+    func execute(
+        _ command: String,
+        extra: [String] = [],
+        project: StudioProject? = nil,
+        configurationURL: URL? = nil,
+        cleanupURL: URL? = nil,
+        completion: ((StudioProject?) -> Void)? = nil
+    ) {
         guard !busy else { return }
         errorTitle = command == "capture-frame" ? "Read Frame Text Processing" : StudioModel.defaultErrorTitle
         if command == "doctor" {
@@ -1071,10 +1073,12 @@ final class StudioModel {
             let message = "The bundled engine is missing. Reinstall VidiStudio and try again."
             if command == "doctor" { engineCheckStatus = .failed(message) }
             error = message
+            completion?(nil)
             return
         }
         busy = true
         var completedExportPath: String?
+        var completedProjectPath: String?
         progress = 0
         message = command == "capture-frame" ? "Processing text from the selected frame…" : command.replacingOccurrences(of: "-", with: " ").capitalized
         let task = Process(); task.executableURL = engine
@@ -1090,7 +1094,7 @@ final class StudioModel {
             if let cleanupURL { try? FileManager.default.removeItem(at: cleanupURL) }
             let message = error.localizedDescription
             if command == "doctor" { engineCheckStatus = .failed(message) }
-            busy = false; process = nil; self.error = message; return
+            busy = false; process = nil; self.error = message; completion?(nil); return
         }
         Task {
             do {
@@ -1110,6 +1114,7 @@ final class StudioModel {
                         if command == "doctor" { engineCheckStatus = .failed(message) }
                     }
                     if let path = event["project"] as? String {
+                        completedProjectPath = path
                         reload()
                         if let p = projects.first(where: { $0.folder?.path == path }) { selectedID = p.id }
                     }
@@ -1141,6 +1146,10 @@ final class StudioModel {
                     ? .ready
                     : .failed(self.error ?? "The engine is not configured correctly.")
             }
+            let completedProject = completedProjectPath.flatMap { path in
+                projects.first(where: { $0.folder?.path == path })
+            }
+            completion?(task.terminationStatus == 0 ? completedProject : nil)
         }
     }
     func saveCues(_ cues: [Segment]) {

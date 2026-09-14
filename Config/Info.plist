@@ -2,6 +2,17 @@
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0">
 <dict>
+    <key>CFBundleURLTypes</key>
+    <array>
+        <dict>
+            <key>CFBundleURLName</key>
+            <string>Varunmanojkumar.VidiStudio.Share</string>
+            <key>CFBundleURLSchemes</key>
+            <array>
+                <string>vidistudio</string>
+            </array>
+        </dict>
+    </array>
     <key>CFBundleHelpBookFolder</key>
     <string>VidiStudio.help</string>
     <key>CFBundleHelpBookName</key>
