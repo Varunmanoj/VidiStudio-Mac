@@ -413,6 +413,7 @@ struct ExportDialog: View {
         }
         .navigationSplitViewStyle(.balanced)
         .frame(width: 760, height: 560)
+        .smoothPresentation()
         .onChange(of: textContent) {
             if !textFormats.contains(textFormat) {
                 textFormat = textFormats[0]

@@ -37,11 +37,29 @@ struct SettingsView: View {
     @Bindable var studio: StudioModel
     @Bindable var openProjects: OpenProjectRegistry
     @Environment(\.openWindow) private var openWindow
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @State private var shortcutReferenceExpanded = false
+    @State private var expandedPromptStages: Set<String> = []
     private var section: String { studio.settingsSection }
     private let sections = ["Appearance", "Projects", "Narration", "Gemini API", "Developer prompts", "Storage", "Help"]
     private let sectionIcons = ["Appearance": "circle.lefthalf.filled", "Projects": "rectangle.stack", "Narration": "speaker.wave.2", "Gemini API": "sparkles", "Developer prompts": "text.bubble", "Storage": "folder", "Help": "questionmark.circle"]
     private func prompt(_ stage: String, _ key: String) -> Binding<String> {
         Binding(get: { studio.settings.prompts[stage]?[key] ?? "" }, set: { studio.settings.prompts[stage, default: [:]][key] = $0 })
+    }
+    private var interfaceAnimation: Animation? {
+        reduceMotion ? nil : .smooth(duration: 0.22)
+    }
+    private func promptExpanded(_ stage: String) -> Binding<Bool> {
+        Binding(
+            get: { expandedPromptStages.contains(stage) },
+            set: { expanded in
+                if expanded {
+                    expandedPromptStages.insert(stage)
+                } else {
+                    expandedPromptStages.remove(stage)
+                }
+            }
+        )
     }
     var body: some View {
         NavigationSplitView {
@@ -57,7 +75,8 @@ struct SettingsView: View {
                 LabeledContent("App version", value: AppVersionInfo.display)
                     .accessibilityElement(children: .ignore)
                     .accessibilityLabel("App version, \(AppVersionInfo.display)")
-                DisclosureGroup("Keyboard shortcut reference") { ShortcutReferenceView() }
+                DisclosureGroup("Keyboard shortcut reference", isExpanded: $shortcutReferenceExpanded) { ShortcutReferenceView() }
+                    .animation(interfaceAnimation, value: shortcutReferenceExpanded)
             }
             }
             if section == "Appearance" { Section("Appearance and playback") {
@@ -200,12 +219,16 @@ struct SettingsView: View {
             }
             if section == "Developer prompts" { Section("Developer prompts") {
                 ForEach(studio.settings.prompts.keys.sorted(), id: \.self) { stage in
-                    DisclosureGroup(stage.replacingOccurrences(of: "_", with: " ").capitalized) {
+                    DisclosureGroup(
+                        stage.replacingOccurrences(of: "_", with: " ").capitalized,
+                        isExpanded: promptExpanded(stage)
+                    ) {
                         Text("System instruction").font(.caption)
                         TextEditor(text: prompt(stage, "system_instruction")).frame(minHeight: 90).accessibilityLabel("\(stage) system instruction")
                         Text("User prompt").font(.caption)
                         TextEditor(text: prompt(stage, "user_prompt")).frame(minHeight: 130).accessibilityLabel("\(stage) user prompt")
                     }
+                    .animation(interfaceAnimation, value: expandedPromptStages.contains(stage))
                 }
             }
             }
@@ -274,6 +297,7 @@ struct SettingsView: View {
         .background(SettingsWindowChrome().frame(width: 0, height: 0))
         .navigationSplitViewStyle(.balanced)
         .frame(minWidth: 850, idealWidth: 940, minHeight: 650, idealHeight: 740)
+        .smoothPresentation()
         .onChange(of: studio.settings.ffmpegPath) { _, _ in studio.engineCheckStatus = .unchecked }
         .onChange(of: studio.settings.ffprobePath) { _, _ in studio.engineCheckStatus = .unchecked }
         .onAppear {

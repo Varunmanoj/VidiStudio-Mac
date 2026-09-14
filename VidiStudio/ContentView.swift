@@ -284,8 +284,14 @@ struct ProjectEditorWindow: View {
     @State private var editorShortcutActions = EditorShortcutActions()
     @State private var showInspector = true
     @State private var showingExportDialog = false
+    @State private var isClosing = false
     @Environment(\.openWindow) private var openWindow
     @Environment(\.dismiss) private var dismiss
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+
+    private var interfaceAnimation: Animation? {
+        reduceMotion ? nil : .smooth(duration: 0.22)
+    }
 
     init(projectID: String, openProjects: OpenProjectRegistry) {
         self.projectID = projectID
@@ -297,7 +303,16 @@ struct ProjectEditorWindow: View {
 
     private func returnToAllProjects() {
         openWindow(id: "studio")
-        dismiss()
+        guard !reduceMotion else {
+            dismiss()
+            return
+        }
+        withAnimation(.smooth(duration: 0.18)) {
+            isClosing = true
+        }
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.18) {
+            dismiss()
+        }
     }
 
     var body: some View {
@@ -315,6 +330,7 @@ struct ProjectEditorWindow: View {
                     .frame(width: max(0, geometry.size.width - (showInspector ? 273 : 0)), height: geometry.size.height)
                     if showInspector {
                         Divider()
+                            .transition(.opacity)
                         ProcessingInspector(
                             studio: studio,
                             editorActions: editorShortcutActions,
@@ -322,12 +338,18 @@ struct ProjectEditorWindow: View {
                         )
                             .frame(width: 272, height: geometry.size.height)
                             .background(.bar)
+                            .transition(.move(edge: .trailing).combined(with: .opacity))
                     }
                 }
+                .animation(interfaceAnimation, value: showInspector)
             } else {
                 ContentUnavailableView("Project Unavailable", systemImage: "film", description: Text("The project may have moved or been deleted."))
             }
         }
+        .opacity(isClosing ? 0 : 1)
+        .scaleEffect(isClosing ? 0.985 : 1)
+        .offset(y: isClosing ? 6 : 0)
+        .smoothPresentation()
         .background(WindowFitter().frame(width: 0, height: 0))
         .focusedSceneValue(\.projectBrowser, ProjectBrowserActions(
             showProjects: nil,
@@ -756,6 +778,10 @@ struct ProjectEditor: View {
         return modes
     }
 
+    private var interfaceAnimation: Animation? {
+        reduceMotion ? nil : .smooth(duration: 0.22)
+    }
+
     private func cycleCaptionDisplayMode() {
         let modes = availableCaptionDisplayModes
         guard modes.count > 1 else {
@@ -1025,8 +1051,10 @@ struct ProjectEditor: View {
             .background(.black)
             if timelineVisible {
                 TimelineView(project: project, playback: playback)
+                    .transition(.opacity.combined(with: .scale(scale: 0.98, anchor: .top)))
             }
         }
+        .animation(interfaceAnimation, value: timelineVisible)
     }
 
     @ViewBuilder
@@ -1207,11 +1235,13 @@ struct ProjectEditor: View {
                             let change: CGFloat = direction == .increment ? 40 : -40
                             previewHeight = min(max(220, visiblePreviewHeight + change), maximumPreviewHeight)
                         }
+                        .transition(.opacity)
                 }
 
                 editorPane
                     .frame(maxHeight: .infinity)
             }
+            .animation(interfaceAnimation, value: previewHidden)
         }
     }
 

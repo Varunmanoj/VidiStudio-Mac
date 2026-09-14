@@ -1,5 +1,13 @@
 # Build and validation — 8 September 2026
 
+## 2026-09-14 — Smooth native interface transitions — version 1.0.2 (build 3)
+
+Added a consistent 0.22-second smooth transition policy to interface regions that expand, collapse, appear, or disappear. The right project inspector now slides and fades while the editor width adjusts; preview and full timeline visibility changes animate their layout; Help and Developer Prompt disclosure groups animate expansion; and Settings and Export content receive a subtle fade, scale, and vertical entrance layered onto their native macOS window or sheet presentation. Project editor windows receive the same content entrance when opened from All Projects, while Back to All Projects performs a brief 0.18-second exit before dismissal. The standard red close button retains macOS's own window animation. All added movement is disabled when Reduce Motion is enabled.
+
+Following the repository version policy, Debug and Release now use `MARKETING_VERSION` 1.0.2 and `CURRENT_PROJECT_VERSION` 3. README and bundled Help describe the motion behavior and Reduce Motion boundary.
+
+Validation: `git diff --check` passed. `VIDISTUDIO_CONFIGURATION=Release ./script/build_and_run.sh --verify` succeeded, passed packaged registration plus all 13 Help pages, topic anchors, links, stylesheet, and nonempty search-index checks, and launched process 26247. The launched process path was confirmed as `/Users/personal/Documents/GitHub/VidiStudio Mac/build/DerivedData/Build/Products/Release/VidiStudio.app/Contents/MacOS/VidiStudio`; its built Info.plist reports version 1.0.2 and build 3. Live animation timing and rendering remain unobserved because the computer-use service timed out while attaching to the fresh Release app. No engine tests were run because this change affects native SwiftUI presentation and documentation only.
+
 ## 2026-09-14 — Labeled transcript and Audio Description timeline
 
 The timeline beneath the video preview now contains three explicitly labeled tracks: Thumbnails, Transcript, and Audio Description. Spoken transcript segments appear in their own synchronized row above the existing Audio Description segments, and every segment remains an accessible button that seeks to its start time. View now provides Hide Timeline/Show Timeline for collapsing or restoring the complete timeline section, including thumbnails, the seek surface and playhead, Transcript segments, and Audio Description segments. This durable application preference applies across project windows and launches. README, bundled Help content, and the in-app command reference describe the complete-section behavior.
