@@ -8,4 +8,6 @@ Use native macOS controls with bundled Material Symbols for application iconogra
 
 Run `script/build_and_run.sh --verify` for build and launch. Direct Xcode builds run `script/xcode_bundle_engine.sh`. `script/package.sh` creates a local-install ZIP. Python dependency versions used for validation are in `engine/requirements-build.lock`. `tests/test_engine.py` exercises real media processing and system speech; it needs OS speech access outside restricted sandboxes.
 
+Every app fix or new feature must automatically advance the app version before build and validation; do not wait for a separate version-bump request. Increment the patch component of `MARKETING_VERSION` and increment `CURRENT_PROJECT_VERSION`, keeping Debug and Release settings aligned. Record the resulting user-visible version and build number in `PROGRESS.md` with the change's validation evidence.
+
 Use `VIDISTUDIO_TEST_ENGINE` to test the packaged executable. Do not claim live Gemini or Windows validation without actually running those paths. Record progress and release evidence in `PROGRESS.md`.
