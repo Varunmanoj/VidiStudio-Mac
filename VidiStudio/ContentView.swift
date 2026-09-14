@@ -264,7 +264,7 @@ struct ContentView: View {
             },
             openEditor: openEditor,
             rename: { p in studio.selectedID = p.id; rename = p.name; renaming = true },
-            delete: { studio.trashProject($0) },
+            delete: { studio.confirmTrashProject($0) },
             process: { p, command in studio.selectedID = p.id; studio.execute(command, project: p) },
             export: { exportProject = $0 },
             clear: { deletionProject = $0 }
@@ -320,9 +320,6 @@ struct ProjectEditorWindow: View {
     @State private var editorShortcutActions = EditorShortcutActions()
     @State private var showInspector = true
     @State private var showingExportDialog = false
-    @State private var isClosing = false
-    @Environment(\.openWindow) private var openWindow
-    @Environment(\.dismiss) private var dismiss
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     private var interfaceAnimation: Animation? {
@@ -335,20 +332,6 @@ struct ProjectEditorWindow: View {
         let model = StudioModel()
         model.selectedID = projectID
         _studio = State(initialValue: model)
-    }
-
-    private func returnToAllProjects() {
-        openWindow(id: "studio")
-        guard !reduceMotion else {
-            dismiss()
-            return
-        }
-        withAnimation(.smooth(duration: 0.18)) {
-            isClosing = true
-        }
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.18) {
-            dismiss()
-        }
     }
 
     var body: some View {
@@ -382,9 +365,6 @@ struct ProjectEditorWindow: View {
                 ContentUnavailableView("Project Unavailable", systemImage: "film", description: Text("The project may have moved or been deleted."))
             }
         }
-        .opacity(isClosing ? 0 : 1)
-        .scaleEffect(isClosing ? 0.985 : 1)
-        .offset(y: isClosing ? 6 : 0)
         .smoothPresentation()
         .background(WindowFitter().frame(width: 0, height: 0))
         .focusedSceneValue(\.projectBrowser, ProjectBrowserActions(
@@ -400,11 +380,6 @@ struct ProjectEditorWindow: View {
         .preferredColorScheme(studio.settings.theme == "dark" ? .dark : studio.settings.theme == "light" ? .light : nil)
         .navigationTitle(studio.selected?.name ?? "Project Editor")
         .toolbar {
-            ToolbarItem(placement: .primaryAction) {
-                Button("Back to All Projects", systemImage: "chevron.backward", action: returnToAllProjects)
-                    .labelStyle(.iconOnly)
-                    .help("Return to all projects")
-            }
             ToolbarItem(placement: .primaryAction) {
                 Button(showInspector ? "Hide Inspector" : "Show Inspector", systemImage: "sidebar.right") { showInspector.toggle() }
                     .labelStyle(.iconOnly)
@@ -498,7 +473,7 @@ struct ProcessingInspector: View {
                                                     ? "Regenerate the current \(sectionTitle.lowercased()) after confirmation"
                                                     : "Generate the \(sectionTitle.lowercased()) for this project")
                                         if let component = currentComponent, component.hasContent(in: p) {
-                                            Button("Delete \(component.title)", systemImage: "trash", role: .destructive) {
+                                            Button("Delete \(component.title)…", systemImage: "trash", role: .destructive) {
                                                 studio.confirmDeleteGeneratedContent(p, component: component)
                                             }
                                             .labelStyle(.iconOnly)
@@ -516,7 +491,7 @@ struct ProcessingInspector: View {
                                         .disabled(!editorActions.canRun("synthesize-tts"))
                                         .help("Create narration audio for all Audio Description segments")
                                         if GeneratedContentComponent.narration.hasContent(in: p) {
-                                            Button("Delete Narration Audio", systemImage: "trash", role: .destructive) {
+                                            Button("Delete Narration Audio…", systemImage: "trash", role: .destructive) {
                                                 studio.confirmDeleteGeneratedContent(p, component: .narration)
                                             }
                                             .labelStyle(.iconOnly)
@@ -568,7 +543,7 @@ struct ProcessingInspector: View {
                                             .labelStyle(.iconOnly)
                                             .help("Show \(URL(fileURLWithPath: path).lastPathComponent) in Finder")
                                             .disabled(studio.busy || p.url(path) == nil)
-                                            Button("Delete Export", systemImage: "trash", role: .destructive) {
+                                            Button("Delete Export…", systemImage: "trash", role: .destructive) {
                                                 studio.confirmDeleteExport(p, path: path)
                                             }
                                             .labelStyle(.iconOnly)
@@ -1188,14 +1163,19 @@ struct ProjectEditor: View {
                                         .disabled(activePreviewCueID != cue.id)
                                     Button("Rewrite to Fit", systemImage: "wand.and.stars") { studio.execute("rewrite-cue", extra: ["--segment", cue.id]) }
                                     Button("Synthesize This Segment", systemImage: "waveform") { studio.execute("synthesize-tts", extra: ["--segment", cue.id]) }
-                                    Button("Delete Segment Audio", systemImage: "speaker.slash", role: .destructive) {
+                                    Button("Delete Segment Audio…", systemImage: "speaker.slash", role: .destructive) {
                                         studio.confirmDeleteSegmentAudio(project, cue: cue) {
                                             stopNarrationPreview()
                                             playback.stopNarrationPlayback()
                                         }
                                     }
                                     .disabled(cue.audio == nil)
-                                    Button("Delete Segment", systemImage: "trash", role: .destructive) { studio.saveCues(project.cues.filter { $0.id != cue.id }) }
+                                    Button("Delete Segment…", systemImage: "trash", role: .destructive) {
+                                        studio.confirmDeleteSegment(project, cue: cue) {
+                                            stopNarrationPreview()
+                                            playback.stopNarrationPlayback()
+                                        }
+                                    }
                                 } label: { Image(systemName: "ellipsis") }
                                     .menuStyle(.borderlessButton)
                                     .menuIndicator(.hidden)

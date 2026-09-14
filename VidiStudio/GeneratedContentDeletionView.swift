@@ -116,9 +116,10 @@ struct GeneratedContentDeletionView: View {
                 Button("Cancel", role: .cancel) { dismiss() }
                     .keyboardShortcut(.cancelAction)
                 Spacer()
-                Button("Delete Selected", systemImage: "trash", role: .destructive) {
-                    studio.deleteGeneratedContent(project, components: selection)
-                    dismiss()
+                Button("Delete Selected…", systemImage: "trash", role: .destructive) {
+                    if studio.confirmDeleteGeneratedContent(project, components: selection) {
+                        dismiss()
+                    }
                 }
                 .keyboardShortcut(.defaultAction)
                 .disabled(selection.isEmpty || studio.busy)

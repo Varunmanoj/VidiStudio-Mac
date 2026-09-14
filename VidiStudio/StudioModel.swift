@@ -828,6 +828,15 @@ final class StudioModel {
         do { try FileManager.default.trashItem(at: folder, resultingItemURL: nil); reload() }
         catch { self.error = error.localizedDescription }
     }
+    func confirmTrashProject(_ project: StudioProject) {
+        guard !busy, project.folder != nil else { return }
+        guard confirmDeletion(
+            title: "Move “\(project.name)” to the Bin?",
+            message: "The complete project folder, including its source video or YouTube link, generated content, narration, and exports, will be moved to the Bin. You can restore it until the Bin is emptied.",
+            actionTitle: "Move to Bin"
+        ) else { return }
+        trashProject(project)
+    }
     func deleteGeneratedContent(_ project: StudioProject, components: Set<GeneratedContentComponent>) {
         guard !busy, !components.isEmpty else { return }
         selectedID = project.id
@@ -835,45 +844,54 @@ final class StudioModel {
         execute("delete-generated", extra: arguments, project: project)
     }
     func confirmDeleteGeneratedContent(_ project: StudioProject, component: GeneratedContentComponent) {
-        guard !busy, component.hasContent(in: project) else { return }
-        let alert = NSAlert()
-        alert.messageText = "Delete \(component.title.lowercased()) from “\(project.name)”?"
-        alert.informativeText = component.explanation + " The project and original video or YouTube link are kept. This cannot be undone."
-        alert.alertStyle = .warning
-        alert.addButton(withTitle: "Cancel")
-        alert.addButton(withTitle: "Delete \(component.title)")
-        guard alert.runModal() == .alertSecondButtonReturn else { return }
-        if component == .narration || component == .descriptions {
+        _ = confirmDeleteGeneratedContent(project, components: [component])
+    }
+    @discardableResult
+    func confirmDeleteGeneratedContent(_ project: StudioProject, components: Set<GeneratedContentComponent>) -> Bool {
+        let available = components.filter { $0.hasContent(in: project) }
+        guard !busy, !available.isEmpty else { return false }
+        let sorted = available.sorted { $0.title.localizedStandardCompare($1.title) == .orderedAscending }
+        let title: String
+        let message: String
+        let actionTitle: String
+        if let component = sorted.first, sorted.count == 1 {
+            title = "Delete \(component.title.lowercased()) from “\(project.name)”?"
+            message = component.explanation + " The project and original video or YouTube link are kept. This cannot be undone."
+            actionTitle = "Delete \(component.title)"
+        } else {
+            title = "Delete selected components from “\(project.name)”?"
+            message = "This permanently deletes: \(sorted.map(\.title).joined(separator: ", ")). The project and original video or YouTube link are kept. This cannot be undone."
+            actionTitle = "Delete Selected"
+        }
+        guard confirmDeletion(title: title, message: message, actionTitle: actionTitle) else { return false }
+        if available.contains(.narration) || available.contains(.descriptions) {
             NotificationCenter.default.post(
                 name: .vidiStudioNarrationAudioWillDelete,
                 object: self,
                 userInfo: ["projectID": project.id]
             )
         }
-        deleteGeneratedContent(project, components: [component])
+        deleteGeneratedContent(project, components: Set(available))
+        return true
     }
     func confirmDeleteExport(_ project: StudioProject, path: String) {
         guard !busy, project.exports.contains(path) else { return }
         let name = URL(fileURLWithPath: path).lastPathComponent
-        let alert = NSAlert()
-        alert.messageText = "Delete “\(name)”?"
-        alert.informativeText = "The export will be permanently removed from the project to free storage. This cannot be undone."
-        alert.alertStyle = .warning
-        alert.addButton(withTitle: "Cancel")
-        alert.addButton(withTitle: "Delete Export")
-        guard alert.runModal() == .alertSecondButtonReturn else { return }
+        guard confirmDeletion(
+            title: "Delete “\(name)”?",
+            message: "The export will be permanently removed from the project to free storage. This cannot be undone.",
+            actionTitle: "Delete Export"
+        ) else { return }
         selectedID = project.id
         execute("delete-export", extra: ["--name", path], project: project)
     }
     func confirmDeleteSegmentAudio(_ project: StudioProject, cue: Segment, beforeDelete: () -> Void) {
         guard !busy, cue.audio != nil else { return }
-        let alert = NSAlert()
-        alert.messageText = "Delete audio for this description?"
-        alert.informativeText = "Only the generated narration audio will be deleted. The description text and timing will remain unchanged."
-        alert.alertStyle = .warning
-        alert.addButton(withTitle: "Cancel")
-        alert.addButton(withTitle: "Delete Segment Audio")
-        guard alert.runModal() == .alertSecondButtonReturn else { return }
+        guard confirmDeletion(
+            title: "Delete audio for this description?",
+            message: "Only the generated narration audio will be deleted. The description text and timing will remain unchanged. This cannot be undone.",
+            actionTitle: "Delete Segment Audio"
+        ) else { return }
         beforeDelete()
         NotificationCenter.default.post(
             name: .vidiStudioNarrationAudioWillDelete,
@@ -882,6 +900,34 @@ final class StudioModel {
         )
         selectedID = project.id
         execute("delete-segment-audio", extra: ["--segment", cue.id], project: project)
+    }
+    func confirmDeleteSegment(_ project: StudioProject, cue: Segment, beforeDelete: () -> Void) {
+        guard !busy, project.cues.contains(where: { $0.id == cue.id }) else { return }
+        guard confirmDeletion(
+            title: "Delete this Audio Description segment?",
+            message: "The description text, timing, and its generated narration audio will be permanently removed. This cannot be undone.",
+            actionTitle: "Delete Segment"
+        ) else { return }
+        beforeDelete()
+        if cue.audio != nil {
+            NotificationCenter.default.post(
+                name: .vidiStudioNarrationAudioWillDelete,
+                object: self,
+                userInfo: ["projectID": project.id]
+            )
+        }
+        selectedID = project.id
+        saveCues(project.cues.filter { $0.id != cue.id })
+    }
+    private func confirmDeletion(title: String, message: String, actionTitle: String) -> Bool {
+        let alert = NSAlert()
+        alert.messageText = title
+        alert.informativeText = message
+        alert.alertStyle = .warning
+        alert.addButton(withTitle: "Cancel")
+        let destructiveButton = alert.addButton(withTitle: actionTitle)
+        destructiveButton.hasDestructiveAction = true
+        return alert.runModal() == .alertSecondButtonReturn
     }
     func openProject() {
         guard !busy else { return }

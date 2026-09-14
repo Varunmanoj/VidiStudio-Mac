@@ -262,7 +262,7 @@ struct ProjectBrowserPage: View {
             clear(project)
         }
         .disabled(busy || !project.hasGeneratedContent)
-        Button("Delete Project", systemImage: "trash", role: .destructive) {
+        Button("Delete Project…", systemImage: "trash", role: .destructive) {
             delete(project)
         }
         .disabled(busy)
