@@ -686,6 +686,7 @@ struct ProjectEditor: View {
     @State private var tab = "transcript"
     @State private var requestedTitle = ""
     @State private var previewHidden = false
+    @AppStorage("timelineVisible") private var timelineVisible = true
     @State private var previewHeight: CGFloat = 413
     @State private var previewHeightAtDragStart: CGFloat?
     @State private var cueToEdit: Segment?
@@ -1022,7 +1023,9 @@ struct ProjectEditor: View {
             }
             .frame(minWidth: 0, idealWidth: 700, maxWidth: .infinity, minHeight: 120, idealHeight: 340, maxHeight: .infinity)
             .background(.black)
-            TimelineView(project: project, playback: playback)
+            if timelineVisible {
+                TimelineView(project: project, playback: playback)
+            }
         }
     }
 
@@ -1215,6 +1218,7 @@ struct ProjectEditor: View {
     private func runEditorShortcut(_ action: String) {
         switch action {
         case "preview": playback.exitVideoFullScreen(); previewHidden.toggle()
+        case "toggle-timeline": timelineVisible.toggle()
         case "fullscreen":
             previewHidden = false
             DispatchQueue.main.async { playback.toggleVideoFullScreen() }
@@ -1256,6 +1260,7 @@ struct ProjectEditor: View {
             shortcutActions.exportHandler = showExportDialog
         }
         shortcutActions.previewHidden = previewHidden
+        shortcutActions.timelineVisible = timelineVisible
         shortcutActions.available = !shortcutsBlocked && !studio.busy && cueToEdit == nil && studio.screenText == nil
         shortcutActions.activeSection = tab
         shortcutActions.captionDisplayMode = studio.settings.captionDisplayMode
@@ -1330,6 +1335,7 @@ struct ProjectEditor: View {
         .onChange(of: studio.settings.systemSpeechRate) { _, _ in playback.syncNarration(project, settings: studio.settings) }
         .onChange(of: studio.settings.systemSpeechPitch) { _, _ in playback.syncNarration(project, settings: studio.settings) }
         .onChange(of: studio.settings.systemSpeechVolume) { _, _ in playback.syncNarration(project, settings: studio.settings) }
+        .onChange(of: timelineVisible) { _, _ in refreshEditorShortcutActions() }
     }
 
     var body: some View {
@@ -1403,7 +1409,17 @@ struct TimelineView: View {
     let project: StudioProject
     let playback: PlaybackModel
 
+    private let trackLabelWidth: CGFloat = 132
+    private let trackSpacing: CGFloat = 8
+    private let rowSpacing: CGFloat = 4
+    private let thumbnailHeight: CGFloat = 42
+    private let segmentHeight: CGFloat = 26
+
     private var duration: Double { max(0, project.duration) }
+
+    private var tracksHeight: CGFloat {
+        thumbnailHeight + rowSpacing + segmentHeight + rowSpacing + segmentHeight
+    }
 
     private var timelineValue: Binding<Double> {
         Binding {
@@ -1430,6 +1446,100 @@ struct TimelineView: View {
         playback.seek(duration * min(max(0, x / width), 1))
     }
 
+    private func trackLabel(_ title: String, systemImage: String, height: CGFloat) -> some View {
+        Label(title, systemImage: systemImage)
+            .font(.caption2)
+            .lineLimit(1)
+            .frame(width: trackLabelWidth, height: height, alignment: .leading)
+            .accessibilityAddTraits(.isHeader)
+    }
+
+    private func seekSurface(width: CGFloat) -> some View {
+        Rectangle()
+            .fill(.clear)
+            .contentShape(Rectangle())
+            .gesture(
+                DragGesture(minimumDistance: 0)
+                    .onChanged { seek(at: $0.location.x, in: width) }
+            )
+            .accessibilityRepresentation {
+                Slider(value: timelineValue, in: 0...max(0.001, duration)) {
+                    Text("Video timeline")
+                }
+                .accessibilityValue("\(preciseTimecode(playback.time)) of \(preciseTimecode(duration))")
+                .accessibilityHint("Adjust to seek through the video")
+            }
+    }
+
+    private func thumbnailTrack(width: CGFloat) -> some View {
+        let thumbnailCount = max(1, project.thumbnails.count)
+        let thumbnailWidth = max(1, (width - CGFloat(thumbnailCount - 1) * 2) / CGFloat(thumbnailCount))
+
+        return ZStack {
+            RoundedRectangle(cornerRadius: 5).fill(.quaternary)
+            if project.thumbnails.isEmpty {
+                Text("No thumbnails")
+                    .font(.caption2)
+                    .foregroundStyle(.secondary)
+            }
+            HStack(spacing: 2) {
+                ForEach(project.thumbnails, id: \.self) { path in
+                    if let url = project.url(path), let image = NSImage(contentsOf: url) {
+                        Image(nsImage: image)
+                            .resizable()
+                            .scaledToFill()
+                            .frame(width: thumbnailWidth, height: thumbnailHeight)
+                            .clipped()
+                            .accessibilityHidden(true)
+                    }
+                }
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
+            seekSurface(width: width)
+        }
+        .frame(width: width, height: thumbnailHeight)
+        .clipShape(.rect(cornerRadius: 5))
+    }
+
+    private func segmentTrack(
+        _ segments: [Segment],
+        title: String,
+        color: Color,
+        width: CGFloat
+    ) -> some View {
+        ZStack(alignment: .leading) {
+            RoundedRectangle(cornerRadius: 4).fill(.quaternary)
+            if segments.isEmpty {
+                Text("No \(title.lowercased()) segments")
+                    .font(.caption2)
+                    .foregroundStyle(.secondary)
+                    .frame(maxWidth: .infinity)
+            }
+            ForEach(segments) { segment in
+                let start = min(max(0, segment.start), max(0, duration))
+                let end = min(max(start, segment.end), max(0, duration))
+                Button { playback.seek(start) } label: {
+                    RoundedRectangle(cornerRadius: 3)
+                        .fill(color)
+                        .overlay {
+                            Text(segment.text)
+                                .font(.caption2)
+                                .lineLimit(1)
+                                .foregroundStyle(.white)
+                                .padding(.horizontal, 4)
+                        }
+                }
+                .buttonStyle(.plain)
+                .frame(width: max(4, width * (end - start) / max(1, duration)))
+                .offset(x: width * start / max(1, duration))
+                .accessibilityLabel("\(title) at \(timecode(start)): \(segment.text)")
+                .accessibilityHint("Activate to seek to this segment")
+            }
+        }
+        .frame(width: width, height: segmentHeight)
+        .clipShape(.rect(cornerRadius: 4))
+    }
+
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
             HStack {
@@ -1441,61 +1551,33 @@ struct TimelineView: View {
                     .accessibilityLabel("Current time \(preciseTimecode(playback.time)), duration \(preciseTimecode(duration))")
             }
             GeometryReader { geometry in
-                let timelineWidth = geometry.size.width
+                let timelineWidth = max(1, geometry.size.width - trackLabelWidth - trackSpacing)
                 let progress = duration > 0 ? min(max(0, playback.time / duration), 1) : 0
-                let thumbnailCount = max(1, project.thumbnails.count)
-                let thumbnailWidth = max(1, (timelineWidth - CGFloat(thumbnailCount - 1) * 2) / CGFloat(thumbnailCount))
 
-                ZStack(alignment: .leading) {
-                    VStack(spacing: 4) {
-                        ZStack {
-                            RoundedRectangle(cornerRadius: 5).fill(.quaternary)
-                            HStack(spacing: 2) {
-                                ForEach(project.thumbnails, id: \.self) { path in
-                                    if let url = project.url(path), let image = NSImage(contentsOf: url) {
-                                        Image(nsImage: image)
-                                            .resizable()
-                                            .scaledToFill()
-                                            .frame(width: thumbnailWidth, height: 42)
-                                            .clipped()
-                                            .accessibilityHidden(true)
-                                    }
-                                }
-                            }
-                            .frame(maxWidth: .infinity, alignment: .leading)
-                            Rectangle()
-                                .fill(.clear)
-                                .contentShape(Rectangle())
-                                .gesture(
-                                    DragGesture(minimumDistance: 0)
-                                        .onChanged { seek(at: $0.location.x, in: timelineWidth) }
-                                )
-                                .accessibilityRepresentation {
-                                    Slider(value: timelineValue, in: 0...max(0.001, duration)) {
-                                        Text("Video timeline")
-                                    }
-                                    .accessibilityValue("\(preciseTimecode(playback.time)) of \(preciseTimecode(duration))")
-                                    .accessibilityHint("Adjust to seek through the video")
-                                }
+                ZStack(alignment: .topLeading) {
+                    VStack(spacing: rowSpacing) {
+                        HStack(spacing: trackSpacing) {
+                            trackLabel("Thumbnails", systemImage: "photo.on.rectangle", height: thumbnailHeight)
+                            thumbnailTrack(width: timelineWidth)
                         }
-                        .frame(height: 42)
-                        .clipShape(.rect(cornerRadius: 5))
-
-                        ZStack(alignment: .leading) {
-                            RoundedRectangle(cornerRadius: 4).fill(.quaternary)
-                            ForEach(project.cues) { cue in
-                                Button { playback.seek(cue.start) } label: {
-                                    RoundedRectangle(cornerRadius: 3).fill(.tint).overlay {
-                                        Text(cue.text).font(.caption2).lineLimit(1).foregroundStyle(.white).padding(.horizontal, 4)
-                                    }
-                                }
-                                .buttonStyle(.plain)
-                                .frame(width: max(4, timelineWidth * (cue.end - cue.start) / max(1, duration)))
-                                .offset(x: timelineWidth * cue.start / max(1, duration))
-                                .accessibilityLabel("Description at \(timecode(cue.start)): \(cue.text)")
-                            }
+                        HStack(spacing: trackSpacing) {
+                            trackLabel("Transcript", systemImage: "text.bubble", height: segmentHeight)
+                            segmentTrack(
+                                project.transcript,
+                                title: "Transcript",
+                                color: .blue,
+                                width: timelineWidth
+                            )
                         }
-                        .frame(height: 26)
+                        HStack(spacing: trackSpacing) {
+                            trackLabel("Audio Description", systemImage: "text.below.photo", height: segmentHeight)
+                            segmentTrack(
+                                project.cues,
+                                title: "Audio description",
+                                color: .accentColor,
+                                width: timelineWidth
+                            )
+                        }
                     }
 
                     VStack(spacing: 0) {
@@ -1503,14 +1585,17 @@ struct TimelineView: View {
                             .overlay { Circle().stroke(.tint, lineWidth: 2) }
                         Rectangle().fill(.tint).frame(width: 2)
                     }
-                    .frame(width: 10, height: 72)
-                    .position(x: min(max(5, timelineWidth * progress), max(5, timelineWidth - 5)), y: 36)
+                    .frame(width: 10, height: tracksHeight)
+                    .position(
+                        x: trackLabelWidth + trackSpacing + min(max(5, timelineWidth * progress), max(5, timelineWidth - 5)),
+                        y: tracksHeight / 2
+                    )
                     .shadow(color: .black.opacity(0.65), radius: 1)
                     .allowsHitTesting(false)
                     .accessibilityHidden(true)
                 }
             }
-            .frame(height: 72)
+            .frame(height: tracksHeight)
         }.padding(12)
     }
 }

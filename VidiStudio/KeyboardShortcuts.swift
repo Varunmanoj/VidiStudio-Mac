@@ -4,6 +4,7 @@ import AppKit
 @MainActor @Observable
 final class EditorShortcutActions {
     var previewHidden = false
+    var timelineVisible = true
     var available = false
     var activeSection = "transcript"
     var captionDisplayMode = "off"
@@ -206,6 +207,10 @@ struct StudioCommands: Commands {
             }
             .keyboardShortcut("v", modifiers: [.command, .shift])
             .disabled(editor?.canRun("preview") != true)
+            Button(editor?.timelineVisible == false ? "Show Timeline" : "Hide Timeline", systemImage: "film") {
+                editor?.run("toggle-timeline")
+            }
+            .disabled(editor?.canRun("toggle-timeline") != true)
             Divider()
             Button(browser?.showProjects?.wrappedValue == true ? "Hide Project List" : "Show Project List", systemImage: "sidebar.left") { browser?.showProjects?.wrappedValue.toggle() }
                 .keyboardShortcut("b", modifiers: .command).disabled(browser?.showProjects == nil)
@@ -344,12 +349,13 @@ struct ShortcutReferenceView: View {
         VStack(alignment: .leading, spacing: 14) {
             Text("Keyboard Shortcuts").font(.title2).accessibilityAddTraits(.isHeader)
             Text("These shortcuts apply to the native macOS app. Editor commands are available with a project open and no editing sheet or processing operation active.")
-            Text("The File menu contains Export with Video, Audio, and Text submenus. Playback contains Transcript Overlay controls while Transcript, Descriptions, or AD Transcript is open. Project > Analysis contains non-AI metadata and thumbnail preparation, Analyze Video, and the individual Transcript, Summary, and Audio Description stages. The inspector stays specific to its open section. Existing content is regenerated only after confirmation.")
+            Text("The File menu contains Export with Video, Audio, and Text submenus. View can show or hide the preview and the complete timeline. Playback contains Transcript Overlay controls while Transcript, Descriptions, or AD Transcript is open. Project > Analysis contains non-AI metadata and thumbnail preparation, Analyze Video, and the individual Transcript, Summary, and Audio Description stages. The inspector stays specific to its open section. Existing content is regenerated only after confirmation.")
             shortcutRow("New Project", value: "Command + N")
             shortcutRow("Open Project Folder", value: "Command + Shift + O")
             shortcutRow("Rename Selected Project", value: "Return; All Projects")
             shortcutRow("Settings", value: "Command + Comma")
             shortcutRow("Show or Hide Inspector", value: "Command + Shift + B; requires a selected project")
+            shortcutRow("Show or Hide Timeline", value: "View menu; project editor")
             shortcutRow("Project List View", value: "Command + Option + 1")
             shortcutRow("Project Grid View", value: "Command + Option + 2")
             shortcutRow("VidiStudio Help", value: "Command + Option + Slash")
