@@ -1,5 +1,11 @@
 # Build and validation — 8 September 2026
 
+## 2026-09-14 — Public version only in About — version 1.0.3 (build 4)
+
+The standard About VidiStudio panel now displays only the human-friendly marketing version. The internal build number remains in the application bundle for release identification but is suppressed from the About panel. Following the repository version policy, Debug and Release now use `MARKETING_VERSION` 1.0.3 and `CURRENT_PROJECT_VERSION` 4.
+
+Validation: `git diff --check` passed. `VIDISTUDIO_CONFIGURATION=Release ./script/build_and_run.sh --verify` succeeded, passed packaged registration plus all 13 Help pages, topic anchors, links, stylesheet, and nonempty search-index checks, and launched process 26862. The built Release Info.plist reports marketing version 1.0.3 and internal build 4. Live inspection of the About panel remains unverified because the computer-use service timed out and the launched app was then blocked by a macOS Documents-folder permission alert; that user privacy choice was left untouched. No engine tests were run because this change affects only AppKit About-panel presentation and bundle version metadata.
+
 ## 2026-09-14 — Smooth native interface transitions — version 1.0.2 (build 3)
 
 Added a consistent 0.22-second smooth transition policy to interface regions that expand, collapse, appear, or disappear. The right project inspector now slides and fades while the editor width adjusts; preview and full timeline visibility changes animate their layout; Help and Developer Prompt disclosure groups animate expansion; and Settings and Export content receive a subtle fade, scale, and vertical entrance layered onto their native macOS window or sheet presentation. Project editor windows receive the same content entrance when opened from All Projects, while Back to All Projects performs a brief 0.18-second exit before dismissal. The standard red close button retains macOS's own window animation. All added movement is disabled when Reduce Motion is enabled.

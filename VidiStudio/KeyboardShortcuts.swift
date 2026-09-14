@@ -224,7 +224,10 @@ struct StudioCommands: Commands {
         }
         CommandGroup(replacing: .appInfo) {
             Button("About VidiStudio", systemImage: "info.circle") {
-                NSApplication.shared.orderFrontStandardAboutPanel(nil)
+                NSApplication.shared.orderFrontStandardAboutPanel(options: [
+                    .applicationVersion: AppVersionInfo.version,
+                    .version: ""
+                ])
             }
         }
         CommandGroup(replacing: .textEditing) { }
