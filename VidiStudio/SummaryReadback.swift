@@ -355,7 +355,11 @@ final class SummaryReadbackModel: NSObject, @preconcurrency AVSpeechSynthesizerD
             speakingUtterance = utterance
             synthesizer.speak(utterance)
         } catch {
-            self.error = error.localizedDescription
+            self.error = UserFacingIssueReporter.message(
+                for: error,
+                issue: .speech,
+                context: "Read selected summary text"
+            )
             oneShotActive = false
             isReading = false
             isPaused = false
@@ -516,7 +520,11 @@ final class SummaryReadbackModel: NSObject, @preconcurrency AVSpeechSynthesizerD
             speakingUtterance = utterance
             synthesizer.speak(utterance)
         } catch {
-            self.error = error.localizedDescription
+            self.error = UserFacingIssueReporter.message(
+                for: error,
+                issue: .speech,
+                context: "Read summary"
+            )
             isReading = false
             isPaused = false
             currentIndex = nil
@@ -555,7 +563,11 @@ final class SummaryReadbackModel: NSObject, @preconcurrency AVSpeechSynthesizerD
             speakingUtterance = utterance
             synthesizer.speak(utterance)
         } catch {
-            self.error = error.localizedDescription
+            self.error = UserFacingIssueReporter.message(
+                for: error,
+                issue: .speech,
+                context: "Continue summary reading"
+            )
             isReading = false
             isPaused = false
             currentIndex = nil

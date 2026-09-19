@@ -121,10 +121,17 @@ final class ShareViewController: NSViewController {
     }
 
     private func showError(_ error: Error) {
+        let message: String
+        if let shareError = error as? ShareExtensionError {
+            message = shareError.errorDescription ?? "VidiStudio could not receive this item. Open VidiStudio and try sharing again."
+        } else {
+            NSLog("VidiStudio Share internal error: %@", error.localizedDescription)
+            message = "VidiStudio could not receive this item. Open VidiStudio and try sharing again."
+        }
         progressIndicator.stopAnimation(nil)
         progressIndicator.isHidden = true
-        statusLabel.stringValue = error.localizedDescription
-        statusLabel.setAccessibilityLabel(error.localizedDescription)
+        statusLabel.stringValue = message
+        statusLabel.setAccessibilityLabel(message)
 
         let closeButton = NSButton(title: "Close", target: self, action: #selector(closeExtension))
         closeButton.bezelStyle = .rounded
@@ -136,7 +143,7 @@ final class ShareViewController: NSViewController {
             closeButton.topAnchor.constraint(equalTo: statusLabel.bottomAnchor, constant: 16),
         ])
         NSAccessibility.post(element: statusLabel, notification: .announcementRequested, userInfo: [
-            .announcement: error.localizedDescription,
+            .announcement: message,
             .priority: NSAccessibilityPriorityLevel.high.rawValue,
         ])
     }
@@ -157,7 +164,7 @@ private enum ShareExtensionError: LocalizedError {
     var errorDescription: String? {
         switch self {
         case .unavailableContext:
-            return "The macOS sharing context is unavailable. Please try again."
+            return "VidiStudio could not receive the shared item. Close the Share window and try again."
         case .unsupportedItem:
             return "Share one local video file or a YouTube video page with VidiStudio."
         case .notYouTube:
@@ -166,9 +173,9 @@ private enum ShareExtensionError: LocalizedError {
             return "The VidiStudio app could not be located. Reinstall VidiStudio, then try sharing again."
         case .couldNotOpenVidiStudio(let detail):
             if let detail, !detail.isEmpty {
-                return "macOS could not open VidiStudio. \(detail)"
+                NSLog("VidiStudio Share could not open the app: %@", detail)
             }
-            return "macOS could not open VidiStudio. Please try sharing again."
+            return "VidiStudio could not open. Open the app from Applications, then try sharing again."
         case .cancelled:
             return "Sharing to VidiStudio was cancelled."
         }

@@ -20,7 +20,10 @@ import Combine
         let key = cacheKey(settings, text)
         if let file = cache[key] { playFile(file); return }
         guard !settings.apiKey.isEmpty else { error = "Enter your Gemini API key in Settings → Gemini API to preview this voice."; return }
-        guard let engine = Bundle.main.resourceURL?.appendingPathComponent("Engine/vidistudio-engine") else { error = "The bundled engine is missing."; return }
+        guard let engine = Bundle.main.resourceURL?.appendingPathComponent("Engine/vidistudio-engine") else {
+            error = "A required part of VidiStudio is unavailable. Reinstall the application, then try again."
+            return
+        }
         let id = requestID
         let directory = FileManager.default.temporaryDirectory.appendingPathComponent("vidistudio-preview-\(UUID().uuidString)")
         let config = directory.appendingPathComponent("config.json"), file = directory.appendingPathComponent("sample.wav")
@@ -45,13 +48,20 @@ import Combine
                 try? FileManager.default.removeItem(at: config)
                 guard requestID == id else { try? FileManager.default.removeItem(at: directory); return }
                 loading = false; process = nil
-                if let failure { self.error = failure }
+                if let failure {
+                    self.error = UserFacingIssue.forEngine(command: "preview-tts", technicalDetails: failure).message
+                    UserFacingIssueReporter.record(failure, context: "Create Gemini voice sample")
+                }
                 else if FileManager.default.fileExists(atPath: file.path) { cache[key] = file; playFile(file) }
-                else { self.error = "No voice sample was generated. Check your API key, TTS model and voice." }
+                else { self.error = "No voice sample was created. Check your Gemini and voice settings, then try again." }
             }
         } catch {
             try? FileManager.default.removeItem(at: directory)
-            self.error = "Could not start the voice preview: " + error.localizedDescription
+            self.error = UserFacingIssueReporter.message(
+                for: error,
+                issue: .voicePreview,
+                context: "Start Gemini voice sample"
+            )
         }
     }
     private func playFile(_ file: URL) {

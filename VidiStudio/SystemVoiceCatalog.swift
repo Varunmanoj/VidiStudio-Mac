@@ -93,7 +93,13 @@ enum SystemSpeechVoiceResolver {
         do {
             sampleSynthesizer.speak(try SystemSpeechUtterance.make(text: voice.sample, settings: settings, voiceName: voice.name))
             error = nil
-        } catch { self.error = error.localizedDescription }
+        } catch {
+            self.error = UserFacingIssueReporter.message(
+                for: error,
+                issue: .speech,
+                context: "Preview Apple voice"
+            )
+        }
     }
     func stop() {
         sampleSynthesizer.stopSpeaking(at: .immediate)

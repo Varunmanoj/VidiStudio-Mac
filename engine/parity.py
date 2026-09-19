@@ -7,6 +7,19 @@ import gemini_adapter
 import ssl
 import certifi
 COMMANDS=['import-youtube','prepare-video','validate-config','analyze','regenerate-all','capture-frame','rewrite-cue','export-subtitles','export-audio','rename-project','undo-cues','redo-cues','update-metadata','attach-video','delete-export']
+MULTILINGUAL_MEDIA_PROMPT_KEYS={
+    'transcript','youtube_transcript','summary','audio_descriptions','screen_text','youtube_screen_text'
+}
+
+def media_prompt_pair(cfg,key):
+    """Add the shared multilingual guidance without changing task prompt defaults."""
+    pair=dict(cfg['prompts'][key])
+    if key not in MULTILINGUAL_MEDIA_PROMPT_KEYS:return pair
+    shared=cfg.get('prompts',{}).get('multilingual_media',{}) or {}
+    for field in ('system_instruction','user_prompt'):
+        values=[str(value).strip() for value in (pair.get(field,''),shared.get(field,'')) if str(value).strip()]
+        pair[field]='\n\n'.join(values)
+    return pair
 
 def youtube_url(raw):
     parsed=urlparse(raw)
@@ -46,7 +59,7 @@ def prepare_video(root,p,e):
     """Refresh technical metadata and thumbnails without invoking an AI model."""
     if p.get('sourceType') == 'youtube':
         url=youtube_url(p.get('youtubeURL',''));ident=url.split('=')[-1]
-        e.emit('Refreshing YouTube video metadata',progress=.2)
+        e.emit('Refreshing YouTube video details',progress=.2)
         title=''
         try:
             with urlopen('https://www.youtube.com/oembed?format=json&url='+url,timeout=10,context=ssl.create_default_context(cafile=certifi.where())) as r:
@@ -56,11 +69,11 @@ def prepare_video(root,p,e):
         if title and p.get('name') in placeholders:p['name']=title[:200]
         thumbnail=download_youtube_thumbnail(root,ident)
         if thumbnail:p['thumbnails']=[thumbnail]
-        e.emit('YouTube metadata and thumbnail refreshed',progress=1)
+        e.emit('YouTube details and picture refreshed',progress=1)
         return
     if not p.get('source'):raise ValueError('This project has no local video source.')
     source=e.local(root,p['source']);e.ensure_supported_local_video(source)
-    e.emit('Reading video metadata',progress=.1)
+    e.emit('Reading video details',progress=.1)
     info=e.probe(source);streams=info['streams'];video=next((s for s in streams if s.get('codec_type')=='video'),None)
     if not video:raise ValueError('The selected file has no video stream.')
     duration=float(info['format'].get('duration',video.get('duration',0)))
@@ -133,7 +146,7 @@ def execute(args,root,p,e):
             available=list(client.models.list()); names={m.name.removeprefix('models/') for m in available}
             missing=[v for v in e.config()['models'].values() if v not in names]
             if missing: raise ValueError('Models unavailable for this key: '+', '.join(sorted(set(missing))))
-            e.emit('API key and configured models are available.')
+            e.emit('Gemini settings are ready.')
         finally:client.close()
         return
     if command=='import-youtube':
@@ -206,7 +219,7 @@ def execute(args,root,p,e):
         finally:client.close()
     elif command=='capture-frame':
         args.timestamp=frame_timestamp(args.timestamp,p['duration'])
-        cfg=e.config();youtube=p.get('sourceType')=='youtube' and not p.get('source');key='youtube_screen_text' if youtube else 'screen_text';pair=cfg['prompts'][key]
+        cfg=e.config();youtube=p.get('sourceType')=='youtube' and not p.get('source');key='youtube_screen_text' if youtube else 'screen_text';pair=media_prompt_pair(cfg,key)
         client,model=e.client_and_model('screen_text')
         try:
             prompt=render(pair['user_prompt'],p,timestamp_seconds=args.timestamp,timestamp_timestamp=clock(args.timestamp))

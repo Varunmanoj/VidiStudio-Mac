@@ -25,7 +25,7 @@ def ready_file(client,path,emit=lambda *_:None):
     try:
         while str(value(value(f,'state'),'name',value(f,'state'))).upper()=='PROCESSING':
             if time.monotonic()>deadline: raise TimeoutError('Gemini file preparation timed out.')
-            emit('Preparing media in Gemini'); time.sleep(2); f=client.files.get(name=f.name)
+            emit('Preparing the video for analysis'); time.sleep(2); f=client.files.get(name=f.name)
         if str(value(value(f,'state'),'name',value(f,'state'))).upper()!='ACTIVE': raise ValueError('Gemini rejected this media file.')
         return f
     except BaseException:
@@ -61,11 +61,11 @@ def speech_segments(result, offset=0):
 def transcribe_audio(client,model,path,offset=0,emit=lambda *_:None):
     f=ready_file(client,path,emit)
     try:
-        result=client.interactions.create(model=model,input=[{'type':'audio','uri':f.uri,'mime_type':f.mime_type}],generation_config={'transcription_config':{'mode':{'type':'verbatim','timestamp_granularities':['word'],'diarization_mode':'speaker'}}})
+        result=client.interactions.create(model=model,input=[{'type':'audio','uri':f.uri,'mime_type':f.mime_type}],generation_config={'transcription_config':{'language_codes':[],'mode':{'type':'verbatim','timestamp_granularities':['word'],'diarization_mode':'speaker'}}})
         return speech_segments(result,offset)
     finally:
         try: client.files.delete(name=f.name)
-        except Exception: emit('Temporary speech upload cleanup will rely on remote expiry.')
+        except Exception: emit('Finishing narration preparation')
 
 def video_interaction(client,model,uri,mime,prompt,system='',schema=None,processing='agentic'):
     media={'type':'video','uri':uri}

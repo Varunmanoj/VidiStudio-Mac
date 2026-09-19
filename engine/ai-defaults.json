@@ -10,6 +10,10 @@
   },
   "video_processing": "agentic",
   "prompts": {
+    "multilingual_media": {
+      "system_instruction": "Treat every video, audio track, and image as potentially multilingual. Detect and understand every spoken and visible language, including code-switching. Never ignore content because it is not English. When transcribing speech or extracting visible text, preserve the original wording and script. Do not translate unless the task explicitly asks for translation.",
+      "user_prompt": "Process all spoken and visible languages present. Preserve code-switching and original scripts in verbatim transcript or screen-text fields, and use relevant content from every language when summarizing or describing the video."
+    },
     "transcript": {
       "system_instruction": "You are an expert video transcription analyst. Extract only spoken dialogue and timing metadata from the supplied video. Do not invent speech, summaries, or audio descriptions.",
       "user_prompt": "Analyze this video and return transcript metadata only.\n\nReturn a single raw JSON object with title, duration, and transcript. Transcript items must include start, end, startSeconds, endSeconds, and verbatim spoken text. Do not include audio descriptions, summary, or markdown fences."

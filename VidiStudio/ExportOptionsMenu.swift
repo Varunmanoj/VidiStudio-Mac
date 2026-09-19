@@ -367,11 +367,11 @@ struct ExportDialog: View {
                                     .foregroundStyle(.secondary)
                             }
                             if videoTranscript.rendersIntoVideo {
-                                Label("Open captions must be rendered into the picture. VidiStudio keeps the source resolution, 10-bit depth and HDR color signaling when present, using a high-quality source-aware encode. Choose closed captions to copy the original video stream without re-encoding.", systemImage: "info.circle")
+                                Label("Open captions become a permanent part of the picture. VidiStudio keeps the same picture size and preserves HDR where possible, but creating a new video can slightly change quality. Choose closed captions to keep the original picture unchanged.", systemImage: "info.circle")
                                     .font(.caption)
                                     .foregroundStyle(.secondary)
                             } else if !(videoAudio == .original && videoTranscript == .none) {
-                                Label("The original video stream is copied without re-encoding, preserving its resolution, codec, bit depth and HDR color signaling.", systemImage: "checkmark.circle")
+                                Label("The original picture is kept unchanged. VidiStudio only adds your selected audio and captions.", systemImage: "checkmark.circle")
                                     .font(.caption)
                                     .foregroundStyle(.secondary)
                             }
@@ -444,7 +444,7 @@ struct ExportDialog: View {
             }
         }
         .alert(
-            "Open Captions Require Video Re-Encoding",
+            "Open Captions May Change Video Quality",
             isPresented: Binding(
                 get: { openCaptionAction != nil },
                 set: { if !$0 { openCaptionAction = nil } }
@@ -464,8 +464,7 @@ struct ExportDialog: View {
                 continueSaving(action)
             }
         } message: { _ in
-            let source = ProjectVideoInformation(project: project)
-            Text("Open captions change the picture, so FFmpeg must re-encode the video. The source is \(source.resolution), \(source.videoCodec), with \(source.color). VidiStudio will keep the source resolution, bit depth, and HDR base color signaling, but re-encoding can change compression quality and Dolby Vision dynamic metadata cannot be preserved after pixels change. Prefer closed captions to copy the original video stream without re-encoding.")
+            Text("Open captions become a permanent part of the picture, so VidiStudio must create a new copy of the video. It keeps the same picture size and preserves HDR where possible, but some original quality or iPhone Dolby Vision information may change. For the closest match to the original, use closed captions instead.")
         }
         .alert(
             "Replace Existing Export?",

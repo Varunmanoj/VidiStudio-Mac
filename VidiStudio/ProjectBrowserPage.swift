@@ -8,10 +8,10 @@ struct ProjectAnalysisMenu: View {
 
     var body: some View {
         Menu("Analysis", systemImage: "sparkles") {
-            Button(project.thumbnails.isEmpty ? "Generate Metadata & Thumbnails" : "Regenerate Metadata & Thumbnails…", systemImage: "photo.on.rectangle.angled") {
+            Button(project.thumbnails.isEmpty ? "Generate Video Details & Timeline Pictures" : "Regenerate Video Details & Timeline Pictures…", systemImage: "photo.on.rectangle.angled") {
                 perform("prepare-video")
             }
-            .help("Refresh video metadata and thumbnails without using AI")
+            .help("Refresh video details and timeline pictures without using AI")
             Divider()
             Button("Analyze Video…", systemImage: "sparkles") { perform("analyze") }
                 .help("Generate the transcript, summary, and Audio Descriptions in sequence")

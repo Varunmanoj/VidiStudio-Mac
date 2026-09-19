@@ -196,8 +196,8 @@ struct ExportMediaInformation: Codable, Hashable {
 
     var videoProcessingDescription: String {
         switch videoProcessing {
-        case "copied": return "Original stream copied — no re-encoding"
-        case "renderedOpenCaptions": return "Re-encoded to render open captions"
+        case "copied": return "Original picture kept unchanged"
+        case "renderedOpenCaptions": return "New video created to add open captions"
         default: return "Not available"
         }
     }
@@ -672,7 +672,7 @@ final class OpenProjectRegistry {
 
 @MainActor @Observable
 final class StudioModel {
-    static let defaultErrorTitle = "VidiStudio needs attention"
+    static let defaultErrorTitle = "VidiStudio Couldn’t Finish"
     var projects: [StudioProject] = []
     var selectedID: String? { didSet { UserDefaults.standard.set(selectedID, forKey: "lastProjectID") } }
     var settings = StudioSettings() {
@@ -685,6 +685,7 @@ final class StudioModel {
     @ObservationIgnored private var applyingExternalSettings = false
     var settingsSection = "Appearance"
     var busy = false
+    var processingSection: String?
     var message = "All files stay in your local project folders."
     var progress = 0.0
     var error: String?
@@ -703,6 +704,15 @@ final class StudioModel {
         errorTitle = StudioModel.defaultErrorTitle
     }
 
+    func present(_ issue: UserFacingIssue, technicalDetails: String? = nil, context: String = "VidiStudio") {
+        errorTitle = issue.title
+        error = issue.message
+        guard let technicalDetails, !technicalDetails.isEmpty else { return }
+        UserFacingIssueReporter.record(technicalDetails, context: context)
+        logs.append("\(context): \(technicalDetails)")
+        if logs.count > 200 { logs.removeFirst(logs.count - 200) }
+    }
+
     init() {
         var merged = (try? JSONSerialization.jsonObject(with: JSONEncoder().encode(settings))) as? [String: Any] ?? [:]
         var hasSavedCaptionDisplayMode = false
@@ -712,7 +722,22 @@ final class StudioModel {
         }
         if let data = try? Data(contentsOf: StudioSettings.url), let saved = try? JSONSerialization.jsonObject(with: data) as? [String: Any] {
             hasSavedCaptionDisplayMode = saved["captionDisplayMode"] is String
-            for (key, value) in saved { merged[key] = value }
+            if let savedModels = saved["models"] as? [String: Any] {
+                var models = merged["models"] as? [String: Any] ?? [:]
+                for (key, value) in savedModels { models[key] = value }
+                merged["models"] = models
+            }
+            if let savedPrompts = saved["prompts"] as? [String: Any] {
+                var prompts = merged["prompts"] as? [String: Any] ?? [:]
+                for (stage, value) in savedPrompts {
+                    guard let overrides = value as? [String: Any] else { continue }
+                    var pair = prompts[stage] as? [String: Any] ?? [:]
+                    for (key, prompt) in overrides { pair[key] = prompt }
+                    prompts[stage] = pair
+                }
+                merged["prompts"] = prompts
+            }
+            for (key, value) in saved where key != "models" && key != "prompts" { merged[key] = value }
         }
         if let data = try? JSONSerialization.data(withJSONObject: merged), let decoded = try? JSONDecoder().decode(StudioSettings.self, from: data) { settings = decoded }
         var migratedLibrary = false
@@ -751,7 +776,9 @@ final class StudioModel {
                 object: self,
                 userInfo: ["settings": settings]
             )
-        } catch { self.error = error.localizedDescription }
+        } catch {
+            present(.settingsSave, technicalDetails: error.localizedDescription, context: "Save settings")
+        }
     }
     func reload() {
         let root = URL(fileURLWithPath: settings.libraryPath)
@@ -797,14 +824,14 @@ final class StudioModel {
     func validateLocalVideoForCreation(_ url: URL) -> Bool {
         guard LocalVideoFilePolicy.isSupportedVideo(url) else {
             errorTitle = "Unsupported Video File"
-            error = "VidiStudio can create shared projects from local video files. Choose a movie such as MP4, MOV, or another macOS-recognized video format."
+            error = "Choose a video that plays on this Mac, such as an MP4 or MOV file."
             return false
         }
         do {
             let size = try LocalVideoFilePolicy.size(at: url)
             guard size <= LocalVideoFilePolicy.maximumSizeBytes else {
                 errorTitle = "Video File Too Large"
-                error = "\(url.lastPathComponent) is \(LocalVideoFilePolicy.displaySize(size)). VidiStudio supports local video files up to 2 GB because larger files cannot be uploaded through the Gemini Files API. Choose a smaller video or create a YouTube project instead."
+                error = "\(url.lastPathComponent) is \(LocalVideoFilePolicy.displaySize(size)). VidiStudio currently accepts video files up to 2 GB. Choose a smaller copy, or use a YouTube link when the video is available online."
                 return false
             }
             return true
@@ -896,9 +923,8 @@ final class StudioModel {
             execute("doctor", configurationURL: configuration, cleanupURL: directory)
         } catch {
             try? FileManager.default.removeItem(at: directory)
-            let message = "Could not check the engine: \(error.localizedDescription)"
-            engineCheckStatus = .failed(message)
-            self.error = message
+            present(.engineCheck, technicalDetails: error.localizedDescription, context: "Check media tools")
+            engineCheckStatus = .failed(UserFacingIssue.engineCheck.message)
         }
     }
     private func chooseMediaTool(named name: String, currentPath: String, assign: (String) -> Void) {
@@ -917,7 +943,8 @@ final class StudioModel {
         }
         if panel.runModal() == .OK, let url = panel.url {
             guard FileManager.default.isExecutableFile(atPath: url.path) else {
-                error = "Choose an executable \(name) file."
+                errorTitle = "Choose a Different File"
+                error = "The selected item cannot be used. Choose the \(name) application or leave this setting empty to use VidiStudio’s included copy."
                 return
             }
             assign(url.standardizedFileURL.path)
@@ -926,7 +953,9 @@ final class StudioModel {
     func trashProject(_ project: StudioProject) {
         guard !busy, let folder = project.folder else { return }
         do { try FileManager.default.trashItem(at: folder, resultingItemURL: nil); reload() }
-        catch { self.error = error.localizedDescription }
+        catch {
+            present(.projectDelete, technicalDetails: error.localizedDescription, context: "Move project to Bin")
+        }
     }
     func confirmTrashProject(_ project: StudioProject) {
         guard !busy, project.folder != nil else { return }
@@ -1081,7 +1110,9 @@ final class StudioModel {
                 recent.removeAll { $0 == folder.path }; recent.insert(folder.path, at: 0)
                 UserDefaults.standard.set(Array(recent.prefix(50)), forKey: "recentProjectFolders")
                 projects.removeAll { $0.id == p.id }; projects.insert(p, at: 0); selectedID = p.id
-            } catch { self.error = "Could not open this project: \(error.localizedDescription)" }
+            } catch {
+                present(.projectOpen, technicalDetails: error.localizedDescription, context: "Open project")
+            }
         }
     }
     func loadGeminiModels() {
@@ -1101,7 +1132,8 @@ final class StudioModel {
             execute("list-models", configurationURL: configuration, cleanupURL: directory)
         } catch {
             try? FileManager.default.removeItem(at: directory)
-            self.error = "Could not load available Gemini models: \(error.localizedDescription)"
+            let issue = UserFacingIssue.forEngine(command: "list-models", technicalDetails: error.localizedDescription)
+            present(issue, technicalDetails: error.localizedDescription, context: "Load Gemini models")
         }
     }
     func geminiModels(for stage: String) -> [GeminiModelOption] {
@@ -1148,7 +1180,7 @@ final class StudioModel {
                 current = try JSONDecoder().decode(StudioProject.self, from: Data(contentsOf: folder.appendingPathComponent("project.json")))
                 current.folder = folder
             } catch {
-                self.error = "Could not check existing project content: \(error.localizedDescription)"
+                present(.projectRead, technicalDetails: error.localizedDescription, context: "Check existing project content")
                 return false
             }
         }
@@ -1194,7 +1226,7 @@ final class StudioModel {
             current = try JSONDecoder().decode(StudioProject.self, from: Data(contentsOf: folder.appendingPathComponent("project.json")))
             current.folder = folder
         } catch {
-            self.error = "Could not check narration before export: \(error.localizedDescription)"
+            present(.exportPreparation, technicalDetails: error.localizedDescription, context: "Prepare export")
             return nil
         }
         let missing = current.cues.filter {
@@ -1227,21 +1259,24 @@ final class StudioModel {
         completion: ((StudioProject?) -> Void)? = nil
     ) {
         guard !busy else { return }
-        errorTitle = command == "capture-frame" ? "Read Frame Text Processing" : StudioModel.defaultErrorTitle
+        errorTitle = StudioModel.defaultErrorTitle
         if command == "doctor" {
             error = nil
             engineCheckStatus = .checking
         }
         let target = project ?? (["import-video", "import-youtube", "doctor", "validate-config", "list-models"].contains(command) ? nil : selected)
         if ["export-final-video", "export-selectable-video", "export-closed-audio-description-video", "export-open-audio-description-video", "export-closed-caption-video", "export-dual-closed-caption-video", "export-open-caption-video"].contains(command), let target, target.isYouTubeURLProject {
-            error = "Video export is unavailable for YouTube URL projects. You can export text and narration audio instead."
+            errorTitle = "Video Export Isn’t Available"
+            error = "This project uses a YouTube link, so VidiStudio does not have a local video to export. You can still export text and available narration audio."
             return
         }
         if ["export-original-audio", "export-described-audio"].contains(command), let target, target.isYouTubeURLProject {
-            error = "Original and final program-audio export require a local video file. You can export narration audio or text from this YouTube project."
+            errorTitle = "Audio Export Isn’t Available"
+            error = "This project uses a YouTube link, so its original soundtrack is not stored on this Mac. You can still export narration-only audio or text."
             return
         }
         if command == "generate-ad-cues", let target, !target.canGenerateDescriptions {
+            errorTitle = "More Project Content Is Needed"
             error = "Generate the transcript and summary before generating descriptions."
             return
         }
@@ -1256,17 +1291,21 @@ final class StudioModel {
             exportOptions = options
         }
         guard let engine = Bundle.main.resourceURL?.appendingPathComponent("Engine/vidistudio-engine"), FileManager.default.isExecutableFile(atPath: engine.path) else {
-            let message = "The bundled engine is missing. Reinstall VidiStudio and try again."
-            if command == "doctor" { engineCheckStatus = .failed(message) }
-            error = message
+            let issue = UserFacingIssue(
+                title: "VidiStudio Needs to Be Reinstalled",
+                message: "A required part of VidiStudio is unavailable. Reinstall the application, then try again."
+            )
+            if command == "doctor" { engineCheckStatus = .failed(issue.message) }
+            present(issue, context: "Missing bundled processing component")
             completion?(nil)
             return
         }
         busy = true
+        processingSection = Self.initialProcessingSection(for: command)
         var completedExportPath: String?
         var completedProjectPath: String?
         progress = 0
-        message = command == "capture-frame" ? "Processing text from the selected frame…" : command.replacingOccurrences(of: "-", with: " ").capitalized
+        message = UserFacingProgress.message(for: command)
         let task = Process(); task.executableURL = engine
         task.arguments = [command] + (target?.folder.map { ["--project", $0.path] } ?? []) + extra + exportOptions
         task.environment = ProcessInfo.processInfo.environment.merging(["VIDISTUDIO_CONFIG": (configurationURL ?? StudioSettings.url).path]) { _, new in new }
@@ -1278,15 +1317,28 @@ final class StudioModel {
         do { try task.run() } catch {
             stderr.fileHandleForReading.readabilityHandler = nil
             if let cleanupURL { try? FileManager.default.removeItem(at: cleanupURL) }
-            let message = error.localizedDescription
-            if command == "doctor" { engineCheckStatus = .failed(message) }
-            busy = false; process = nil; self.error = message; completion?(nil); return
+            let detail = error.localizedDescription
+            let issue = UserFacingIssue.forEngine(command: command, technicalDetails: detail)
+            if command == "doctor" { engineCheckStatus = .failed(issue.message) }
+            busy = false
+            processingSection = nil
+            process = nil
+            present(issue, technicalDetails: detail, context: "Start \(command)")
+            completion?(nil)
+            return
         }
         Task {
             do {
                 for try await line in output.fileHandleForReading.bytes.lines {
                     guard let data = line.data(using: .utf8), let event = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else { continue }
-                    if let text = event["message"] as? String { message = text; logs.append(text); if logs.count > 200 { logs.removeFirst() } }
+                    let eventMessage = event["message"] as? String
+                    let eventIsError = event["error"] as? Bool == true
+                    let eventIsWarning = event["warning"] as? Bool == true
+                    if let text = eventMessage {
+                        logs.append(text)
+                        if logs.count > 200 { logs.removeFirst() }
+                        if !eventIsError && !eventIsWarning { message = text }
+                    }
                     if let text = event["screenText"] as? String { screenText = text; screenTimestamp = event["timestamp"] as? Double ?? 0 }
                     if let rawModels = event["models"] as? [[String: Any]] {
                         availableGeminiModels = rawModels.compactMap(GeminiModelOption.init(dictionary:))
@@ -1294,10 +1346,15 @@ final class StudioModel {
                         chooseAvailableGeminiModels()
                     }
                     if let value = event["progress"] as? Double { progress = value }
+                    if let section = event["processingSection"] as? String {
+                        processingSection = section
+                    }
                     if let path = event["export"] as? String { completedExportPath = path }
-                    if event["error"] as? Bool == true {
-                        self.error = message
-                        if command == "doctor" { engineCheckStatus = .failed(message) }
+                    if eventIsError {
+                        let detail = eventMessage ?? "The operation stopped without further details."
+                        let issue = UserFacingIssue.forEngine(command: command, technicalDetails: detail)
+                        present(issue, technicalDetails: detail, context: "Run \(command)")
+                        if command == "doctor" { engineCheckStatus = .failed(issue.message) }
                     }
                     if let path = event["project"] as? String {
                         completedProjectPath = path
@@ -1305,7 +1362,14 @@ final class StudioModel {
                         if let p = projects.first(where: { $0.folder?.path == path }) { selectedID = p.id }
                     }
                 }
-            } catch { self.error = error.localizedDescription }
+            } catch {
+                let detail = error.localizedDescription
+                present(
+                    UserFacingIssue.forEngine(command: command, technicalDetails: detail),
+                    technicalDetails: detail,
+                    context: "Read \(command) result"
+                )
+            }
             task.waitUntilExit()
             stderr.fileHandleForReading.readabilityHandler = nil
             if let cleanupURL { try? FileManager.default.removeItem(at: cleanupURL) }
@@ -1319,23 +1383,34 @@ final class StudioModel {
                     try await AppleAccessibilityMetadataWriter().finalizeClosedDescriptionTrack(at: folder.appendingPathComponent(path))
                     message = "Closed Audio Description export complete"
                 } catch {
-                    self.error = "The two-track video was created, but macOS could not apply or verify its Audio Description metadata: \(error.localizedDescription)"
+                    present(.exportMetadata, technicalDetails: error.localizedDescription, context: "Finish export accessibility information")
                 }
             }
-            busy = false; process = nil; reload()
-            if task.terminationStatus != 0 && self.error == nil { self.error = "Processing stopped. Your previously completed results are saved." }
+            busy = false; processingSection = nil; process = nil; reload()
+            if task.terminationStatus != 0 && self.error == nil {
+                present(UserFacingIssue.forEngine(command: command, technicalDetails: nil), context: "\(command) stopped")
+            }
             if task.terminationStatus == 0 {
                 self.errorTitle = StudioModel.defaultErrorTitle
             }
             if command == "doctor" {
                 engineCheckStatus = task.terminationStatus == 0
                     ? .ready
-                    : .failed(self.error ?? "The engine is not configured correctly.")
+                    : .failed(self.error ?? UserFacingIssue.engineCheck.message)
             }
             let completedProject = completedProjectPath.flatMap { path in
                 projects.first(where: { $0.folder?.path == path })
             }
             completion?(task.terminationStatus == 0 ? completedProject : nil)
+        }
+    }
+
+    private static func initialProcessingSection(for command: String) -> String? {
+        switch command {
+        case "transcribe", "analyze", "regenerate-all": return "transcript"
+        case "generate-summary": return "summary"
+        case "generate-ad-cues": return "descriptions"
+        default: return nil
         }
     }
     func saveCues(_ cues: [Segment]) {
@@ -1344,7 +1419,9 @@ final class StudioModel {
             let file = FileManager.default.temporaryDirectory.appendingPathComponent("vidistudio-cues-\(UUID().uuidString).json")
             try JSONEncoder().encode(cues).write(to: file)
             execute("save-cues", extra: ["--input", file.path], project: p)
-        } catch { self.error = error.localizedDescription }
+        } catch {
+            present(.projectSave, technicalDetails: error.localizedDescription, context: "Save Audio Description segments")
+        }
     }
     func saveSegments(_ transcript: [Segment], cues: [Segment]) {
         guard let project = selected, !busy else { return }
@@ -1360,7 +1437,7 @@ final class StudioModel {
             execute("save-segments", extra: ["--input", input.path], project: project, cleanupURL: directory)
         } catch {
             try? FileManager.default.removeItem(at: directory)
-            self.error = error.localizedDescription
+            present(.projectSave, technicalDetails: error.localizedDescription, context: "Save transcript and Audio Description segments")
         }
     }
 }

@@ -7,6 +7,67 @@ ENGINE=Path(__file__).resolve().parents[1]/'engine/vidistudio_engine.py'
 sys.path.insert(0,str(ENGINE.parent))
 spec=importlib.util.spec_from_file_location('engine',ENGINE); engine=importlib.util.module_from_spec(spec); spec.loader.exec_module(engine)
 class Validation(unittest.TestCase):
+    def test_transcription_enables_automatic_multilingual_detection(self):
+        client = Mock()
+        uploaded = SimpleNamespace(uri='files/mixed-language-audio', mime_type='audio/wav', name='files/mixed-language-audio')
+        client.interactions.create.return_value = {
+            'steps': [{
+                'type': 'model_output',
+                'content': [{
+                    'annotations': [
+                        {'type': 'word_info', 'start_offset': '0s', 'end_offset': '0.5s', 'text': 'नमस्ते', 'speaker': 'A'},
+                        {'type': 'word_info', 'start_offset': '0.6s', 'end_offset': '1s', 'text': 'hello', 'speaker': 'A'},
+                    ],
+                }],
+            }],
+        }
+        with patch.object(engine.gemini_adapter, 'ready_file', return_value=uploaded):
+            segments = engine.gemini_adapter.transcribe_audio(client, 'gemini-3.5-transcribe', Path('/tmp/audio.wav'))
+        transcription = client.interactions.create.call_args.kwargs['generation_config']['transcription_config']
+        self.assertEqual(transcription['language_codes'], [])
+        self.assertEqual(segments[0]['text'], 'नमस्ते hello')
+        client.files.delete.assert_called_once_with(name=uploaded.name)
+
+    def test_saved_prompt_overrides_keep_new_and_unchanged_defaults(self):
+        with tempfile.TemporaryDirectory() as temp:
+            config = Path(temp) / 'config.json'
+            config.write_text(json.dumps({
+                'models': {'summary': 'custom-summary'},
+                'prompts': {'transcript': {'user_prompt': 'My custom transcript prompt'}},
+            }))
+            with patch.dict(os.environ, {'VIDISTUDIO_CONFIG': str(config)}):
+                merged = engine.config()
+        self.assertEqual(merged['models']['summary'], 'custom-summary')
+        self.assertEqual(merged['prompts']['transcript']['user_prompt'], 'My custom transcript prompt')
+        self.assertIn('expert video transcription analyst', merged['prompts']['transcript']['system_instruction'])
+        self.assertIn('multilingual_media', merged['prompts'])
+
+    def test_ai_generation_reports_the_matching_editor_section(self):
+        prompts = {
+            key: {'system_instruction': '', 'user_prompt': 'Generate'}
+            for key in ('youtube_transcript', 'summary', 'audio_descriptions')
+        }
+        cases = [
+            ('transcribe', 'Creating the transcript', 'transcript', '{"transcript":[{"start":0,"end":1,"text":"Hello"}]}'),
+            ('generate-summary', 'Creating the summary', 'summary', 'Summary'),
+            ('generate-ad-cues', 'Creating Audio Descriptions', 'descriptions', '{"audioDescriptions":[]}'),
+        ]
+        for stage, message, section, response in cases:
+            with self.subTest(stage=stage), tempfile.TemporaryDirectory() as temp:
+                project = {
+                    'source': '', 'sourceType': 'youtube',
+                    'youtubeURL': 'https://www.youtube.com/watch?v=abcdefghijk',
+                    'duration': 10, 'hasAudio': True, 'transcript': [], 'summary': 'Summary', 'cues': [],
+                }
+                client = Mock()
+                with patch.object(engine, 'config', return_value={'prompts': prompts}), \
+                     patch.object(engine, 'client_and_model', return_value=(client, 'gemini-video')), \
+                     patch.object(engine.gemini_adapter, 'video_interaction', return_value=response), \
+                     patch.object(engine, 'emit') as emit:
+                    engine._ai_video_once(Path(temp), project, stage)
+                emit.assert_any_call(message, processingSection=section)
+                client.close.assert_called_once()
+
     def test_local_video_size_limit_accepts_boundary_and_rejects_larger_file(self):
         with tempfile.TemporaryDirectory() as temp:
             video = Path(temp)/'large-video.mp4'
@@ -453,6 +514,30 @@ class Validation(unittest.TestCase):
                 [{'id':'dialogue','start':1,'end':2.5,'text':'Dialogue'}],
                 project['cues'],
             )
+    def test_save_segments_adds_a_new_transcript_segment(self):
+        project = dict(
+            duration=10,
+            transcript=[{'id':'first','start':1,'end':2,'text':'First line'}],
+            cues=[{'id':'ad','start':4,'end':5,'text':'Description'}],
+            exports=['exports/stale.srt'], exportMediaInfo={'exports/stale.srt': {}},
+            undoStack=[], redoStack=[], summary='', summaryGenerated=False,
+        )
+
+        engine.save_segments(
+            project,
+            [
+                project['transcript'][0],
+                {'id':'manual','start':2.5,'end':3.5,'text':'Manually added line','origin':'manual'},
+            ],
+            project['cues'],
+        )
+
+        self.assertEqual([segment['id'] for segment in project['transcript']], ['first', 'manual'])
+        self.assertEqual(project['transcript'][1]['text'], 'Manually added line')
+        self.assertEqual(project['transcript'][1]['origin'], 'manual')
+        self.assertTrue(project['transcriptGenerated'])
+        self.assertEqual(project['exports'], [])
+        self.assertEqual(project['exportMediaInfo'], {})
     def test_narration_export_rejects_all_silent_output(self):
         with tempfile.TemporaryDirectory() as temp:
             root = Path(temp)

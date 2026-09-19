@@ -43,6 +43,7 @@ struct SettingsView: View {
     private var section: String { studio.settingsSection }
     private let sections = ["Appearance", "Projects", "Narration", "Gemini API", "Developer prompts", "Storage", "Help"]
     private let sectionIcons = ["Appearance": "circle.lefthalf.filled", "Projects": "rectangle.stack", "Narration": "speaker.wave.2", "Gemini API": "sparkles", "Developer prompts": "text.bubble", "Storage": "folder", "Help": "questionmark.circle"]
+    private let promptStageOrder = ["multilingual_media", "transcript", "youtube_transcript", "summary", "audio_descriptions", "screen_text", "youtube_screen_text", "text_rewrite", "tts_audio"]
     private func prompt(_ stage: String, _ key: String) -> Binding<String> {
         Binding(get: { studio.settings.prompts[stage]?[key] ?? "" }, set: { studio.settings.prompts[stage, default: [:]][key] = $0 })
     }
@@ -61,13 +62,31 @@ struct SettingsView: View {
             }
         )
     }
+    private func promptTitle(_ stage: String) -> String {
+        [
+            "multilingual_media": "Multilingual Media",
+            "audio_descriptions": "Audio Descriptions",
+            "screen_text": "Screen Text",
+            "text_rewrite": "Text Rewrite",
+            "tts_audio": "Narration Audio",
+            "youtube_screen_text": "YouTube Screen Text",
+            "youtube_transcript": "YouTube Transcript",
+        ][stage] ?? stage.replacingOccurrences(of: "_", with: " ").capitalized
+    }
+    private var orderedPromptStages: [String] {
+        studio.settings.prompts.keys.sorted {
+            let left = promptStageOrder.firstIndex(of: $0) ?? promptStageOrder.count
+            let right = promptStageOrder.firstIndex(of: $1) ?? promptStageOrder.count
+            return left == right ? $0 < $1 : left < right
+        }
+    }
     var body: some View {
         NavigationSplitView {
             List(sections, id: \.self, selection: $studio.settingsSection) { item in
                 Label(item, systemImage: sectionIcons[item] ?? "gearshape").tag(item)
             }
                 .navigationTitle("Settings")
-                .navigationSplitViewColumnWidth(min: 170, ideal: 190)
+                .navigationSplitViewColumnWidth(min: 220, ideal: 240, max: 300)
         } detail: {
         Form {
             if section == "Help" { Section("Help and keyboard shortcuts") {
@@ -218,11 +237,23 @@ struct SettingsView: View {
             }
             }
             if section == "Developer prompts" { Section("Developer prompts") {
-                ForEach(studio.settings.prompts.keys.sorted(), id: \.self) { stage in
+                Text("Existing task prompts remain unchanged. Multilingual Media adds shared guidance to local and YouTube video understanding while preserving each task’s own instructions.")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                ForEach(orderedPromptStages, id: \.self) { stage in
                     DisclosureGroup(
-                        stage.replacingOccurrences(of: "_", with: " ").capitalized,
+                        promptTitle(stage),
                         isExpanded: promptExpanded(stage)
                     ) {
+                        if stage == "multilingual_media" {
+                            Text("Applied automatically to transcripts, summaries, Audio Descriptions, and screen-text reading for local videos and YouTube. Gemini 3.5 Transcribe uses automatic language detection and code-switching rather than these text fields.")
+                                .font(.caption)
+                                .foregroundStyle(.secondary)
+                        } else if stage == "transcript" {
+                            Text("Used when the selected transcription model accepts video prompts. Gemini 3.5 Transcribe instead uses its automatic multilingual speech setting.")
+                                .font(.caption)
+                                .foregroundStyle(.secondary)
+                        }
                         Text("System instruction").font(.caption)
                         TextEditor(text: prompt(stage, "system_instruction")).frame(minHeight: 90).accessibilityLabel("\(stage) system instruction")
                         Text("User prompt").font(.caption)
@@ -266,7 +297,7 @@ struct SettingsView: View {
                     .font(.caption)
                     .foregroundStyle(.secondary)
                 HStack(spacing: 10) {
-                    Button("Check Engine", systemImage: "checkmark.shield") { studio.checkEngine() }.disabled(studio.busy)
+                    Button("Check VidiStudio", systemImage: "checkmark.shield") { studio.checkEngine() }.disabled(studio.busy)
                     switch studio.engineCheckStatus {
                     case .unchecked:
                         EmptyView()
@@ -274,10 +305,10 @@ struct SettingsView: View {
                         ProgressView().controlSize(.small)
                         Text("Checking…").foregroundStyle(.secondary)
                     case .ready:
-                        Label("Engine ready", systemImage: "checkmark.circle.fill")
+                        Label("VidiStudio is ready", systemImage: "checkmark.circle.fill")
                             .foregroundStyle(.green)
                     case .failed:
-                        Label("Engine needs attention", systemImage: "xmark.circle.fill")
+                        Label("VidiStudio needs attention", systemImage: "xmark.circle.fill")
                             .foregroundStyle(.red)
                     }
                 }

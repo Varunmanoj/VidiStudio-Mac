@@ -223,7 +223,11 @@ final class PlaybackModel {
                     deviceSpeech.speak(try SystemSpeechUtterance.make(text: cue.text, settings: settings))
                     speechError = nil
                 } catch {
-                    speechError = error.localizedDescription
+                    speechError = UserFacingIssueReporter.message(
+                        for: error,
+                        issue: .speech,
+                        context: "Play live narration"
+                    )
                     setNarrationDucking(false)
                 }
             }

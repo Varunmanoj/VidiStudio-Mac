@@ -189,7 +189,8 @@ private struct NewProjectView: View {
             youtubePreview = preview
         } catch {
             guard requestedURL == trimmedYouTubeURL else { return }
-            youtubeFetchError = error.localizedDescription
+            youtubeFetchError = UserFacingIssue.youtubePreview.message
+            UserFacingIssueReporter.record(error.localizedDescription, context: "Load YouTube video details")
         }
     }
 }
@@ -468,7 +469,7 @@ struct ProcessingInspector: View {
                                         .help(action == "generate-ad-cues" && !p.canGenerateDescriptions
                                             ? "Generate the transcript and summary first"
                                             : action == "prepare-video"
-                                                ? "Read technical video metadata and create timeline thumbnails without using AI"
+                                                ? "Read video details and create timeline pictures without using AI"
                                                 : title.hasPrefix("Regenerate")
                                                     ? "Regenerate the current \(sectionTitle.lowercased()) after confirmation"
                                                     : "Generate the \(sectionTitle.lowercased()) for this project")
@@ -749,6 +750,28 @@ struct ProjectEditor: View {
         captionControlsAvailable && !transcriptRows.isEmpty
     }
 
+    private var segmentSectionTitle: String {
+        switch tab {
+        case "transcript": return "Transcript"
+        case "descriptions": return "Audio Description"
+        case "ad-transcript": return "AD Transcript"
+        default: return ""
+        }
+    }
+
+    private var narrationControlAvailable: Bool {
+        ["descriptions", "ad-transcript"].contains(tab) && !project.cues.isEmpty
+    }
+
+    private var followControlAvailable: Bool {
+        switch tab {
+        case "transcript": return !project.transcript.isEmpty
+        case "descriptions": return !project.cues.isEmpty
+        case "ad-transcript": return !project.transcript.isEmpty || !project.cues.isEmpty
+        default: return false
+        }
+    }
+
     private var captionOverlayTitle: String {
         switch studio.settings.captionDisplayMode {
         case "transcript": return "Transcript"
@@ -782,6 +805,12 @@ struct ProjectEditor: View {
 
     private var interfaceAnimation: Animation? {
         reduceMotion ? nil : .smooth(duration: 0.22)
+    }
+
+    private var showsProcessingForCurrentSection: Bool {
+        guard studio.busy else { return false }
+        guard let processingSection = studio.processingSection else { return true }
+        return processingSection == tab
     }
 
     private func cycleCaptionDisplayMode() {
@@ -851,12 +880,26 @@ struct ProjectEditor: View {
                         .help("Transcript overlay is \(captionOverlayTitle). Click to cycle modes or open the menu for a direct choice. YouTube's own captions and shortcuts remain available.")
                     }
                     if tab == "transcript" || tab == "ad-transcript" || tab == "descriptions" {
-                        Toggle("Narration", isOn: $playback.narrationEnabled)
-                            .toggleStyle(.button)
-                            .help("Play generated descriptions in sync with video")
+                        if tab == "descriptions" || tab == "ad-transcript" {
+                            Toggle("Narration", isOn: $playback.narrationEnabled)
+                                .toggleStyle(.button)
+                                .disabled(!narrationControlAvailable)
+                                .help(narrationControlAvailable
+                                    ? "Play generated descriptions in sync with video"
+                                    : "Generate or add an Audio Description segment to use Narration")
+                                .accessibilityHint(narrationControlAvailable
+                                    ? "Turns Audio Description playback on or off"
+                                    : "Unavailable because this project has no Audio Description segments")
+                        }
                         Toggle("Follow", isOn: $followTranscript)
                             .toggleStyle(.button)
-                            .help("Follow the active transcript or description")
+                            .disabled(!followControlAvailable)
+                            .help(followControlAvailable
+                                ? "Follow the active transcript or description"
+                                : "Add or generate content for this section to use Follow")
+                            .accessibilityHint(followControlAvailable
+                                ? "Keeps the active segment visible during playback"
+                                : "Unavailable because this section has no transcript or description segments")
                     }
                 }
             }
@@ -865,23 +908,31 @@ struct ProjectEditor: View {
                     .disabled(studio.busy || (action.command == "generate-ad-cues" && !project.canGenerateDescriptions))
                     .help(action.command == "generate-ad-cues" && !project.canGenerateDescriptions
                         ? "Generate the transcript and summary first"
-                        : action.command == "prepare-video" ? "Read video metadata and create timeline thumbnails without using AI" : action.title.hasPrefix("Regenerate") ? "Regenerate the existing content after confirmation" : "Generate content for this section")
+                        : action.command == "prepare-video" ? "Read video details and create timeline pictures without using AI" : action.title.hasPrefix("Regenerate") ? "Regenerate the existing content after confirmation" : "Generate content for this section")
                     .fixedSize()
             }
-            if tab == "descriptions" {
-                Button("Add Segment", systemImage: "plus") { presentNewSegment() }
+            if tab == "descriptions" || (tab == "transcript" && segmentEditMode) {
+                Button("Add Segment", systemImage: "plus") {
+                    presentNewSegment(isDescription: tab == "descriptions")
+                }
                     .disabled(studio.busy)
                     .fixedSize()
+                    .accessibilityLabel(tab == "transcript" ? "Add Transcript Segment" : "Add Audio Description Segment")
+                    .help(tab == "transcript"
+                        ? "Add a new transcript segment at the current video time"
+                        : "Add a new Audio Description segment at the current video time")
             }
             if segmentEditingAvailable {
                 if segmentEditMode {
                     Menu("Selection", systemImage: "checklist") {
                         Button("Select All", systemImage: "checkmark.square") {
                             selectedSegmentIDs = Set(transcriptRows.map(\.id))
+                            refreshEditorShortcutActions()
                         }
                         .disabled(selectedSegmentIDs.count == transcriptRows.count)
                         Button("Deselect All", systemImage: "square") {
                             selectedSegmentIDs.removeAll()
+                            refreshEditorShortcutActions()
                         }
                         .disabled(selectedSegmentIDs.isEmpty)
                     }
@@ -900,6 +951,7 @@ struct ProjectEditor: View {
                 Button(segmentEditMode ? "Done" : "Edit", systemImage: segmentEditMode ? "checkmark" : "pencil") {
                     segmentEditMode.toggle()
                     if !segmentEditMode { selectedSegmentIDs.removeAll() }
+                    refreshEditorShortcutActions()
                 }
                 .disabled(studio.busy)
                 .fixedSize()
@@ -913,7 +965,7 @@ struct ProjectEditor: View {
 
     @ViewBuilder
     private var processingControlBar: some View {
-        if studio.busy {
+        if showsProcessingForCurrentSection {
             HStack(spacing: 12) {
                 Text(studio.message)
                     .font(.callout)
@@ -1058,7 +1110,7 @@ struct ProjectEditor: View {
             previewPaused = false
             player.play()
         } catch {
-            studio.error = "Could not play this segment’s narration: \(error.localizedDescription)"
+            studio.present(.narrationPlayback, technicalDetails: error.localizedDescription, context: "Play narration preview")
         }
     }
 
@@ -1087,6 +1139,7 @@ struct ProjectEditor: View {
             set: { selected in
                 if selected { selectedSegmentIDs.insert(id) }
                 else { selectedSegmentIDs.remove(id) }
+                refreshEditorShortcutActions()
             }
         )
     }
@@ -1114,6 +1167,7 @@ struct ProjectEditor: View {
         ) {
             selectedSegmentIDs.removeAll()
             segmentEditMode = false
+            refreshEditorShortcutActions()
         }
     }
 
@@ -1163,7 +1217,7 @@ struct ProjectEditor: View {
             editorToolbar
             if let error = playback.speechError { Text(error).foregroundStyle(.red).padding(8) }
             Divider()
-            if studio.busy {
+            if showsProcessingForCurrentSection {
                 VStack {
                     Spacer(minLength: 24)
                     ProgressView()
@@ -1382,13 +1436,29 @@ struct ProjectEditor: View {
         case "caption-transcript": studio.settings.captionDisplayMode = "transcript"
         case "caption-ad-transcript": studio.settings.captionDisplayMode = "ad-transcript"
         case "follow": followTranscript.toggle()
+        case "segment-edit-mode":
+            segmentEditMode.toggle()
+            if !segmentEditMode { selectedSegmentIDs.removeAll() }
+            refreshEditorShortcutActions()
+        case "segment-select-all":
+            selectedSegmentIDs = Set(transcriptRows.map(\.id))
+            refreshEditorShortcutActions()
+        case "segment-deselect-all":
+            selectedSegmentIDs.removeAll()
+            refreshEditorShortcutActions()
+        case "segment-edit-selected": presentBulkSegmentEditor()
+        case "segment-delete-selected": deleteSelectedSegments()
         case "descriptions", "transcript", "summary", "ad-transcript", "ad-overview": tab = action
         case "summary-play-pause": summaryReader.togglePlayPause()
+        case "summary-play":
+            if summaryReader.isPaused { summaryReader.play() }
+            else if !summaryReader.isReading { summaryReader.togglePlayPause() }
+        case "summary-pause": summaryReader.pause()
         case "summary-stop": summaryReader.stop()
         case "summary-from-start": summaryReader.playFromStart()
         case "summary-from-selection": summaryReader.playFromSelection()
         case "summary-read-selection": summaryReader.readSelectedText()
-        case "add": presentNewSegment()
+        case "add": presentNewSegment(isDescription: tab == "descriptions")
         case "delete-narration": studio.confirmDeleteGeneratedContent(project, component: .narration)
         case "delete-transcript": studio.confirmDeleteGeneratedContent(project, component: .transcript)
         case "delete-summary": studio.confirmDeleteGeneratedContent(project, component: .summary)
@@ -1416,6 +1486,19 @@ struct ProjectEditor: View {
         shortcutActions.activeSection = tab
         shortcutActions.captionDisplayMode = studio.settings.captionDisplayMode
         shortcutActions.hasTranscriptText = !project.transcript.isEmpty
+        shortcutActions.canToggleNarration = narrationControlAvailable
+        shortcutActions.canToggleFollow = followControlAvailable
+        shortcutActions.canAddSegment = tab == "descriptions" || (tab == "transcript" && segmentEditMode)
+        switch tab {
+        case "transcript": shortcutActions.addSegmentTitle = "Add Transcript Segment"
+        case "descriptions": shortcutActions.addSegmentTitle = "Add Audio Description Segment"
+        default: shortcutActions.addSegmentTitle = "Add Segment"
+        }
+        shortcutActions.segmentEditingAvailable = segmentEditingAvailable
+        shortcutActions.segmentEditMode = segmentEditMode
+        shortcutActions.segmentEditModeTitle = segmentEditMode ? "Done Editing Segments" : "Edit \(segmentSectionTitle) Segments"
+        shortcutActions.segmentCount = transcriptRows.count
+        shortcutActions.selectedSegmentCount = selectedSegmentIDs.count
         shortcutActions.canGenerateDescriptions = project.canGenerateDescriptions
         shortcutActions.hasNarrationAudio = GeneratedContentComponent.narration.hasContent(in: project)
         shortcutActions.hasDescriptions = GeneratedContentComponent.descriptions.hasContent(in: project)
@@ -1539,7 +1622,7 @@ struct ProjectEditor: View {
         }
     }
 
-    private func presentNewSegment() {
+    private func presentNewSegment(isDescription: Bool) {
         playback.pauseAndCaptureTime { capturedTime in
             let latestStart = max(0, project.duration - 0.1)
             let start = max(0, min(capturedTime, latestStart))
@@ -1551,7 +1634,7 @@ struct ProjectEditor: View {
                     text: "",
                     origin: "manual"
                 ),
-                isDescription: true
+                isDescription: isDescription
             )
         }
     }
@@ -2044,7 +2127,9 @@ private struct SegmentEditor: View {
             }
             capturedScreenText = nil
         }
-        .navigationTitle(row.segment.text.isEmpty ? "Add Audio Description Segment" : "Edit \(row.kind) Segment")
+        .navigationTitle(row.segment.text.isEmpty
+            ? (row.isDescription ? "Add Audio Description Segment" : "Add Transcript Segment")
+            : "Edit \(row.kind) Segment")
         .frame(width: 560, height: 590)
     }
 }

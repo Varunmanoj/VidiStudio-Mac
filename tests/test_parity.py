@@ -5,6 +5,21 @@ sys.path.insert(0,str(Path(__file__).resolve().parents[1]/'engine'))
 import parity
 import vidistudio_engine as engine
 class Parity(unittest.TestCase):
+    def test_shared_multilingual_guidance_applies_only_to_media_understanding(self):
+        prompts = {
+            'multilingual_media': {'system_instruction': 'Understand every language.', 'user_prompt': 'Preserve original scripts.'},
+            'transcript': {'system_instruction': 'Transcript system.', 'user_prompt': 'Transcript user.'},
+            'text_rewrite': {'system_instruction': 'Rewrite system.', 'user_prompt': 'Rewrite user.'},
+        }
+        transcript = parity.media_prompt_pair({'prompts': prompts}, 'transcript')
+        self.assertEqual(transcript['system_instruction'], 'Transcript system.\n\nUnderstand every language.')
+        self.assertEqual(transcript['user_prompt'], 'Transcript user.\n\nPreserve original scripts.')
+        rewrite = parity.media_prompt_pair({'prompts': prompts}, 'text_rewrite')
+        self.assertEqual(rewrite, prompts['text_rewrite'])
+        self.assertEqual(parity.MULTILINGUAL_MEDIA_PROMPT_KEYS, {
+            'transcript', 'youtube_transcript', 'summary', 'audio_descriptions', 'screen_text', 'youtube_screen_text'
+        })
+
     def test_url_validation(self):
         expected='https://www.youtube.com/watch?v=4fYlQtcm6qY'
         self.assertEqual(parity.youtube_url('https://youtu.be/4fYlQtcm6qY'),expected)

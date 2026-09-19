@@ -1,0 +1,211 @@
+import Foundation
+import OSLog
+
+struct UserFacingIssue: Equatable {
+    let title: String
+    let message: String
+
+    static let settingsSave = UserFacingIssue(
+        title: "Settings Couldn’t Be Saved",
+        message: "Your changes could not be saved. Check that VidiStudio can write to its settings folder, then try again."
+    )
+    static let projectOpen = UserFacingIssue(
+        title: "Project Couldn’t Be Opened",
+        message: "Choose a VidiStudio project folder that is available on this Mac and try again."
+    )
+    static let projectRead = UserFacingIssue(
+        title: "Project Couldn’t Be Read",
+        message: "VidiStudio could not read the latest project information. Close and reopen the project, then try again."
+    )
+    static let projectSave = UserFacingIssue(
+        title: "Changes Couldn’t Be Saved",
+        message: "Your changes were not saved. Make sure the project folder is available and has enough free space, then try again."
+    )
+    static let projectDelete = UserFacingIssue(
+        title: "Project Couldn’t Be Moved to the Bin",
+        message: "The project is still in its original location. Make sure its folder is available, then try again."
+    )
+    static let youtubePreview = UserFacingIssue(
+        title: "Video Details Couldn’t Be Loaded",
+        message: "Check the YouTube link and your internet connection, then try again."
+    )
+    static let narrationPlayback = UserFacingIssue(
+        title: "Narration Couldn’t Be Played",
+        message: "This narration audio is not available right now. Generate it again, then try playing it."
+    )
+    static let speech = UserFacingIssue(
+        title: "Speech Isn’t Available",
+        message: "Choose an installed Apple voice in Settings → Narration, then try again."
+    )
+    static let voicePreview = UserFacingIssue(
+        title: "Voice Sample Couldn’t Be Created",
+        message: "Check your Gemini settings and internet connection, then try the sample again."
+    )
+    static let engineCheck = UserFacingIssue(
+        title: "VidiStudio Isn’t Ready Yet",
+        message: "The media tools could not be checked. Use the included tools, or choose available tools in Settings → Storage, then try again."
+    )
+    static let exportPreparation = UserFacingIssue(
+        title: "Export Couldn’t Be Prepared",
+        message: "VidiStudio could not read the latest project information. Reopen the project and try exporting again."
+    )
+    static let exportMetadata = UserFacingIssue(
+        title: "Export Needs Attention",
+        message: "The video was created, but its accessibility information could not be finished. Keep the original export and try creating it again."
+    )
+    static let general = UserFacingIssue(
+        title: "VidiStudio Couldn’t Finish",
+        message: "Your completed work is safe. Try the action again, or reopen the project if the problem continues."
+    )
+
+    static func forEngine(command: String, technicalDetails: String?) -> UserFacingIssue {
+        let detail = technicalDetails?.lowercased() ?? ""
+        if detail.contains("api key") || detail.contains("unauthenticated") || detail.contains("unauthorized")
+            || detail.contains("401") || detail.contains("403") {
+            return UserFacingIssue(
+                title: "Gemini Access Needs Attention",
+                message: "Check your Gemini API key in Settings, then try again."
+            )
+        }
+        if detail.contains("quota") || detail.contains("rate limit") || detail.contains("429") {
+            return UserFacingIssue(
+                title: "Gemini Is Temporarily Unavailable",
+                message: "Your Gemini usage limit may have been reached. Wait a little while, then try again."
+            )
+        }
+        if detail.contains("timed out") || detail.contains("timeout") || detail.contains("network")
+            || detail.contains("internet") || detail.contains("connection") {
+            return UserFacingIssue(
+                title: "Connection Interrupted",
+                message: "Check your internet connection, then try again. Your completed work is safe."
+            )
+        }
+        if detail.contains("no space") || detail.contains("disk full") || detail.contains("not enough space") {
+            return UserFacingIssue(
+                title: "More Storage Is Needed",
+                message: "Free some space on the drive that contains this project, then try again."
+            )
+        }
+        if detail.contains("permission denied") || detail.contains("not permitted") {
+            return UserFacingIssue(
+                title: "Folder Access Is Needed",
+                message: "Make sure the project folder is available and VidiStudio has permission to use it, then try again."
+            )
+        }
+        if detail.contains("narration") && (detail.contains("fit") || detail.contains("too long") || detail.contains("slot")) {
+            return UserFacingIssue(
+                title: "Narration Doesn’t Fit",
+                message: "One or more descriptions are too long for their time slots. Shorten the text or adjust the timing, then generate narration again."
+            )
+        }
+        if detail.contains("overlap") || detail.contains("start time") || detail.contains("end time") {
+            return UserFacingIssue(
+                title: "Timing Needs Attention",
+                message: "Adjust the highlighted segment times so they stay inside the video and do not overlap, then save again."
+            )
+        }
+
+        switch command {
+        case "import-video":
+            return UserFacingIssue(
+                title: "Video Couldn’t Be Added",
+                message: "Make sure the video is available on this Mac and the project folder has enough free space, then try again."
+            )
+        case "import-youtube", "prepare-youtube":
+            return UserFacingIssue(
+                title: "YouTube Video Couldn’t Be Added",
+                message: "Check the YouTube link and your internet connection, then try again."
+            )
+        case "prepare-video", "probe-video", "generate-thumbnails":
+            return UserFacingIssue(
+                title: "Video Details Couldn’t Be Prepared",
+                message: "The original video was not changed. Make sure it is available, then try again."
+            )
+        case "transcribe":
+            return UserFacingIssue(
+                title: "Transcript Couldn’t Be Created",
+                message: "Check your Gemini settings and internet connection, then try generating the transcript again."
+            )
+        case "generate-summary":
+            return UserFacingIssue(
+                title: "Summary Couldn’t Be Created",
+                message: "Your transcript is safe. Check your Gemini settings and try generating the summary again."
+            )
+        case "generate-ad-cues":
+            return UserFacingIssue(
+                title: "Audio Descriptions Couldn’t Be Created",
+                message: "Your transcript and summary are safe. Check your Gemini settings, then try again."
+            )
+        case "analyze", "regenerate-all":
+            return UserFacingIssue(
+                title: "Video Analysis Couldn’t Be Completed",
+                message: "Your completed work is safe. Check your Gemini settings and internet connection, then try again."
+            )
+        case "synthesize-tts", "synthesize-changed", "preview-tts":
+            return command == "preview-tts" ? .voicePreview : UserFacingIssue(
+                title: "Narration Couldn’t Be Created",
+                message: "Check your selected voice and speech settings, then try generating narration again."
+            )
+        case "export-final-video", "export-selectable-video", "export-closed-audio-description-video",
+             "export-open-audio-description-video", "export-closed-caption-video",
+             "export-dual-closed-caption-video", "export-open-caption-video", "export-original-audio",
+             "export-described-audio", "export-audio", "export-subtitles":
+            return UserFacingIssue(
+                title: "Export Couldn’t Be Created",
+                message: "Your source video and existing exports are unchanged. Check that the project drive has enough free space, then try again."
+            )
+        case "save-cues", "save-segments", "rename-project", "update-metadata":
+            return .projectSave
+        case "doctor", "validate-config":
+            return .engineCheck
+        case "list-models":
+            return UserFacingIssue(
+                title: "Gemini Models Couldn’t Be Loaded",
+                message: "Check your Gemini API key and internet connection, then try again."
+            )
+        case "capture-frame":
+            return UserFacingIssue(
+                title: "Frame Text Couldn’t Be Read",
+                message: "Move to a clear frame with visible text, then try again."
+            )
+        default:
+            return .general
+        }
+    }
+}
+
+enum UserFacingIssueReporter {
+    private static let logger = Logger(subsystem: "Varunmanojkumar.VidiStudio", category: "Internal errors")
+
+    static func record(_ technicalDetails: String, context: String) {
+        logger.error("\(context, privacy: .public): \(technicalDetails, privacy: .private)")
+    }
+
+    static func message(for error: Error, issue: UserFacingIssue, context: String) -> String {
+        record(error.localizedDescription, context: context)
+        return issue.message
+    }
+}
+
+enum UserFacingProgress {
+    static func message(for command: String) -> String {
+        switch command {
+        case "import-video": return "Adding the video to your project…"
+        case "import-youtube": return "Adding the YouTube video…"
+        case "prepare-video", "probe-video": return "Reading video details…"
+        case "generate-thumbnails": return "Creating timeline pictures…"
+        case "analyze", "regenerate-all": return "Analyzing the video…"
+        case "transcribe": return "Creating the transcript…"
+        case "generate-summary": return "Creating the summary…"
+        case "generate-ad-cues": return "Creating Audio Descriptions…"
+        case "synthesize-tts", "synthesize-changed": return "Creating narration…"
+        case "capture-frame": return "Reading text from the selected frame…"
+        case "save-cues", "save-segments": return "Saving your changes…"
+        case "delete-export", "delete-generated", "delete-segment-audio": return "Updating the project…"
+        case "doctor", "validate-config": return "Checking VidiStudio…"
+        case "list-models": return "Loading available Gemini models…"
+        case let value where value.hasPrefix("export-"): return "Creating your export…"
+        default: return "Working on your project…"
+        }
+    }
+}

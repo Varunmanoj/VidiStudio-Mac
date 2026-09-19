@@ -36,8 +36,9 @@ def config():
     p = Path(os.environ.get('VIDISTUDIO_CONFIG', config_path()))
     defaults = json.loads(Path(__file__).with_name('ai-defaults.json').read_text())
     saved = json.loads(p.read_text()) if p.exists() else {}
-    for field in ('models','prompts'):
-        defaults[field].update(saved.get(field,{}) or {})
+    defaults['models'].update(saved.get('models',{}) or {})
+    for stage,overrides in (saved.get('prompts',{}) or {}).items():
+        defaults['prompts'].setdefault(stage,{}).update(overrides or {})
     return defaults | {k:v for k,v in saved.items() if k not in ('models','prompts')}
 
 
@@ -305,7 +306,7 @@ def thumbnails(root, p):
     (root/'thumbnails').mkdir(parents=True, exist_ok=True)
     paths = []
     for i in range(8):
-        emit(f'Generating thumbnail {i+1} of 8', progress=(i+1)/8)
+        emit(f'Creating timeline picture {i+1} of 8', progress=(i+1)/8)
         relative = f'thumbnails/frame-{i:02}.jpg'
         run([tool('ffmpeg'), '-y', '-v', 'error', '-ss', str(p['duration'] * i / 8), '-i', local(root,p['source']), '-frames:v', '1', '-vf', 'scale=480:-2', root/relative])
         paths.append(relative)
@@ -425,6 +426,12 @@ def _ai_video_once(root, p, stage):
     cfg=config(); key={'transcribe':'transcript','generate-summary':'summary','generate-ad-cues':'audio_descriptions'}[stage]
     youtube=p.get('sourceType')=='youtube' and not p.get('source')
     if stage=='transcribe' and youtube: key='youtube_transcript'
+    stage_message,processing_section={
+        'transcribe':('Creating the transcript','transcript'),
+        'generate-summary':('Creating the summary','summary'),
+        'generate-ad-cues':('Creating Audio Descriptions','descriptions'),
+    }[stage]
+    emit(stage_message,processingSection=processing_section)
     client,model=client_and_model(key)
     uploaded=None
     try:
@@ -436,7 +443,7 @@ def _ai_video_once(root, p, stage):
                 (root/'transcript').mkdir(parents=True, exist_ok=True)
                 for start in range(0,math.ceil(p['duration']),1200):
                     chunk=root/'transcript'/f'audio-{start}.wav'
-                    emit(f'Transcribing audio from {start//60} minutes')
+                    emit(f'Creating the transcript from minute {start//60}')
                     try:
                         run([tool('ffmpeg'),'-y','-v','error','-ss',str(start),'-i',local(root,p['source']),'-t','1200','-vn','-ac','1','-ar','16000',chunk])
                         data.extend(gemini_adapter.transcribe_audio(client,model,chunk,start,lambda text:emit(text)))
@@ -446,15 +453,14 @@ def _ai_video_once(root, p, stage):
             if youtube: uri=p['youtubeURL'];mime=None
             else:
                 ensure_supported_local_video(local(root,p['source']))
-                emit('Uploading a processing copy to Gemini')
+                emit('Preparing the video for analysis')
                 uploaded=gemini_adapter.ready_file(client,local(root,p['source']),lambda text:emit(text));uri=uploaded.uri;mime=uploaded.mime_type
-            pair=cfg['prompts'][key]
+            pair=parity.media_prompt_pair(cfg,key)
             prompt=parity.render(pair['user_prompt'],p)
             if stage=='generate-ad-cues':
                 prompt+=parity.description_context(p)
                 if delete_description_narration(root, p):
-                    emit('Deleted existing narration audio before replacing Audio Descriptions')
-            emit('Generating '+stage)
+                    emit('Preparing updated Audio Descriptions')
             raw=gemini_adapter.video_interaction(client,model,uri,mime,prompt,pair.get('system_instruction',''),processing=cfg.get('videoProcessing','agentic') if stage!='transcribe' else 'static')
             if stage=='generate-summary': data={'summary':raw}
             else: data=parity.parse_json(raw)
@@ -516,7 +522,8 @@ def ai_video(root, p, stage, max_attempts=AI_MAX_ATTEMPTS):
                     raise
                 detail = safe_error(exc)
                 raise ValueError(f'{label} failed after {attempt} attempt(s): {detail} Check the issue, then start the action again.') from exc
-            emit(f'Retrying {stage} (attempt {attempt + 1} of {attempts}) after error: {safe_error(exc)}',
+            print(f'{stage} attempt {attempt} failed: {safe_error(exc)}', file=sys.stderr, flush=True)
+            emit(f'Trying {stage} again (attempt {attempt + 1} of {attempts})',
                  retryStage=stage, retryAttempt=attempt + 1, retryAttempts=attempts)
             time.sleep(ai_retry_delay_seconds(attempt))
     if last_error is not None:
@@ -670,7 +677,7 @@ def synthesize(root,p,segment=None,changed=False):
     for i,c in enumerate(cues):
         if segment and c['id']!=segment: continue
         if changed and c.get('audioText')==c['text'] and c.get('audioSettings')==signature and c.get('audio') and local(root,c['audio']).exists(): continue
-        emit(f'Synthesizing AD segment {i+1} of {len(cues)}', progress=i/len(cues))
+        emit(f'Creating narration for description {i+1} of {len(cues)}', progress=i/len(cues))
         name = 'audio-description/' + str(uuid.uuid4()) + '.wav'
         output = root/name
         previous_audio = c.get('audio')
@@ -1333,7 +1340,7 @@ def exportable_narration_cues(root, project, allow_incomplete=False):
         if not narration_audio_is_usable(root, cue):
             if not allow_incomplete:
                 raise ValueError('Some descriptions have missing or outdated narration. Synthesize narration or confirm an incomplete export.')
-            emit('Omitting description without synchronized narration: ' + cue['id'], warning=True)
+            emit('A description without current narration will not be included in the audio.', warning=True)
             continue
         available.append(cue)
     return available
@@ -1377,7 +1384,7 @@ def export_program_audio(root, project, described=False, allow_incomplete=False,
     relative, output, export_temporary = prepare_export_target(
         root, project, export_type, 'mp3', replace_existing
     )
-    emit('Exporting ' + export_type)
+    emit('Creating ' + export_type)
     try:
         run([*args, export_temporary])
         validate_audio_export(export_temporary, float(project['duration']))
@@ -1395,7 +1402,7 @@ def export(root,p,audio_only=False,allow_incomplete=False,selectable=False,capti
     if selectable:
         if not p.get('source'):
             raise ValueError('A local source video is required for Closed Audio Description export.')
-        emit('Creating video with closed Audio Description')
+        emit('Adding selectable Audio Description to the video')
         mux_closed_audio_description(
             root, p, cues, captions=captions, content=content,
             replace_existing=replace_existing,
@@ -1426,7 +1433,7 @@ def export(root,p,audio_only=False,allow_incomplete=False,selectable=False,capti
                 else:
                     args += ['-c:v','copy']
             args += ['-map','[mix]','-c:a','aac','-movflags','+faststart','-t',str(p['duration']),export_temporary]
-            emit('Mixing narration and rendering Open Audio Description')
+            emit('Adding narration and open captions to the video')
             run(args)
             if not audio_only:
                 validate_captioned_video(export_temporary, float(p['duration']), captions)
@@ -1578,7 +1585,7 @@ def main():
     if args.command in ('import-youtube','validate-config'):
         parity.execute(args,None,None,core);return
     if args.command=='doctor':
-        emit('Engine ready',python=platform.python_version(),ffmpeg=tool('ffmpeg'),ffprobe=tool('ffprobe')); return
+        emit('VidiStudio is ready',python=platform.python_version(),ffmpeg=tool('ffmpeg'),ffprobe=tool('ffprobe')); return
     if args.command=='import-video':
         if not args.video or not args.library: raise ValueError('Import requires --video and --library.')
         ensure_supported_local_video(args.video)
@@ -1607,7 +1614,7 @@ def main():
             if args.command in ('analyze', 'transcribe', 'generate-summary', 'generate-ad-cues', 'synthesize-tts'):
                 p['hasProcessed'] = True
             if args.command=='cleanup-project':
-                result=cleanup_project_storage(root,p);emit('Project storage cleaned',removedFiles=result['files'],removedBytes=result['bytes'])
+                result=cleanup_project_storage(root,p);emit('Project cleanup complete',removedFiles=result['files'],removedBytes=result['bytes'])
             elif args.command=='clear-generated': clear_generated(root,p)
             elif args.command=='delete-generated': delete_generated_components(root,p,args.component)
             elif args.command=='delete-segment-audio': delete_segment_audio(root,p,args.segment)
