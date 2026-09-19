@@ -259,6 +259,42 @@ def validate_cues(cues, duration, transcript=()):
     return sorted(cues, key=lambda c: c['start'])
 
 
+def validate_transcript(segments, duration):
+    """Validate user-edited transcript rows before replacing saved project data."""
+    previous = 0.0
+    ids = set()
+    for segment in sorted(segments, key=lambda candidate: candidate['start']):
+        start, end = float(segment['start']), float(segment['end'])
+        if not math.isfinite(start + end) or start < previous or end <= start or end > duration + .01:
+            raise ValueError('Transcript segments must have finite, non-overlapping times inside the video duration.')
+        if not str(segment.get('text', '')).strip():
+            raise ValueError('Every transcript segment needs text.')
+        segment.setdefault('id', str(uuid.uuid4()))
+        if segment['id'] in ids:
+            raise ValueError('Duplicate transcript segment identifier.')
+        ids.add(segment['id'])
+        previous = end
+    return sorted(segments, key=lambda segment: segment['start'])
+
+
+def save_segments(p, transcript, cues):
+    """Atomically replace editable transcript and AD rows in one project update."""
+    transcript = validate_transcript(transcript, p['duration'])
+    cues = validate_cues(cues, p['duration'], transcript)
+    if cues != p.get('cues', []):
+        parity.remember(p)
+    track_cue_origins(cues, p.get('cues', []))
+    p['transcript'] = transcript
+    p['cues'] = cues
+    p['transcriptGenerated'] = bool(transcript)
+    p['descriptionsGenerated'] = bool(cues)
+    p['exports'] = []
+    p['hasProcessed'] = bool(
+        p.get('transcriptGenerated') or p.get('summaryGenerated') or p.get('descriptionsGenerated')
+        or p.get('transcript') or p.get('summary') or p.get('cues')
+    )
+
+
 def thumbnails(root, p):
     (root/'thumbnails').mkdir(parents=True, exist_ok=True)
     paths = []
@@ -1336,7 +1372,7 @@ def validate_analysis_prerequisites(command, root, project):
 
 def main():
     parser=argparse.ArgumentParser(description=__doc__)
-    parser.add_argument('command',choices=['cleanup-project','clear-generated','delete-generated','delete-segment-audio','list-models','preview-tts','import-video','probe-video','generate-thumbnails','transcribe','generate-summary','generate-ad-cues','synthesize-tts','export-final-video','export-selectable-video','export-closed-audio-description-video','export-open-audio-description-video','export-closed-caption-video','export-dual-closed-caption-video','export-open-caption-video','export-original-audio','export-described-audio','save-cues','doctor',*parity.COMMANDS])
+    parser.add_argument('command',choices=['cleanup-project','clear-generated','delete-generated','delete-segment-audio','list-models','preview-tts','import-video','probe-video','generate-thumbnails','transcribe','generate-summary','generate-ad-cues','synthesize-tts','export-final-video','export-selectable-video','export-closed-audio-description-video','export-open-audio-description-video','export-closed-caption-video','export-dual-closed-caption-video','export-open-caption-video','export-original-audio','export-described-audio','save-cues','save-segments','doctor',*parity.COMMANDS])
     parser.add_argument('--project',type=Path); parser.add_argument('--video',type=Path); parser.add_argument('--library',type=Path); parser.add_argument('--input',type=Path)
     parser.add_argument('--content',choices=['transcript','summary','descriptions','combined'],default='descriptions'); parser.add_argument('--url'); parser.add_argument('--name'); parser.add_argument('--timestamp',type=float,default=0); parser.add_argument('--duration',type=float); parser.add_argument('--segment'); parser.add_argument('--format',choices=['srt','vtt','txt','json','md'],default='srt'); parser.add_argument('--changed',action='store_true'); parser.add_argument('--start-stage',default='transcribe')
     parser.add_argument('--output', type=Path); parser.add_argument('--text')
@@ -1407,6 +1443,12 @@ def main():
                 track_cue_origins(cues,p['cues']);parity.remember(p);p['cues']=cues
                 p['descriptionsGenerated']=True
                 p['exports']=[]
+            elif args.command=='save-segments':
+                if not args.input: raise ValueError('--input is required.')
+                payload=json.loads(args.input.read_text())
+                if not isinstance(payload,dict) or not isinstance(payload.get('transcript'),list) or not isinstance(payload.get('cues'),list):
+                    raise ValueError('Editable segments input must contain transcript and cues lists.')
+                save_segments(p,payload['transcript'],payload['cues'])
             elif args.command in parity.COMMANDS: parity.execute(args,root,p,core)
             cleanup_project_storage(root,p)
             p['status']='Ready'; p.pop('error',None); save(root,p)

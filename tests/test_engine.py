@@ -409,6 +409,50 @@ class Validation(unittest.TestCase):
     def test_dialogue_overlap(self):
         with self.assertRaises(ValueError): engine.validate_cues([{'start':1,'end':3,'text':'a'}],10,[{'start':2,'end':4}])
         self.assertEqual(len(engine.validate_cues([{'start':0,'end':2,'text':'a'}],10,[{'start':2,'end':4}])),1)
+    def test_save_segments_edits_transcript_and_deletes_removed_description_audio(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            (root/'audio-description').mkdir()
+            deleted_audio = root/'audio-description/deleted.wav'
+            kept_audio = root/'audio-description/kept.wav'
+            deleted_audio.write_bytes(b'deleted')
+            kept_audio.write_bytes(b'kept')
+            project = dict(
+                duration=12,
+                transcript=[{'id':'dialogue','start':1,'end':2,'text':'Old dialogue'}],
+                cues=[
+                    {'id':'deleted','start':3,'end':4,'text':'Deleted description','audio':'audio-description/deleted.wav'},
+                    {'id':'kept','start':5,'end':6,'text':'Kept description','audio':'audio-description/kept.wav'},
+                ],
+                exports=['exports/stale.mp4'], undoStack=[], redoStack=[], summary='', summaryGenerated=False,
+            )
+
+            engine.save_segments(
+                project,
+                [{'id':'dialogue','start':1.25,'end':2.5,'text':'Edited dialogue'}],
+                [project['cues'][1]],
+            )
+            engine.cleanup_project_storage(root, project)
+
+            self.assertEqual(project['transcript'][0]['text'], 'Edited dialogue')
+            self.assertEqual([cue['id'] for cue in project['cues']], ['kept'])
+            self.assertFalse(deleted_audio.exists())
+            self.assertTrue(kept_audio.exists())
+            self.assertEqual(project['exports'], [])
+            self.assertEqual(len(project['undoStack']), 1)
+
+    def test_transcript_edit_rejects_overlap_with_description(self):
+        project = dict(
+            duration=10, transcript=[],
+            cues=[{'id':'ad','start':2,'end':3,'text':'Description'}],
+            exports=[], undoStack=[], redoStack=[], summary='', summaryGenerated=False,
+        )
+        with self.assertRaisesRegex(ValueError, 'overlaps spoken dialogue'):
+            engine.save_segments(
+                project,
+                [{'id':'dialogue','start':1,'end':2.5,'text':'Dialogue'}],
+                project['cues'],
+            )
     def test_narration_export_rejects_all_silent_output(self):
         with tempfile.TemporaryDirectory() as temp:
             root = Path(temp)
@@ -722,6 +766,16 @@ class Validation(unittest.TestCase):
             cli('save-cues','--project',folder,'--input',cues)
             cli('synthesize-tts','--project',folder)
             generated_audio=folder/project()['cues'][0]['audio']
+            self.assertTrue(generated_audio.exists())
+            editable_segments = project()
+            editable_segments['transcript'][0]['text'] = 'The edited final caption.'
+            segments = root/'segments.json'
+            segments.write_text(json.dumps({
+                'transcript': editable_segments['transcript'],
+                'cues': editable_segments['cues'],
+            }))
+            cli('save-segments','--project',folder,'--input',segments)
+            self.assertEqual(project()['transcript'][0]['text'], 'The edited final caption.')
             self.assertTrue(generated_audio.exists())
             expected_voice = engine.system_voice_signature({})
             self.assertEqual(project()['cues'][0]['audioSettings'], f'system|{expected_voice}|1.100|1.150|0.700')

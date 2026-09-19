@@ -637,8 +637,8 @@ private struct ProjectVideoInformationView: View {
     }
 }
 
-private struct TranscriptRow: Identifiable {
-    let segment: Segment
+private struct TranscriptRow: Identifiable, Hashable {
+    var segment: Segment
     let isDescription: Bool
     var id: String { (isDescription ? "ad:" : "transcript:") + segment.id }
     var kind: String { isDescription ? "Audio description" : "Transcript" }
@@ -646,6 +646,11 @@ private struct TranscriptRow: Identifiable {
     var playbackLabel: String {
         "Play \(kind.lowercased()) from \(String(format: "%.3f", segment.start)) to \(String(format: "%.3f", segment.end)) seconds: \(segment.text)"
     }
+}
+
+private struct SegmentEditBatch: Identifiable {
+    let id = UUID()
+    let rows: [TranscriptRow]
 }
 
 private struct TranscriptCaptionOverlay: View {
@@ -722,7 +727,10 @@ struct ProjectEditor: View {
     @AppStorage("timelineVisible") private var timelineVisible = true
     @State private var previewHeight: CGFloat = 413
     @State private var previewHeightAtDragStart: CGFloat?
-    @State private var cueToEdit: Segment?
+    @State private var segmentToEdit: TranscriptRow?
+    @State private var segmentBatchToEdit: SegmentEditBatch?
+    @State private var segmentEditMode = false
+    @State private var selectedSegmentIDs: Set<String> = []
     @State private var audioPreview: AVAudioPlayer?
     @State private var activePreviewCueID: String?
     @State private var previewPaused = false
@@ -756,6 +764,10 @@ struct ProjectEditor: View {
 
     private var captionControlsAvailable: Bool {
         ["transcript", "descriptions", "ad-transcript"].contains(tab)
+    }
+
+    private var segmentEditingAvailable: Bool {
+        captionControlsAvailable && !transcriptRows.isEmpty
     }
 
     private var captionOverlayTitle: String {
@@ -882,6 +894,38 @@ struct ProjectEditor: View {
                     .disabled(studio.busy)
                     .fixedSize()
             }
+            if segmentEditingAvailable {
+                if segmentEditMode {
+                    Menu("Selection", systemImage: "checklist") {
+                        Button("Select All", systemImage: "checkmark.square") {
+                            selectedSegmentIDs = Set(transcriptRows.map(\.id))
+                        }
+                        .disabled(selectedSegmentIDs.count == transcriptRows.count)
+                        Button("Deselect All", systemImage: "square") {
+                            selectedSegmentIDs.removeAll()
+                        }
+                        .disabled(selectedSegmentIDs.isEmpty)
+                    }
+                    .fixedSize()
+                    Button("Edit Selected…", systemImage: "square.and.pencil") {
+                        presentBulkSegmentEditor()
+                    }
+                    .disabled(selectedSegmentIDs.isEmpty)
+                    .fixedSize()
+                    Button("Delete Selected…", systemImage: "trash", role: .destructive) {
+                        deleteSelectedSegments()
+                    }
+                    .disabled(selectedSegmentIDs.isEmpty)
+                    .fixedSize()
+                }
+                Button(segmentEditMode ? "Done" : "Edit", systemImage: segmentEditMode ? "checkmark" : "pencil") {
+                    segmentEditMode.toggle()
+                    if !segmentEditMode { selectedSegmentIDs.removeAll() }
+                }
+                .disabled(studio.busy)
+                .fixedSize()
+                .accessibilityHint(segmentEditMode ? "Returns this section to view mode" : "Shows selection, editing, and deletion controls for segments")
+            }
         }
         .controlSize(.small)
         .padding(12)
@@ -939,7 +983,10 @@ struct ProjectEditor: View {
                 Button("Close") { studio.screenText = nil }
                 Spacer()
                 Button("Add as Description", systemImage: "text.badge.plus") {
-                    cueToEdit = Segment(id: UUID().uuidString, start: studio.screenTimestamp, end: min(project.duration, studio.screenTimestamp + 3), text: studio.screenText ?? "", origin: "ai", aiOriginalText: studio.screenText)
+                    segmentToEdit = TranscriptRow(
+                        segment: Segment(id: UUID().uuidString, start: studio.screenTimestamp, end: min(project.duration, studio.screenTimestamp + 3), text: studio.screenText ?? "", origin: "ai", aiOriginalText: studio.screenText),
+                        isDescription: true
+                    )
                     studio.screenText = nil
                 }
                 .disabled(studio.screenText?.isEmpty != false)
@@ -949,20 +996,37 @@ struct ProjectEditor: View {
         .frame(width: 540)
     }
 
-    private func cueEditor(for cue: Segment) -> some View {
-        CueEditor(
-            cue: cue,
+    private func segmentEditor(for row: TranscriptRow) -> some View {
+        let readFrameAction: ((Double) -> Void)? = row.isDescription
+            ? { timestamp in readFrameForSegment(at: timestamp) }
+            : nil
+        return SegmentEditor(
+            row: row,
             duration: project.duration,
             transcript: project.transcript,
-            otherDescriptions: project.cues.filter { $0.id != cue.id },
+            descriptions: project.cues,
             capturedScreenText: $segmentScreenText,
             isReadingFrame: readingFrameForSegment,
-            readFrame: readFrameForSegment
+            readFrame: readFrameAction
         ) { updated in
-            var cues = project.cues.filter { $0.id != updated.id }
-            cues.append(updated)
-            studio.saveCues(cues)
+            saveEditedRows([updated])
         }
+    }
+
+    private func saveEditedRows(_ updatedRows: [TranscriptRow]) {
+        let transcriptUpdates = Dictionary(uniqueKeysWithValues: updatedRows.filter { !$0.isDescription }.map { ($0.segment.id, $0.segment) })
+        let descriptionUpdates = Dictionary(uniqueKeysWithValues: updatedRows.filter(\.isDescription).map { ($0.segment.id, $0.segment) })
+        var transcript = project.transcript.map { transcriptUpdates[$0.id] ?? $0 }
+        var descriptions = project.cues.map { descriptionUpdates[$0.id] ?? $0 }
+        for row in updatedRows where row.isDescription && !project.cues.contains(where: { $0.id == row.segment.id }) {
+            descriptions.append(row.segment)
+        }
+        for row in updatedRows where !row.isDescription && !project.transcript.contains(where: { $0.id == row.segment.id }) {
+            transcript.append(row.segment)
+        }
+        transcript.sort { ($0.start, $0.end, $0.id) < ($1.start, $1.end, $1.id) }
+        descriptions.sort { ($0.start, $0.end, $0.id) < ($1.start, $1.end, $1.id) }
+        studio.saveSegments(transcript, cues: descriptions)
     }
 
     private func preparePlayback() {
@@ -1036,6 +1100,42 @@ struct ProjectEditor: View {
         previewPaused = false
     }
 
+    private func selectionBinding(for id: String) -> Binding<Bool> {
+        Binding(
+            get: { selectedSegmentIDs.contains(id) },
+            set: { selected in
+                if selected { selectedSegmentIDs.insert(id) }
+                else { selectedSegmentIDs.remove(id) }
+            }
+        )
+    }
+
+    private func presentBulkSegmentEditor() {
+        let selected = transcriptRows.filter { selectedSegmentIDs.contains($0.id) }
+        guard !selected.isEmpty else { return }
+        playback.pauseAndCaptureTime { _ in
+            segmentBatchToEdit = SegmentEditBatch(rows: selected)
+        }
+    }
+
+    private func deleteSelectedSegments() {
+        let selected = transcriptRows.filter { selectedSegmentIDs.contains($0.id) }
+        let transcriptIDs = Set(selected.filter { !$0.isDescription }.map { $0.segment.id })
+        let descriptionIDs = Set(selected.filter(\.isDescription).map { $0.segment.id })
+        if studio.confirmDeleteSegments(
+            project,
+            transcriptIDs: transcriptIDs,
+            descriptionIDs: descriptionIDs,
+            beforeDelete: {
+                stopNarrationPreview()
+                playback.stopNarrationPlayback()
+            }
+        ) {
+            selectedSegmentIDs.removeAll()
+            segmentEditMode = false
+        }
+    }
+
     private func previewControlTitle(for cue: Segment) -> String {
         guard activePreviewCueID == cue.id else { return "Play Narration" }
         return audioPreview?.isPlaying == true ? "Pause Narration" : "Resume Narration"
@@ -1107,6 +1207,12 @@ struct ProjectEditor: View {
                     List(segments) { row in
                         let cue = row.segment
                         HStack(alignment: .top, spacing: 16) {
+                            if segmentEditMode {
+                                Toggle("Select \(row.kind.lowercased()) segment at \(timecode(cue.start))", isOn: selectionBinding(for: row.id))
+                                    .toggleStyle(.checkbox)
+                                    .labelsHidden()
+                                    .accessibilityLabel("Select \(row.kind.lowercased()) segment at \(timecode(cue.start))")
+                            }
                             if tab == "transcript" || tab == "ad-transcript" {
                                 Button {
                                     if row.isDescription { playback.narrationEnabled = true }
@@ -1140,7 +1246,7 @@ struct ProjectEditor: View {
                                 }
                                 Text(cue.text).textSelection(.enabled)
                             }.frame(maxWidth: .infinity, alignment: .leading)
-                            if tab == "descriptions" {
+                            if row.isDescription && tab == "descriptions" {
                                 Button(previewControlTitle(for: cue), systemImage: previewControlIcon(for: cue)) { previewNarration(for: cue) }
                                     .labelStyle(.iconOnly)
                                     .disabled(studio.busy || playableNarrationURL(for: cue) == nil)
@@ -1153,35 +1259,38 @@ struct ProjectEditor: View {
                                     .help(activePreviewCueID == cue.id
                                         ? "Stop this AD segment’s narration and return to the beginning"
                                         : "This AD segment’s narration is not active")
-                                Button("Edit", systemImage: "pencil") {
-                                    playback.pauseAndCaptureTime { _ in cueToEdit = cue }
-                                }.labelStyle(.iconOnly).disabled(studio.busy)
-                                Menu {
-                                    Button(previewControlTitle(for: cue), systemImage: previewControlIcon(for: cue)) { previewNarration(for: cue) }
-                                        .disabled(playableNarrationURL(for: cue) == nil)
-                                    Button("Stop Narration", systemImage: "stop.circle") { stopNarrationPreview() }
-                                        .disabled(activePreviewCueID != cue.id)
-                                    Button("Rewrite to Fit", systemImage: "wand.and.stars") { studio.execute("rewrite-cue", extra: ["--segment", cue.id]) }
-                                    Button("Synthesize This Segment", systemImage: "waveform") { studio.execute("synthesize-tts", extra: ["--segment", cue.id]) }
-                                    Button("Delete Segment Audio…", systemImage: "speaker.slash", role: .destructive) {
-                                        studio.confirmDeleteSegmentAudio(project, cue: cue) {
-                                            stopNarrationPreview()
-                                            playback.stopNarrationPlayback()
+                            }
+                            if segmentEditMode {
+                                Button("Edit \(row.kind) Segment", systemImage: "pencil") {
+                                    playback.pauseAndCaptureTime { _ in segmentToEdit = row }
+                                }
+                                .labelStyle(.iconOnly)
+                                .disabled(studio.busy)
+                                .help("Edit \(row.kind.lowercased()) text and timing")
+                                if row.isDescription {
+                                    Menu {
+                                        Button("Rewrite to Fit", systemImage: "wand.and.stars") { studio.execute("rewrite-cue", extra: ["--segment", cue.id]) }
+                                        Button("Synthesize This Segment", systemImage: "waveform") { studio.execute("synthesize-tts", extra: ["--segment", cue.id]) }
+                                        Button("Delete Segment Audio…", systemImage: "speaker.slash", role: .destructive) {
+                                            studio.confirmDeleteSegmentAudio(project, cue: cue) {
+                                                stopNarrationPreview()
+                                                playback.stopNarrationPlayback()
+                                            }
                                         }
-                                    }
-                                    .disabled(cue.audio == nil)
-                                    Button("Delete Segment…", systemImage: "trash", role: .destructive) {
-                                        studio.confirmDeleteSegment(project, cue: cue) {
-                                            stopNarrationPreview()
-                                            playback.stopNarrationPlayback()
+                                        .disabled(cue.audio == nil)
+                                        Button("Delete Segment…", systemImage: "trash", role: .destructive) {
+                                            studio.confirmDeleteSegment(project, cue: cue) {
+                                                stopNarrationPreview()
+                                                playback.stopNarrationPlayback()
+                                            }
                                         }
-                                    }
-                                } label: { Image(systemName: "ellipsis") }
-                                    .menuStyle(.borderlessButton)
-                                    .menuIndicator(.hidden)
-                                    .fixedSize()
-                                    .disabled(studio.busy)
-                                    .accessibilityLabel("Segment actions")
+                                    } label: { Image(systemName: "ellipsis") }
+                                        .menuStyle(.borderlessButton)
+                                        .menuIndicator(.hidden)
+                                        .fixedSize()
+                                        .disabled(studio.busy)
+                                        .accessibilityLabel("Segment actions")
+                                }
                             }
                         }.padding(.vertical, 8)
                             .accessibilityElement(children: .contain)
@@ -1307,7 +1416,7 @@ struct ProjectEditor: View {
         }
         shortcutActions.previewHidden = previewHidden
         shortcutActions.timelineVisible = timelineVisible
-        shortcutActions.available = !shortcutsBlocked && !studio.busy && cueToEdit == nil && studio.screenText == nil
+        shortcutActions.available = !shortcutsBlocked && !studio.busy && segmentToEdit == nil && segmentBatchToEdit == nil && studio.screenText == nil
         shortcutActions.activeSection = tab
         shortcutActions.captionDisplayMode = studio.settings.captionDisplayMode
         shortcutActions.hasTranscriptText = !project.transcript.isEmpty
@@ -1399,11 +1508,16 @@ struct ProjectEditor: View {
         }
         .onChange(of: previewHidden) { _, _ in refreshEditorShortcutActions() }
         .onChange(of: shortcutsBlocked) { _, _ in refreshEditorShortcutActions() }
-        .onChange(of: cueToEdit?.id) { _, _ in refreshEditorShortcutActions() }
+        .onChange(of: segmentToEdit?.id) { _, _ in refreshEditorShortcutActions() }
+        .onChange(of: segmentBatchToEdit?.id) { _, _ in refreshEditorShortcutActions() }
         .onChange(of: studio.screenText) { _, _ in refreshEditorShortcutActions() }
         .onChange(of: studio.busy) { _, _ in refreshEditorShortcutActions() }
         .onChange(of: project.updatedAt) { _, _ in refreshEditorShortcutActions(updateHandler: true) }
-        .onChange(of: tab) { _, _ in refreshEditorShortcutActions() }
+        .onChange(of: tab) { _, _ in
+            selectedSegmentIDs.removeAll()
+            segmentEditMode = false
+            refreshEditorShortcutActions()
+        }
         .onChange(of: studio.settings.captionDisplayMode) { _, _ in refreshEditorShortcutActions() }
         .onChange(of: project.summary) { _, _ in refreshEditorShortcutActions() }
         .onChange(of: summaryReader.isReading) { _, _ in refreshEditorShortcutActions() }
@@ -1411,22 +1525,37 @@ struct ProjectEditor: View {
         .onChange(of: summaryReader.selectedRange) { _, _ in refreshEditorShortcutActions() }
         .onChange(of: summaryReader.sentences.count) { _, _ in refreshEditorShortcutActions() }
         .sheet(isPresented: screenTextPresented) { screenTextReview }
-        .sheet(item: $cueToEdit, onDismiss: {
+        .sheet(item: $segmentToEdit, onDismiss: {
             readingFrameForSegment = false
             segmentScreenText = nil
-        }) { cue in cueEditor(for: cue) }
+        }) { row in segmentEditor(for: row) }
+        .sheet(item: $segmentBatchToEdit) { batch in
+            BulkSegmentEditor(
+                rows: batch.rows,
+                allRows: project.transcript.map { TranscriptRow(segment: $0, isDescription: false) }
+                    + project.cues.map { TranscriptRow(segment: $0, isDescription: true) },
+                duration: project.duration
+            ) { updatedRows in
+                saveEditedRows(updatedRows)
+                selectedSegmentIDs.removeAll()
+                segmentEditMode = false
+            }
+        }
     }
 
     private func presentNewSegment() {
         playback.pauseAndCaptureTime { capturedTime in
             let latestStart = max(0, project.duration - 0.1)
             let start = max(0, min(capturedTime, latestStart))
-            cueToEdit = Segment(
-                id: UUID().uuidString,
-                start: start,
-                end: min(start + 3, project.duration),
-                text: "",
-                origin: "manual"
+            segmentToEdit = TranscriptRow(
+                segment: Segment(
+                    id: UUID().uuidString,
+                    start: start,
+                    end: min(start + 3, project.duration),
+                    text: "",
+                    origin: "manual"
+                ),
+                isDescription: true
             )
         }
     }
@@ -1739,67 +1868,116 @@ private struct TimecodeInput: View {
     }
 }
 
-struct CueEditor: View {
+private func preciseSegmentTimecode(_ seconds: Double) -> String {
+    let milliseconds = Int((max(0, seconds) * 1000).rounded())
+    let hours = milliseconds / 3_600_000
+    let minutes = (milliseconds / 60_000) % 60
+    let wholeSeconds = (milliseconds / 1000) % 60
+    let remainder = milliseconds % 1000
+    return String(format: "%02d:%02d:%02d.%03d", hours, minutes, wholeSeconds, remainder)
+}
+
+private func segmentExcerpt(_ text: String) -> String {
+    let collapsed = text.split(whereSeparator: { $0.isWhitespace }).joined(separator: " ")
+    guard collapsed.count > 80 else { return collapsed }
+    return String(collapsed.prefix(77)) + "…"
+}
+
+private func segmentValidationErrors(for row: TranscriptRow, among rows: [TranscriptRow], duration: Double) -> [String] {
+    let segment = row.segment
+    var errors: [String] = []
+    if !segment.start.isFinite || !segment.end.isFinite {
+        errors.append("Start and end times must be valid numbers.")
+    } else if segment.start < 0 || segment.end > duration {
+        errors.append("The segment must remain inside the video duration.")
+    } else if segment.end <= segment.start {
+        errors.append("End time must be after start time.")
+    }
+    let overlaps = rows
+        .filter { $0.id != row.id && segment.start < $0.segment.end && segment.end > $0.segment.start }
+        .sorted { $0.segment.start < $1.segment.start }
+    errors += overlaps.map { other in
+        let kind = other.isDescription ? "audio description" : "transcript"
+        return "Overlaps \(kind) \(preciseSegmentTimecode(other.segment.start)) to \(preciseSegmentTimecode(other.segment.end)): \(segmentExcerpt(other.segment.text))"
+    }
+    return errors
+}
+
+private struct SegmentTimingValidationView: View {
+    let errors: [String]
+    let isDescription: Bool
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            HStack(spacing: 8) {
+                MaterialIcon(glyph: "\u{e000}")
+                    .foregroundStyle(.red)
+                Text(errors.count == 1 ? "Timing error" : "\(errors.count) timing errors")
+                    .font(.headline)
+                    .foregroundStyle(.red)
+            }
+            ForEach(Array(errors.enumerated()), id: \.offset) { _, error in
+                Text(error)
+                    .font(.callout)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+            Text(isDescription
+                ? "Adjust the start or end time so the audio description plays only in a clear gap."
+                : "Adjust the start or end time so transcript and Audio Description segments do not overlap.")
+                .font(.caption)
+                .foregroundStyle(.secondary)
+        }
+        .padding(12)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(.red.opacity(0.1), in: .rect(cornerRadius: 8))
+        .accessibilityElement(children: .combine)
+        .accessibilityLabel("Timing validation error. \(errors.joined(separator: " "))")
+        .accessibilityHint("Adjust the start or end time before saving the segment.")
+    }
+}
+
+private struct SegmentEditor: View {
     @Environment(\.dismiss) private var dismiss
-    @State private var cue: Segment
+    @State private var row: TranscriptRow
     @State private var frameTextStatus: String?
     let duration: Double
     let transcript: [Segment]
-    let otherDescriptions: [Segment]
+    let descriptions: [Segment]
     @Binding var capturedScreenText: String?
     let isReadingFrame: Bool
-    let readFrame: (Double) -> Void
-    let save: (Segment) -> Void
-    init(cue: Segment, duration: Double, transcript: [Segment], otherDescriptions: [Segment], capturedScreenText: Binding<String?>, isReadingFrame: Bool, readFrame: @escaping (Double) -> Void, save: @escaping (Segment) -> Void) {
-        _cue = State(initialValue: cue)
+    let readFrame: ((Double) -> Void)?
+    let save: (TranscriptRow) -> Void
+
+    init(row: TranscriptRow, duration: Double, transcript: [Segment], descriptions: [Segment], capturedScreenText: Binding<String?>, isReadingFrame: Bool, readFrame: ((Double) -> Void)?, save: @escaping (TranscriptRow) -> Void) {
+        _row = State(initialValue: row)
         self.duration = duration
         self.transcript = transcript
-        self.otherDescriptions = otherDescriptions
+        self.descriptions = descriptions
         _capturedScreenText = capturedScreenText
         self.isReadingFrame = isReadingFrame
         self.readFrame = readFrame
         self.save = save
     }
+
+    private var allRows: [TranscriptRow] {
+        transcript.map { TranscriptRow(segment: $0, isDescription: false) }
+            + descriptions.map { TranscriptRow(segment: $0, isDescription: true) }
+    }
     private var segmentDuration: String {
-        String(format: "%.3f seconds", max(0, cue.end - cue.start))
-    }
-    private var hasInvalidRange: Bool {
-        !cue.start.isFinite || !cue.end.isFinite || cue.start < 0 || cue.end <= cue.start || cue.end > duration
-    }
-    private var transcriptOverlaps: [Segment] {
-        transcript.filter(overlapsCurrentCue).sorted { $0.start < $1.start }
-    }
-    private var descriptionOverlaps: [Segment] {
-        otherDescriptions.filter(overlapsCurrentCue).sorted { $0.start < $1.start }
+        String(format: "%.3f seconds", max(0, row.segment.end - row.segment.start))
     }
     private var timingErrors: [String] {
-        var errors: [String] = []
-        if !cue.start.isFinite || !cue.end.isFinite {
-            errors.append("Start and end times must be valid numbers.")
-        } else if cue.start < 0 || cue.end > duration {
-            errors.append("The segment must remain inside the video duration.")
-        } else if cue.end <= cue.start {
-            errors.append("End time must be after start time.")
-        }
-        errors += descriptionOverlaps.map {
-            "Overlaps audio description \(preciseRange($0)): \(excerpt($0.text))"
-        }
-        errors += transcriptOverlaps.map {
-            "Overlaps transcript \(preciseRange($0)): \(excerpt($0.text))"
-        }
-        return errors
+        segmentValidationErrors(for: row, among: allRows, duration: duration)
     }
     private var saveDisabled: Bool {
-        cue.text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
-            || hasInvalidRange
-            || !transcriptOverlaps.isEmpty
-            || !descriptionOverlaps.isEmpty
+        row.segment.text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || !timingErrors.isEmpty
     }
+
     var body: some View {
         Form {
             Section {
                 VStack(alignment: .leading, spacing: 22) {
-                    TimecodeInput(label: "Start time", value: $cue.start, range: 0...max(0, duration))
+                    TimecodeInput(label: "Start time", value: $row.segment.start, range: 0...max(0, duration))
                     HStack {
                         Spacer()
                         Text("Duration \(segmentDuration)")
@@ -1808,34 +1986,36 @@ struct CueEditor: View {
                             .foregroundStyle(.secondary)
                             .accessibilityLabel("Segment duration: \(segmentDuration)")
                     }
-                    TimecodeInput(label: "End time", value: $cue.end, range: 0...max(0, duration))
+                    TimecodeInput(label: "End time", value: $row.segment.end, range: 0...max(0, duration))
                     if !timingErrors.isEmpty {
-                        timingValidationView
+                        SegmentTimingValidationView(errors: timingErrors, isDescription: row.isDescription)
                     }
                 }
             } header: {
                 Text("Timing")
             }
             Section {
-                HStack {
-                    Spacer()
-                    Button {
-                        frameTextStatus = nil
-                        readFrame(cue.start)
-                    } label: {
-                        if isReadingFrame {
-                            Label("Reading Frame Text…", systemImage: "text.viewfinder")
-                        } else {
-                            Label("Read Frame Text", systemImage: "text.viewfinder")
+                if let readFrame {
+                    HStack {
+                        Spacer()
+                        Button {
+                            frameTextStatus = nil
+                            readFrame(row.segment.start)
+                        } label: {
+                            if isReadingFrame {
+                                Label("Reading Frame Text…", systemImage: "text.viewfinder")
+                            } else {
+                                Label("Read Frame Text", systemImage: "text.viewfinder")
+                            }
                         }
+                        .disabled(isReadingFrame)
+                        .help("Read text from the video frame at the segment start time and use it as the description")
+                        .accessibilityHint("Replaces the description with text found at the segment start time.")
                     }
-                    .disabled(isReadingFrame)
-                    .help("Read text from the video frame at the segment start time and use it as the description")
-                    .accessibilityHint("Replaces the description with text found at the segment start time.")
                 }
-                TextEditor(text: $cue.text)
+                TextEditor(text: $row.segment.text)
                     .frame(height: 140)
-                    .accessibilityLabel("Audio description text")
+                    .accessibilityLabel(row.isDescription ? "Audio description text" : "Transcript text")
                 if let frameTextStatus {
                     Text(frameTextStatus)
                         .font(.caption)
@@ -1843,15 +2023,15 @@ struct CueEditor: View {
                         .accessibilityLabel(frameTextStatus)
                 }
             } header: {
-                Text("Description")
+                Text(row.isDescription ? "Description" : "Transcript")
             }
             Section {
                 HStack {
                     Spacer()
                     Button("Cancel", role: .cancel) { dismiss() }.keyboardShortcut(.cancelAction)
-                    Button("Save Segment", systemImage: "checkmark") { save(cue); dismiss() }.keyboardShortcut(.defaultAction)
-                    .disabled(saveDisabled)
-                    .help(saveDisabled && !timingErrors.isEmpty ? "Resolve timing errors before saving this segment" : "Save this audio description segment")
+                    Button("Save Segment", systemImage: "checkmark") { save(row); dismiss() }.keyboardShortcut(.defaultAction)
+                        .disabled(saveDisabled)
+                        .help(saveDisabled && !timingErrors.isEmpty ? "Resolve timing errors before saving this segment" : "Save this \(row.kind.lowercased()) segment")
                 }
             }
         }
@@ -1861,64 +2041,125 @@ struct CueEditor: View {
             if text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
                 frameTextStatus = "No readable text was found at the segment start time."
             } else {
-                cue.text = text
-                cue.origin = "ai"
-                cue.aiOriginalText = text
+                row.segment.text = text
+                row.segment.origin = "ai"
+                row.segment.aiOriginalText = text
                 frameTextStatus = "Screen text added to the description."
             }
             capturedScreenText = nil
         }
-        .navigationTitle(cue.text.isEmpty ? "Add Audio Description Segment" : "Edit Audio Description Segment")
+        .navigationTitle(row.segment.text.isEmpty ? "Add Audio Description Segment" : "Edit \(row.kind) Segment")
         .frame(width: 560, height: 590)
     }
+}
 
-    private var timingValidationView: some View {
-        VStack(alignment: .leading, spacing: 8) {
-            HStack(spacing: 8) {
-                MaterialIcon(glyph: "\u{e000}")
-                    .foregroundStyle(.red)
-                Text(timingErrors.count == 1 ? "Timing error" : "\(timingErrors.count) timing errors")
-                    .font(.headline)
-                    .foregroundStyle(.red)
-            }
-            ForEach(Array(timingErrors.enumerated()), id: \.offset) { _, error in
-                Text(error)
-                    .font(.callout)
-                    .foregroundStyle(.primary)
-                    .fixedSize(horizontal: false, vertical: true)
-            }
-            Text("Adjust the start or end time so the audio description plays only in a clear gap.")
-                .font(.caption)
-                .foregroundStyle(.secondary)
+private struct BulkSegmentEditor: View {
+    @Environment(\.dismiss) private var dismiss
+    @State private var rows: [TranscriptRow]
+    @State private var selectedID: String?
+    let allRows: [TranscriptRow]
+    let duration: Double
+    let save: ([TranscriptRow]) -> Void
+
+    init(rows: [TranscriptRow], allRows: [TranscriptRow], duration: Double, save: @escaping ([TranscriptRow]) -> Void) {
+        _rows = State(initialValue: rows)
+        _selectedID = State(initialValue: rows.first?.id)
+        self.allRows = allRows
+        self.duration = duration
+        self.save = save
+    }
+
+    private var combinedRows: [TranscriptRow] {
+        let editedIDs = Set(rows.map(\.id))
+        return allRows.filter { !editedIDs.contains($0.id) } + rows
+    }
+
+    private func errors(for row: TranscriptRow) -> [String] {
+        segmentValidationErrors(for: row, among: combinedRows, duration: duration)
+    }
+
+    private var saveDisabled: Bool {
+        rows.contains {
+            $0.segment.text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || !errors(for: $0).isEmpty
         }
-        .padding(12)
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .background(.red.opacity(0.1), in: .rect(cornerRadius: 8))
-        .accessibilityElement(children: .combine)
-        .accessibilityLabel("Timing validation error. \(timingErrors.joined(separator: " "))")
-        .accessibilityHint("Adjust the start or end time before saving the segment.")
     }
 
-    private func overlapsCurrentCue(_ segment: Segment) -> Bool {
-        cue.start < segment.end && cue.end > segment.start
-    }
+    var body: some View {
+        VStack(spacing: 0) {
+            HSplitView {
+                List(selection: $selectedID) {
+                    ForEach(rows) { row in
+                        VStack(alignment: .leading, spacing: 4) {
+                            Text("\(row.kind) · \(timecode(row.segment.start))")
+                                .font(.headline)
+                            Text(segmentExcerpt(row.segment.text))
+                                .font(.caption)
+                                .foregroundStyle(.secondary)
+                                .lineLimit(2)
+                            if !errors(for: row).isEmpty {
+                                Label("Needs correction", systemImage: "exclamationmark.triangle.fill")
+                                    .font(.caption)
+                                    .foregroundStyle(.red)
+                            }
+                        }
+                        .padding(.vertical, 4)
+                        .tag(row.id)
+                        .accessibilityElement(children: .combine)
+                        .accessibilityLabel("\(row.kind) segment at \(timecode(row.segment.start)): \(row.segment.text)")
+                    }
+                }
+                .frame(minWidth: 220, idealWidth: 260, maxWidth: 300)
 
-    private func preciseRange(_ segment: Segment) -> String {
-        "\(preciseTimecode(segment.start)) to \(preciseTimecode(segment.end))"
-    }
-
-    private func preciseTimecode(_ seconds: Double) -> String {
-        let milliseconds = Int((max(0, seconds) * 1000).rounded())
-        let hours = milliseconds / 3_600_000
-        let minutes = (milliseconds / 60_000) % 60
-        let wholeSeconds = (milliseconds / 1000) % 60
-        let remainder = milliseconds % 1000
-        return String(format: "%02d:%02d:%02d.%03d", hours, minutes, wholeSeconds, remainder)
-    }
-
-    private func excerpt(_ text: String) -> String {
-        let collapsed = text.split(whereSeparator: { $0.isWhitespace }).joined(separator: " ")
-        guard collapsed.count > 80 else { return collapsed }
-        return String(collapsed.prefix(77)) + "…"
+                if let selectedID, let index = rows.firstIndex(where: { $0.id == selectedID }) {
+                    let timingErrors = errors(for: rows[index])
+                    Form {
+                        Section("Timing") {
+                            VStack(alignment: .leading, spacing: 22) {
+                                TimecodeInput(label: "Start time", value: $rows[index].segment.start, range: 0...max(0, duration))
+                                HStack {
+                                    Spacer()
+                                    Text("Duration \(String(format: "%.3f seconds", max(0, rows[index].segment.end - rows[index].segment.start)))")
+                                        .font(.title3.bold())
+                                        .monospacedDigit()
+                                        .foregroundStyle(.secondary)
+                                }
+                                TimecodeInput(label: "End time", value: $rows[index].segment.end, range: 0...max(0, duration))
+                                if !timingErrors.isEmpty {
+                                    SegmentTimingValidationView(errors: timingErrors, isDescription: rows[index].isDescription)
+                                }
+                            }
+                        }
+                        Section(rows[index].isDescription ? "Description" : "Transcript") {
+                            TextEditor(text: $rows[index].segment.text)
+                                .frame(minHeight: 170)
+                                .accessibilityLabel(rows[index].isDescription ? "Audio description text" : "Transcript text")
+                        }
+                    }
+                    .formStyle(.grouped)
+                    .frame(minWidth: 520)
+                } else {
+                    ContentUnavailableView("Select a segment", systemImage: "text.cursor", description: Text("Choose one of the selected segments to edit its timing and text."))
+                        .frame(minWidth: 520)
+                }
+            }
+            Divider()
+            HStack {
+                Text("\(rows.count) selected")
+                    .foregroundStyle(.secondary)
+                    .accessibilityLabel("\(rows.count) segments selected for bulk editing")
+                Spacer()
+                Button("Cancel", role: .cancel) { dismiss() }.keyboardShortcut(.cancelAction)
+                Button("Save All", systemImage: "checkmark") {
+                    save(rows)
+                    dismiss()
+                }
+                .keyboardShortcut(.defaultAction)
+                .disabled(saveDisabled)
+                .help(saveDisabled ? "Resolve every empty-text or timing error before saving" : "Save changes to all selected segments")
+            }
+            .padding(16)
+        }
+        .navigationTitle("Edit Selected Segments")
+        .frame(width: 880, height: 620)
     }
 }

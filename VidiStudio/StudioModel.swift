@@ -902,14 +902,50 @@ final class StudioModel {
         execute("delete-segment-audio", extra: ["--segment", cue.id], project: project)
     }
     func confirmDeleteSegment(_ project: StudioProject, cue: Segment, beforeDelete: () -> Void) {
-        guard !busy, project.cues.contains(where: { $0.id == cue.id }) else { return }
+        _ = confirmDeleteSegments(
+            project,
+            transcriptIDs: [],
+            descriptionIDs: [cue.id],
+            beforeDelete: beforeDelete
+        )
+    }
+    @discardableResult
+    func confirmDeleteSegments(
+        _ project: StudioProject,
+        transcriptIDs: Set<String>,
+        descriptionIDs: Set<String>,
+        beforeDelete: () -> Void
+    ) -> Bool {
+        let transcriptToDelete = project.transcript.filter { transcriptIDs.contains($0.id) }
+        let descriptionsToDelete = project.cues.filter { descriptionIDs.contains($0.id) }
+        let count = transcriptToDelete.count + descriptionsToDelete.count
+        guard !busy, count > 0 else { return false }
+        let title: String
+        let message: String
+        let actionTitle: String
+        if count == 1, transcriptToDelete.count == 1 {
+            title = "Delete this transcript segment?"
+            message = "The transcript text and timing will be permanently removed. This cannot be undone."
+            actionTitle = "Delete Segment"
+        } else if count == 1 {
+            title = "Delete this Audio Description segment?"
+            message = "The description text, timing, and its generated narration audio will be permanently removed. This cannot be undone."
+            actionTitle = "Delete Segment"
+        } else {
+            title = "Delete \(count) selected segments?"
+            let transcriptSummary = transcriptToDelete.isEmpty ? nil : "\(transcriptToDelete.count) transcript"
+            let descriptionSummary = descriptionsToDelete.isEmpty ? nil : "\(descriptionsToDelete.count) Audio Description"
+            let summary = [transcriptSummary, descriptionSummary].compactMap { $0 }.joined(separator: " and ")
+            message = "This permanently removes \(summary) segments, including generated narration audio belonging to the selected descriptions. This cannot be undone."
+            actionTitle = "Delete Selected"
+        }
         guard confirmDeletion(
-            title: "Delete this Audio Description segment?",
-            message: "The description text, timing, and its generated narration audio will be permanently removed. This cannot be undone.",
-            actionTitle: "Delete Segment"
-        ) else { return }
+            title: title,
+            message: message,
+            actionTitle: actionTitle
+        ) else { return false }
         beforeDelete()
-        if cue.audio != nil {
+        if descriptionsToDelete.contains(where: { $0.audio != nil }) {
             NotificationCenter.default.post(
                 name: .vidiStudioNarrationAudioWillDelete,
                 object: self,
@@ -917,7 +953,11 @@ final class StudioModel {
             )
         }
         selectedID = project.id
-        saveCues(project.cues.filter { $0.id != cue.id })
+        saveSegments(
+            project.transcript.filter { !transcriptIDs.contains($0.id) },
+            cues: project.cues.filter { !descriptionIDs.contains($0.id) }
+        )
+        return true
     }
     private func confirmDeletion(title: String, message: String, actionTitle: String) -> Bool {
         let alert = NSAlert()
@@ -1205,6 +1245,23 @@ final class StudioModel {
             try JSONEncoder().encode(cues).write(to: file)
             execute("save-cues", extra: ["--input", file.path], project: p)
         } catch { self.error = error.localizedDescription }
+    }
+    func saveSegments(_ transcript: [Segment], cues: [Segment]) {
+        guard let project = selected, !busy else { return }
+        struct EditableSegments: Encodable {
+            let transcript: [Segment]
+            let cues: [Segment]
+        }
+        let directory = FileManager.default.temporaryDirectory.appendingPathComponent("vidistudio-segments-\(UUID().uuidString)")
+        let input = directory.appendingPathComponent("segments.json")
+        do {
+            try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true, attributes: [.posixPermissions: 0o700])
+            try JSONEncoder().encode(EditableSegments(transcript: transcript, cues: cues)).write(to: input, options: .atomic)
+            execute("save-segments", extra: ["--input", input.path], project: project, cleanupURL: directory)
+        } catch {
+            try? FileManager.default.removeItem(at: directory)
+            self.error = error.localizedDescription
+        }
     }
 }
 
