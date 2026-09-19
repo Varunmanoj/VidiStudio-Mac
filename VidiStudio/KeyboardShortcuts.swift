@@ -158,10 +158,12 @@ struct StudioShortcut: Identifiable {
         case "undo": return "arrow.uturn.backward"
         case "redo": return "arrow.uturn.forward"
         case "summary-play-pause": return "playpause"
+        case "export": return "square.and.arrow.up"
         default: return "arrow.clockwise"
         }
     }
     static let editor: [StudioShortcut] = [
+        .init(id: "export", title: "Export…", key: "e", modifiers: [.command, .shift], spoken: "Command + Shift + E", group: "File"),
         .init(id: "preview", title: "Show or Hide Preview", key: "v", modifiers: [.command, .shift], spoken: "Command + Shift + V", group: "Playback"),
         .init(id: "fullscreen", title: "Full-Screen Video", key: "f", modifiers: [.command, .option], spoken: "Command + Option + F; Escape to return", group: "Playback"),
         .init(id: "play", title: "Play or Pause", key: .space, modifiers: [.command, .shift], spoken: "Command + Shift + Space", group: "Playback"),
@@ -199,6 +201,7 @@ struct StudioCommands: Commands {
             Button("Export…", systemImage: "square.and.arrow.up") {
                 editor?.showExportDialog()
             }
+            .keyboardShortcut("e", modifiers: [.command, .shift])
             .disabled(editor?.available != true || editor?.exportHandler == nil)
         }
         CommandGroup(after: .sidebar) {

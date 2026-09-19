@@ -550,6 +550,7 @@ struct ProjectExportButton: View {
     var body: some View {
         Button("Export…", systemImage: "square.and.arrow.up", action: showDialog)
         .disabled(busy)
-        .help("Choose video, audio, or text export options for \(project.name)")
+        .help("Choose video, audio, or text export options for \(project.name) (Command-Shift-E in the project editor)")
+        .accessibilityHint("Opens Export options. In the project editor, you can also press Command Shift E.")
     }
 }

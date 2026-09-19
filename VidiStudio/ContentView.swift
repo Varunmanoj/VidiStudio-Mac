@@ -524,7 +524,7 @@ struct ProcessingInspector: View {
                                     busy: studio.busy,
                                     showDialog: showExportDialog
                                 )
-                                .help("Export video, narration audio, or text in the format you need")
+                                .help("Export video, narration audio, or text in the format you need (Command-Shift-E)")
                                 if !p.exports.isEmpty {
                                     Divider()
                                     CreatedExportsView(studio: studio, project: p)
