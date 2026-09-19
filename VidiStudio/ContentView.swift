@@ -527,30 +527,7 @@ struct ProcessingInspector: View {
                                 .help("Export video, narration audio, or text in the format you need")
                                 if !p.exports.isEmpty {
                                     Divider()
-                                    Text("Created Exports")
-                                        .font(.headline)
-                                    ForEach(p.exports, id: \.self) { path in
-                                        HStack(spacing: 6) {
-                                            Button(URL(fileURLWithPath: path).lastPathComponent, systemImage: "play.rectangle") {
-                                                if let url = p.url(path) { NSWorkspace.shared.open(url) }
-                                            }
-                                            .frame(maxWidth: .infinity, alignment: .leading)
-                                            Button("Show Export in Finder", systemImage: "folder") {
-                                                if let url = p.url(path) {
-                                                    NSWorkspace.shared.activateFileViewerSelecting([url])
-                                                }
-                                            }
-                                            .labelStyle(.iconOnly)
-                                            .help("Show \(URL(fileURLWithPath: path).lastPathComponent) in Finder")
-                                            .disabled(studio.busy || p.url(path) == nil)
-                                            Button("Delete Export…", systemImage: "trash", role: .destructive) {
-                                                studio.confirmDeleteExport(p, path: path)
-                                            }
-                                            .labelStyle(.iconOnly)
-                                            .help("Delete \(URL(fileURLWithPath: path).lastPathComponent)")
-                                            .disabled(studio.busy)
-                                        }
-                                    }
+                                    CreatedExportsView(studio: studio, project: p)
                                 }
                             }
                         }
@@ -1069,18 +1046,8 @@ struct ProjectEditor: View {
         return project.url(audio)
     }
 
-    private func previewNarration(for cue: Segment) {
+    private func playNarrationPreview(for cue: Segment) {
         guard let url = playableNarrationURL(for: cue) else { return }
-        if activePreviewCueID == cue.id, let audioPreview {
-            if audioPreview.isPlaying {
-                audioPreview.pause()
-                previewPaused = true
-            } else {
-                audioPreview.play()
-                previewPaused = false
-            }
-            return
-        }
         do {
             stopNarrationPreview()
             let player = try AVAudioPlayer(contentsOf: url)
@@ -1090,6 +1057,18 @@ struct ProjectEditor: View {
             player.play()
         } catch {
             studio.error = "Could not play this segment’s narration: \(error.localizedDescription)"
+        }
+    }
+
+    private func toggleNarrationPreviewPause() {
+        guard let audioPreview, activePreviewCueID != nil else { return }
+        if audioPreview.isPlaying {
+            audioPreview.pause()
+            previewPaused = true
+        } else if audioPreview.play() {
+            previewPaused = false
+        } else {
+            stopNarrationPreview()
         }
     }
 
@@ -1136,13 +1115,20 @@ struct ProjectEditor: View {
         }
     }
 
-    private func previewControlTitle(for cue: Segment) -> String {
-        guard activePreviewCueID == cue.id else { return "Play Narration" }
-        return audioPreview?.isPlaying == true ? "Pause Narration" : "Resume Narration"
+    private func previewPrimaryControlTitle(for cue: Segment) -> String {
+        activePreviewCueID == cue.id ? "Stop Narration" : "Play Narration"
     }
 
-    private func previewControlIcon(for cue: Segment) -> String {
-        activePreviewCueID == cue.id && audioPreview?.isPlaying == true ? "pause.circle" : "play.circle"
+    private func previewPrimaryControlIcon(for cue: Segment) -> String {
+        activePreviewCueID == cue.id ? "stop.circle" : "play.circle"
+    }
+
+    private var previewPauseControlTitle: String {
+        previewPaused ? "Resume Narration" : "Pause Narration"
+    }
+
+    private var previewPauseControlIcon: String {
+        previewPaused ? "play.circle" : "pause.circle"
     }
 
     private var previewPane: some View {
@@ -1247,18 +1233,26 @@ struct ProjectEditor: View {
                                 Text(cue.text).textSelection(.enabled)
                             }.frame(maxWidth: .infinity, alignment: .leading)
                             if row.isDescription && tab == "descriptions" {
-                                Button(previewControlTitle(for: cue), systemImage: previewControlIcon(for: cue)) { previewNarration(for: cue) }
+                                Button(previewPrimaryControlTitle(for: cue), systemImage: previewPrimaryControlIcon(for: cue)) {
+                                    if activePreviewCueID == cue.id {
+                                        stopNarrationPreview()
+                                    } else {
+                                        playNarrationPreview(for: cue)
+                                    }
+                                }
                                     .labelStyle(.iconOnly)
                                     .disabled(studio.busy || playableNarrationURL(for: cue) == nil)
                                     .help(playableNarrationURL(for: cue) == nil
                                         ? "Generate synchronized audio for this AD segment first"
-                                        : "\(previewControlTitle(for: cue)) for this AD segment")
-                                Button("Stop Narration", systemImage: "stop.circle") { stopNarrationPreview() }
+                                        : "\(previewPrimaryControlTitle(for: cue)) for this AD segment")
+                                if activePreviewCueID == cue.id {
+                                    Button(previewPauseControlTitle, systemImage: previewPauseControlIcon) {
+                                        toggleNarrationPreviewPause()
+                                    }
                                     .labelStyle(.iconOnly)
-                                    .disabled(studio.busy || activePreviewCueID != cue.id)
-                                    .help(activePreviewCueID == cue.id
-                                        ? "Stop this AD segment’s narration and return to the beginning"
-                                        : "This AD segment’s narration is not active")
+                                    .disabled(studio.busy)
+                                    .help("\(previewPauseControlTitle) for this AD segment")
+                                }
                             }
                             if segmentEditMode {
                                 Button("Edit \(row.kind) Segment", systemImage: "pencil") {

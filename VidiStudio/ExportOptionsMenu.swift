@@ -140,7 +140,7 @@ enum StudioExportAction: Hashable {
     }
 }
 
-private enum ExportCategory: String, CaseIterable, Identifiable {
+enum ExportCategory: String, CaseIterable, Identifiable {
     case video
     case audio
     case text
@@ -153,6 +153,13 @@ private enum ExportCategory: String, CaseIterable, Identifiable {
         case .audio: return "waveform"
         case .text: return "doc.text"
         }
+    }
+
+    static func resolve(path: String) -> Self {
+        let fileExtension = URL(fileURLWithPath: path).pathExtension.lowercased()
+        if ["mp4", "mov", "m4v"].contains(fileExtension) { return .video }
+        if ["m4a", "aac", "mp3", "wav"].contains(fileExtension) { return .audio }
+        return .text
     }
 }
 
