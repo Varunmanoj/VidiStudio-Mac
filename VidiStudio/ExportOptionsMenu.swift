@@ -216,6 +216,12 @@ private enum VideoTranscriptChoice: String, CaseIterable, Identifiable {
         case .transcriptAndDescriptiveTranscriptClosed: return .dualClosed
         }
     }
+    var rendersIntoVideo: Bool {
+        switch self {
+        case .transcriptOpen, .adTranscriptOpen: return true
+        default: return false
+        }
+    }
 }
 
 private enum AudioExportChoice: String, CaseIterable, Identifiable {
@@ -252,6 +258,7 @@ struct ExportDialog: View {
     @State private var textContent: String
     @State private var textFormat: String
     @State private var replacementAction: StudioExportAction?
+    @State private var openCaptionAction: StudioExportAction?
 
     private let textTypes: [(title: String, content: String)] = [
         ("Transcript", "transcript"),
@@ -273,6 +280,7 @@ struct ExportDialog: View {
         _textContent = State(initialValue: firstText)
         _textFormat = State(initialValue: firstText == "summary" ? "md" : "srt")
         _replacementAction = State(initialValue: nil)
+        _openCaptionAction = State(initialValue: nil)
     }
 
     private var availableCategories: [ExportCategory] {
@@ -358,6 +366,15 @@ struct ExportDialog: View {
                                     .font(.caption)
                                     .foregroundStyle(.secondary)
                             }
+                            if videoTranscript.rendersIntoVideo {
+                                Label("Open captions must be rendered into the picture. VidiStudio keeps the source resolution, 10-bit depth and HDR color signaling when present, using a high-quality source-aware encode. Choose closed captions to copy the original video stream without re-encoding.", systemImage: "info.circle")
+                                    .font(.caption)
+                                    .foregroundStyle(.secondary)
+                            } else if !(videoAudio == .original && videoTranscript == .none) {
+                                Label("The original video stream is copied without re-encoding, preserving its resolution, codec, bit depth and HDR color signaling.", systemImage: "checkmark.circle")
+                                    .font(.caption)
+                                    .foregroundStyle(.secondary)
+                            }
                             if videoAudio == .original && videoTranscript == .none {
                                 Label("Choose Audio Description or a transcript to create an accessible video export.", systemImage: "exclamationmark.triangle")
                                     .font(.caption)
@@ -427,6 +444,30 @@ struct ExportDialog: View {
             }
         }
         .alert(
+            "Open Captions Require Video Re-Encoding",
+            isPresented: Binding(
+                get: { openCaptionAction != nil },
+                set: { if !$0 { openCaptionAction = nil } }
+            ),
+            presenting: openCaptionAction
+        ) { action in
+            Button("Cancel", role: .cancel) {
+                openCaptionAction = nil
+            }
+            Button("Use Closed Captions") {
+                openCaptionAction = nil
+                preferClosedCaptions()
+            }
+            .keyboardShortcut(.defaultAction)
+            Button("Export with Open Captions") {
+                openCaptionAction = nil
+                continueSaving(action)
+            }
+        } message: { _ in
+            let source = ProjectVideoInformation(project: project)
+            Text("Open captions change the picture, so FFmpeg must re-encode the video. The source is \(source.resolution), \(source.videoCodec), with \(source.color). VidiStudio will keep the source resolution, bit depth, and HDR base color signaling, but re-encoding can change compression quality and Dolby Vision dynamic metadata cannot be preserved after pixels change. Prefer closed captions to copy the original video stream without re-encoding.")
+        }
+        .alert(
             "Replace Existing Export?",
             isPresented: Binding(
                 get: { replacementAction != nil },
@@ -472,13 +513,32 @@ struct ExportDialog: View {
 
     private func save() {
         guard canSave, let selectedAction else { return }
-        let relative = selectedAction.targetRelativePath(for: project)
+        if videoTranscript.rendersIntoVideo {
+            openCaptionAction = selectedAction
+            return
+        }
+        continueSaving(selectedAction)
+    }
+
+    private func continueSaving(_ action: StudioExportAction) {
+        let relative = action.targetRelativePath(for: project)
         if let target = project.url(relative), FileManager.default.fileExists(atPath: target.path) {
-            replacementAction = selectedAction
+            replacementAction = action
             return
         }
         dismiss()
-        perform(selectedAction, false)
+        perform(action, false)
+    }
+
+    private func preferClosedCaptions() {
+        switch videoTranscript {
+        case .transcriptOpen:
+            videoTranscript = .transcriptClosed
+        case .adTranscriptOpen:
+            videoTranscript = .adTranscriptClosed
+        default:
+            break
+        }
     }
 }
 

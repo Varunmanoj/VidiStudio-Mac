@@ -590,6 +590,8 @@ private struct ProjectVideoInformationView: View {
                     informationRow("Frame Rate", information.frameRate)
                     informationRow("Resolution", information.resolution)
                     informationRow("Video", information.videoCodec)
+                    informationRow("Video Bit Rate", information.videoBitRate)
+                    informationRow("Color / HDR", information.color)
                     informationRow("Audio", information.audio)
                     informationRow("Container", information.container)
                     informationRow("Source Size", information.sourceFileSize)

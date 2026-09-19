@@ -94,6 +94,11 @@ def migrate_project_schema(root, project):
         project['summaryGenerated'] = bool(str(project.get('summary', '')).strip()) or (root/'metadata/summary.json').is_file()
     if 'descriptionsGenerated' not in project:
         project['descriptionsGenerated'] = bool(project.get('cues')) or (root/'audio-description/cues.json').is_file()
+    valid_exports = set(project.get('exports', []))
+    project['exportMediaInfo'] = {
+        path: value for path, value in (project.get('exportMediaInfo') or {}).items()
+        if path in valid_exports and isinstance(value, dict)
+    }
     project['schemaVersion'] = 2
     return project
 
@@ -289,6 +294,7 @@ def save_segments(p, transcript, cues):
     p['transcriptGenerated'] = bool(transcript)
     p['descriptionsGenerated'] = bool(cues)
     p['exports'] = []
+    p['exportMediaInfo'] = {}
     p['hasProcessed'] = bool(
         p.get('transcriptGenerated') or p.get('summaryGenerated') or p.get('descriptionsGenerated')
         or p.get('transcript') or p.get('summary') or p.get('cues')
@@ -736,11 +742,169 @@ def prepare_export_target(root, project, export_type, extension, replace_existin
     return relative, output, temporary
 
 
-def commit_export(project, relative, output, temporary):
+def media_frame_rate(stream):
+    """Return a finite frames-per-second value from ffprobe's rational fields."""
+    for key in ('avg_frame_rate', 'r_frame_rate'):
+        raw = str(stream.get(key) or '')
+        try:
+            numerator, denominator = raw.split('/', 1)
+            value = float(numerator) / float(denominator)
+        except (ValueError, ZeroDivisionError):
+            try: value = float(raw)
+            except ValueError: continue
+        if math.isfinite(value) and value > 0:
+            return value
+    return None
+
+
+def media_codec_description(stream):
+    return stream.get('codec_long_name') or str(stream.get('codec_name') or '').upper() or 'Not available'
+
+
+def media_color_description(stream):
+    transfer = stream.get('color_transfer')
+    primaries = stream.get('color_primaries')
+    pixel_format = stream.get('pix_fmt')
+    side_data = stream.get('side_data_list') or []
+    if any('dovi' in str(item.get('side_data_type', '')).lower()
+           or 'dolby vision' in str(item.get('side_data_type', '')).lower() for item in side_data):
+        dynamic_range = 'Dolby Vision HDR'
+    elif transfer == 'smpte2084':
+        dynamic_range = 'HDR (PQ)'
+    elif transfer == 'arib-std-b67':
+        dynamic_range = 'HDR (HLG)'
+    elif primaries == 'bt2020':
+        dynamic_range = 'BT.2020 wide color'
+    else:
+        dynamic_range = 'SDR or not reported'
+    details = [dynamic_range]
+    if pixel_format: details.append(pixel_format)
+    if primaries: details.append(primaries)
+    return ', '.join(details)
+
+
+def export_media_information(path, video_processing):
+    """Create the compact, portable media summary displayed by the native app."""
+    info = probe(path)
+    streams = info.get('streams', [])
+    video = next((stream for stream in streams if stream.get('codec_type') == 'video'), None)
+    if video is None:
+        return None
+    audio_streams = [stream for stream in streams if stream.get('codec_type') == 'audio']
+    audio_parts = []
+    for stream in audio_streams:
+        title = (stream.get('tags') or {}).get('title') or (stream.get('tags') or {}).get('handler_name')
+        channels = stream.get('channels')
+        description = media_codec_description(stream)
+        if channels: description += f', {channels} ch'
+        if title: description += f' ({title})'
+        audio_parts.append(description)
+    format_info = info.get('format', {})
+    duration = format_info.get('duration') or video.get('duration')
+    bit_rate = video.get('bit_rate')
+    return {
+        'duration': float(duration) if duration is not None else None,
+        'frameRate': media_frame_rate(video),
+        'width': int(video.get('width') or 0),
+        'height': int(video.get('height') or 0),
+        'videoCodec': media_codec_description(video),
+        'videoProfile': video.get('profile'),
+        'videoBitRate': int(bit_rate) if bit_rate is not None else None,
+        'color': media_color_description(video),
+        'audio': '; '.join(audio_parts) if audio_parts else 'No audio track',
+        'container': format_info.get('format_long_name') or format_info.get('format_name') or 'Not available',
+        'fileSize': path.stat().st_size,
+        'videoProcessing': video_processing,
+    }
+
+
+def validate_video_stream_copy(source, output):
+    """Reject a claimed stream-copy export if core video/HDR properties changed."""
+    source_video = next(stream for stream in probe(source).get('streams', []) if stream.get('codec_type') == 'video')
+    output_video = next(stream for stream in probe(output).get('streams', []) if stream.get('codec_type') == 'video')
+    compared_fields = ('codec_name', 'profile', 'width', 'height', 'pix_fmt', 'color_space', 'color_transfer', 'color_primaries')
+    for field in compared_fields:
+        source_value = source_video.get(field)
+        if source_value is not None and output_video.get(field) != source_value:
+            raise ValueError(f'Video stream-copy validation failed because {field} changed.')
+
+
+def video_render_args(source):
+    """Choose a high-quality encoder without scaling and carry source color signaling forward."""
+    info = probe(source)
+    video = next(stream for stream in info.get('streams', []) if stream.get('codec_type') == 'video')
+    pixel_format = str(video.get('pix_fmt') or '')
+    transfer = video.get('color_transfer')
+    primaries = video.get('color_primaries')
+    is_hdr = transfer in ('smpte2084', 'arib-std-b67') or primaries == 'bt2020'
+    try: reported_bit_depth = int(video.get('bits_per_raw_sample') or 0)
+    except (TypeError, ValueError): reported_bit_depth = 0
+    is_high_bit_depth = is_hdr or '10' in pixel_format or reported_bit_depth > 8
+    use_hevc = is_high_bit_depth or video.get('codec_name') in ('hevc', 'h265')
+    if use_hevc:
+        supported = {'yuv420p', 'yuv420p10le', 'yuv422p10le', 'yuv444p10le'}
+        output_pixel_format = pixel_format if pixel_format in supported else ('yuv420p10le' if is_high_bit_depth else 'yuv420p')
+        args = ['-c:v', 'libx265', '-preset', 'medium', '-crf', '16', '-pix_fmt', output_pixel_format]
+        encoder_parameters = []
+        if primaries and primaries != 'unknown': encoder_parameters.append(f'colorprim={primaries}')
+        if transfer and transfer != 'unknown': encoder_parameters.append(f'transfer={transfer}')
+        if video.get('color_space') and video.get('color_space') != 'unknown':
+            encoder_parameters.append(f'colormatrix={video["color_space"]}')
+        if encoder_parameters:
+            args += ['-x265-params', ':'.join(encoder_parameters)]
+    else:
+        supported = {'yuv420p', 'yuv422p', 'yuv444p', 'yuv420p10le', 'yuv422p10le', 'yuv444p10le'}
+        output_pixel_format = pixel_format if pixel_format in supported else 'yuv420p'
+        args = ['-c:v', 'libx264', '-preset', 'medium', '-crf', '16', '-pix_fmt', output_pixel_format]
+        encoder_parameters = []
+        if primaries and primaries != 'unknown': encoder_parameters.append(f'colorprim={primaries}')
+        if transfer and transfer != 'unknown': encoder_parameters.append(f'transfer={transfer}')
+        if video.get('color_space') and video.get('color_space') != 'unknown':
+            encoder_parameters.append(f'colormatrix={video["color_space"]}')
+        if encoder_parameters:
+            args += ['-x264-params', ':'.join(encoder_parameters)]
+    for option, field in (
+        ('-color_range', 'color_range'),
+        ('-color_primaries', 'color_primaries'),
+        ('-color_trc', 'color_transfer'),
+        ('-colorspace', 'color_space'),
+    ):
+        value = video.get(field)
+        if value and value != 'unknown':
+            args += [option, str(value)]
+    return args
+
+
+def validate_rendered_video(source, output):
+    """Ensure an unavoidable open-caption render retains resolution and HDR base signaling."""
+    source_video = next(stream for stream in probe(source).get('streams', []) if stream.get('codec_type') == 'video')
+    output_video = next(stream for stream in probe(output).get('streams', []) if stream.get('codec_type') == 'video')
+    for field in ('width', 'height'):
+        if output_video.get(field) != source_video.get(field):
+            raise ValueError('Open-caption rendering changed the source video resolution.')
+    for field in ('color_space', 'color_transfer', 'color_primaries'):
+        source_value = source_video.get(field)
+        if source_value and source_value != 'unknown' and output_video.get(field) != source_value:
+            raise ValueError(f'Open-caption rendering did not preserve {field}.')
+    source_pixel_format = str(source_video.get('pix_fmt') or '')
+    output_pixel_format = str(output_video.get('pix_fmt') or '')
+    try: source_bit_depth = int(source_video.get('bits_per_raw_sample') or 0)
+    except (TypeError, ValueError): source_bit_depth = 0
+    if ('10' in source_pixel_format or source_bit_depth > 8) and '10' not in output_pixel_format:
+        raise ValueError('Open-caption rendering reduced the source video bit depth.')
+
+
+def commit_export(project, relative, output, temporary, video_processing=None):
     """Atomically replace the configured export and keep one project-list entry."""
+    media_information = export_media_information(temporary, video_processing) if video_processing else None
     os.replace(temporary, output)
     project['exports'] = [path for path in project.get('exports', []) if path != relative]
     project['exports'].append(relative)
+    project.setdefault('exportMediaInfo', {})
+    if media_information:
+        project['exportMediaInfo'][relative] = media_information
+    else:
+        project['exportMediaInfo'].pop(relative, None)
     emit('Export created', export=relative)
 
 
@@ -992,10 +1156,11 @@ def export_captioned_video(root, project, open_captions=False, content='transcri
         cleanup.callback(export_temporary.unlink, missing_ok=True)
         caption_path = cleanup.enter_context(temporary_video_caption_file(project, captions, content))
         if open_captions:
+            source = local(root, project['source'])
             common = [
-                tool('ffmpeg'), '-y', '-v', 'error', '-i', local(root, project['source']),
+                tool('ffmpeg'), '-y', '-v', 'error', '-i', source,
                 '-map', '0:v:0', '-map', '0:a:0?', '-vf', f"ass=filename='{ffmpeg_filter_path(caption_path)}'",
-                '-c:v', 'libx264', '-preset', 'fast', '-crf', '20', '-movflags', '+faststart',
+                '-map_metadata', '0', *video_render_args(source), '-movflags', '+faststart',
                 '-t', str(project['duration']),
             ]
             attempts = [['-c:a', 'copy'], ['-c:a', 'aac']]
@@ -1010,7 +1175,6 @@ def export_captioned_video(root, project, open_captions=False, content='transcri
             attempts = [
                 ['-c:v', 'copy', '-c:a', 'copy'],
                 ['-c:v', 'copy', '-c:a', 'aac'],
-                ['-c:v', 'libx264', '-preset', 'fast', '-crf', '20', '-c:a', 'aac'],
             ]
         last_error = None
         for codecs in attempts:
@@ -1018,7 +1182,14 @@ def export_captioned_video(root, project, open_captions=False, content='transcri
             try:
                 run([*common, *codecs, export_temporary])
                 validate_captioned_video(export_temporary, float(project['duration']), captions)
-                commit_export(project, relative, output, export_temporary)
+                if open_captions:
+                    validate_rendered_video(source, export_temporary)
+                else:
+                    validate_video_stream_copy(local(root, project['source']), export_temporary)
+                commit_export(
+                    project, relative, output, export_temporary,
+                    'renderedOpenCaptions' if open_captions else 'copied',
+                )
                 return
             except ValueError as error:
                 last_error = error
@@ -1119,19 +1290,18 @@ def mux_closed_audio_description(root, p, cues, captions='none', content='transc
             '-disposition:a:0','default','-disposition:a:1','visual_impaired',
             '-c:a:1','aac','-movflags','+faststart','-t',str(p['duration']),
         ]
-        # Open captions require video encoding. Other modes preserve compatible
-        # source streams first and fall back to targeted transcoding.
+        # Open captions require video encoding. Every other mode requires a
+        # validated stream copy and never silently falls back to transcoding.
         original_audio_codec = 'copy' if has_program_audio else 'aac'
         if captions == 'open':
             attempts = [
-                ['-c:v','libx264','-preset','fast','-crf','20','-c:a:0',original_audio_codec],
-                ['-c:v','libx264','-preset','fast','-crf','20','-c:a:0','aac'],
+                [*video_render_args(source),'-map_metadata','0','-c:a:0',original_audio_codec],
+                [*video_render_args(source),'-map_metadata','0','-c:a:0','aac'],
             ]
         else:
             attempts = [
                 ['-c:v','copy','-c:a:0',original_audio_codec],
                 ['-c:v','copy','-c:a:0','aac'],
-                ['-c:v','libx264','-preset','fast','-crf','20','-c:a:0','aac'],
             ]
         last_error = None
         for codecs in attempts:
@@ -1139,7 +1309,14 @@ def mux_closed_audio_description(root, p, cues, captions='none', content='transc
             try:
                 run([*common,*codecs,export_temporary])
                 validate_closed_audio_description_export(export_temporary, float(p['duration']), captions)
-                commit_export(p, relative, output, export_temporary)
+                if captions == 'open':
+                    validate_rendered_video(source, export_temporary)
+                else:
+                    validate_video_stream_copy(source, export_temporary)
+                commit_export(
+                    p, relative, output, export_temporary,
+                    'renderedOpenCaptions' if captions == 'open' else 'copied',
+                )
                 return
             except ValueError as error:
                 last_error = error
@@ -1243,14 +1420,24 @@ def export(root,p,audio_only=False,allow_incomplete=False,selectable=False,capti
             if not audio_only:
                 args += [
                     '-map','0:v:0',*caption_output_args(captions, caption_path, caption_index, content),
-                    '-c:v','libx264','-preset','fast','-crf','20',
                 ]
+                if captions == 'open':
+                    args += [*video_render_args(local(root, p['source'])), '-map_metadata', '0']
+                else:
+                    args += ['-c:v','copy']
             args += ['-map','[mix]','-c:a','aac','-movflags','+faststart','-t',str(p['duration']),export_temporary]
             emit('Mixing narration and rendering Open Audio Description')
             run(args)
             if not audio_only:
                 validate_captioned_video(export_temporary, float(p['duration']), captions)
-            commit_export(p, relative, output, export_temporary)
+                if captions == 'open':
+                    validate_rendered_video(local(root, p['source']), export_temporary)
+                else:
+                    validate_video_stream_copy(local(root, p['source']), export_temporary)
+            commit_export(
+                p, relative, output, export_temporary,
+                None if audio_only else ('renderedOpenCaptions' if captions == 'open' else 'copied'),
+            )
     finally:
         export_temporary.unlink(missing_ok=True)
 
@@ -1284,6 +1471,7 @@ def clear_generated(root, p):
         if folder.exists(): shutil.rmtree(folder)
     for key in ('thumbnails', 'transcript', 'cues', 'exports', 'undoStack', 'redoStack'):
         p[key] = []
+    p['exportMediaInfo'] = {}
     p['summary'] = ''
     p['transcriptGenerated'] = False
     p['summaryGenerated'] = False
@@ -1332,6 +1520,7 @@ def delete_generated_components(root, p, components):
     if 'exports' in selected:
         reset_generated_directory(root, p, 'exports')
         p['exports'] = []
+        p['exportMediaInfo'] = {}
     if 'history' in selected:
         reset_generated_directory(root, p, 'metadata/history')
         p['undoStack'] = []
@@ -1404,7 +1593,7 @@ def main():
         source='source/'+args.video.name
         emit('Copying source video into local project')
         shutil.copy2(args.video,root/source)
-        p=dict(schemaVersion=2,id=str(uuid.uuid4()),name=args.video.stem,source=source,duration=duration,width=video.get('width',0),height=video.get('height',0),hasAudio=any(s['codec_type']=='audio' for s in streams),createdAt=time.time(),updatedAt=time.time(),thumbnails=[],transcript=[],summary='',cues=[],exports=[],status='Imported',transcriptGenerated=False,summaryGenerated=False,descriptionsGenerated=False)
+        p=dict(schemaVersion=2,id=str(uuid.uuid4()),name=args.video.stem,source=source,duration=duration,width=video.get('width',0),height=video.get('height',0),hasAudio=any(s['codec_type']=='audio' for s in streams),createdAt=time.time(),updatedAt=time.time(),thumbnails=[],transcript=[],summary='',cues=[],exports=[],exportMediaInfo={},status='Imported',transcriptGenerated=False,summaryGenerated=False,descriptionsGenerated=False)
         atomic_json(root/'metadata/probe.json',info); save(root,p)
         emit('Project imported',project=str(root))
         with project_lock(root): thumbnails(root,p);cleanup_project_storage(root,p);save(root,p)
@@ -1443,6 +1632,7 @@ def main():
                 track_cue_origins(cues,p['cues']);parity.remember(p);p['cues']=cues
                 p['descriptionsGenerated']=True
                 p['exports']=[]
+                p['exportMediaInfo']={}
             elif args.command=='save-segments':
                 if not args.input: raise ValueError('--input is required.')
                 payload=json.loads(args.input.read_text())

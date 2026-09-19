@@ -565,6 +565,16 @@ class Validation(unittest.TestCase):
 
             self.assertEqual(project['exports'][0], 'exports/Caption Demo - Transcript Closed Caption Video.mp4')
             closed_info = engine.probe(root/project['exports'][0])
+            source_video_hash = engine.run([
+                engine.tool('ffmpeg'), '-v', 'error', '-i', source,
+                '-map', '0:v:0', '-c', 'copy', '-f', 'hash', '-hash', 'sha256', '-',
+            ])
+            closed_video_hash = engine.run([
+                engine.tool('ffmpeg'), '-v', 'error', '-i', root/project['exports'][0],
+                '-map', '0:v:0', '-c', 'copy', '-f', 'hash', '-hash', 'sha256', '-',
+            ])
+            self.assertEqual(closed_video_hash, source_video_hash)
+            self.assertEqual(project['exportMediaInfo'][project['exports'][0]]['videoProcessing'], 'copied')
             closed_subtitles = [stream for stream in closed_info['streams'] if stream['codec_type'] == 'subtitle']
             self.assertEqual(len(closed_subtitles), 1)
             self.assertEqual(closed_subtitles[0]['codec_name'], 'mov_text')
@@ -601,6 +611,9 @@ class Validation(unittest.TestCase):
             open_info = engine.probe(root/project['exports'][2])
             self.assertFalse([stream for stream in open_info['streams'] if stream['codec_type'] == 'subtitle'])
             self.assertEqual(len([stream for stream in open_info['streams'] if stream['codec_type'] == 'video']), 1)
+            self.assertEqual(project['exportMediaInfo'][project['exports'][2]]['videoProcessing'], 'renderedOpenCaptions')
+            self.assertEqual(project['exportMediaInfo'][project['exports'][2]]['width'], 320)
+            self.assertEqual(project['exportMediaInfo'][project['exports'][2]]['height'], 180)
 
     def test_audio_description_video_exports_support_every_caption_choice(self):
         with tempfile.TemporaryDirectory(prefix='vidistudio-described-caption-test-') as temp:
@@ -665,6 +678,54 @@ class Validation(unittest.TestCase):
                             )
                         expected_extension = '.mov' if selectable else '.mp4'
                         self.assertTrue(output.name.endswith(expected_extension), output)
+                        media_information = project['exportMediaInfo'][project['exports'][-1]]
+                        self.assertEqual(
+                            media_information['videoProcessing'],
+                            'renderedOpenCaptions' if captions == 'open' else 'copied',
+                        )
+                        self.assertEqual((media_information['width'], media_information['height']), (320, 180))
+                        if captions != 'open':
+                            source_hash = engine.run([
+                                engine.tool('ffmpeg'), '-v', 'error', '-i', source,
+                                '-map', '0:v:0', '-c', 'copy', '-f', 'hash', '-hash', 'sha256', '-',
+                            ])
+                            output_hash = engine.run([
+                                engine.tool('ffmpeg'), '-v', 'error', '-i', output,
+                                '-map', '0:v:0', '-c', 'copy', '-f', 'hash', '-hash', 'sha256', '-',
+                            ])
+                            self.assertEqual(output_hash, source_hash)
+
+    def test_open_caption_render_preserves_hdr_resolution_bit_depth_and_color_signaling(self):
+        with tempfile.TemporaryDirectory(prefix='vidistudio-hdr-caption-test-') as temp:
+            root = Path(temp)
+            (root/'source').mkdir()
+            (root/'exports').mkdir()
+            source = root/'source/hdr.mp4'
+            engine.run([
+                engine.tool('ffmpeg'), '-y', '-v', 'error', '-f', 'lavfi',
+                '-i', 'testsrc2=size=320x180:rate=24', '-t', '0.5',
+                '-vf', 'format=yuv420p10le', '-c:v', 'libx265', '-preset', 'ultrafast',
+                '-x265-params', 'log-level=error:colorprim=bt2020:transfer=arib-std-b67:colormatrix=bt2020nc', '-color_primaries', 'bt2020',
+                '-color_trc', 'arib-std-b67', '-colorspace', 'bt2020nc', source,
+            ])
+            project = {
+                'name': 'HDR Demo', 'sourceType': 'upload', 'source': 'source/hdr.mp4',
+                'duration': .5, 'width': 320, 'height': 180, 'hasAudio': False,
+                'transcript': [{'id':'t','start':.05,'end':.4,'text':'HDR caption.'}],
+                'cues': [], 'exports': [],
+            }
+            with patch.object(engine, 'config', return_value={}):
+                engine.export_captioned_video(root, project, open_captions=True)
+            output = root/project['exports'][0]
+            source_video = next(stream for stream in engine.probe(source)['streams'] if stream['codec_type'] == 'video')
+            output_video = next(stream for stream in engine.probe(output)['streams'] if stream['codec_type'] == 'video')
+            self.assertEqual((output_video['width'], output_video['height']), (source_video['width'], source_video['height']))
+            self.assertIn('10', output_video['pix_fmt'])
+            self.assertEqual(output_video['color_primaries'], 'bt2020')
+            self.assertEqual(output_video['color_transfer'], 'arib-std-b67')
+            self.assertEqual(output_video['color_space'], 'bt2020nc')
+            self.assertEqual(project['exportMediaInfo'][project['exports'][0]]['videoProcessing'], 'renderedOpenCaptions')
+            self.assertIn('HDR (HLG)', project['exportMediaInfo'][project['exports'][0]]['color'])
 
     def test_original_and_described_program_audio_export_as_mp3(self):
         with tempfile.TemporaryDirectory(prefix='vidistudio-audio-export-test-') as temp:
@@ -796,6 +857,7 @@ class Validation(unittest.TestCase):
             self.assertEqual(project()['exports'][0],'exports/sample video - Open Audio Description with Transcript Open Captions.mp4')
             self.assertAlmostEqual(float(engine.probe(output)['format']['duration']),8,delta=.2)
             self.assertFalse([stream for stream in engine.probe(output)['streams'] if stream['codec_type']=='subtitle'])
+            self.assertEqual(project()['exportMediaInfo'][project()['exports'][0]]['videoProcessing'],'renderedOpenCaptions')
             cli('export-closed-audio-description-video','--project',folder,'--captions','closed','--content','combined')
             selectable=folder/project()['exports'][1]
             self.assertEqual(project()['exports'][1],'exports/sample video - Closed Audio Description with AD Transcript Closed Captions.mov')
@@ -815,6 +877,10 @@ class Validation(unittest.TestCase):
             self.assertEqual(selectable_subtitles[0]['codec_tag_string'],'tx3g')
             self.assertEqual((selectable_subtitles[0]['width'],selectable_subtitles[0]['height']),(640,360))
             self.assertAlmostEqual(float(selectable_info['format']['duration']),8,delta=.2)
+            self.assertEqual(project()['exportMediaInfo'][project()['exports'][1]]['videoProcessing'],'copied')
+            source_hash=engine.run([engine.tool('ffmpeg'),'-v','error','-i',folder/project()['source'],'-map','0:v:0','-c','copy','-f','hash','-hash','sha256','-'])
+            selectable_hash=engine.run([engine.tool('ffmpeg'),'-v','error','-i',selectable,'-map','0:v:0','-c','copy','-f','hash','-hash','sha256','-'])
+            self.assertEqual(selectable_hash,source_hash)
             cli('export-closed-caption-video','--project',folder,'--content','transcript')
             closed_caption=folder/project()['exports'][2]
             closed_info=engine.probe(closed_caption)

@@ -141,6 +141,68 @@ enum EngineCheckStatus: Equatable {
     case ready
     case failed(String)
 }
+
+struct ExportMediaInformation: Codable, Hashable {
+    var duration: Double?
+    var frameRate: Double?
+    var width: Int
+    var height: Int
+    var videoCodec: String
+    var videoProfile: String?
+    var videoBitRate: Int64?
+    var color: String
+    var audio: String
+    var container: String
+    var fileSize: Int64
+    var videoProcessing: String
+
+    var durationDescription: String {
+        guard let duration, duration.isFinite, duration > 0 else { return "Not available" }
+        let seconds = Int(duration.rounded())
+        let hours = seconds / 3_600
+        let minutes = seconds / 60 % 60
+        let remainder = seconds % 60
+        return hours > 0
+            ? String(format: "%d:%02d:%02d", hours, minutes, remainder)
+            : String(format: "%d:%02d", minutes, remainder)
+    }
+
+    var frameRateDescription: String {
+        guard let frameRate, frameRate.isFinite, frameRate > 0 else { return "Not available" }
+        if abs(frameRate.rounded() - frameRate) < 0.005 { return "\(Int(frameRate.rounded())) fps" }
+        return String(format: "%.2f fps", frameRate)
+    }
+
+    var resolutionDescription: String {
+        width > 0 && height > 0 ? "\(width) × \(height)" : "Not available"
+    }
+
+    var videoDescription: String {
+        guard let videoProfile, !videoProfile.isEmpty else { return videoCodec }
+        return "\(videoCodec), \(videoProfile)"
+    }
+
+    var videoBitRateDescription: String {
+        guard let videoBitRate, videoBitRate > 0 else { return "Not reported" }
+        if videoBitRate >= 1_000_000 {
+            return String(format: "%.1f Mbps", Double(videoBitRate) / 1_000_000)
+        }
+        return String(format: "%.0f kbps", Double(videoBitRate) / 1_000)
+    }
+
+    var fileSizeDescription: String {
+        ByteCountFormatter.string(fromByteCount: fileSize, countStyle: .file)
+    }
+
+    var videoProcessingDescription: String {
+        switch videoProcessing {
+        case "copied": return "Original stream copied — no re-encoding"
+        case "renderedOpenCaptions": return "Re-encoded to render open captions"
+        default: return "Not available"
+        }
+    }
+}
+
 struct StudioProject: Codable, Identifiable {
     var schemaVersion: Int
     var id: String
@@ -157,6 +219,7 @@ struct StudioProject: Codable, Identifiable {
     var summary: String
     var cues: [Segment]
     var exports: [String]
+    var exportMediaInfo: [String: ExportMediaInformation]?
     var status: String
     var error: String?
     var sourceType: String?
@@ -229,6 +292,8 @@ struct ProjectVideoInformation {
     let frameRate: String
     let resolution: String
     let videoCodec: String
+    let videoBitRate: String
+    let color: String
     let audio: String
     let container: String
     let sourceFileSize: String
@@ -264,6 +329,8 @@ struct ProjectVideoInformation {
         let rate = Self.rate(video?["avg_frame_rate"]) ?? Self.rate(video?["r_frame_rate"])
         frameRate = rate.map(Self.frameRate) ?? "Not available"
         videoCodec = Self.codecDescription(video) ?? "Not available"
+        videoBitRate = Self.bitRate(Self.integer64(video?["bit_rate"]))
+        color = Self.colorDescription(video)
         audio = Self.audioDescription(audioStream, hasAudio: project.hasAudio)
         container = Self.text(format?["format_long_name"])
             ?? Self.text(format?["format_name"])?.replacingOccurrences(of: ",", with: ", ")
@@ -365,6 +432,39 @@ struct ProjectVideoInformation {
 
     private static func codecDescription(_ stream: [String: Any]?) -> String? {
         text(stream?["codec_long_name"]) ?? text(stream?["codec_name"])?.uppercased()
+    }
+
+    private static func bitRate(_ value: Int64?) -> String {
+        guard let value, value > 0 else { return "Not reported" }
+        if value >= 1_000_000 {
+            return String(format: "%.1f Mbps", Double(value) / 1_000_000)
+        }
+        return String(format: "%.0f kbps", Double(value) / 1_000)
+    }
+
+    private static func colorDescription(_ stream: [String: Any]?) -> String {
+        guard let stream else { return "Not reported" }
+        let transfer = text(stream["color_transfer"])
+        let primaries = text(stream["color_primaries"])
+        let pixelFormat = text(stream["pix_fmt"])
+        let sideData = stream["side_data_list"] as? [[String: Any]] ?? []
+        let hasDolbyVision = sideData.contains {
+            let type = text($0["side_data_type"])?.lowercased() ?? ""
+            return type.contains("dovi") || type.contains("dolby vision")
+        }
+        let dynamicRange: String
+        if hasDolbyVision {
+            dynamicRange = "Dolby Vision HDR"
+        } else if transfer == "smpte2084" {
+            dynamicRange = "HDR (PQ)"
+        } else if transfer == "arib-std-b67" {
+            dynamicRange = "HDR (HLG)"
+        } else if primaries == "bt2020" {
+            dynamicRange = "BT.2020 wide color"
+        } else {
+            dynamicRange = "SDR or not reported"
+        }
+        return [dynamicRange, pixelFormat, primaries].compactMap { $0 }.joined(separator: ", ")
     }
 
     private static func audioDescription(_ stream: [String: Any]?, hasAudio: Bool) -> String {

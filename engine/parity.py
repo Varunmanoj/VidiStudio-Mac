@@ -148,7 +148,7 @@ def execute(args,root,p,e):
         root=args.library.resolve()/('YouTube-'+ident+'-'+uuid.uuid4().hex[:8])
         root.mkdir(parents=True,exist_ok=True)
         thumbnail=download_youtube_thumbnail(root,ident)
-        p=dict(schemaVersion=2,id=str(uuid.uuid4()),name=name,source='',sourceType='youtube',youtubeURL=url,duration=args.duration or 0,width=0,height=0,hasAudio=True,createdAt=time.time(),updatedAt=time.time(),thumbnails=[thumbnail] if thumbnail else [],transcript=[],summary='',cues=[],exports=[],status='Imported')
+        p=dict(schemaVersion=2,id=str(uuid.uuid4()),name=name,source='',sourceType='youtube',youtubeURL=url,duration=args.duration or 0,width=0,height=0,hasAudio=True,createdAt=time.time(),updatedAt=time.time(),thumbnails=[thumbnail] if thumbnail else [],transcript=[],summary='',cues=[],exports=[],exportMediaInfo={},status='Imported')
         p['transcriptGenerated']=False;p['summaryGenerated']=False;p['descriptionsGenerated']=False
         e.save(root,p);e.emit('YouTube project imported',project=str(root));return
     if command=='prepare-video':
@@ -185,7 +185,7 @@ def execute(args,root,p,e):
     elif command in ('undo-cues','redo-cues'):
         source='undoStack' if command=='undo-cues' else 'redoStack';target='redoStack' if command=='undo-cues' else 'undoStack'
         if not p.get(source):raise ValueError('No edit history in this direction.')
-        p.setdefault(target,[]).append(copy.deepcopy(p['cues']));p['cues']=p[source].pop();p['exports']=[]
+        p.setdefault(target,[]).append(copy.deepcopy(p['cues']));p['cues']=p[source].pop();p['exports']=[];p['exportMediaInfo']={}
     elif command=='rewrite-cue':
         cue=next((c for c in p['cues'] if c['id']==args.segment),None)
         if not cue:raise ValueError('Select a description to rewrite.')
@@ -202,7 +202,7 @@ def execute(args,root,p,e):
                 else:
                     cue['origin']='ai'
                     cue['aiOriginalText']=text
-            cue['text']=text;p['exports']=[]
+            cue['text']=text;p['exports']=[];p['exportMediaInfo']={}
         finally:client.close()
     elif command=='capture-frame':
         args.timestamp=frame_timestamp(args.timestamp,p['duration'])
@@ -248,3 +248,4 @@ def execute(args,root,p,e):
         source=e.local(root,args.name)
         if source.is_dir() and not source.is_symlink():raise ValueError('The selected export is not a file.')
         source.unlink(missing_ok=True);p['exports'].remove(args.name)
+        (p.get('exportMediaInfo') or {}).pop(args.name,None)
