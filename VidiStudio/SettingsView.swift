@@ -1,4 +1,5 @@
 import SwiftUI
+import AppKit
 
 private struct ProjectPlaybackPreferenceControls: View {
     let projectID: String
@@ -83,10 +84,25 @@ struct SettingsView: View {
     var body: some View {
         NavigationSplitView {
             List(sections, id: \.self, selection: $studio.settingsSection) { item in
-                Label(item, systemImage: sectionIcons[item] ?? "gearshape").tag(item)
+                HStack(spacing: 10) {
+                    Image(systemName: sectionIcons[item] ?? "gearshape")
+                        .foregroundStyle(
+                            Color(nsColor: item == section ? .controlAccentColor : .labelColor)
+                        )
+                        .frame(width: 18)
+
+                    Text(item)
+                        .lineLimit(1)
+                        .truncationMode(.tail)
+                        .layoutPriority(1)
+                }
+                .help(item)
+                .tag(item)
             }
+                .listStyle(.sidebar)
+                .tint(Color(nsColor: .controlAccentColor))
                 .navigationTitle("Settings")
-                .navigationSplitViewColumnWidth(min: 220, ideal: 240, max: 300)
+                .navigationSplitViewColumnWidth(min: 220, ideal: 280, max: 380)
         } detail: {
         Form {
             if section == "Help" { Section("Help and keyboard shortcuts") {
@@ -323,7 +339,10 @@ struct SettingsView: View {
             if section == "Gemini API" {
                 Text("Your Gemini key stays on this Mac and is never saved inside a project.").font(.caption).foregroundStyle(.secondary)
             }
-        }.formStyle(.grouped).navigationTitle(section)
+        }
+        .lineLimit(nil)
+        .formStyle(.grouped)
+        .navigationTitle(section)
         }
         .background(SettingsWindowChrome().frame(width: 0, height: 0))
         .navigationSplitViewStyle(.balanced)
