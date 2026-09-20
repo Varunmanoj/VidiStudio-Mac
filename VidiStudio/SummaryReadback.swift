@@ -171,7 +171,7 @@ enum SummarySpeechParser {
 // MARK: - Readback model (Apple Text to Speech)
 
 @MainActor @Observable
-final class SummaryReadbackModel: NSObject, @preconcurrency AVSpeechSynthesizerDelegate {
+final class SummaryReadbackModel: NSObject, AVSpeechSynthesizerDelegate {
     var sentences: [SummarySentence] = []
     var currentIndex: Int?
     /// Word highlight in display-text (UTF-16) coordinates. See `cachedLineRanges`.
@@ -659,7 +659,7 @@ final class SummaryReadbackModel: NSObject, @preconcurrency AVSpeechSynthesizerD
 /// NSTextView that serves its right-click menu through a closure, using direct
 /// subclass dispatch instead of the delegate channel.
 final class SummaryTextView: NSTextView {
-    var contextMenuProvider: ((NSEvent) -> NSMenu?)?
+    var contextMenuProvider: (@MainActor (NSEvent) -> NSMenu?)?
 
     override func menu(for event: NSEvent) -> NSMenu? {
         contextMenuProvider?(event) ?? super.menu(for: event)
@@ -721,9 +721,7 @@ struct SummarySentenceTextView: NSViewRepresentable {
         }
         textView.contextMenuProvider = { [weak coordinator = context.coordinator] event in
             guard let coordinator else { return nil }
-            return MainActor.assumeIsolated {
-                coordinator.menu(for: event, in: textView)
-            }
+            return coordinator.menu(for: event, in: textView)
         }
         scrollView.documentView = textView
         return scrollView

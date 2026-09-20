@@ -51,12 +51,18 @@ enum YouTubeProjectPreviewFetcher {
         let session = URLSession(configuration: configuration)
         defer { session.invalidateAndCancel() }
 
-        var metadataRequest = URLRequest(url: metadataURL)
-        metadataRequest.cachePolicy = .reloadIgnoringLocalCacheData
-        var thumbnailRequest = URLRequest(
-            url: URL(string: "https://i.ytimg.com/vi/\(videoID)/hqdefault.jpg")!
-        )
-        thumbnailRequest.cachePolicy = .reloadIgnoringLocalCacheData
+        let metadataRequest: URLRequest = {
+            var request = URLRequest(url: metadataURL)
+            request.cachePolicy = .reloadIgnoringLocalCacheData
+            return request
+        }()
+        let thumbnailRequest: URLRequest = {
+            var request = URLRequest(
+                url: URL(string: "https://i.ytimg.com/vi/\(videoID)/hqdefault.jpg")!
+            )
+            request.cachePolicy = .reloadIgnoringLocalCacheData
+            return request
+        }()
 
         async let metadataResponse = session.data(for: metadataRequest)
         async let thumbnailResponse = session.data(for: thumbnailRequest)
