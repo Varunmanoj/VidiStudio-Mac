@@ -163,6 +163,10 @@ struct UserFacingIssue: Equatable {
                 title: "Gemini Models Couldn’t Be Loaded",
                 message: "Check your Gemini API key and internet connection, then try again."
             )
+        case "reanalyze-transcript-segment":
+            return UserFacingIssue(title: "This Transcript Range Couldn’t Be Generated", message: "Existing transcript, Audio Descriptions and narration have been kept. Check the selected range, video availability and Gemini settings. If newly detected dialogue overlaps an Audio Description, review and adjust that description before retrying; speech timing is never changed to fit narration.")
+        case "undo-transcript", "redo-transcript":
+            return UserFacingIssue(title: "Transcript History Couldn’t Be Restored", message: "The current transcript and Audio Descriptions have been kept. There may be no edit history, or newer descriptions may overlap the transcript you are trying to restore.")
         case "reanalyze-segment":
             return UserFacingIssue(title: "This Section Couldn’t Be Re-Analyzed", message: "Existing descriptions have been kept. Try a wider time range and check your video availability and Gemini settings.")
         case "prepare-analysis-video", "check-video-availability":
@@ -203,6 +207,8 @@ enum UserFacingProgress {
         case "generate-summary": return "Creating the summary…"
         case "generate-ad-cues": return "Creating Audio Descriptions…"
         case "synthesize-tts", "synthesize-changed": return "Creating narration…"
+        case "reanalyze-transcript-segment": return "Analyzing dialogue in the selected time range…"
+        case "undo-transcript", "redo-transcript": return "Restoring transcript segments…"
         case "reanalyze-segment": return "Taking a closer look and adjusting descriptions…"
         case "prepare-analysis-video": return "Preparing video for analysis…"
         case "check-video-availability": return "Checking video availability…"

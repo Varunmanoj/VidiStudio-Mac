@@ -200,7 +200,8 @@ def execute(args,root,p,e):
     elif command in ('undo-cues','redo-cues'):
         source='undoStack' if command=='undo-cues' else 'redoStack';target='redoStack' if command=='undo-cues' else 'undoStack'
         if not p.get(source):raise ValueError('No edit history in this direction.')
-        p.setdefault(target,[]).append(copy.deepcopy(p['cues']));p['cues']=p[source].pop();p['exports']=[];p['exportMediaInfo']={}
+        proposal=e.validate_cues(copy.deepcopy(p[source][-1]),p['duration'],p.get('transcript',[]))
+        p.setdefault(target,[]).append(copy.deepcopy(p['cues']));p[source].pop();p['cues']=proposal;p['exports']=[];p['exportMediaInfo']={}
     elif command=='rewrite-cue':
         cue=next((c for c in p['cues'] if c['id']==args.segment),None)
         if not cue:raise ValueError('Select a description to rewrite.')
@@ -255,7 +256,7 @@ def execute(args,root,p,e):
             for i,c in enumerate(segments,1):
                 sep='.' if args.format=='vtt' else ','
                 text+=f"{i}\n{clock(c['start'],sep)} --> {clock(c['end'],sep)}\n{c['text']}\n\n"
-        export_type={'transcript':'Transcript','descriptions':'Descriptions','combined':'Combined Text'}[args.content]
+        export_type={'transcript':'Transcript','descriptions':'Descriptions','combined':'AD Transcript'}[args.content]
         e.write_text_export(root,p,export_type,args.format,text,args.replace_existing)
     elif command=='export-audio':e.export(root,p,audio_only=True,allow_incomplete=getattr(args,'allow_incomplete_narration',False),replace_existing=args.replace_existing)
     elif command=='delete-export':

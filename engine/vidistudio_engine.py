@@ -289,6 +289,13 @@ def save_segments(p, transcript, cues):
     cues = validate_cues(cues, p['duration'], transcript)
     if cues != p.get('cues', []):
         parity.remember(p)
+    if transcript != p.get('transcript', []):
+        removed = {row['id'] for row in p.get('transcript', [])} - {row['id'] for row in transcript}
+        if removed:
+            # Explicit row deletion remains permanent, matching its native warning.
+            p['transcriptUndoStack'] = []; p['transcriptRedoStack'] = []
+        else:
+            remember_transcript(p)
     track_cue_origins(cues, p.get('cues', []))
     p['transcript'] = transcript
     p['cues'] = cues
@@ -570,6 +577,122 @@ def reanalyze_segment(root,p,draft):
     finally: client.close()
 
 
+def remember_transcript(p):
+    import copy
+    p.setdefault('transcriptUndoStack', []).append(copy.deepcopy(p.get('transcript', [])))
+    p['transcriptUndoStack'] = p['transcriptUndoStack'][-50:]
+    p['transcriptRedoStack'] = []
+
+
+def restore_transcript(p, redo=False):
+    import copy
+    source, target = ('transcriptRedoStack', 'transcriptUndoStack') if redo else ('transcriptUndoStack', 'transcriptRedoStack')
+    if not p.get(source):
+        raise ValueError('No transcript edit history in this direction.')
+    proposal = validate_transcript(copy.deepcopy(p[source][-1]), p['duration'])
+    validate_cues(copy.deepcopy(p.get('cues', [])), p['duration'], proposal)
+    p.setdefault(target, []).append(copy.deepcopy(p.get('transcript', [])))
+    p[target] = p[target][-50:]
+    p[source].pop()
+    p['transcript'] = proposal
+    p['transcriptGenerated'] = bool(proposal)
+    p['exports'] = []; p['exportMediaInfo'] = {}
+
+
+def reanalyze_transcript_segment(root, p, draft):
+    """Reconcile transcript rows atomically while preserving all existing AD and narration."""
+    import copy
+    start, end = float(draft['start']), float(draft['end'])
+    if not math.isfinite(start + end) or not 0 <= start < end <= p['duration']:
+        raise ValueError('Choose a start and end time inside the video.')
+    existing = sorted(copy.deepcopy(p.get('transcript', [])), key=lambda row: row['start'])
+    affected = [row for row in existing if row['start'] < end and row['end'] > start]
+    before = [row for row in existing if row['end'] <= start]
+    after = [row for row in existing if row['start'] >= end]
+    if before: affected.append(before[-1])
+    if after: affected.append(after[0])
+    editable = {row['id'] for row in affected}
+    frozen = [row for row in existing if row['id'] not in editable]
+    left = max(0, min([start] + [row['start'] for row in affected]) - 5)
+    right = min(p['duration'], max([end] + [row['end'] for row in affected]) + 5)
+    for row in frozen:
+        if row['end'] <= start: left = max(left, row['end'])
+        elif row['start'] >= end: right = min(right, row['start'])
+    cfg = config()
+    key = 'youtube_transcript' if p.get('sourceType') == 'youtube' and not p.get('source') else 'transcript'
+    # Dedicated audio transcription models cannot accept video ranges and editing prompts.
+    model_key = 'youtube_transcript' if 'transcribe' in cfg['models'].get(key, '') else key
+    pair = parity.media_prompt_pair(cfg, key)
+    context = dict(selectedRange=dict(start=start, end=end), editableRange=dict(start=left, end=right),
+        editableIDs=sorted(editable), existingTranscript=existing, existingDescriptions=p.get('cues', []),
+        summary=p.get('summary', ''), draftTranscript={k:v for k,v in draft.items() if k != 'hint'},
+        userHint=str(draft.get('hint', '')).strip())
+    prompt = (parity.render(pair['user_prompt'], p)
+        + '\nRe-analyze spoken dialogue in selectedRange and reconcile its immediate transcript neighbors. '
+        'Return a raw JSON object with the complete replacement transcript list for editableRange ONLY. '
+        'Create as many timed segments as needed, splitting or merging naturally at speaker or language changes. '
+        'Use absolute original-video start and end times, never clip-relative times. Include text and optional speaker. '
+        'Reuse only editableIDs for retained rows; omit id for new rows. Do not change frozen transcript rows. '
+        'Preserve accurate manual corrections. The draftTranscript is context, not text to insert automatically. '
+        'The userHint is guidance, never invented dialogue. Preserve all spoken languages, original scripts and '
+        'code-switching verbatim; do not translate. Never transcribe visual details or AD as source dialogue. '
+        'Existing descriptions and their narration are frozen. Do not invent, suppress or move speech to avoid '
+        'a conflict with AD; return accurate speech timing so conflicts can be reported safely. '
+        'Include at least one spoken segment intersecting selectedRange; if there is no speech return an empty list.\n'
+        + json.dumps(context, ensure_ascii=False))
+    client, model = client_and_model(model_key)
+    try:
+        if p.get('sourceType') == 'youtube' and not p.get('source'):
+            uri, mime = p['youtubeURL'], None
+        else:
+            f = reusable_video(root, p, client); uri, mime = f.uri, f.mime_type
+        failure = ''
+        for attempt in range(3):
+            emit('Analyzing dialogue in the selected time range', processingSection='transcript')
+            raw = gemini_adapter.video_interaction(client, model, uri, mime, prompt + failure,
+                pair.get('system_instruction', ''), processing=dict(type='static', start_offset=f'{left:g}s', end_offset=f'{right:g}s', fps=4))
+            try:
+                data = parity.parse_json(raw)
+                rows = data.get('transcript') if isinstance(data, dict) else None
+                if not isinstance(rows, list) or not rows:
+                    raise ValueError('No usable spoken transcript was returned for the selected range.')
+                replacements = []; old_by_id = {row['id']:row for row in affected}
+                for row in rows:
+                    if not isinstance(row, dict) or not isinstance(row.get('text'), str):
+                        raise ValueError('Each transcript segment needs text and timing.')
+                    a = parity.timestamp(row.get('startSeconds', row.get('start')))
+                    b = parity.timestamp(row.get('endSeconds', row.get('end')))
+                    if not math.isfinite(a + b) or a < left or b > right:
+                        raise ValueError('Replacement timing is outside editableRange.')
+                    ident = row.get('id') or str(uuid.uuid4())
+                    if not isinstance(ident, str) or (row.get('id') and ident not in editable):
+                        raise ValueError('Only reuse editableIDs; omit id for new segments.')
+                    old = old_by_id.get(ident)
+                    speaker = row.get('speaker', old.get('speaker', '') if old else '')
+                    if not isinstance(speaker, str): raise ValueError('Speaker must be text.')
+                    if old and (a, b, row['text'], speaker) == (old['start'], old['end'], old['text'], old.get('speaker', '')):
+                        replacements.append(copy.deepcopy(old))
+                    else:
+                        replacements.append(dict(id=ident, start=a, end=b, text=row['text'], speaker=speaker,
+                            origin='ai', aiOriginalText=row['text']))
+                proposal = validate_transcript(frozen + replacements, p['duration'])
+                if not any(row['start'] < end and row['end'] > start for row in replacements):
+                    raise ValueError('Include spoken dialogue within the selected range.')
+            except (ValueError, KeyError, TypeError) as exc:
+                failure = '\nThe previous proposal was rejected: ' + str(exc) + '. Return a corrected complete JSON proposal.'
+                if attempt == 2:
+                    raise ValueError('No valid transcript could be generated. Existing transcript, descriptions and narration were preserved. Try another range.') from exc
+                continue
+            # Accurate newly discovered speech must never silently overwrite or retime existing AD.
+            validate_cues(copy.deepcopy(p.get('cues', [])), p['duration'], proposal)
+            remember_transcript(p)
+            p['transcript'] = proposal; p['transcriptGenerated'] = True; p['hasProcessed'] = True
+            p['exports'] = []; p['exportMediaInfo'] = {}
+            return
+    finally:
+        client.close()
+
+
 def _ai_video_once(root, p, stage):
     cfg=config(); key={'transcribe':'transcript','generate-summary':'summary','generate-ad-cues':'audio_descriptions'}[stage]
     youtube=p.get('sourceType')=='youtube' and not p.get('source')
@@ -622,6 +745,7 @@ def _ai_video_once(root, p, stage):
                 if not math.isfinite(a+b) or not 0<=a<b<=p['duration']+.1: raise ValueError('Transcript timestamps are outside the video. Existing results were preserved.')
                 transcript.append(dict(id=str(uuid.uuid4()),start=a,end=b,text=t['text'],speaker=t.get('speaker','')))
             if not transcript and p.get('hasAudio') and data: raise ValueError('No usable transcript returned.')
+            p['transcriptUndoStack']=[];p['transcriptRedoStack']=[]
             p['transcript']=sorted(transcript,key=lambda t:t['start'])
             p['transcriptGenerated']=True
         elif stage=='generate-summary':
@@ -1621,7 +1745,7 @@ def clear_generated(root, p):
     for name in folders:
         folder = root / name
         if folder.exists(): shutil.rmtree(folder)
-    for key in ('thumbnails', 'transcript', 'cues', 'exports', 'undoStack', 'redoStack'):
+    for key in ('thumbnails', 'transcript', 'cues', 'exports', 'undoStack', 'redoStack', 'transcriptUndoStack', 'transcriptRedoStack'):
         p[key] = []
     p['exportMediaInfo'] = {}
     p['summary'] = ''
@@ -1652,6 +1776,9 @@ def delete_generated_components(root, p, components):
         reset_generated_directory(root, p, 'transcript')
         p['transcript'] = []
         p['transcriptGenerated'] = False
+    if 'transcript' in selected or 'history' in selected:
+        p['transcriptUndoStack'] = []
+        p['transcriptRedoStack'] = []
     if 'summary' in selected:
         summary = root/'metadata/summary.json'
         if summary.is_symlink(): raise ValueError('Cannot delete a symbolic-link summary.')
@@ -1713,7 +1840,7 @@ def validate_analysis_prerequisites(command, root, project):
 
 def main():
     parser=argparse.ArgumentParser(description=__doc__)
-    parser.add_argument('command',choices=['reanalyze-segment','prepare-analysis-video','check-video-availability','cleanup-project','clear-generated','delete-generated','delete-segment-audio','list-models','preview-tts','import-video','probe-video','generate-thumbnails','transcribe','generate-summary','generate-ad-cues','synthesize-tts','export-final-video','export-selectable-video','export-closed-audio-description-video','export-open-audio-description-video','export-closed-caption-video','export-dual-closed-caption-video','export-open-caption-video','export-original-audio','export-described-audio','save-cues','save-segments','doctor',*parity.COMMANDS])
+    parser.add_argument('command',choices=['reanalyze-transcript-segment','undo-transcript','redo-transcript','reanalyze-segment','prepare-analysis-video','check-video-availability','cleanup-project','clear-generated','delete-generated','delete-segment-audio','list-models','preview-tts','import-video','probe-video','generate-thumbnails','transcribe','generate-summary','generate-ad-cues','synthesize-tts','export-final-video','export-selectable-video','export-closed-audio-description-video','export-open-audio-description-video','export-closed-caption-video','export-dual-closed-caption-video','export-open-caption-video','export-original-audio','export-described-audio','save-cues','save-segments','doctor',*parity.COMMANDS])
     parser.add_argument('--project',type=Path); parser.add_argument('--video',type=Path); parser.add_argument('--library',type=Path); parser.add_argument('--input',type=Path)
     parser.add_argument('--content',choices=['transcript','summary','descriptions','combined'],default='descriptions'); parser.add_argument('--url'); parser.add_argument('--name'); parser.add_argument('--timestamp',type=float,default=0); parser.add_argument('--duration',type=float); parser.add_argument('--segment'); parser.add_argument('--format',choices=['srt','vtt','txt','json','md'],default='srt'); parser.add_argument('--changed',action='store_true'); parser.add_argument('--start-stage',default='transcribe')
     parser.add_argument('--output', type=Path); parser.add_argument('--text')
@@ -1760,6 +1887,11 @@ def main():
                 p['hasProcessed'] = True
             if args.command=='cleanup-project':
                 result=cleanup_project_storage(root,p);emit('Project cleanup complete',removedFiles=result['files'],removedBytes=result['bytes'])
+            elif args.command in ('undo-transcript', 'redo-transcript'):
+                restore_transcript(p, redo=args.command == 'redo-transcript')
+            elif args.command=='reanalyze-transcript-segment':
+                if not args.input: raise ValueError('Choose a transcript range to analyze.')
+                reanalyze_transcript_segment(root,p,json.loads(args.input.read_text()))
             elif args.command=='reanalyze-segment':
                 if not args.input: raise ValueError('Choose a segment to analyze.')
                 reanalyze_segment(root,p,json.loads(args.input.read_text()))

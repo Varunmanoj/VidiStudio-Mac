@@ -30,10 +30,11 @@ class Parity(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             root=Path(tmp);(root/'exports').mkdir();(root/'audio-description').mkdir()
             old={'id':'a','start':1.,'end':2.5,'text':'Hello'}
-            project={'name':'Dilemma / Episode: 3','transcript':[old.copy()],'cues':[old.copy()],'exports':[]}
+            project={'name':'Dilemma / Episode: 3','duration':5,'transcript':[old.copy()],'cues':[old | {'start':3.,'end':4.}],'exports':[]}
             parity.remember(project);project['cues'][0]['text']='Edited'
             e=SimpleNamespace(
                 atomic_json=engine.atomic_json,
+                validate_cues=engine.validate_cues,
                 local=engine.local,
                 write_text_export=engine.write_text_export,
             )
@@ -59,6 +60,9 @@ class Parity(unittest.TestCase):
             summary=(root/project['exports'][1]).read_text()
             self.assertEqual(summary,'# Summary\n\nA concise project summary.\n')
             self.assertEqual(project['exports'][1],'exports/Dilemma - Episode - 3 - Summary.md')
+            args=SimpleNamespace(command='export-subtitles',content='combined',format='srt',replace_existing=False)
+            parity.execute(args,root,project,e)
+            self.assertEqual(project['exports'][2],'exports/Dilemma - Episode - 3 - AD Transcript.srt')
             deleted=project['exports'][0]
             args=SimpleNamespace(command='delete-export',name=deleted)
             parity.execute(args,root,project,e)

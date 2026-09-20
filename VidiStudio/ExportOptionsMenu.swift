@@ -110,7 +110,7 @@ enum StudioExportAction: Hashable {
                 "transcript": "Transcript",
                 "summary": "Summary",
                 "descriptions": "Descriptions",
-                "combined": "Combined Text",
+                "combined": "AD Transcript",
             ][content] ?? "Text"
             descriptor = (type, format)
         }
@@ -264,7 +264,7 @@ struct ExportDialog: View {
         ("Transcript", "transcript"),
         ("Summary", "summary"),
         ("Descriptions", "descriptions"),
-        ("Combined", "combined"),
+        ("AD Transcript", "combined"),
     ]
 
     init(project: StudioProject, busy: Bool, perform: @escaping (StudioExportAction, Bool) -> Void) {

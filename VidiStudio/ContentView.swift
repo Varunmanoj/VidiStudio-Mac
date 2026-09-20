@@ -492,12 +492,14 @@ struct ProcessingInspector: View {
                                     .disabled(!editorActions.canRun("synthesize-changed"))
                                     .help("Recreate narration only for descriptions whose text changed")
                                 }
-                                if editorActions.activeSection == "descriptions" {
+                                if ["transcript", "descriptions"].contains(editorActions.activeSection) {
                                     HStack(spacing: 6) {
                                         Button("Undo Segment Edit", systemImage: "arrow.uturn.backward") { editorActions.run("undo") }
-                                            .help("Undo the most recent saved description edit")
+                                            .help("Undo the most recent saved segment edit")
+                                            .disabled(!editorActions.canRun("undo"))
                                         Button("Redo", systemImage: "arrow.uturn.forward") { editorActions.run("redo") }
-                                            .help("Redo the most recently undone description edit")
+                                            .help("Redo the most recently undone segment edit")
+                                            .disabled(!editorActions.canRun("redo"))
                                     }
                                     .disabled(studio.busy)
                                 }
@@ -1133,9 +1135,9 @@ struct ProjectEditor: View {
             capturedScreenText: $segmentScreenText,
             isReadingFrame: readingFrameForSegment,
             readFrame: readFrameAction,
-            canReanalyze: project.canGenerateDescriptions && !studio.busy,
+            canReanalyze: (!row.isDescription || project.canGenerateDescriptions) && !studio.busy,
             reanalyze: { segment, hint in
-                studio.reanalyzeSegment(segment, hint: hint)
+                studio.reanalyzeSegment(segment, hint: hint, isDescription: row.isDescription)
             }
         ) { updated in
             saveEditedRows([updated])
@@ -1557,13 +1559,13 @@ struct ProjectEditor: View {
         case "summary-from-selection": summaryReader.playFromSelection()
         case "summary-read-selection": summaryReader.readSelectedText()
         case "add": presentNewSegment(isDescription: tab == "descriptions")
-        case "reanalyze-selection": presentNewSegment(isDescription: true)
+        case "reanalyze-selection": presentNewSegment(isDescription: tab == "descriptions")
         case "delete-narration": studio.confirmDeleteGeneratedContent(project, component: .narration)
         case "delete-transcript": studio.confirmDeleteGeneratedContent(project, component: .transcript)
         case "delete-summary": studio.confirmDeleteGeneratedContent(project, component: .summary)
         case "delete-descriptions": studio.confirmDeleteGeneratedContent(project, component: .descriptions)
-        case "undo": studio.execute("undo-cues")
-        case "redo": studio.execute("redo-cues")
+        case "undo": studio.execute(tab == "transcript" ? "undo-transcript" : "undo-cues")
+        case "redo": studio.execute(tab == "transcript" ? "redo-transcript" : "redo-cues")
         case "synthesize-tts": studio.execute(action)
         case "synthesize-changed": studio.execute("synthesize-tts", extra: ["--changed"])
         case "show-in-finder": if let folder = project.folder { NSWorkspace.shared.open(folder) }
@@ -1599,6 +1601,8 @@ struct ProjectEditor: View {
         shortcutActions.segmentCount = transcriptRows.count
         shortcutActions.selectedSegmentCount = selectedSegmentIDs.count
         shortcutActions.canGenerateDescriptions = project.canGenerateDescriptions
+        shortcutActions.canUndoSegment = !(tab == "transcript" ? project.transcriptUndoStack ?? [] : project.undoStack ?? []).isEmpty
+        shortcutActions.canRedoSegment = !(tab == "transcript" ? project.transcriptRedoStack ?? [] : project.redoStack ?? []).isEmpty
         shortcutActions.hasNarrationAudio = GeneratedContentComponent.narration.hasContent(in: project)
         shortcutActions.hasDescriptions = GeneratedContentComponent.descriptions.hasContent(in: project)
         shortcutActions.hasGeneratedTranscript = GeneratedContentComponent.transcript.hasContent(in: project)
@@ -2208,16 +2212,16 @@ private struct SegmentEditor: View {
             } header: {
                 Text(row.isDescription ? "Description" : "Transcript")
             }
-            if row.isDescription {
+            Group {
                 Section {
-                    Text("Optionally tell Gemini what to examine more closely. It may adjust descriptions in this range and its immediate neighbors to fit around dialogue. You can undo the result.")
+                    Text(row.isDescription ? "Optionally tell Gemini what to examine more closely. It may adjust descriptions in this range and its immediate neighbors to fit around dialogue. You can undo the result." : "Generate one or more transcript segments for this range and reconcile its immediate neighbors. All spoken languages and original scripts are preserved. Existing Audio Descriptions and narration are kept; conflicting speech timing is rejected. You can undo the result.")
                         .font(.callout)
                         .foregroundStyle(.secondary)
                         .fixedSize(horizontal: false, vertical: true)
                     TextEditor(text: $reanalysisHint)
                         .frame(minHeight: 120)
                         .accessibilityLabel("Hint for Gemini")
-                        .accessibilityHint("Enter optional guidance about the visual detail Gemini should examine in the selected time range.")
+                        .accessibilityHint(row.isDescription ? "Enter optional guidance about the visual detail Gemini should examine in the selected time range." : "Enter optional guidance about dialogue or languages in the selected range. The hint is not inserted as transcript text.")
                     HStack {
                         Spacer()
                         Button {
@@ -2231,8 +2235,8 @@ private struct SegmentEditor: View {
                         }
                         .disabled(!canReanalyze || isReadingFrame || !row.segment.start.isFinite || !row.segment.end.isFinite || row.segment.start < 0 || row.segment.end <= row.segment.start || row.segment.end > duration)
                         .keyboardShortcut("r", modifiers: [.command, .option])
-                        .help("Look closely at this time range using the optional hint and adjust nearby descriptions to fit. Generate a transcript and summary first.")
-                        .accessibilityHint("Uses the separate Gemini hint to update this range and nearby descriptions. Use Undo Segment Edit to restore them.")
+                        .help(row.isDescription ? "Look closely at this time range using the optional hint and adjust nearby descriptions to fit. Generate a transcript and summary first." : "Generate transcript segments using the selected range, multilingual settings and optional hint. No transcript or summary is required. Audio-only transcription models use the configured YouTube video transcription model for range analysis.")
+                        .accessibilityHint("Uses the separate Gemini hint to update this range and nearby segments. Use Undo Segment Edit to restore them.")
                     }
                 } header: {
                     Text("Hint for Gemini (Optional)")
@@ -2264,7 +2268,7 @@ private struct SegmentEditor: View {
         .navigationTitle(row.segment.text.isEmpty
             ? (row.isDescription ? "Add Audio Description Segment" : "Add Transcript Segment")
             : "Edit \(row.kind) Segment")
-        .frame(width: row.isDescription ? 780 : 660, height: row.isDescription ? 820 : 650)
+        .frame(width: 780, height: 820)
     }
 }
 

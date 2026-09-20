@@ -12,6 +12,8 @@ final class EditorShortcutActions {
     var canToggleNarration = false
     var canToggleFollow = false
     var canAddSegment = false
+    var canUndoSegment = false
+    var canRedoSegment = false
     var addSegmentTitle = "Add Segment"
     var segmentEditingAvailable = false
     var segmentEditMode = false
@@ -96,7 +98,9 @@ final class EditorShortcutActions {
         case "narration": return canToggleNarration
         case "follow": return canToggleFollow
         case "add": return canAddSegment
-        case "reanalyze-selection": return activeSection == "descriptions" && canGenerateDescriptions
+        case "undo": return canUndoSegment
+        case "redo": return canRedoSegment
+        case "reanalyze-selection": return activeSection == "transcript" || (activeSection == "descriptions" && canGenerateDescriptions)
         case "segment-edit-mode": return segmentEditingAvailable
         case "segment-select-all": return segmentEditMode && segmentCount > 0 && selectedSegmentCount < segmentCount
         case "segment-deselect-all", "segment-edit-selected", "segment-delete-selected":
