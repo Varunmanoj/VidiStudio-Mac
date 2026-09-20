@@ -96,6 +96,7 @@ final class EditorShortcutActions {
         case "narration": return canToggleNarration
         case "follow": return canToggleFollow
         case "add": return canAddSegment
+        case "reanalyze-selection": return activeSection == "descriptions" && canGenerateDescriptions
         case "segment-edit-mode": return segmentEditingAvailable
         case "segment-select-all": return segmentEditMode && segmentCount > 0 && selectedSegmentCount < segmentCount
         case "segment-deselect-all", "segment-edit-selected", "segment-delete-selected":
@@ -207,6 +208,7 @@ struct StudioShortcut: Identifiable {
         .init(id: "ad-overview", title: "Show AD Overview", key: "4", modifiers: .command, spoken: "Command + 4", group: "Editor"),
         .init(id: "ad-transcript", title: "Show AD Transcript", key: "5", modifiers: .command, spoken: "Command + 5", group: "Editor"),
         .init(id: "segment-edit-mode", title: "Enter or Leave Segment Edit Mode", key: "e", modifiers: [.command, .option], spoken: "Command + Option + E", group: "Segments"),
+        .init(id: "reanalyze-selection", title: "Re-Analyze a Video Section", key: "r", modifiers: [.command, .option], spoken: "Command + Option + R", group: "Segments"),
         .init(id: "add", title: "Add Segment", key: "n", modifiers: [.command, .shift], spoken: "Command + Shift + N", group: "Segments"),
         .init(id: "segment-select-all", title: "Select All Segments", key: "a", modifiers: [.command, .option], spoken: "Command + Option + A", group: "Segments"),
         .init(id: "segment-deselect-all", title: "Deselect All Segments", key: "a", modifiers: [.command, .option, .shift], spoken: "Command + Option + Shift + A", group: "Segments"),
@@ -308,6 +310,7 @@ struct StudioCommands: Commands {
                     .keyboardShortcut("n", modifiers: [.command, .shift])
                     .disabled(editor?.canRun("add") != true)
                 Divider()
+                shortcutEntries(StudioShortcut.editor.filter { $0.id == "reanalyze-selection" })
                 Button("Select All Segments", systemImage: "checkmark.square") { editor?.run("segment-select-all") }
                     .keyboardShortcut("a", modifiers: [.command, .option])
                     .disabled(editor?.canRun("segment-select-all") != true)

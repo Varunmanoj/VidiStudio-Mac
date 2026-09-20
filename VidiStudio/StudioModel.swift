@@ -203,6 +203,12 @@ struct ExportMediaInformation: Codable, Hashable {
     }
 }
 
+struct AnalysisVideoAvailability: Codable {
+    var state: String
+    var expiresAt: Double
+    var checkedAt: Double
+}
+
 struct StudioProject: Codable, Identifiable {
     var schemaVersion: Int
     var id: String
@@ -222,6 +228,7 @@ struct StudioProject: Codable, Identifiable {
     var exportMediaInfo: [String: ExportMediaInformation]?
     var status: String
     var error: String?
+    var geminiVideo: AnalysisVideoAvailability?
     var sourceType: String?
     var youtubeURL: String?
     var transcriptGenerated: Bool?
@@ -1409,10 +1416,22 @@ final class StudioModel {
         switch command {
         case "transcribe", "analyze", "regenerate-all": return "transcript"
         case "generate-summary": return "summary"
-        case "generate-ad-cues": return "descriptions"
+        case "generate-ad-cues", "reanalyze-segment", "prepare-analysis-video": return "descriptions"
         default: return nil
         }
     }
+    func reanalyzeSegment(_ segment: Segment) {
+        guard let project = selected, !busy else { return }
+        let file = FileManager.default.temporaryDirectory.appendingPathComponent("vidistudio-refine-\(UUID().uuidString).json")
+        do {
+            try JSONEncoder().encode(segment).write(to: file, options: .atomic)
+            execute("reanalyze-segment", extra: ["--input", file.path], project: project, cleanupURL: file)
+        } catch {
+            try? FileManager.default.removeItem(at: file)
+            present(.projectSave, technicalDetails: error.localizedDescription, context: "Prepare segment analysis")
+        }
+    }
+
     func saveCues(_ cues: [Segment]) {
         guard let p = selected, !busy else { return }
         do {

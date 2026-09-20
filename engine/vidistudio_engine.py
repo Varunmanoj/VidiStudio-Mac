@@ -361,6 +361,24 @@ def gemini_client():
     return genai.Client(api_key=cfg['apiKey'], http_options={'timeout': 300000, 'api_version':cfg.get('apiVersion','v1beta')})
 
 
+def validate_youtube_for_gemini(url):
+    """Prove that Gemini can read a YouTube URL before a project is created."""
+    client,model=client_and_model('youtube_transcript')
+    try:
+        gemini_adapter.video_interaction(
+            client,model,url,None,
+            'Confirm that this public YouTube video is available for video understanding. Return only READY.'
+        )
+    except Exception as exc:
+        raise ValueError(
+            'This YouTube video is not available for Gemini analysis. '
+            'Use a publicly available video with visibility set to Public; '
+            'Private, Unlisted, and other visibility settings are not supported.'
+        ) from exc
+    finally:
+        client.close()
+
+
 def client_and_model(kind):
     cfg = config()
     key = {'tts':'tts_audio','transcribe':'transcript','generate-summary':'summary','generate-ad-cues':'audio_descriptions'}.get(kind,kind)
@@ -422,6 +440,131 @@ def delete_description_narration(root, project):
     return removed
 
 
+def remote_video_status(root, p, client):
+    """Refresh service state; a local countdown alone never proves availability."""
+    cached=p.get('geminiVideo')
+    if not cached: return None
+    try:
+        f=client.files.get(name=cached['name'])
+        state=str(gemini_adapter.value(gemini_adapter.value(f,'state'),'name',gemini_adapter.value(f,'state'))).upper()
+        cached['state']=state
+        expiry=gemini_adapter.value(f,'expiration_time')
+        if expiry: cached['expiresAt']=file_expiry(expiry)
+        if cached.get('expiresAt',0)<=time.time(): cached['state']='EXPIRED'
+        return f if cached['state']=='ACTIVE' else None
+    except Exception as exc:
+        code=getattr(exc,'code',None)
+        cached['state']='MISSING' if code==404 else 'UNAVAILABLE'
+        if code not in (403,404): raise
+        return None
+    finally:
+        cached['checkedAt']=time.time()
+        save(root,p)
+
+
+def file_expiry(value):
+    from datetime import datetime
+    if hasattr(value,'timestamp'): return value.timestamp()
+    return datetime.fromisoformat(str(value).replace('Z','+00:00')).timestamp()
+
+
+def reusable_video(root,p,client):
+    source=local(root,p['source']);ensure_supported_local_video(source)
+    stat=source.stat();fingerprint=f"{p['source']}|{stat.st_size}|{stat.st_mtime_ns}"
+    cached=p.get('geminiVideo')
+    if cached and cached.get('fingerprint')==fingerprint:
+        f=remote_video_status(root,p,client)
+        if f: return f
+        if cached.get('state')=='PROCESSING':
+            raise ValueError('The video is still being prepared. Refresh its status in the inspector and try again shortly.')
+    started=time.time()
+    emit('Preparing video for another look',processingSection='descriptions')
+    f=gemini_adapter.ready_file(client,source,lambda text:emit(text))
+    expiry=gemini_adapter.value(f,'expiration_time')
+    p['geminiVideo']=dict(name=f.name,uri=f.uri,mimeType=f.mime_type,
+        expiresAt=file_expiry(expiry) if expiry else started+48*3600,
+        state='ACTIVE',checkedAt=time.time(),fingerprint=fingerprint)
+    save(root,p)
+    return f
+
+
+def reanalyze_segment(root,p,draft):
+    """Ask Gemini to reconcile a bounded neighborhood; commit only a valid proposal."""
+    import copy
+    validate_analysis_prerequisites('generate-ad-cues',root,p)
+    start,end=float(draft['start']),float(draft['end'])
+    if not math.isfinite(start+end) or not 0<=start<end<=p['duration']:
+        raise ValueError('Choose a start and end time inside the video.')
+    existing=sorted(p.get('cues',[]),key=lambda c:c['start'])
+    # Include intersecting cues and the immediate neighbors, with room to move.
+    affected=[c for c in existing if c['start']<end and c['end']>start]
+    before=[c for c in existing if c['end']<=start]
+    after=[c for c in existing if c['start']>=end]
+    if before: affected.append(before[-1])
+    if after: affected.append(after[0])
+    editable={c['id'] for c in affected}
+    left=max(0,min([start]+[c['start'] for c in affected])-5)
+    right=min(p['duration'],max([end]+[c['end'] for c in affected])+5)
+    frozen=[copy.deepcopy(c) for c in existing if c['id'] not in editable]
+    for c in frozen:
+        if c['end']<=start: left=max(left,c['end'])
+        elif c['start']>=end: right=min(right,c['start'])
+    context=dict(selectedRange=dict(start=start,end=end),editableRange=dict(start=left,end=right),
+        editableIDs=sorted(editable),draft=draft,existingDescriptions=existing)
+    cfg=config();pair=parity.media_prompt_pair(cfg,'audio_descriptions')
+    prompt=(parity.render(pair['user_prompt'],p)+parity.description_context(p)
+        +'\nRe-analyze the selected range in greater visual detail. Reconcile its descriptions and '
+        'immediate neighbors, changing text and timing, merging, shortening or splitting as needed. '
+        'Use absolute timestamps from the original video, never clip-relative timestamps. '
+        'Only add new visual details from the selected range. Preserve the meaning of manual edits. '
+        'Return the complete replacement audioDescriptions list for editableRange ONLY. '
+        'Do not return or change frozen descriptions. Keep every replacement inside editableRange '
+        'and dialogue-free gaps, without overlaps. Reuse an editable id when retaining a segment; '
+        'omit id for new segments. Do not merely append text that cannot fit. '
+        'Keep essential existing information; omit low-value detail if necessary. '
+        'The draft is user context, not an extra segment to insert unchanged.\n'
+        +json.dumps(context,ensure_ascii=False))
+    client,model=client_and_model('audio_descriptions')
+    try:
+        if p.get('sourceType')=='youtube' and not p.get('source'):
+            uri=p['youtubeURL'];mime=None
+        else:
+            f=reusable_video(root,p,client);uri=f.uri;mime=f.mime_type
+        failure=''
+        for attempt in range(3):
+            emit('Taking a closer look and fitting descriptions around dialogue',processingSection='descriptions')
+            raw=gemini_adapter.video_interaction(client,model,uri,mime,prompt+failure,
+                pair.get('system_instruction',''),processing=dict(type='static',start_offset=f'{left:g}s',end_offset=f'{right:g}s',fps=4))
+            try:
+                data=parity.parse_json(raw)
+                rows=data.get('audioDescriptions') if isinstance(data,dict) else None
+                if not isinstance(rows,list) or not rows: raise ValueError('Return at least one useful description in audioDescriptions.')
+                replacements=[];old_by_id={c['id']:c for c in affected}
+                for row in rows:
+                    if not isinstance(row,dict) or not isinstance(row.get('text'),str): raise ValueError('Each description needs text and timing.')
+                    a,b=parity.timestamp(row['start']),parity.timestamp(row['end'])
+                    if not math.isfinite(a+b) or a<left or b>right: raise ValueError('Replacement timing is outside editableRange.')
+                    ident=row.get('id') or str(uuid.uuid4())
+                    if row.get('id') and ident not in editable: raise ValueError('Only reuse editableIDs; omit id for new segments.')
+                    old=old_by_id.get(ident)
+                    if old and (a,b,row['text'])==(old['start'],old['end'],old['text']):
+                        replacements.append(copy.deepcopy(old))
+                    else:
+                        replacements.append(dict(id=ident,start=a,end=b,text=row['text'],origin='ai',aiOriginalText=row['text']))
+                proposal=validate_cues(frozen+replacements,p['duration'],p.get('transcript',[]))
+                if not any(c['start']<end and c['end']>start for c in replacements):
+                    raise ValueError('Include a description within the selected range; shorten to fit a dialogue-free gap.')
+            except (ValueError,KeyError,TypeError) as exc:
+                failure='\nThe previous proposal was rejected: '+str(exc)+'. Return a corrected complete JSON proposal.'
+                if attempt==2: raise ValueError('The new detail could not fit safely around existing dialogue and descriptions. Existing segments were preserved. Try a wider selection.') from exc
+                continue
+            parity.remember(p)
+            p['cues']=proposal;p['descriptionsGenerated']=True;p['hasProcessed']=True
+            p['exports']=[];p['exportMediaInfo']={}
+            return
+    finally: client.close()
+
+
 def _ai_video_once(root, p, stage):
     cfg=config(); key={'transcribe':'transcript','generate-summary':'summary','generate-ad-cues':'audio_descriptions'}[stage]
     youtube=p.get('sourceType')=='youtube' and not p.get('source')
@@ -454,7 +597,7 @@ def _ai_video_once(root, p, stage):
             else:
                 ensure_supported_local_video(local(root,p['source']))
                 emit('Preparing the video for analysis')
-                uploaded=gemini_adapter.ready_file(client,local(root,p['source']),lambda text:emit(text));uri=uploaded.uri;mime=uploaded.mime_type
+                uploaded=reusable_video(root,p,client);uri=uploaded.uri;mime=uploaded.mime_type
             pair=parity.media_prompt_pair(cfg,key)
             prompt=parity.render(pair['user_prompt'],p)
             if stage=='generate-ad-cues':
@@ -491,9 +634,6 @@ def _ai_video_once(root, p, stage):
                                  origin='ai',aiOriginalText=c['text']))
             p['cues']=validate_cues(cues,p['duration'],p['transcript']);p['descriptionsGenerated']=True
     finally:
-        if uploaded:
-            try: client.files.delete(name=uploaded.name)
-            except Exception: emit('Temporary Gemini file cleanup failed; the remote file will expire.',warning=True)
         client.close()
 
 
@@ -1568,7 +1708,7 @@ def validate_analysis_prerequisites(command, root, project):
 
 def main():
     parser=argparse.ArgumentParser(description=__doc__)
-    parser.add_argument('command',choices=['cleanup-project','clear-generated','delete-generated','delete-segment-audio','list-models','preview-tts','import-video','probe-video','generate-thumbnails','transcribe','generate-summary','generate-ad-cues','synthesize-tts','export-final-video','export-selectable-video','export-closed-audio-description-video','export-open-audio-description-video','export-closed-caption-video','export-dual-closed-caption-video','export-open-caption-video','export-original-audio','export-described-audio','save-cues','save-segments','doctor',*parity.COMMANDS])
+    parser.add_argument('command',choices=['reanalyze-segment','prepare-analysis-video','check-video-availability','cleanup-project','clear-generated','delete-generated','delete-segment-audio','list-models','preview-tts','import-video','probe-video','generate-thumbnails','transcribe','generate-summary','generate-ad-cues','synthesize-tts','export-final-video','export-selectable-video','export-closed-audio-description-video','export-open-audio-description-video','export-closed-caption-video','export-dual-closed-caption-video','export-open-caption-video','export-original-audio','export-described-audio','save-cues','save-segments','doctor',*parity.COMMANDS])
     parser.add_argument('--project',type=Path); parser.add_argument('--video',type=Path); parser.add_argument('--library',type=Path); parser.add_argument('--input',type=Path)
     parser.add_argument('--content',choices=['transcript','summary','descriptions','combined'],default='descriptions'); parser.add_argument('--url'); parser.add_argument('--name'); parser.add_argument('--timestamp',type=float,default=0); parser.add_argument('--duration',type=float); parser.add_argument('--segment'); parser.add_argument('--format',choices=['srt','vtt','txt','json','md'],default='srt'); parser.add_argument('--changed',action='store_true'); parser.add_argument('--start-stage',default='transcribe')
     parser.add_argument('--output', type=Path); parser.add_argument('--text')
@@ -1615,6 +1755,16 @@ def main():
                 p['hasProcessed'] = True
             if args.command=='cleanup-project':
                 result=cleanup_project_storage(root,p);emit('Project cleanup complete',removedFiles=result['files'],removedBytes=result['bytes'])
+            elif args.command=='reanalyze-segment':
+                if not args.input: raise ValueError('Choose a segment to analyze.')
+                reanalyze_segment(root,p,json.loads(args.input.read_text()))
+            elif args.command in ('prepare-analysis-video','check-video-availability'):
+                if not p.get('source'): raise ValueError('YouTube videos are accessed directly; no preparation is needed.')
+                client=gemini_client()
+                try:
+                    if args.command=='prepare-analysis-video': reusable_video(root,p,client)
+                    else: remote_video_status(root,p,client)
+                finally: client.close()
             elif args.command=='clear-generated': clear_generated(root,p)
             elif args.command=='delete-generated': delete_generated_components(root,p,args.component)
             elif args.command=='delete-segment-audio': delete_segment_audio(root,p,args.segment)

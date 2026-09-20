@@ -70,7 +70,7 @@ def transcribe_audio(client,model,path,offset=0,emit=lambda *_:None):
 def video_interaction(client,model,uri,mime,prompt,system='',schema=None,processing='agentic'):
     media={'type':'video','uri':uri}
     if mime: media['mime_type']=mime
-    if processing=='agentic': media['processing']='agentic'
+    if processing: media['processing']=processing
     args=dict(model=model,input=[media,{'type':'text','text':prompt}])
     if system: args['system_instruction']=system
     if schema: args['response_format']={'type':'text','mime_type':'application/json','schema':schema}

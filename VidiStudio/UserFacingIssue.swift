@@ -114,7 +114,7 @@ struct UserFacingIssue: Equatable {
         case "import-youtube", "prepare-youtube":
             return UserFacingIssue(
                 title: "YouTube Video Couldn’t Be Added",
-                message: "Check the YouTube link and your internet connection, then try again."
+                message: "Use a publicly available YouTube video with visibility set to Public. Private, Unlisted, and other visibility settings cannot be analyzed by Gemini. Check the link, your Gemini API settings, and your internet connection, then try again."
             )
         case "prepare-video", "probe-video", "generate-thumbnails":
             return UserFacingIssue(
@@ -163,6 +163,10 @@ struct UserFacingIssue: Equatable {
                 title: "Gemini Models Couldn’t Be Loaded",
                 message: "Check your Gemini API key and internet connection, then try again."
             )
+        case "reanalyze-segment":
+            return UserFacingIssue(title: "This Section Couldn’t Be Re-Analyzed", message: "Existing descriptions have been kept. Try a wider time range and check your video availability and Gemini settings.")
+        case "prepare-analysis-video", "check-video-availability":
+            return UserFacingIssue(title: "Video Availability Couldn’t Be Confirmed", message: "Check your internet connection and Gemini settings, then refresh the video status in the inspector.")
         case "capture-frame":
             return UserFacingIssue(
                 title: "Frame Text Couldn’t Be Read",
@@ -199,6 +203,9 @@ enum UserFacingProgress {
         case "generate-summary": return "Creating the summary…"
         case "generate-ad-cues": return "Creating Audio Descriptions…"
         case "synthesize-tts", "synthesize-changed": return "Creating narration…"
+        case "reanalyze-segment": return "Taking a closer look and adjusting descriptions…"
+        case "prepare-analysis-video": return "Preparing video for analysis…"
+        case "check-video-availability": return "Checking video availability…"
         case "capture-frame": return "Reading text from the selected frame…"
         case "save-cues", "save-segments": return "Saving your changes…"
         case "delete-export", "delete-generated", "delete-segment-audio": return "Updating the project…"

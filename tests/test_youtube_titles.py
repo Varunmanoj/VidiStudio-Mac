@@ -8,10 +8,17 @@ class YouTubeTitles(unittest.TestCase):
     def import_project(self, title=None, fail=False, custom=None, url='https://youtu.be/hYaQffYszuM'):
         with tempfile.TemporaryDirectory() as tmp:
             args=SimpleNamespace(command='import-youtube',url=url,library=Path(tmp),name=custom,duration=0)
+            validated=[]
             with patch.object(parity,'urlopen',side_effect=OSError('offline') if fail else None,return_value=io.StringIO(json.dumps({'title':title}))), \
                  patch.object(parity,'download_youtube_thumbnail',return_value='thumbnails/youtube-thumbnail.jpg'):
-                parity.execute(args,None,None,SimpleNamespace(save=engine.save,emit=lambda *a,**k:None))
-            return json.loads(next(Path(tmp).glob('*/project.json')).read_text())
+                parity.execute(args,None,None,SimpleNamespace(
+                    save=engine.save,
+                    emit=lambda *a,**k:None,
+                    validate_youtube_for_gemini=validated.append,
+                ))
+            project=json.loads(next(Path(tmp).glob('*/project.json')).read_text())
+            self.assertEqual(validated,[project['youtubeURL']])
+            return project
     def test_share_and_watch_urls_create_the_same_canonical_project(self):
         expected='https://www.youtube.com/watch?v=4fYlQtcm6qY'
         for url in ('https://youtu.be/4fYlQtcm6qY','https://www.youtube.com/watch?v=4fYlQtcm6qY'):
@@ -35,3 +42,14 @@ class YouTubeTitles(unittest.TestCase):
     def test_display_title(self): self.assertEqual(self.import_project('The video display title')['name'],'The video display title')
     def test_offline_placeholder_has_no_id(self): self.assertEqual(self.import_project(fail=True)['name'],'YouTube video')
     def test_custom_name_preserved(self): self.assertEqual(self.import_project('Title',custom='My edit')['name'],'My edit')
+    def test_gemini_validation_failure_does_not_create_project(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            args=SimpleNamespace(command='import-youtube',url='https://youtu.be/4fYlQtcm6qY',library=Path(tmp),name=None,duration=0)
+            def reject(_url): raise ValueError('not public')
+            with self.assertRaisesRegex(ValueError,'not public'):
+                parity.execute(args,None,None,SimpleNamespace(
+                    save=engine.save,
+                    emit=lambda *a,**k:None,
+                    validate_youtube_for_gemini=reject,
+                ))
+            self.assertEqual(list(Path(tmp).glob('*/project.json')),[])

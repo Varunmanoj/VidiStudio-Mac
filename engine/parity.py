@@ -153,6 +153,8 @@ def execute(args,root,p,e):
         if not args.url or not args.library: raise ValueError('YouTube import requires --url and --library.')
         url=youtube_url(args.url);ident=url.split('=')[-1];name=args.name or 'YouTube video'
         ensure_unique_youtube_video(args.library, url)
+        e.emit('Checking that the YouTube video is public and available to Gemini',progress=.1)
+        e.validate_youtube_for_gemini(url)
         try:
             with urlopen('https://www.youtube.com/oembed?format=json&url='+url,timeout=10,context=ssl.create_default_context(cafile=certifi.where())) as r:
                 title=str(json.load(r).get('title') or '').strip()

@@ -122,7 +122,7 @@ private struct NewProjectView: View {
             } footer: {
                 Text(source == .videoFile
                      ? "VidiStudio copies the selected video into a new local project folder."
-                     : "Fetch and review the video details first. VidiStudio stores the project locally; playback and analysis require an internet connection.")
+                     : "Fetch and review the video details first. The video must be Public, not Private or Unlisted. Before creating the project, VidiStudio asks Gemini to confirm that the video is available for analysis.")
             }
 
             Section {
@@ -504,6 +504,7 @@ struct ProcessingInspector: View {
                             }
                             }
                         }
+                        AnalysisVideoStatusView(studio: studio, project: p)
                         GroupBox("Export") {
                             VStack(alignment: .leading, spacing: 10) {
                                 ProjectExportButton(
@@ -543,6 +544,71 @@ struct ProcessingInspector: View {
             .controlSize(.regular)
             .padding(.horizontal, 16)
             .padding(.vertical, 10)
+        }
+    }
+}
+
+private struct AnalysisVideoStatusView: View {
+    @Bindable var studio: StudioModel
+    let project: StudioProject
+
+    var body: some View {
+        GroupBox("Video Analysis Availability") {
+            if project.source.isEmpty && project.isYouTubeURLProject {
+                Text("This video is accessed from YouTube when you analyze it. No upload is needed.")
+                    .font(.caption)
+            } else {
+                SwiftUI.TimelineView(.periodic(from: .now, by: 1)) { context in
+                    let video = project.geminiVideo
+                    let remaining = max(0, (video?.expiresAt ?? 0) - context.date.timeIntervalSince1970)
+                    let ready = video?.state == "ACTIVE" && remaining > 0
+                    VStack(alignment: .leading, spacing: 8) {
+                        Text(status(video, remaining: remaining)).font(.headline)
+                        if remaining > 0, video?.state == "ACTIVE" || video?.state == "PROCESSING" {
+                            Text("Available for \(duration(remaining)) before preparation is needed again.")
+                                .monospacedDigit().font(.caption)
+                        }
+                        if let video {
+                            Text("Last checked: \(Date(timeIntervalSince1970: video.checkedAt).formatted(date: .abbreviated, time: .shortened))")
+                                .font(.caption).foregroundStyle(.secondary)
+                        }
+                        Text("Status is checked with Gemini. Re-analysis checks again and prepares the video automatically when needed.")
+                            .font(.caption).foregroundStyle(.secondary)
+                        Button(ready ? "Video Ready" : "Prepare Video for Analysis") {
+                            studio.execute("prepare-analysis-video", project: project)
+                        }
+                        .disabled(studio.busy || ready || video?.state == "PROCESSING")
+                        Button("Refresh Status") {
+                            studio.execute("check-video-availability", project: project)
+                        }
+                        .disabled(studio.busy || video == nil)
+                    }
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                }
+            }
+        }
+        .task(id: project.id) {
+            if project.geminiVideo != nil && !studio.busy && !project.source.isEmpty {
+                studio.execute("check-video-availability", project: project)
+            }
+        }
+    }
+
+    private func duration(_ seconds: Double) -> String {
+        let value = Int(seconds.rounded(.down))
+        return String(format: "%02d:%02d:%02d", value / 3600, value / 60 % 60, value % 60)
+    }
+
+    private func status(_ video: AnalysisVideoAvailability?, remaining: Double) -> String {
+        guard let video else { return "Video needs preparation" }
+        if video.state == "UNAVAILABLE" { return "Couldn’t verify video availability" }
+        if video.state == "MISSING" { return "Video needs preparation again" }
+        if remaining <= 0 { return "Video availability has expired" }
+        switch video.state {
+        case "ACTIVE": return "Video ready for analysis"
+        case "PROCESSING": return "Video is being prepared"
+        case "FAILED": return "Video preparation failed"
+        default: return "Video availability needs checking"
         }
     }
 }
@@ -1024,7 +1090,11 @@ struct ProjectEditor: View {
             descriptions: project.cues,
             capturedScreenText: $segmentScreenText,
             isReadingFrame: readingFrameForSegment,
-            readFrame: readFrameAction
+            readFrame: readFrameAction,
+            canReanalyze: project.canGenerateDescriptions && !studio.busy,
+            reanalyze: { segment in
+                studio.reanalyzeSegment(segment)
+            }
         ) { updated in
             saveEditedRows([updated])
         }
@@ -1445,6 +1515,7 @@ struct ProjectEditor: View {
         case "summary-from-selection": summaryReader.playFromSelection()
         case "summary-read-selection": summaryReader.readSelectedText()
         case "add": presentNewSegment(isDescription: tab == "descriptions")
+        case "reanalyze-selection": presentNewSegment(isDescription: true)
         case "delete-narration": studio.confirmDeleteGeneratedContent(project, component: .narration)
         case "delete-transcript": studio.confirmDeleteGeneratedContent(project, component: .transcript)
         case "delete-summary": studio.confirmDeleteGeneratedContent(project, component: .summary)
@@ -2011,9 +2082,11 @@ private struct SegmentEditor: View {
     @Binding var capturedScreenText: String?
     let isReadingFrame: Bool
     let readFrame: ((Double) -> Void)?
+    let canReanalyze: Bool
+    let reanalyze: (Segment) -> Void
     let save: (TranscriptRow) -> Void
 
-    init(row: TranscriptRow, duration: Double, transcript: [Segment], descriptions: [Segment], capturedScreenText: Binding<String?>, isReadingFrame: Bool, readFrame: ((Double) -> Void)?, save: @escaping (TranscriptRow) -> Void) {
+    init(row: TranscriptRow, duration: Double, transcript: [Segment], descriptions: [Segment], capturedScreenText: Binding<String?>, isReadingFrame: Bool, readFrame: ((Double) -> Void)?, canReanalyze: Bool, reanalyze: @escaping (Segment) -> Void, save: @escaping (TranscriptRow) -> Void) {
         _row = State(initialValue: row)
         self.duration = duration
         self.transcript = transcript
@@ -2021,6 +2094,8 @@ private struct SegmentEditor: View {
         _capturedScreenText = capturedScreenText
         self.isReadingFrame = isReadingFrame
         self.readFrame = readFrame
+        self.canReanalyze = canReanalyze
+        self.reanalyze = reanalyze
         self.save = save
     }
 
@@ -2076,7 +2151,24 @@ private struct SegmentEditor: View {
                         .disabled(isReadingFrame)
                         .help("Read text from the video frame at the segment start time and use it as the description")
                         .accessibilityHint("Replaces the description with text found at the segment start time.")
+                        Button {
+                            reanalyze(row.segment)
+                            dismiss()
+                        } label: {
+                            HStack {
+                                MaterialIcon(glyph: "\u{e8b6}")
+                                Text("Re-Analyze This Segment")
+                            }
+                        }
+                        .disabled(!canReanalyze || isReadingFrame || !row.segment.start.isFinite || !row.segment.end.isFinite || row.segment.start < 0 || row.segment.end <= row.segment.start || row.segment.end > duration)
+                        .keyboardShortcut("r", modifiers: [.command, .option])
+                        .help("Look closely at this time range and adjust nearby descriptions to fit. Generate a transcript and summary first.")
+                        .accessibilityHint("Updates this range and nearby descriptions. Use Undo Segment Edit to restore them.")
                     }
+                }
+                if row.isDescription {
+                    Text("Re-analysis updates descriptions in this range and nearby text and timing to fit around dialogue. You can undo the changes afterward.")
+                        .font(.caption).foregroundStyle(.secondary)
                 }
                 TextEditor(text: $row.segment.text)
                     .frame(height: 140)
@@ -2116,7 +2208,7 @@ private struct SegmentEditor: View {
         .navigationTitle(row.segment.text.isEmpty
             ? (row.isDescription ? "Add Audio Description Segment" : "Add Transcript Segment")
             : "Edit \(row.kind) Segment")
-        .frame(width: 560, height: 590)
+        .frame(width: 660, height: 650)
     }
 }
 

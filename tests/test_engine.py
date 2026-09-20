@@ -7,6 +7,28 @@ ENGINE=Path(__file__).resolve().parents[1]/'engine/vidistudio_engine.py'
 sys.path.insert(0,str(ENGINE.parent))
 spec=importlib.util.spec_from_file_location('engine',ENGINE); engine=importlib.util.module_from_spec(spec); spec.loader.exec_module(engine)
 class Validation(unittest.TestCase):
+    def test_youtube_validation_uses_configured_video_model_and_closes_client(self):
+        client = Mock()
+        with patch.object(engine, 'client_and_model', return_value=(client, 'gemini-youtube')), \
+             patch.object(engine.gemini_adapter, 'video_interaction', return_value='READY') as interaction:
+            engine.validate_youtube_for_gemini('https://www.youtube.com/watch?v=abcdefghijk')
+        interaction.assert_called_once_with(
+            client,
+            'gemini-youtube',
+            'https://www.youtube.com/watch?v=abcdefghijk',
+            None,
+            'Confirm that this public YouTube video is available for video understanding. Return only READY.',
+        )
+        client.close.assert_called_once()
+
+    def test_youtube_validation_rejects_links_gemini_cannot_read(self):
+        client = Mock()
+        with patch.object(engine, 'client_and_model', return_value=(client, 'gemini-youtube')), \
+             patch.object(engine.gemini_adapter, 'video_interaction', side_effect=RuntimeError('video unavailable')):
+            with self.assertRaisesRegex(ValueError, 'Private, Unlisted, and other visibility settings are not supported'):
+                engine.validate_youtube_for_gemini('https://www.youtube.com/watch?v=abcdefghijk')
+        client.close.assert_called_once()
+
     def test_transcription_enables_automatic_multilingual_detection(self):
         client = Mock()
         uploaded = SimpleNamespace(uri='files/mixed-language-audio', mime_type='audio/wav', name='files/mixed-language-audio')
