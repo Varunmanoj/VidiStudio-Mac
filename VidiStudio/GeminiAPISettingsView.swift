@@ -42,14 +42,17 @@ struct GeminiAPISettingsView: View {
 
     private let apiKeyPage = URL(string: "https://aistudio.google.com/api-keys")!
 
-    private let rows = [
+    private let localVideoRows = [
         GeminiModelRow(id: "transcript", label: "Speech transcription"),
-        GeminiModelRow(id: "youtube_transcript", label: "YouTube transcription"),
         GeminiModelRow(id: "summary", label: "Video summaries"),
         GeminiModelRow(id: "audio_descriptions", label: "Audio descriptions"),
         GeminiModelRow(id: "screen_text", label: "On-screen text"),
         GeminiModelRow(id: "text_rewrite", label: "Description rewrites"),
         GeminiModelRow(id: "tts_audio", label: "Gemini narration"),
+    ]
+
+    private let youtubeVideoRows = [
+        GeminiModelRow(id: "youtube_transcript", label: "YouTube transcription"),
     ]
 
     var body: some View {
@@ -83,23 +86,23 @@ struct GeminiAPISettingsView: View {
         }
 
         Section {
-            ForEach(rows) { row in
-                Picker(row.label, selection: modelBinding(row.id)) {
-                    ForEach(modelGroups(for: row.id)) { modelGroup in
-                        Section(modelGroup.group.title) {
-                            ForEach(modelGroup.options) { option in
-                                Text(modelDisplayName(option.name)).tag(option.name)
-                            }
-                        }
-                    }
-                }
-                .disabled(!studio.geminiModelsLoaded)
-                .accessibilityHint("Choose from models available to your Gemini account.")
+            ForEach(localVideoRows) { row in
+                modelPicker(row)
             }
         } header: {
-            Text("Choose models")
+            Text("Local video")
         } footer: {
-            Text("These menus come directly from Gemini and show compatible choices available to your API key.")
+            Text("Summary, description, rewrite, and narration selections are also used for YouTube projects.")
+        }
+
+        Section {
+            ForEach(youtubeVideoRows) { row in
+                modelPicker(row)
+            }
+        } header: {
+            Text("YouTube video")
+        } footer: {
+            Text("YouTube transcription has its own model because it processes the online video source differently.")
         }
     }
 
@@ -108,6 +111,20 @@ struct GeminiAPISettingsView: View {
             get: { studio.settings.models[stage] ?? "" },
             set: { studio.settings.models[stage] = $0 }
         )
+    }
+
+    private func modelPicker(_ row: GeminiModelRow) -> some View {
+        Picker(row.label, selection: modelBinding(row.id)) {
+            ForEach(modelGroups(for: row.id)) { modelGroup in
+                Section(modelGroup.group.title) {
+                    ForEach(modelGroup.options) { option in
+                        Text(modelDisplayName(option.name)).tag(option.name)
+                    }
+                }
+            }
+        }
+        .disabled(!studio.geminiModelsLoaded)
+        .accessibilityHint("Choose from models available to your Gemini account.")
     }
 
     private func modelGroups(for stage: String) -> [GeminiModelMenuGroup] {

@@ -982,3 +982,11 @@ Changed the selected Settings sidebar icon from `controlAccentColor` to AppKit's
 Advanced the app from version 1.0.19 (build 20) to version 1.0.20 (build 21), with Debug and Release settings aligned for both the app and share-extension targets.
 
 Validation: Xcode MCP reported no diagnostics in `SettingsView.swift` and built the macOS 27 project successfully with zero errors in 3.645 seconds. The required `VIDISTUDIO_CONFIGURATION=Release ./script/build_and_run.sh --verify` attempt remained blocked in the restricted sandbox by unavailable Icon Studio and Swift macro plugin services; the same project compiled successfully through Xcode MCP. `git diff --check` passed.
+
+## 2026-09-20 — Local and YouTube Gemini model groups
+
+Split Gemini API model assignment into two native Settings sections instead of one uninterrupted list. Local video contains speech transcription plus the summary, Audio Description, on-screen text, rewrite, and narration selections. YouTube video contains its dedicated online-video transcription model. Explanatory footers make the underlying configuration clear: downstream summary, description, rewrite, and narration selections remain shared across local and YouTube projects, while YouTube transcription uses its own model. The grouped model-family menus and normalized names remain unchanged within each picker.
+
+Advanced the app from version 1.0.20 (build 21) to version 1.0.21 (build 22), with Debug and Release settings aligned for both the app and share-extension targets.
+
+Validation: Xcode MCP reported no diagnostics in `GeminiAPISettingsView.swift` and built the macOS 27 project successfully with zero errors in 3.995 seconds. The required `VIDISTUDIO_CONFIGURATION=Release ./script/build_and_run.sh --verify` attempt remained blocked in the restricted sandbox by unavailable Icon Studio and Swift macro plugin services; the same sources compile successfully through Xcode MCP. No live Gemini request was made and no API key or saved model selection was changed.
