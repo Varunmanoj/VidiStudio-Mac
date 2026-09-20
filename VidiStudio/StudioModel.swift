@@ -1018,6 +1018,10 @@ final class StudioModel {
             message: "The export will be permanently removed from the project to free storage. This cannot be undone.",
             actionTitle: "Delete Export"
         ) else { return }
+        deleteExport(project, path: path)
+    }
+    func deleteExport(_ project: StudioProject, path: String) {
+        guard !busy, project.exports.contains(path) else { return }
         selectedID = project.id
         execute("delete-export", extra: ["--name", path], project: project)
     }

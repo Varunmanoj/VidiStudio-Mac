@@ -504,7 +504,9 @@ struct ProcessingInspector: View {
                             }
                             }
                         }
-                        AnalysisVideoStatusView(studio: studio, project: p)
+                        if !p.isYouTubeURLProject {
+                            AnalysisVideoStatusView(studio: studio, project: p)
+                        }
                         GroupBox("Export") {
                             VStack(alignment: .leading, spacing: 10) {
                                 ProjectExportButton(
@@ -554,37 +556,49 @@ private struct AnalysisVideoStatusView: View {
 
     var body: some View {
         GroupBox("Video Analysis Availability") {
-            if project.source.isEmpty && project.isYouTubeURLProject {
-                Text("This video is accessed from YouTube when you analyze it. No upload is needed.")
-                    .font(.caption)
-            } else {
-                SwiftUI.TimelineView(.periodic(from: .now, by: 1)) { context in
-                    let video = project.geminiVideo
-                    let remaining = max(0, (video?.expiresAt ?? 0) - context.date.timeIntervalSince1970)
-                    let ready = video?.state == "ACTIVE" && remaining > 0
-                    VStack(alignment: .leading, spacing: 8) {
-                        Text(status(video, remaining: remaining)).font(.headline)
-                        if remaining > 0, video?.state == "ACTIVE" || video?.state == "PROCESSING" {
-                            Text("Available for \(duration(remaining)) before preparation is needed again.")
-                                .monospacedDigit().font(.caption)
-                        }
-                        if let video {
-                            Text("Last checked: \(Date(timeIntervalSince1970: video.checkedAt).formatted(date: .abbreviated, time: .shortened))")
-                                .font(.caption).foregroundStyle(.secondary)
-                        }
-                        Text("Status is checked with Gemini. Re-analysis checks again and prepares the video automatically when needed.")
-                            .font(.caption).foregroundStyle(.secondary)
-                        Button(ready ? "Video Ready" : "Prepare Video for Analysis") {
+            SwiftUI.TimelineView(.periodic(from: .now, by: 1)) { context in
+                let video = project.geminiVideo
+                let remaining = max(0, (video?.expiresAt ?? 0) - context.date.timeIntervalSince1970)
+                let ready = video?.state == "ACTIVE" && remaining > 0
+                let processing = video?.state == "PROCESSING"
+                HStack(spacing: 10) {
+                    Image(systemName: statusSymbol(video, remaining: remaining))
+                        .font(.title2)
+                        .foregroundStyle(statusColor(video, remaining: remaining))
+                        .accessibilityLabel(accessibilityStatus(video, remaining: remaining))
+
+                    if remaining > 0, ready || processing {
+                        Text(duration(remaining))
+                            .font(.subheadline.weight(.semibold))
+                            .lineLimit(3)
+                            .fixedSize(horizontal: false, vertical: true)
+                            .accessibilityHidden(true)
+                    }
+
+                    Spacer(minLength: 8)
+
+                    if !ready && !processing {
+                        Button("Prepare Video for Analysis", systemImage: "arrow.up.circle") {
                             studio.execute("prepare-analysis-video", project: project)
                         }
-                        .disabled(studio.busy || ready || video?.state == "PROCESSING")
-                        Button("Refresh Status") {
+                        .labelStyle(.iconOnly)
+                        .help("Prepare video for analysis")
+                        .accessibilityLabel("Prepare video for analysis")
+                        .disabled(studio.busy)
+                    }
+
+                    if video != nil {
+                        Button("Refresh Status", systemImage: "arrow.clockwise") {
                             studio.execute("check-video-availability", project: project)
                         }
-                        .disabled(studio.busy || video == nil)
+                        .labelStyle(.iconOnly)
+                        .help("Refresh video analysis status")
+                        .accessibilityLabel("Refresh video analysis status")
+                        .disabled(studio.busy)
                     }
-                    .frame(maxWidth: .infinity, alignment: .leading)
                 }
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .accessibilityElement(children: .contain)
             }
         }
         .task(id: project.id) {
@@ -595,8 +609,36 @@ private struct AnalysisVideoStatusView: View {
     }
 
     private func duration(_ seconds: Double) -> String {
-        let value = Int(seconds.rounded(.down))
-        return String(format: "%02d:%02d:%02d", value / 3600, value / 60 % 60, value % 60)
+        let value = max(0, Int(seconds.rounded(.down)))
+        let days = value / 86_400
+        let hours = value / 3_600 % 24
+        let minutes = value / 60 % 60
+        let seconds = value % 60
+        return "\(quantity(days, singular: "day")), \(quantity(hours, singular: "hour")), \(quantity(minutes, singular: "minute")), \(quantity(seconds, singular: "second"))"
+    }
+
+    private func quantity(_ value: Int, singular: String) -> String {
+        "\(value) \(value == 1 ? singular : singular + "s")"
+    }
+
+    private func statusSymbol(_ video: AnalysisVideoAvailability?, remaining: Double) -> String {
+        if video?.state == "ACTIVE" && remaining > 0 { return "checkmark.circle.fill" }
+        if video?.state == "PROCESSING" { return "hourglass.circle.fill" }
+        return "info.circle.fill"
+    }
+
+    private func statusColor(_ video: AnalysisVideoAvailability?, remaining: Double) -> Color {
+        if video?.state == "ACTIVE" && remaining > 0 { return .green }
+        if video?.state == "PROCESSING" { return .orange }
+        return .red
+    }
+
+    private func accessibilityStatus(_ video: AnalysisVideoAvailability?, remaining: Double) -> String {
+        let current = status(video, remaining: remaining)
+        if remaining > 0, video?.state == "ACTIVE" || video?.state == "PROCESSING" {
+            return "\(current). Availability remaining: \(duration(remaining))."
+        }
+        return current
     }
 
     private func status(_ video: AnalysisVideoAvailability?, remaining: Double) -> String {

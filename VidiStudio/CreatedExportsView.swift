@@ -3,6 +3,7 @@ import SwiftUI
 struct CreatedExportsView: View {
     @Bindable var studio: StudioModel
     let project: StudioProject
+    @State private var selectedExport: ExportSelection?
 
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
@@ -27,76 +28,78 @@ struct CreatedExportsView: View {
                 }
             }
         }
+        .confirmationDialog(
+            "Export Information",
+            isPresented: Binding(
+                get: { selectedExport != nil },
+                set: { if !$0 { selectedExport = nil } }
+            ),
+            titleVisibility: .visible,
+            presenting: selectedExport
+        ) { selection in
+            Button {
+                if let url = project.url(selection.path) {
+                    NSWorkspace.shared.open(url)
+                }
+                selectedExport = nil
+            } label: {
+                Label("Open File", systemImage: "arrow.up.forward.app")
+            }
+            .disabled(studio.busy || project.url(selection.path) == nil)
+
+            Button {
+                if let url = project.url(selection.path) {
+                    NSWorkspace.shared.activateFileViewerSelecting([url])
+                }
+                selectedExport = nil
+            } label: {
+                Label("Open Folder", systemImage: "folder")
+            }
+            .disabled(studio.busy || project.url(selection.path) == nil)
+
+            Button(role: .destructive) {
+                studio.deleteExport(project, path: selection.path)
+                selectedExport = nil
+            } label: {
+                Label("Delete File", systemImage: "trash")
+            }
+            .disabled(studio.busy)
+
+            Button("Cancel", role: .cancel) {
+                selectedExport = nil
+            }
+        } message: { selection in
+            Text(selection.filename)
+        }
     }
 
     private func exportRow(path: String, kind: ExportCategory) -> some View {
         let filename = URL(fileURLWithPath: path).lastPathComponent
-        return VStack(alignment: .leading, spacing: 6) {
-            HStack(spacing: 6) {
-                Button(filename, systemImage: kind.icon) {
-                    if let url = project.url(path) { NSWorkspace.shared.open(url) }
-                }
+        return HStack(spacing: 8) {
+            Label(filename, systemImage: kind.icon)
+                .lineLimit(1)
+                .truncationMode(.middle)
+                .help(filename)
                 .frame(maxWidth: .infinity, alignment: .leading)
-                .help("Open \(filename)")
-                .disabled(studio.busy || project.url(path) == nil)
 
-                Button("Show Export in Finder", systemImage: "folder") {
-                    if let url = project.url(path) {
-                        NSWorkspace.shared.activateFileViewerSelecting([url])
-                    }
-                }
-                .labelStyle(.iconOnly)
-                .help("Show \(filename) in Finder")
-                .disabled(studio.busy || project.url(path) == nil)
-
-                Button("Delete Export…", systemImage: "trash", role: .destructive) {
-                    studio.confirmDeleteExport(project, path: path)
-                }
-                .labelStyle(.iconOnly)
-                .help("Delete \(filename)")
-                .disabled(studio.busy)
+            Button {
+                selectedExport = ExportSelection(path: path, filename: filename)
+            } label: {
+                Image(systemName: "eye.circle")
             }
-
-            if kind == .video {
-                if let information = project.exportMediaInfo?[path] {
-                    DisclosureGroup("Exported Video Information") {
-                        VStack(alignment: .leading, spacing: 5) {
-                            informationRow("File", filename)
-                            informationRow("Video Processing", information.videoProcessingDescription)
-                            informationRow("Duration", information.durationDescription)
-                            informationRow("Frame Rate", information.frameRateDescription)
-                            informationRow("Resolution", information.resolutionDescription)
-                            informationRow("Video", information.videoDescription)
-                            informationRow("Video Bit Rate", information.videoBitRateDescription)
-                            informationRow("Color / HDR", information.color)
-                            informationRow("Audio", information.audio)
-                            informationRow("Container", information.container)
-                            informationRow("Exported Size", information.fileSizeDescription)
-                        }
-                        .font(.caption)
-                        .padding(.top, 4)
-                        .accessibilityElement(children: .contain)
-                        .accessibilityLabel("Exported video information for \(filename)")
-                    }
-                    .font(.caption.weight(.semibold))
-                } else {
-                    Text("File quality details will appear after this legacy export is replaced.")
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-                }
-            }
+            .labelStyle(.iconOnly)
+            .font(.title3)
+            .buttonStyle(.borderless)
+            .help("Show information for \(filename)")
+            .accessibilityLabel("Information for \(filename)")
+            .disabled(studio.busy)
         }
+        .accessibilityElement(children: .contain)
     }
+}
 
-    private func informationRow(_ label: String, _ value: String) -> some View {
-        LabeledContent(label) {
-            Text(value)
-                .foregroundStyle(.secondary)
-                .multilineTextAlignment(.trailing)
-                .lineLimit(3)
-                .help(value)
-        }
-        .accessibilityElement(children: .ignore)
-        .accessibilityLabel("\(label): \(value)")
-    }
+private struct ExportSelection: Identifiable {
+    let path: String
+    let filename: String
+    var id: String { path }
 }
