@@ -1212,7 +1212,7 @@ final class StudioModel {
         switch command {
         case "regenerate-all": impact = "All generated content, including transcripts, summaries, AD segments, narration, subtitles, exports, thumbnails, and edit history, will be deleted. The transcript, summary, and AD segments will then be recreated. Your original video and project are kept. Generate narration and exports separately afterward. If analysis fails, deleted content will not be restored."
         case "generate-summary": impact = "Only the summary will be regenerated. Other content will be kept."
-        case "generate-ad-cues": impact = "The Audio Description segments and their rows in AD Transcript will be regenerated. Any generated narration audio for those descriptions will be deleted immediately before description generation starts. Other project content and existing exports will be kept. New narration is not generated automatically. If description generation then fails, deleted narration audio will not be restored."
+        case "generate-ad-cues": impact = "The Audio Description segments and their rows in AD Transcript will be regenerated. Any generated narration audio for those descriptions will be deleted immediately before description generation starts. Other project content and existing exports will be kept. New narration is not generated automatically. If description generation then fails, deleted narration audio will not be restored. If you only want to add or improve descriptions for particular sections, choose Cancel, open Add Segment in Descriptions, set the section's time range, and use Re-Analyze This Segment instead of regenerating every Audio Description."
         case "transcribe": impact = "Only the transcript will be regenerated. Other content will be kept."
         default: impact = "The transcript, summary, Audio Description segments, and AD Transcript rows will be regenerated. Any generated narration audio for the current descriptions will be deleted immediately before the description stage starts. Existing exports will be kept, and new narration is not generated automatically. If description generation then fails, deleted narration audio will not be restored."
         }
@@ -1424,11 +1424,29 @@ final class StudioModel {
         default: return nil
         }
     }
-    func reanalyzeSegment(_ segment: Segment) {
+    func reanalyzeSegment(_ segment: Segment, hint: String) {
         guard let project = selected, !busy else { return }
+        struct ReanalysisRequest: Encodable {
+            let id: String
+            let start: Double
+            let end: Double
+            let text: String
+            let origin: String?
+            let aiOriginalText: String?
+            let hint: String
+        }
+        let request = ReanalysisRequest(
+            id: segment.id,
+            start: segment.start,
+            end: segment.end,
+            text: segment.text,
+            origin: segment.origin,
+            aiOriginalText: segment.aiOriginalText,
+            hint: hint
+        )
         let file = FileManager.default.temporaryDirectory.appendingPathComponent("vidistudio-refine-\(UUID().uuidString).json")
         do {
-            try JSONEncoder().encode(segment).write(to: file, options: .atomic)
+            try JSONEncoder().encode(request).write(to: file, options: .atomic)
             execute("reanalyze-segment", extra: ["--input", file.path], project: project, cleanupURL: file)
         } catch {
             try? FileManager.default.removeItem(at: file)

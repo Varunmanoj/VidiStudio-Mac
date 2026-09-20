@@ -23,14 +23,16 @@ class ReanalysisTests(unittest.TestCase):
     def run_analysis(self,p,results):
         client=Mock()
         with tempfile.TemporaryDirectory() as folder, patch.object(e,'client_and_model',return_value=(client,'video-model')), patch.object(adapter,'video_interaction',side_effect=results) as call, patch.object(e,'emit'):
-            e.reanalyze_segment(Path(folder),p,dict(id='target',start=10,end=14,text='More detail about the box'))
+            e.reanalyze_segment(Path(folder),p,dict(id='target',start=10,end=14,
+                text='More detail about the box',hint='Look closely at the person lifting the lid'))
         return call,client
     def test_context_clipping_reconciliation_and_undo(self):
         p=self.project();old=copy.deepcopy(p['cues'])
         call,client=self.run_analysis(p,[self.result()])
         args=call.call_args
         self.assertEqual(args.kwargs['processing'],dict(type='static',start_offset='2s',end_offset='27s',fps=4))
-        for text in ('Opening','A person opens a box.','Dialogue','More detail about the box','dialogueFreeRanges'):
+        for text in ('Opening','A person opens a box.','Dialogue','More detail about the box',
+                     'Look closely at the person lifting the lid','draftDescription','userHint','dialogueFreeRanges'):
             self.assertIn(text,args.args[4])
         self.assertEqual(p['undoStack'],[old]);self.assertEqual(p['cues'][0],old[0]);self.assertEqual(p['cues'][-1],old[-1])
         self.assertEqual(p['cues'][1],old[1]);self.assertNotIn('audio',p['cues'][2]);self.assertEqual(p['exports'],[])

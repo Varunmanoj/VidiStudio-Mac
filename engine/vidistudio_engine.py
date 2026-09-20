@@ -509,8 +509,11 @@ def reanalyze_segment(root,p,draft):
     for c in frozen:
         if c['end']<=start: left=max(left,c['end'])
         elif c['start']>=end: right=min(right,c['start'])
+    hint=str(draft.get('hint','')).strip()
+    draft_description={key:value for key,value in draft.items() if key!='hint'}
     context=dict(selectedRange=dict(start=start,end=end),editableRange=dict(start=left,end=right),
-        editableIDs=sorted(editable),draft=draft,existingDescriptions=existing)
+        editableIDs=sorted(editable),draftDescription=draft_description,userHint=hint,
+        existingDescriptions=existing)
     cfg=config();pair=parity.media_prompt_pair(cfg,'audio_descriptions')
     prompt=(parity.render(pair['user_prompt'],p)+parity.description_context(p)
         +'\nRe-analyze the selected range in greater visual detail. Reconcile its descriptions and '
@@ -522,7 +525,9 @@ def reanalyze_segment(root,p,draft):
         'and dialogue-free gaps, without overlaps. Reuse an editable id when retaining a segment; '
         'omit id for new segments. Do not merely append text that cannot fit. '
         'Keep essential existing information; omit low-value detail if necessary. '
-        'The draft is user context, not an extra segment to insert unchanged.\n'
+        'The draftDescription is optional manual description context, not an extra segment to insert unchanged. '
+        'The userHint is optional guidance about what to inspect closely; follow it when supported by the video, '
+        'but do not copy it into a description unless it is useful audience-facing visual information.\n'
         +json.dumps(context,ensure_ascii=False))
     client,model=client_and_model('audio_descriptions')
     try:

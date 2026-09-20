@@ -8,6 +8,24 @@ struct SystemVoice: Identifiable, Sendable {
     var sample: String
     var id: String { name + language }
     var languageName: String { Locale.current.localizedString(forIdentifier: language) ?? language }
+    var baseLanguageCode: String {
+        Locale.Language.Components(identifier: language).languageCode?.identifier ?? language
+    }
+    var baseLanguageName: String {
+        Locale.current.localizedString(forLanguageCode: baseLanguageCode) ?? baseLanguageCode
+    }
+}
+
+private struct SystemVoiceDialectGroup: Identifiable {
+    let id: String
+    let name: String
+    let voices: [SystemVoice]
+}
+
+private struct SystemVoiceLanguageGroup: Identifiable {
+    let id: String
+    let name: String
+    let dialects: [SystemVoiceDialectGroup]
 }
 
 enum SystemSpeechVoiceResolver {
@@ -168,23 +186,49 @@ struct SystemVoiceBrowser: View {
         VStack(alignment: .leading, spacing: 12) {
             Picker("Language and region", selection: $language) {
                 Text("All languages").tag("all")
-                ForEach(Array(Set(catalog.voices.map(\.language))).sorted(), id: \.self) { code in
-                    Text(Locale.current.localizedString(forIdentifier: code) ?? code).tag(code)
+                ForEach(languageGroups) { group in
+                    Section(group.name) {
+                        ForEach(group.dialects) { dialect in
+                            Text(dialect.name).tag(dialect.id)
+                        }
+                    }
                 }
             }
             voiceSearchField
             Text("Selected: \(selectedVoiceLabel)").font(.callout)
             ScrollView {
                 LazyVStack(alignment: .leading, spacing: 12) {
-                    ForEach(catalog.voices.filter { (language == "all" || $0.language == language) && (search.isEmpty || $0.name.localizedStandardContains(search) || $0.languageName.localizedStandardContains(search)) }) { voice in
-                        HStack {
-                            Button { settings.systemVoice = voice.name } label: {
-                                HStack { Image(systemName: settings.systemVoice == voice.name ? "checkmark.circle.fill" : "circle"); VStack(alignment: .leading) { Text(voice.name); Text(voice.languageName).font(.caption).foregroundStyle(.secondary) } }
-                            }.buttonStyle(.plain).accessibilityLabel("Select \(voice.name), \(voice.languageName)").accessibilityAddTraits(settings.systemVoice == voice.name ? .isSelected : [])
-                            Spacer()
-                            Button("Speak Sample", systemImage: "play.circle") { catalog.preview(voice, settings: settings) }.labelStyle(.iconOnly).accessibilityLabel("Speak sample of \(voice.name), \(voice.languageName)")
+                    ForEach(visibleLanguageGroups) { group in
+                        Text(group.name)
+                            .font(.headline)
+                            .accessibilityAddTraits(.isHeader)
+                        ForEach(group.dialects) { dialect in
+                            Text(dialect.name)
+                                .font(.subheadline.weight(.semibold))
+                                .foregroundStyle(.secondary)
+                                .padding(.top, 2)
+                                .accessibilityAddTraits(.isHeader)
+                            ForEach(dialect.voices) { voice in
+                                HStack {
+                                    Button { settings.systemVoice = voice.name } label: {
+                                        HStack {
+                                            Image(systemName: settings.systemVoice == voice.name ? "checkmark.circle.fill" : "circle")
+                                            Text(voice.name)
+                                        }
+                                    }
+                                    .buttonStyle(.plain)
+                                    .accessibilityLabel("Select \(voice.name), \(dialect.name)")
+                                    .accessibilityAddTraits(settings.systemVoice == voice.name ? .isSelected : [])
+                                    Spacer()
+                                    Button("Speak Sample", systemImage: "play.circle") {
+                                        catalog.preview(voice, settings: settings)
+                                    }
+                                    .labelStyle(.iconOnly)
+                                    .accessibilityLabel("Speak sample of \(voice.name), \(dialect.name)")
+                                }
+                                Divider()
+                            }
                         }
-                        Divider()
                     }
                 }.padding(4)
             }.frame(minHeight: 200, idealHeight: 280, maxHeight: 320)
@@ -209,7 +253,9 @@ struct SystemVoiceBrowser: View {
                     NSWorkspace.shared.open(URL(string: "x-apple.systempreferences:com.apple.preference.universalaccess")!)
                 }
             }
-            Text("Lists voices available to macOS speech on this Mac. Download additional languages and enhanced voices in System Settings → Accessibility → Read & Speak, then refresh.").font(.caption).foregroundStyle(.secondary)
+            Text("Lists voices available to apps on this Mac, grouped by language and dialect. Siri voice variants are not exposed individually by macOS; choose Use system default voice to follow a Siri voice selected in System Settings. Download additional languages and enhanced voices in Accessibility → Read & Speak, then refresh.")
+                .font(.caption)
+                .foregroundStyle(.secondary)
             if let error = catalog.error { Text(error).foregroundStyle(.red) }
         }.task { await catalog.refresh() }.onDisappear { catalog.stop() }
     }
@@ -220,6 +266,42 @@ struct SystemVoiceBrowser: View {
             return "System default (\(voice))"
         }
         return "System default"
+    }
+
+    private var languageGroups: [SystemVoiceLanguageGroup] {
+        let groupedByLanguage = Dictionary(grouping: catalog.voices, by: \.baseLanguageCode)
+        return groupedByLanguage.map { code, voices in
+            let dialects = Dictionary(grouping: voices, by: \.language).map { locale, dialectVoices in
+                SystemVoiceDialectGroup(
+                    id: locale,
+                    name: Locale.current.localizedString(forIdentifier: locale) ?? locale,
+                    voices: dialectVoices.sorted { $0.name.localizedStandardCompare($1.name) == .orderedAscending }
+                )
+            }.sorted { $0.name.localizedStandardCompare($1.name) == .orderedAscending }
+            return SystemVoiceLanguageGroup(
+                id: code,
+                name: voices.first?.baseLanguageName ?? code,
+                dialects: dialects
+            )
+        }.sorted { $0.name.localizedStandardCompare($1.name) == .orderedAscending }
+    }
+
+    private var visibleLanguageGroups: [SystemVoiceLanguageGroup] {
+        languageGroups.compactMap { group in
+            let dialects = group.dialects.compactMap { dialect -> SystemVoiceDialectGroup? in
+                guard language == "all" || dialect.id == language else { return nil }
+                let voices = dialect.voices.filter {
+                    search.isEmpty
+                        || $0.name.localizedStandardContains(search)
+                        || $0.languageName.localizedStandardContains(search)
+                        || $0.baseLanguageName.localizedStandardContains(search)
+                }
+                guard !voices.isEmpty else { return nil }
+                return SystemVoiceDialectGroup(id: dialect.id, name: dialect.name, voices: voices)
+            }
+            guard !dialects.isEmpty else { return nil }
+            return SystemVoiceLanguageGroup(id: group.id, name: group.name, dialects: dialects)
+        }
     }
 
     private var voiceSearchField: some View {

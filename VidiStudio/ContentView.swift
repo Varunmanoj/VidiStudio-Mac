@@ -1134,8 +1134,8 @@ struct ProjectEditor: View {
             isReadingFrame: readingFrameForSegment,
             readFrame: readFrameAction,
             canReanalyze: project.canGenerateDescriptions && !studio.busy,
-            reanalyze: { segment in
-                studio.reanalyzeSegment(segment)
+            reanalyze: { segment, hint in
+                studio.reanalyzeSegment(segment, hint: hint)
             }
         ) { updated in
             saveEditedRows([updated])
@@ -2118,6 +2118,7 @@ private struct SegmentEditor: View {
     @Environment(\.dismiss) private var dismiss
     @State private var row: TranscriptRow
     @State private var frameTextStatus: String?
+    @State private var reanalysisHint = ""
     let duration: Double
     let transcript: [Segment]
     let descriptions: [Segment]
@@ -2125,10 +2126,10 @@ private struct SegmentEditor: View {
     let isReadingFrame: Bool
     let readFrame: ((Double) -> Void)?
     let canReanalyze: Bool
-    let reanalyze: (Segment) -> Void
+    let reanalyze: (Segment, String) -> Void
     let save: (TranscriptRow) -> Void
 
-    init(row: TranscriptRow, duration: Double, transcript: [Segment], descriptions: [Segment], capturedScreenText: Binding<String?>, isReadingFrame: Bool, readFrame: ((Double) -> Void)?, canReanalyze: Bool, reanalyze: @escaping (Segment) -> Void, save: @escaping (TranscriptRow) -> Void) {
+    init(row: TranscriptRow, duration: Double, transcript: [Segment], descriptions: [Segment], capturedScreenText: Binding<String?>, isReadingFrame: Bool, readFrame: ((Double) -> Void)?, canReanalyze: Bool, reanalyze: @escaping (Segment, String) -> Void, save: @escaping (TranscriptRow) -> Void) {
         _row = State(initialValue: row)
         self.duration = duration
         self.transcript = transcript
@@ -2177,6 +2178,9 @@ private struct SegmentEditor: View {
                 Text("Timing")
             }
             Section {
+                TextEditor(text: $row.segment.text)
+                    .frame(minHeight: row.isDescription ? 190 : 140)
+                    .accessibilityLabel(row.isDescription ? "Audio description text" : "Transcript text")
                 if let readFrame {
                     HStack {
                         Spacer()
@@ -2193,8 +2197,31 @@ private struct SegmentEditor: View {
                         .disabled(isReadingFrame)
                         .help("Read text from the video frame at the segment start time and use it as the description")
                         .accessibilityHint("Replaces the description with text found at the segment start time.")
+                    }
+                }
+                if let frameTextStatus {
+                    Text(frameTextStatus)
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                        .accessibilityLabel(frameTextStatus)
+                }
+            } header: {
+                Text(row.isDescription ? "Description" : "Transcript")
+            }
+            if row.isDescription {
+                Section {
+                    Text("Optionally tell Gemini what to examine more closely. It may adjust descriptions in this range and its immediate neighbors to fit around dialogue. You can undo the result.")
+                        .font(.callout)
+                        .foregroundStyle(.secondary)
+                        .fixedSize(horizontal: false, vertical: true)
+                    TextEditor(text: $reanalysisHint)
+                        .frame(minHeight: 120)
+                        .accessibilityLabel("Hint for Gemini")
+                        .accessibilityHint("Enter optional guidance about the visual detail Gemini should examine in the selected time range.")
+                    HStack {
+                        Spacer()
                         Button {
-                            reanalyze(row.segment)
+                            reanalyze(row.segment, reanalysisHint.trimmingCharacters(in: .whitespacesAndNewlines))
                             dismiss()
                         } label: {
                             HStack {
@@ -2204,25 +2231,12 @@ private struct SegmentEditor: View {
                         }
                         .disabled(!canReanalyze || isReadingFrame || !row.segment.start.isFinite || !row.segment.end.isFinite || row.segment.start < 0 || row.segment.end <= row.segment.start || row.segment.end > duration)
                         .keyboardShortcut("r", modifiers: [.command, .option])
-                        .help("Look closely at this time range and adjust nearby descriptions to fit. Generate a transcript and summary first.")
-                        .accessibilityHint("Updates this range and nearby descriptions. Use Undo Segment Edit to restore them.")
+                        .help("Look closely at this time range using the optional hint and adjust nearby descriptions to fit. Generate a transcript and summary first.")
+                        .accessibilityHint("Uses the separate Gemini hint to update this range and nearby descriptions. Use Undo Segment Edit to restore them.")
                     }
+                } header: {
+                    Text("Hint for Gemini (Optional)")
                 }
-                if row.isDescription {
-                    Text("Re-analysis updates descriptions in this range and nearby text and timing to fit around dialogue. You can undo the changes afterward.")
-                        .font(.caption).foregroundStyle(.secondary)
-                }
-                TextEditor(text: $row.segment.text)
-                    .frame(height: 140)
-                    .accessibilityLabel(row.isDescription ? "Audio description text" : "Transcript text")
-                if let frameTextStatus {
-                    Text(frameTextStatus)
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-                        .accessibilityLabel(frameTextStatus)
-                }
-            } header: {
-                Text(row.isDescription ? "Description" : "Transcript")
             }
             Section {
                 HStack {
@@ -2250,7 +2264,7 @@ private struct SegmentEditor: View {
         .navigationTitle(row.segment.text.isEmpty
             ? (row.isDescription ? "Add Audio Description Segment" : "Add Transcript Segment")
             : "Edit \(row.kind) Segment")
-        .frame(width: 660, height: 650)
+        .frame(width: row.isDescription ? 780 : 660, height: row.isDescription ? 820 : 650)
     }
 }
 
