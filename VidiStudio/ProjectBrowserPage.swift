@@ -61,47 +61,15 @@ struct ProjectBrowserPage: View {
 
     var body: some View {
         VStack(spacing: 0) {
-            HStack(alignment: .firstTextBaseline, spacing: 12) {
-                VStack(alignment: .leading, spacing: 3) {
-                    Text("All Projects").font(.largeTitle.bold())
-                    Text("\(filteredProjects.count) of \(projects.count) projects")
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-                }
-                Spacer()
-                Button("New Project", systemImage: "plus", action: newProject)
-                    .buttonStyle(.glassProminent)
-                    .disabled(busy)
-                Button("Open Project Folder", systemImage: "folder", action: openProjectFolder)
-                    .disabled(busy)
+            VStack(alignment: .leading, spacing: 3) {
+                Text("All Projects").font(.largeTitle.bold())
+                Text("\(filteredProjects.count) of \(projects.count) projects")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
             }
+            .frame(maxWidth: .infinity, alignment: .leading)
             .padding(.horizontal, 20)
             .padding(.top, 20)
-            .padding(.bottom, 14)
-
-            HStack(spacing: 12) {
-                TextField("Search all projects", text: $search)
-                    .textFieldStyle(.roundedBorder)
-                    .frame(maxWidth: 420)
-                Spacer()
-                Picker("Project source", selection: $sourceFilter) {
-                    ForEach(ProjectSourceFilter.allCases) { filter in
-                        Label(filter.title, systemImage: filter.iconName).tag(filter)
-                    }
-                }
-                .pickerStyle(.segmented)
-                .fixedSize()
-                .accessibilityLabel("Filter projects by source")
-                .accessibilityHint("Show all projects, only local video file projects, or only YouTube video projects")
-                .help("Filter projects by source")
-                Picker("Project layout", selection: $grid) {
-                    Label("List View", systemImage: "list.bullet").tag(false)
-                    Label("Grid View", systemImage: "square.grid.2x2").tag(true)
-                }
-                .pickerStyle(.segmented)
-                .fixedSize()
-            }
-            .padding(.horizontal, 20)
             .padding(.bottom, 14)
 
             Divider()
@@ -200,6 +168,32 @@ struct ProjectBrowserPage: View {
             }
         }
         .navigationTitle("All Projects")
+        .searchable(text: $search, placement: .toolbar, prompt: "Search projects")
+        .toolbar {
+            ToolbarItemGroup(placement: .primaryAction) {
+                Picker("Project source", selection: $sourceFilter) {
+                    ForEach(ProjectSourceFilter.allCases) { filter in
+                        Label(filter.title, systemImage: filter.iconName).tag(filter)
+                    }
+                }
+                .pickerStyle(.segmented)
+                .accessibilityLabel("Filter projects by source")
+                .accessibilityHint("Show all projects, only local video file projects, or only YouTube video projects")
+                .help("Filter projects by source")
+
+                Picker("Project layout", selection: $grid) {
+                    Label("List View", systemImage: "list.bullet").tag(false)
+                    Label("Grid View", systemImage: "square.grid.2x2").tag(true)
+                }
+                .pickerStyle(.segmented)
+
+                Button("Open Project Folder", systemImage: "folder", action: openProjectFolder)
+                    .disabled(busy)
+                Button("New Project", systemImage: "plus", action: newProject)
+                    .buttonStyle(.glassProminent)
+                    .disabled(busy)
+            }
+        }
         .safeAreaInset(edge: .bottom) {
             HStack(spacing: 8) {
                 Button("Show Selected Project in Finder", systemImage: "folder") {

@@ -49,7 +49,7 @@ struct VidiStudioApp: App {
                 .frame(minWidth: 760, minHeight: 560)
         }
         .defaultSize(width: 1200, height: 780)
-        .windowToolbarStyle(.unifiedCompact)
+        .windowToolbarStyle(.automatic)
         .commands {
             CommandGroup(replacing: .newItem) {
                 Button("New Project…", systemImage: "plus") { studio.isCreatingProject = true }.keyboardShortcut("n").disabled(studio.busy)
@@ -65,7 +65,7 @@ struct VidiStudioApp: App {
             }
         }
         .defaultSize(width: 1200, height: 780)
-        .windowToolbarStyle(.unifiedCompact)
-        Settings { SettingsView(studio: studio, openProjects: openProjects) }.windowToolbarStyle(.unifiedCompact)
+        .windowToolbarStyle(.automatic)
+        Settings { SettingsView(studio: studio, openProjects: openProjects) }.windowToolbarStyle(.automatic)
     }
 }

@@ -321,12 +321,6 @@ struct ProjectEditorWindow: View {
     @State private var editorShortcutActions = EditorShortcutActions()
     @State private var showInspector = true
     @State private var showingExportDialog = false
-    @Environment(\.accessibilityReduceMotion) private var reduceMotion
-
-    private var interfaceAnimation: Animation? {
-        reduceMotion ? nil : .smooth(duration: 0.22)
-    }
-
     init(projectID: String, openProjects: OpenProjectRegistry) {
         self.projectID = projectID
         self.openProjects = openProjects
@@ -336,35 +330,27 @@ struct ProjectEditorWindow: View {
     }
 
     var body: some View {
-        GeometryReader { geometry in
+        Group {
             if let project = studio.selected {
-                HStack(spacing: 0) {
-                    ProjectEditor(
-                        shortcutsBlocked: studio.error != nil,
-                        studio: studio,
-                        project: project,
-                        shortcutActions: editorShortcutActions,
-                        showExportDialog: { showingExportDialog = true }
-                    )
-                    .id(project.id)
-                    .frame(width: max(0, geometry.size.width - (showInspector ? 273 : 0)), height: geometry.size.height)
-                    if showInspector {
-                        Divider()
-                            .transition(.opacity)
-                        ProcessingInspector(
-                            studio: studio,
-                            editorActions: editorShortcutActions,
-                            showExportDialog: { showingExportDialog = true }
-                        )
-                            .frame(width: 272, height: geometry.size.height)
-                            .background(.bar)
-                            .transition(.move(edge: .trailing).combined(with: .opacity))
-                    }
-                }
-                .animation(interfaceAnimation, value: showInspector)
+                ProjectEditor(
+                    shortcutsBlocked: studio.error != nil,
+                    studio: studio,
+                    project: project,
+                    shortcutActions: editorShortcutActions,
+                    showExportDialog: { showingExportDialog = true }
+                )
+                .id(project.id)
             } else {
                 ContentUnavailableView("Project Unavailable", systemImage: "film", description: Text("The project may have moved or been deleted."))
             }
+        }
+        .inspector(isPresented: $showInspector) {
+            ProcessingInspector(
+                studio: studio,
+                editorActions: editorShortcutActions,
+                showExportDialog: { showingExportDialog = true }
+            )
+            .inspectorColumnWidth(min: 250, ideal: 272, max: 340)
         }
         .smoothPresentation()
         .background(WindowFitter().frame(width: 0, height: 0))

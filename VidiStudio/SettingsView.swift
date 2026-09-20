@@ -87,7 +87,7 @@ struct SettingsView: View {
                 HStack(spacing: 10) {
                     Image(systemName: sectionIcons[item] ?? "gearshape")
                         .foregroundStyle(
-                            Color(nsColor: item == section ? .controlAccentColor : .labelColor)
+                            Color(nsColor: item == section ? .alternateSelectedControlTextColor : .labelColor)
                         )
                         .frame(width: 18)
 
@@ -344,7 +344,6 @@ struct SettingsView: View {
         .formStyle(.grouped)
         .navigationTitle(section)
         }
-        .background(SettingsWindowChrome().frame(width: 0, height: 0))
         .navigationSplitViewStyle(.balanced)
         .frame(minWidth: 850, idealWidth: 940, minHeight: 650, idealHeight: 740)
         .smoothPresentation()

@@ -5,6 +5,37 @@ private struct GeminiModelRow: Identifiable {
     let label: String
 }
 
+private enum GeminiModelGroup: Int, CaseIterable, Identifiable {
+    case latest
+    case flash
+    case flashLite
+    case pro
+    case omni
+    case speech
+    case other
+
+    var id: Self { self }
+
+    var title: String {
+        switch self {
+        case .latest: "Latest"
+        case .flash: "Flash"
+        case .flashLite: "Flash-Lite"
+        case .pro: "Pro"
+        case .omni: "Omni"
+        case .speech: "Speech and transcription"
+        case .other: "Other models"
+        }
+    }
+}
+
+private struct GeminiModelMenuGroup: Identifiable {
+    let group: GeminiModelGroup
+    let options: [GeminiModelOption]
+
+    var id: GeminiModelGroup { group }
+}
+
 struct GeminiAPISettingsView: View {
     @Bindable var studio: StudioModel
     @Environment(\.openURL) private var openURL
@@ -54,8 +85,12 @@ struct GeminiAPISettingsView: View {
         Section {
             ForEach(rows) { row in
                 Picker(row.label, selection: modelBinding(row.id)) {
-                    ForEach(studio.geminiModels(for: row.id)) { option in
-                        Text(option.displayName).tag(option.name)
+                    ForEach(modelGroups(for: row.id)) { modelGroup in
+                        Section(modelGroup.group.title) {
+                            ForEach(modelGroup.options) { option in
+                                Text(modelDisplayName(option.name)).tag(option.name)
+                            }
+                        }
                     }
                 }
                 .disabled(!studio.geminiModelsLoaded)
@@ -73,5 +108,104 @@ struct GeminiAPISettingsView: View {
             get: { studio.settings.models[stage] ?? "" },
             set: { studio.settings.models[stage] = $0 }
         )
+    }
+
+    private func modelGroups(for stage: String) -> [GeminiModelMenuGroup] {
+        let grouped = Dictionary(grouping: studio.geminiModels(for: stage)) { option in
+            modelGroup(for: option.name)
+        }
+
+        return GeminiModelGroup.allCases.compactMap { group in
+            guard let options = grouped[group], !options.isEmpty else { return nil }
+            return GeminiModelMenuGroup(
+                group: group,
+                options: options.sorted {
+                    modelDisplayName($0.name).localizedStandardCompare(modelDisplayName($1.name)) == .orderedAscending
+                }
+            )
+        }
+    }
+
+    private func modelGroup(for name: String) -> GeminiModelGroup {
+        let normalized = name.lowercased()
+        if normalized.contains("latest") { return .latest }
+        if normalized.contains("tts") || normalized.contains("transcribe") { return .speech }
+        if normalized.contains("flash-lite") { return .flashLite }
+        if normalized.contains("pro") { return .pro }
+        if normalized.contains("omni") { return .omni }
+        if normalized.contains("flash") { return .flash }
+        return .other
+    }
+
+    private func modelDisplayName(_ name: String) -> String {
+        var tokens = name
+            .replacingOccurrences(of: "models/", with: "")
+            .split(separator: "-")
+            .map(String.init)
+
+        if tokens.first?.lowercased() == "gemini" {
+            tokens.removeFirst()
+        }
+
+        var qualifiers: [String] = []
+        if removeToken("latest", from: &tokens) { qualifiers.append("Latest") }
+        if removeToken("preview", from: &tokens) { qualifiers.append("Preview") }
+        if removeToken("experimental", from: &tokens) || removeToken("exp", from: &tokens) {
+            qualifiers.append("Experimental")
+        }
+        if removeSequence(["custom", "tools"], from: &tokens) {
+            qualifiers.append("Custom Tools")
+        }
+
+        var components: [String] = []
+        var index = 0
+        while index < tokens.count {
+            let token = tokens[index].lowercased()
+            if token == "flash", index + 1 < tokens.count, tokens[index + 1].lowercased() == "lite" {
+                components.append("Flash-Lite")
+                index += 2
+                continue
+            }
+            components.append(formattedModelToken(tokens[index]))
+            index += 1
+        }
+
+        let modelName = (["Gemini"] + components).joined(separator: " ")
+        guard !qualifiers.isEmpty else { return modelName }
+        return "\(modelName) — \(qualifiers.joined(separator: ", "))"
+    }
+
+    private func formattedModelToken(_ token: String) -> String {
+        switch token.lowercased() {
+        case "tts": "TTS"
+        case "pro": "Pro"
+        case "flash": "Flash"
+        case "lite": "Lite"
+        case "omni": "Omni"
+        case "transcribe": "Transcribe"
+        case "image": "Image"
+        case "live": "Live"
+        default: token.first?.isNumber == true ? token : token.capitalized
+        }
+    }
+
+    private func removeToken(_ token: String, from tokens: inout [String]) -> Bool {
+        guard let index = tokens.firstIndex(where: { $0.caseInsensitiveCompare(token) == .orderedSame }) else {
+            return false
+        }
+        tokens.remove(at: index)
+        return true
+    }
+
+    private func removeSequence(_ sequence: [String], from tokens: inout [String]) -> Bool {
+        guard sequence.count <= tokens.count else { return false }
+        for start in 0...(tokens.count - sequence.count) {
+            let candidate = tokens[start..<(start + sequence.count)].map { $0.lowercased() }
+            if candidate == sequence {
+                tokens.removeSubrange(start..<(start + sequence.count))
+                return true
+            }
+        }
+        return false
     }
 }
