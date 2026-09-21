@@ -42,8 +42,8 @@ struct SettingsView: View {
     @State private var shortcutReferenceExpanded = false
     @State private var expandedPromptStages: Set<String> = []
     private var section: String { studio.settingsSection }
-    private let sections = ["Appearance", "Projects", "Narration", "Gemini API", "Developer prompts", "Storage", "Help"]
-    private let sectionIcons = ["Appearance": "circle.lefthalf.filled", "Projects": "rectangle.stack", "Narration": "speaker.wave.2", "Gemini API": "sparkles", "Developer prompts": "text.bubble", "Storage": "folder", "Help": "questionmark.circle"]
+    private let sections = ["Appearance", "Projects", "Narration", "Gemini API", "Developer prompts", "Storage", "Help", "About"]
+    private let sectionIcons = ["Appearance": "circle.lefthalf.filled", "Projects": "rectangle.stack", "Narration": "speaker.wave.2", "Gemini API": "sparkles", "Developer prompts": "text.bubble", "Storage": "folder", "Help": "questionmark.circle", "About": "info.circle"]
     private let promptStageOrder = ["multilingual_media", "transcript", "youtube_transcript", "summary", "audio_descriptions", "screen_text", "youtube_screen_text", "text_rewrite", "tts_audio"]
     private func prompt(_ stage: String, _ key: String) -> Binding<String> {
         Binding(get: { studio.settings.prompts[stage]?[key] ?? "" }, set: { studio.settings.prompts[stage, default: [:]][key] = $0 })
@@ -105,11 +105,9 @@ struct SettingsView: View {
                 .navigationSplitViewColumnWidth(min: 220, ideal: 280, max: 380)
         } detail: {
         Form {
+            if section == "About" { AboutSettingsView() }
             if section == "Help" { Section("Help and keyboard shortcuts") {
                 Button("Open VidiStudio Help", systemImage: "questionmark.circle") { StudioHelp.open() }
-                LabeledContent("App version", value: AppVersionInfo.display)
-                    .accessibilityElement(children: .ignore)
-                    .accessibilityLabel("App version, \(AppVersionInfo.display)")
                 DisclosureGroup("Keyboard shortcut reference", isExpanded: $shortcutReferenceExpanded) { ShortcutReferenceView() }
                     .animation(interfaceAnimation, value: shortcutReferenceExpanded)
             }

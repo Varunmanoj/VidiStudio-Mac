@@ -64,6 +64,8 @@ Tests cover path confinement, malformed/overlapping/dialogue-conflicting cues, a
 
 This direct-distribution app intentionally runs outside App Sandbox to launch its bundled processing tools and access local project folders. Hardened runtime remains enabled for distribution builds. FFmpeg's bundled Homebrew build includes GPL components; redistribution must comply with the included licenses and corresponding-source obligations. No public release is performed by the build scripts.
 
+Settings → About shows the VidiStudio version and opens the bundled FFmpeg GPL license and third-party license files. The App menu's About VidiStudio command opens this section. See [FFmpeg distribution review](docs/ffmpeg-distribution.md) before any public release.
+
 API references: https://ai.google.dev/api/files and https://ai.google.dev/gemini-api/docs/generate-content/speech-generation . Website interaction reference: https://accessivideo.pages.dev/ .
 
 AD segment undo and redo states are bounded and stored in `project.json`; the app no longer creates a second, unbounded folder of whole-project snapshots. Windows engine packaging is provided by `script/build_engine_windows.ps1` and must run on Windows. It does not download or silently install media binaries.

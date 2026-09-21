@@ -235,6 +235,7 @@ struct StudioCommands: Commands {
     @FocusedValue(\.projectBrowser) private var browser
     @FocusedValue(\.editorShortcuts) private var editor
     @Environment(\.openWindow) private var openWindow
+    @Environment(\.openSettings) private var openSettings
     var body: some Commands {
         CommandGroup(after: .newItem) {
             Divider()
@@ -267,10 +268,8 @@ struct StudioCommands: Commands {
         }
         CommandGroup(replacing: .appInfo) {
             Button("About VidiStudio", systemImage: "info.circle") {
-                NSApplication.shared.orderFrontStandardAboutPanel(options: [
-                    .applicationVersion: AppVersionInfo.version,
-                    .version: ""
-                ])
+                SettingsSectionRequest.request("About")
+                openSettings()
             }
         }
         CommandGroup(replacing: .textEditing) { }
