@@ -85,6 +85,19 @@ class AvailabilityTests(unittest.TestCase):
             upload.assert_called_once();client.files.delete.assert_not_called()
             self.assertEqual(p['geminiVideo']['expiresAt'],f.expiration_time.timestamp())
             self.assertEqual(json.loads((root/'project.json').read_text())['geminiVideo']['state'],'ACTIVE')
+    def test_upload_emits_live_preparation_and_ready_after_save(self):
+        with tempfile.TemporaryDirectory() as folder:
+            root=Path(folder);p=self.setup_source(root);client=Mock();f=self.uploaded();events=[]
+            def capture(message, **values):
+                if values.get('videoPreparation') == 'ready':
+                    self.assertEqual(json.loads((root/'project.json').read_text())['geminiVideo']['state'],'ACTIVE')
+                events.append((message,values.get('videoPreparation')))
+            def upload(_client,_source,callback):
+                callback('Preparing the video for analysis')
+                return f
+            with patch.object(e,'emit',side_effect=capture),patch.object(adapter,'ready_file',side_effect=upload):
+                e.reusable_video(root,p,client)
+            self.assertEqual([state for _,state in events],['uploading','processing','ready'])
     def test_missing_and_expired_files_reupload(self):
         for missing in [True,False]:
             with tempfile.TemporaryDirectory() as folder,patch.object(e,'emit'):

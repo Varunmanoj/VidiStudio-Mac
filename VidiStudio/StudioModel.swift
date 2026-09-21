@@ -210,6 +210,11 @@ struct AnalysisVideoAvailability: Codable {
     var checkedAt: Double
 }
 
+struct VideoPreparationActivity {
+    let projectID: String
+    let message: String
+}
+
 struct StudioProject: Codable, Identifiable {
     var schemaVersion: Int
     var id: String
@@ -698,6 +703,7 @@ final class StudioModel {
     var settingsSection = "Appearance"
     var busy = false
     var processingSection: String?
+    var videoPreparationActivity: VideoPreparationActivity?
     var message = "All files stay in your local project folders."
     var progress = 0.0
     var error: String?
@@ -1317,6 +1323,10 @@ final class StudioModel {
             return
         }
         busy = true
+        if let target, ["prepare-analysis-video", "check-video-availability"].contains(command) {
+            videoPreparationActivity = VideoPreparationActivity(
+                projectID: target.id, message: "Checking video availability")
+        }
         processingSection = Self.initialProcessingSection(for: command)
         var completedExportPath: String?
         var completedProjectPath: String?
@@ -1337,6 +1347,7 @@ final class StudioModel {
             let issue = UserFacingIssue.forEngine(command: command, technicalDetails: detail)
             if command == "doctor" { engineCheckStatus = .failed(issue.message) }
             busy = false
+            videoPreparationActivity = nil
             processingSection = nil
             process = nil
             present(issue, technicalDetails: detail, context: "Start \(command)")
@@ -1364,6 +1375,20 @@ final class StudioModel {
                     if let value = event["progress"] as? Double { progress = value }
                     if let section = event["processingSection"] as? String {
                         processingSection = section
+                    }
+                    if let state = event["videoPreparation"] as? String, let target {
+                        switch state {
+                        case "uploading":
+                            videoPreparationActivity = VideoPreparationActivity(
+                                projectID: target.id, message: "Uploading video")
+                        case "processing":
+                            videoPreparationActivity = VideoPreparationActivity(
+                                projectID: target.id, message: "Preparing video")
+                        case "ready":
+                            reload()
+                            videoPreparationActivity = nil
+                        default: break
+                        }
                     }
                     if let path = event["export"] as? String { completedExportPath = path }
                     if eventIsError {
@@ -1403,6 +1428,7 @@ final class StudioModel {
                 }
             }
             busy = false; processingSection = nil; process = nil; reload()
+            videoPreparationActivity = nil
             if task.terminationStatus != 0 && self.error == nil {
                 present(UserFacingIssue.forEngine(command: command, technicalDetails: nil), context: "\(command) stopped")
             }

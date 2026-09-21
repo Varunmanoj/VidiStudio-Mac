@@ -476,6 +476,8 @@ def file_expiry(value):
 
 
 def reusable_video(root,p,client):
+    if p.get('sourceType') == 'youtube':
+        raise ValueError('YouTube videos use their public link and do not need a Files API upload.')
     source=local(root,p['source']);ensure_supported_local_video(source)
     stat=source.stat();fingerprint=f"{p['source']}|{stat.st_size}|{stat.st_mtime_ns}"
     cached=p.get('geminiVideo')
@@ -485,13 +487,15 @@ def reusable_video(root,p,client):
         if cached.get('state')=='PROCESSING':
             raise ValueError('The video is still being prepared. Refresh its status in the inspector and try again shortly.')
     started=time.time()
-    emit('Preparing video for another look',processingSection='descriptions')
-    f=gemini_adapter.ready_file(client,source,lambda text:emit(text))
+    emit('Uploading video for analysis',videoPreparation='uploading')
+    f=gemini_adapter.ready_file(client,source,
+        lambda text:emit(text,videoPreparation='processing'))
     expiry=gemini_adapter.value(f,'expiration_time')
     p['geminiVideo']=dict(name=f.name,uri=f.uri,mimeType=f.mime_type,
         expiresAt=file_expiry(expiry) if expiry else started+48*3600,
         state='ACTIVE',checkedAt=time.time(),fingerprint=fingerprint)
     save(root,p)
+    emit('Video ready for analysis',videoPreparation='ready')
     return f
 
 
@@ -538,7 +542,7 @@ def reanalyze_segment(root,p,draft):
         +json.dumps(context,ensure_ascii=False))
     client,model=client_and_model('audio_descriptions')
     try:
-        if p.get('sourceType')=='youtube' and not p.get('source'):
+        if p.get('sourceType')=='youtube':
             uri=p['youtubeURL'];mime=None
         else:
             f=reusable_video(root,p,client);uri=f.uri;mime=f.mime_type
@@ -619,7 +623,7 @@ def reanalyze_transcript_segment(root, p, draft):
         if row['end'] <= start: left = max(left, row['end'])
         elif row['start'] >= end: right = min(right, row['start'])
     cfg = config()
-    key = 'youtube_transcript' if p.get('sourceType') == 'youtube' and not p.get('source') else 'transcript'
+    key = 'youtube_transcript' if p.get('sourceType') == 'youtube' else 'transcript'
     # Dedicated audio transcription models cannot accept video ranges and editing prompts.
     model_key = 'youtube_transcript' if 'transcribe' in cfg['models'].get(key, '') else key
     pair = parity.media_prompt_pair(cfg, key)
@@ -642,7 +646,7 @@ def reanalyze_transcript_segment(root, p, draft):
         + json.dumps(context, ensure_ascii=False))
     client, model = client_and_model(model_key)
     try:
-        if p.get('sourceType') == 'youtube' and not p.get('source'):
+        if p.get('sourceType') == 'youtube':
             uri, mime = p['youtubeURL'], None
         else:
             f = reusable_video(root, p, client); uri, mime = f.uri, f.mime_type
@@ -695,7 +699,7 @@ def reanalyze_transcript_segment(root, p, draft):
 
 def _ai_video_once(root, p, stage):
     cfg=config(); key={'transcribe':'transcript','generate-summary':'summary','generate-ad-cues':'audio_descriptions'}[stage]
-    youtube=p.get('sourceType')=='youtube' and not p.get('source')
+    youtube=p.get('sourceType')=='youtube'
     if stage=='transcribe' and youtube: key='youtube_transcript'
     stage_message,processing_section={
         'transcribe':('Creating the transcript','transcript'),
@@ -1896,7 +1900,8 @@ def main():
                 if not args.input: raise ValueError('Choose a segment to analyze.')
                 reanalyze_segment(root,p,json.loads(args.input.read_text()))
             elif args.command in ('prepare-analysis-video','check-video-availability'):
-                if not p.get('source'): raise ValueError('YouTube videos are accessed directly; no preparation is needed.')
+                if p.get('sourceType') == 'youtube' or not p.get('source'):
+                    raise ValueError('YouTube videos are accessed directly; no preparation is needed.')
                 client=gemini_client()
                 try:
                     if args.command=='prepare-analysis-video': reusable_video(root,p,client)

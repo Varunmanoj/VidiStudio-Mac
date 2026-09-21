@@ -563,13 +563,26 @@ private struct AnalysisVideoStatusView: View {
                 let remaining = max(0, (video?.expiresAt ?? 0) - context.date.timeIntervalSince1970)
                 let ready = video?.state == "ACTIVE" && remaining > 0
                 let processing = video?.state == "PROCESSING"
+                let preparation = studio.videoPreparationActivity?.projectID == project.id
+                    ? studio.videoPreparationActivity : nil
                 HStack(spacing: 10) {
-                    Image(systemName: statusSymbol(video, remaining: remaining))
-                        .font(.title2)
-                        .foregroundStyle(statusColor(video, remaining: remaining))
-                        .accessibilityLabel(accessibilityStatus(video, remaining: remaining))
+                    if let preparation {
+                        ProgressView()
+                            .controlSize(.small)
+                            .tint(.red)
+                            .accessibilityLabel(preparation.message)
+                    } else {
+                        Image(systemName: statusSymbol(video, remaining: remaining))
+                            .font(.title2)
+                            .foregroundStyle(statusColor(video, remaining: remaining))
+                            .accessibilityLabel(accessibilityStatus(video, remaining: remaining))
+                    }
 
-                    if remaining > 0, ready || processing {
+                    if let preparation {
+                        Text(preparation.message)
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                    } else if remaining > 0, ready || processing {
                         Text(duration(remaining))
                             .font(.subheadline.weight(.semibold))
                             .lineLimit(3)
@@ -579,7 +592,7 @@ private struct AnalysisVideoStatusView: View {
 
                     Spacer(minLength: 8)
 
-                    if !ready && !processing {
+                    if !ready && !processing && preparation == nil {
                         Button("Prepare Video for Analysis", systemImage: "arrow.up.circle") {
                             studio.execute("prepare-analysis-video", project: project)
                         }

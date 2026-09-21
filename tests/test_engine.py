@@ -85,10 +85,29 @@ class Validation(unittest.TestCase):
                 with patch.object(engine, 'config', return_value={'prompts': prompts}), \
                      patch.object(engine, 'client_and_model', return_value=(client, 'gemini-video')), \
                      patch.object(engine.gemini_adapter, 'video_interaction', return_value=response), \
+                     patch.object(engine, 'reusable_video') as upload_video, \
                      patch.object(engine, 'emit') as emit:
                     engine._ai_video_once(Path(temp), project, stage)
                 emit.assert_any_call(message, processingSection=section)
+                upload_video.assert_not_called()
+                self.assertFalse(any('videoPreparation' in call.kwargs for call in emit.call_args_list))
                 client.close.assert_called_once()
+
+    def test_youtube_project_with_legacy_source_still_skips_video_upload(self):
+        project = dict(source='source/old-video.mp4', sourceType='youtube',
+            youtubeURL='https://www.youtube.com/watch?v=abcdefghijk',
+            duration=10, transcript=[], summary='', cues=[])
+        prompts = {'summary': {'system_instruction': '', 'user_prompt': 'Summarize'}}
+        with tempfile.TemporaryDirectory() as temp, \
+             patch.object(engine, 'config', return_value={'prompts': prompts}), \
+             patch.object(engine, 'client_and_model', return_value=(Mock(), 'gemini-video')), \
+             patch.object(engine.gemini_adapter, 'video_interaction', return_value='Summary') as interaction, \
+             patch.object(engine, 'reusable_video') as upload_video, \
+             patch.object(engine, 'emit') as emit:
+            engine._ai_video_once(Path(temp), project, 'generate-summary')
+        upload_video.assert_not_called()
+        self.assertEqual(interaction.call_args.args[2], project['youtubeURL'])
+        self.assertFalse(any('videoPreparation' in call.kwargs for call in emit.call_args_list))
 
     def test_local_video_size_limit_accepts_boundary_and_rejects_larger_file(self):
         with tempfile.TemporaryDirectory() as temp:
