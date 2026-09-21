@@ -563,6 +563,7 @@ private struct AnalysisVideoStatusView: View {
                 let remaining = max(0, (video?.expiresAt ?? 0) - context.date.timeIntervalSince1970)
                 let ready = video?.state == "ACTIVE" && remaining > 0
                 let processing = video?.state == "PROCESSING"
+                let previouslyPrepared = video?.state == "UNAVAILABLE" && remaining > 0
                 let preparation = studio.videoPreparationActivity?.projectID == project.id
                     ? studio.videoPreparationActivity : nil
                 HStack(spacing: 10) {
@@ -582,7 +583,7 @@ private struct AnalysisVideoStatusView: View {
                         Text(preparation.message)
                             .font(.caption)
                             .foregroundStyle(.secondary)
-                    } else if remaining > 0, ready || processing {
+                    } else if remaining > 0, ready || processing || previouslyPrepared {
                         Text(duration(remaining))
                             .font(.subheadline.weight(.semibold))
                             .lineLimit(3)
@@ -592,7 +593,7 @@ private struct AnalysisVideoStatusView: View {
 
                     Spacer(minLength: 8)
 
-                    if !ready && !processing && preparation == nil {
+                    if !ready && !processing && !previouslyPrepared && preparation == nil {
                         Button("Prepare Video for Analysis", systemImage: "arrow.up.circle") {
                             studio.execute("prepare-analysis-video", project: project)
                         }
@@ -616,11 +617,6 @@ private struct AnalysisVideoStatusView: View {
                 .accessibilityElement(children: .contain)
             }
         }
-        .task(id: project.id) {
-            if project.geminiVideo != nil && !studio.busy && !project.source.isEmpty {
-                studio.execute("check-video-availability", project: project)
-            }
-        }
     }
 
     private func duration(_ seconds: Double) -> String {
@@ -639,18 +635,20 @@ private struct AnalysisVideoStatusView: View {
     private func statusSymbol(_ video: AnalysisVideoAvailability?, remaining: Double) -> String {
         if video?.state == "ACTIVE" && remaining > 0 { return "checkmark.circle.fill" }
         if video?.state == "PROCESSING" { return "hourglass.circle.fill" }
+        if video?.state == "UNAVAILABLE" && remaining > 0 { return "questionmark.circle.fill" }
         return "info.circle.fill"
     }
 
     private func statusColor(_ video: AnalysisVideoAvailability?, remaining: Double) -> Color {
         if video?.state == "ACTIVE" && remaining > 0 { return .green }
         if video?.state == "PROCESSING" { return .orange }
+        if video?.state == "UNAVAILABLE" && remaining > 0 { return .orange }
         return .red
     }
 
     private func accessibilityStatus(_ video: AnalysisVideoAvailability?, remaining: Double) -> String {
         let current = status(video, remaining: remaining)
-        if remaining > 0, video?.state == "ACTIVE" || video?.state == "PROCESSING" {
+        if remaining > 0, ["ACTIVE", "PROCESSING", "UNAVAILABLE"].contains(video?.state ?? "") {
             return "\(current). Availability remaining: \(duration(remaining))."
         }
         return current
@@ -658,11 +656,13 @@ private struct AnalysisVideoStatusView: View {
 
     private func status(_ video: AnalysisVideoAvailability?, remaining: Double) -> String {
         guard let video else { return "Video needs preparation" }
-        if video.state == "UNAVAILABLE" { return "Couldn’t verify video availability" }
+        if video.state == "UNAVAILABLE", remaining > 0 {
+            return "Video was previously prepared; current availability has not been verified"
+        }
         if video.state == "MISSING" { return "Video needs preparation again" }
         if remaining <= 0 { return "Video availability has expired" }
         switch video.state {
-        case "ACTIVE": return "Video ready for analysis"
+        case "ACTIVE": return "Video last confirmed ready for analysis"
         case "PROCESSING": return "Video is being prepared"
         case "FAILED": return "Video preparation failed"
         default: return "Video availability needs checking"

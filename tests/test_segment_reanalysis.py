@@ -114,9 +114,23 @@ class AvailabilityTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as folder,patch.object(e,'emit'):
             root=Path(folder);p=self.setup_source(root);client=Mock()
             with patch.object(adapter,'ready_file',return_value=self.uploaded()) as upload:
-                e.reusable_video(root,p,client);client.files.get.side_effect=RuntimeError('offline')
+                e.reusable_video(root,p,client)
+                last_checked=p['geminiVideo']['checkedAt']
+                client.files.get.side_effect=RuntimeError('offline')
                 with self.assertRaises(RuntimeError):e.reusable_video(root,p,client)
-                upload.assert_called_once();self.assertEqual(p['geminiVideo']['state'],'UNAVAILABLE')
+                upload.assert_called_once()
+                self.assertEqual(p['geminiVideo']['state'],'ACTIVE')
+                self.assertEqual(p['geminiVideo']['checkedAt'],last_checked)
+                self.assertEqual(json.loads((root/'project.json').read_text())['geminiVideo']['state'],'ACTIVE')
+    def test_forbidden_refresh_keeps_last_confirmed_status(self):
+        with tempfile.TemporaryDirectory() as folder,patch.object(e,'emit'):
+            root=Path(folder);p=self.setup_source(root);client=Mock()
+            with patch.object(adapter,'ready_file',return_value=self.uploaded()):
+                e.reusable_video(root,p,client)
+            denied=RuntimeError('forbidden');denied.code=403;client.files.get.side_effect=denied
+            with self.assertRaises(RuntimeError):e.remote_video_status(root,p,client)
+            self.assertEqual(p['geminiVideo']['state'],'ACTIVE')
+            self.assertEqual(json.loads((root/'project.json').read_text())['geminiVideo']['state'],'ACTIVE')
     def test_processing_file_is_not_uploaded_again(self):
         with tempfile.TemporaryDirectory() as folder,patch.object(e,'emit'):
             root=Path(folder);p=self.setup_source(root);client=Mock()

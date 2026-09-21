@@ -448,7 +448,7 @@ def delete_description_narration(root, project):
 
 
 def remote_video_status(root, p, client):
-    """Refresh service state; a local countdown alone never proves availability."""
+    """Refresh service state without replacing a confirmed state on a failed check."""
     cached=p.get('geminiVideo')
     if not cached: return None
     try:
@@ -458,15 +458,16 @@ def remote_video_status(root, p, client):
         expiry=gemini_adapter.value(f,'expiration_time')
         if expiry: cached['expiresAt']=file_expiry(expiry)
         if cached.get('expiresAt',0)<=time.time(): cached['state']='EXPIRED'
+        cached['checkedAt']=time.time()
+        save(root,p)
         return f if cached['state']=='ACTIVE' else None
     except Exception as exc:
         code=getattr(exc,'code',None)
-        cached['state']='MISSING' if code==404 else 'UNAVAILABLE'
-        if code not in (403,404): raise
-        return None
-    finally:
+        if code != 404: raise
+        cached['state']='MISSING'
         cached['checkedAt']=time.time()
         save(root,p)
+        return None
 
 
 def file_expiry(value):
