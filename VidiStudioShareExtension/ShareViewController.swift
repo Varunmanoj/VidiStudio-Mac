@@ -220,33 +220,28 @@ private enum SharedItemResolver {
     }
 
     private static func loadURL(from provider: NSItemProvider, typeIdentifiers: [String]) async -> URL? {
-        for typeIdentifier in typeIdentifiers where provider.hasItemConformingToTypeIdentifier(typeIdentifier) {
-            if let result = await loadItem(from: provider, typeIdentifier: typeIdentifier) {
-                if let url = result as? URL { return url }
-                if let url = result as? NSURL { return url as URL }
-                if let data = result as? Data,
-                   let string = String(data: data, encoding: .utf8),
-                   let url = URL(string: string.trimmingCharacters(in: .whitespacesAndNewlines)) {
-                    return url
-                }
-                if let string = result as? String, let url = URL(string: string) { return url }
-            }
-        }
-        return nil
+        guard typeIdentifiers.contains(where: provider.hasItemConformingToTypeIdentifier),
+              provider.canLoadObject(ofClass: URL.self) else { return nil }
+        return await loadURLObject(from: provider)
     }
 
     private static func loadText(from provider: NSItemProvider) async -> String? {
-        guard let result = await loadItem(from: provider, typeIdentifier: UTType.plainText.identifier) else { return nil }
-        if let string = result as? String { return string }
-        if let attributed = result as? NSAttributedString { return attributed.string }
-        if let data = result as? Data { return String(data: data, encoding: .utf8) }
-        return nil
+        guard provider.canLoadObject(ofClass: String.self) else { return nil }
+        return await loadStringObject(from: provider)
     }
 
-    private static func loadItem(from provider: NSItemProvider, typeIdentifier: String) async -> NSSecureCoding? {
+    private static func loadURLObject(from provider: NSItemProvider) async -> URL? {
         await withCheckedContinuation { continuation in
-            provider.loadItem(forTypeIdentifier: typeIdentifier, options: nil) { item, _ in
-                continuation.resume(returning: item)
+            _ = provider.loadObject(ofClass: URL.self) { url, _ in
+                continuation.resume(returning: url)
+            }
+        }
+    }
+
+    private static func loadStringObject(from provider: NSItemProvider) async -> String? {
+        await withCheckedContinuation { continuation in
+            _ = provider.loadObject(ofClass: String.self) { string, _ in
+                continuation.resume(returning: string)
             }
         }
     }

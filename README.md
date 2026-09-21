@@ -8,9 +8,11 @@ A native SwiftUI and AVKit video accessibility editor with a portable Python com
 ./script/build_and_run.sh --verify
 ```
 
-This builds the existing `VidiStudio.xcodeproj` app target, freezes the Python engine and Google GenAI SDK with PyInstaller, bundles FFmpeg/FFprobe and their non-system libraries, signs the bundle for local use, and opens it. Xcode is selected per command using `DEVELOPER_DIR`, without changing global developer settings. Python build dependencies live in `.venv`.
+This builds the existing `VidiStudio.xcodeproj` app target, freezes the Python engine and Google GenAI SDK with PyInstaller, bundles FFmpeg/FFprobe and their non-system libraries, signs the bundle with the local Apple Development certificate, and opens it. Xcode is selected per command using `DEVELOPER_DIR`, without changing global developer settings. Python build dependencies live in `.venv`. The script requires exactly one Apple Development signing identity in Keychain; if there are several, set `VIDISTUDIO_SIGNING_IDENTITY` to the desired certificate SHA-1 shown by `security find-identity -p codesigning -v`. It will stop rather than produce an ad hoc signed app that can lose macOS folder permissions after updates.
 
 Other flags: `--build-only`, `--debug`, `--logs`, `--telemetry`. `script/package.sh` makes Release local-install ZIP and DMG packages in `dist`. Local signatures are not Developer ID notarization; public distribution requires signing and notarizing all nested code with the owner's distribution credentials.
+
+For persistent Documents folder access, launch the same signed copy from `/Applications/VidiStudio.app` each time. Install a newly built app over that path rather than opening a build product from Xcode's DerivedData or this repository's `build/DerivedData`. After switching from an older ad hoc signed copy to a certificate-signed one, macOS may ask once more. Allow it under System Settings → Privacy & Security → Files & Folders if needed; future builds signed with the same certificate and bundle ID should retain the grant. Xcode's normal Run action signs with the development team configured in the project, but launches its own build location.
 
 ## Workflow
 
