@@ -59,6 +59,11 @@ struct ProjectBrowserPage: View {
         !search.isEmpty || sourceFilter != .all
     }
 
+    private var selectedProjectFolder: URL? {
+        guard let selection else { return nil }
+        return projects.first(where: { $0.id == selection })?.folder
+    }
+
     var body: some View {
         VStack(spacing: 0) {
             VStack(alignment: .leading, spacing: 3) {
@@ -197,14 +202,13 @@ struct ProjectBrowserPage: View {
         .safeAreaInset(edge: .bottom) {
             HStack(spacing: 8) {
                 Button("Show Selected Project in Finder", systemImage: "folder") {
-                    guard let selection,
-                          let folder = projects.first(where: { $0.id == selection })?.folder else { return }
+                    guard let folder = selectedProjectFolder else { return }
                     NSWorkspace.shared.open(folder)
                 }
                 .labelStyle(.iconOnly)
                 .help("Open the selected project’s folder in Finder")
                 .accessibilityLabel("Show Selected Project in Finder")
-                .disabled(busy || projects.first(where: { $0.id == selection })?.folder == nil)
+                .disabled(selectedProjectFolder == nil)
                 Spacer()
                 if grid {
                     Image(systemName: "square.grid.3x3")

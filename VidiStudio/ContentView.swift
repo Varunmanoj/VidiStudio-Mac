@@ -270,6 +270,16 @@ struct ContentView: View {
             export: { exportProject = $0 },
             clear: { deletionProject = $0 }
         )
+        .safeAreaInset(edge: .top, spacing: 0) {
+            if let activity = studio.exportActivity {
+                ExportProgressBanner(
+                    activity: activity,
+                    status: studio.message,
+                    cancelling: studio.cancellationRequested,
+                    cancel: studio.cancelCurrentOperation
+                )
+            }
+        }
         .background(WindowFitter().frame(width: 0, height: 0))
         .focusedSceneValue(\.projectBrowser, ProjectBrowserActions(
             showProjects: nil,
@@ -351,6 +361,16 @@ struct ProjectEditorWindow: View {
                 showExportDialog: { showingExportDialog = true }
             )
             .inspectorColumnWidth(min: 250, ideal: 272, max: 340)
+        }
+        .safeAreaInset(edge: .top, spacing: 0) {
+            if let activity = studio.exportActivity {
+                ExportProgressBanner(
+                    activity: activity,
+                    status: studio.message,
+                    cancelling: studio.cancellationRequested,
+                    cancel: studio.cancelCurrentOperation
+                )
+            }
         }
         .smoothPresentation()
         .background(WindowFitter().frame(width: 0, height: 0))
@@ -918,6 +938,7 @@ struct ProjectEditor: View {
 
     private var showsProcessingForCurrentSection: Bool {
         guard studio.busy else { return false }
+        guard studio.exportActivity == nil else { return false }
         guard let processingSection = studio.processingSection else { return true }
         return processingSection == tab
     }
@@ -1083,7 +1104,7 @@ struct ProjectEditor: View {
                     .accessibilityLabel("Processing status: \(studio.message)")
                 Spacer(minLength: 12)
                 Button {
-                    studio.process?.terminate()
+                    studio.cancelCurrentOperation()
                 } label: {
                     HStack(spacing: 6) {
                         MaterialIcon(glyph: "\u{e047}")

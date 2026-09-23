@@ -686,3 +686,41 @@ struct ProjectExportButton: View {
         .accessibilityHint("Opens Export options. In the project editor, you can also press Command Shift E.")
     }
 }
+
+struct ExportProgressBanner: View {
+    let activity: ExportActivity
+    let status: String
+    let cancelling: Bool
+    let cancel: () -> Void
+
+    var body: some View {
+        HStack(spacing: 12) {
+            ProgressView()
+                .controlSize(.small)
+                .accessibilityLabel("Export in progress")
+                .accessibilityValue(activity.projectName)
+
+            VStack(alignment: .leading, spacing: 2) {
+                Text("Exporting \(activity.projectName)…")
+                    .font(.headline)
+                    .lineLimit(1)
+                Text(cancelling ? "Stopping the export…" : status)
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .lineLimit(2)
+            }
+
+            Spacer(minLength: 12)
+
+            Button(cancelling ? "Cancelling…" : "Cancel Export", systemImage: "xmark.circle", action: cancel)
+                .disabled(cancelling)
+                .fixedSize()
+                .accessibilityHint("Stops the current export. Finished exports already saved remain available.")
+        }
+        .padding(.horizontal, 16)
+        .padding(.vertical, 10)
+        .background(.bar)
+        .overlay(alignment: .bottom) { Divider() }
+        .accessibilityElement(children: .contain)
+    }
+}

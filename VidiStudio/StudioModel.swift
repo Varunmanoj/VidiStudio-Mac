@@ -215,6 +215,11 @@ struct VideoPreparationActivity {
     let message: String
 }
 
+struct ExportActivity: Equatable {
+    let projectID: String
+    let projectName: String
+}
+
 struct StudioProject: Codable, Identifiable {
     var schemaVersion: Int
     var id: String
@@ -704,6 +709,8 @@ final class StudioModel {
     var busy = false
     var processingSection: String?
     var videoPreparationActivity: VideoPreparationActivity?
+    var exportActivity: ExportActivity?
+    var cancellationRequested = false
     var message = "All files stay in your local project folders."
     var progress = 0.0
     var error: String?
@@ -717,6 +724,14 @@ final class StudioModel {
     var geminiModelsLoaded = false
     var engineCheckStatus: EngineCheckStatus = .unchecked
     var selected: StudioProject? { projects.first { $0.id == selectedID } }
+
+    func cancelCurrentOperation() {
+        guard busy, !cancellationRequested, let process else { return }
+        cancellationRequested = true
+        message = exportActivity == nil ? "Stopping the current operation…" : "Stopping the export…"
+        process.terminate()
+    }
+
     func dismissError() {
         error = nil
         errorTitle = StudioModel.defaultErrorTitle
@@ -1327,6 +1342,12 @@ final class StudioModel {
             return
         }
         busy = true
+        cancellationRequested = false
+        if Self.isExportCommand(command), let target {
+            exportActivity = ExportActivity(projectID: target.id, projectName: target.name)
+        } else {
+            exportActivity = nil
+        }
         if let target, ["prepare-analysis-video", "check-video-availability"].contains(command) {
             videoPreparationActivity = VideoPreparationActivity(
                 projectID: target.id, message: "Checking video availability")
@@ -1351,6 +1372,8 @@ final class StudioModel {
             let issue = UserFacingIssue.forEngine(command: command, technicalDetails: detail)
             if command == "doctor" { engineCheckStatus = .failed(issue.message) }
             busy = false
+            exportActivity = nil
+            cancellationRequested = false
             videoPreparationActivity = nil
             processingSection = nil
             process = nil
@@ -1431,9 +1454,18 @@ final class StudioModel {
                     present(.exportMetadata, technicalDetails: error.localizedDescription, context: "Finish export accessibility information")
                 }
             }
-            busy = false; processingSection = nil; process = nil; reload()
+            let operationWasCancelled = cancellationRequested
+            let exportWasCancelled = operationWasCancelled && exportActivity != nil
+            busy = false
+            exportActivity = nil
+            cancellationRequested = false
+            processingSection = nil
+            process = nil
+            reload()
             videoPreparationActivity = nil
-            if task.terminationStatus != 0 && self.error == nil {
+            if operationWasCancelled {
+                message = exportWasCancelled ? "Export cancelled." : "Operation cancelled."
+            } else if task.terminationStatus != 0 && self.error == nil {
                 present(UserFacingIssue.forEngine(command: command, technicalDetails: nil), context: "\(command) stopped")
             }
             if task.terminationStatus == 0 {
@@ -1458,6 +1490,10 @@ final class StudioModel {
         case "generate-ad-cues", "reanalyze-segment", "prepare-analysis-video": return "descriptions"
         default: return nil
         }
+    }
+
+    private static func isExportCommand(_ command: String) -> Bool {
+        command.hasPrefix("export-")
     }
     func reanalyzeSegment(_ segment: Segment, hint: String, isDescription: Bool = true) {
         guard let project = selected, !busy else { return }
