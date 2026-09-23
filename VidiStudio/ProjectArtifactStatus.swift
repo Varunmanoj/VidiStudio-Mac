@@ -170,6 +170,14 @@ enum ProjectSourceFilter: String, CaseIterable, Identifiable {
         }
     }
 
+    var accessibilityLabel: String {
+        switch self {
+        case .all: return "All Projects"
+        case .local: return "Local Video Projects"
+        case .youtube: return "YouTube Projects"
+        }
+    }
+
     var iconName: String {
         switch self {
         case .all: return "square.stack"

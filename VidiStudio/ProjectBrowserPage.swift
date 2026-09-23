@@ -178,7 +178,9 @@ struct ProjectBrowserPage: View {
             ToolbarItemGroup(placement: .primaryAction) {
                 Picker("Project source", selection: $sourceFilter) {
                     ForEach(ProjectSourceFilter.allCases) { filter in
-                        Label(filter.title, systemImage: filter.iconName).tag(filter)
+                        Label(filter.title, systemImage: filter.iconName)
+                            .accessibilityLabel(filter.accessibilityLabel)
+                            .tag(filter)
                     }
                 }
                 .pickerStyle(.segmented)
