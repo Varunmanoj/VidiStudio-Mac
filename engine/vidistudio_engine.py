@@ -1770,17 +1770,61 @@ def hls_video_renditions(project):
     width, height = int(project.get('width') or 0), int(project.get('height') or 0)
     if width < 1 or height < 1:
         raise ValueError('Video dimensions are missing. Prepare the project metadata before exporting Web Playback.')
-    high_size = fitted_video_size(width, height, 1280, 720)
-    low_size = fitted_video_size(width, height, 854, 480)
-    if high_size == low_size:
-        return [
-            dict(name='high', size=high_size, bitrate='1400k', maxrate='1540k', buffer='2800k', bandwidth=1750000),
-            dict(name='economy', size=low_size, bitrate='700k', maxrate='770k', buffer='1400k', bandwidth=1000000),
-        ]
-    return [
-        dict(name='720p', size=high_size, bitrate='2800k', maxrate='3080k', buffer='5600k', bandwidth=3500000),
-        dict(name='480p', size=low_size, bitrate='1000k', maxrate='1100k', buffer='2000k', bandwidth=1350000),
+    source_size = (max(2, width // 2 * 2), max(2, height // 2 * 2))
+    profiles = [
+        dict(name='4k', label='4K', maximum=(3840, 2160), bitrate='16000k', maxrate='17600k',
+             buffer='32000k', bandwidth=18000000, level='5.2', codec='avc1.640034'),
+        dict(name='1080p', label='1080p', maximum=(1920, 1080), bitrate='6000k', maxrate='6600k',
+             buffer='12000k', bandwidth=7000000, level='4.2', codec='avc1.64002a'),
+        dict(name='720p', label='720p', maximum=(1280, 720), bitrate='2800k', maxrate='3080k',
+             buffer='5600k', bandwidth=3500000, level='4.0', codec='avc1.640028'),
+        dict(name='480p', label='480p', maximum=(854, 480), bitrate='1000k', maxrate='1100k',
+             buffer='2000k', bandwidth=1350000, level='4.0', codec='avc1.640028'),
     ]
+
+    exact_profile = next(
+        (profile for profile in profiles if source_size == profile['maximum']),
+        None,
+    )
+    if exact_profile:
+        source_rendition = {key: value for key, value in exact_profile.items() if key != 'maximum'}
+        source_rendition['size'] = source_size
+    else:
+        pixels = source_size[0] * source_size[1]
+        if pixels >= 3840 * 2160:
+            rate = ('16000k', '17600k', '32000k', 18000000, '5.2', 'avc1.640034')
+        elif pixels >= 1920 * 1080:
+            rate = ('6000k', '6600k', '12000k', 7000000, '4.2', 'avc1.64002a')
+        elif pixels >= 1280 * 720:
+            rate = ('2800k', '3080k', '5600k', 3500000, '4.0', 'avc1.640028')
+        else:
+            rate = ('1400k', '1540k', '2800k', 1750000, '4.0', 'avc1.640028')
+        source_rendition = dict(
+            name='source', label=f'original {source_size[0]}×{source_size[1]}', size=source_size,
+            bitrate=rate[0], maxrate=rate[1], buffer=rate[2], bandwidth=rate[3],
+            level=rate[4], codec=rate[5],
+        )
+
+    renditions = [source_rendition]
+    seen_sizes = {source_size}
+    for profile in profiles:
+        size = fitted_video_size(width, height, *profile['maximum'])
+        if size in seen_sizes:
+            continue
+        rendition = {key: value for key, value in profile.items() if key != 'maximum'}
+        rendition['size'] = size
+        renditions.append(rendition)
+        seen_sizes.add(size)
+
+    if len(renditions) == 1:
+        source_rendition['name'] = 'high'
+        source_rendition['label'] = 'high'
+        renditions.append(dict(
+            name='economy', label='economy', size=source_size,
+            bitrate='700k', maxrate='770k', buffer='1400k', bandwidth=1000000,
+            level=source_rendition['level'], codec=source_rendition['codec'],
+        ))
+    return renditions
 
 
 def hls_source_needs_tone_mapping(source):
@@ -1810,7 +1854,7 @@ def create_hls_video_rendition(source, project, destination, rendition, open_cap
     run([
         tool('ffmpeg'), '-y', '-v', 'error', '-i', source,
         '-map', '0:v:0', '-an', '-sn', '-vf', ','.join(filters),
-        '-c:v', 'libx264', '-preset', 'medium', '-profile:v', 'high', '-level:v', '4.0',
+        '-c:v', 'libx264', '-preset', 'medium', '-profile:v', 'high', '-level:v', rendition['level'],
         '-pix_fmt', 'yuv420p', '-b:v', rendition['bitrate'], '-maxrate', rendition['maxrate'],
         '-bufsize', rendition['buffer'], '-sc_threshold', '0',
         '-force_key_frames', f'expr:gte(t,n_forced*{HLS_SEGMENT_DURATION})',
@@ -1919,7 +1963,7 @@ def write_hls_master(project, destination, renditions, audio, captions, content)
 
     for rendition in renditions:
         width, height = rendition['size']
-        codecs = 'avc1.640028,mp4a.40.2' + (',wvtt' if subtitle_tracks else '')
+        codecs = rendition['codec'] + ',mp4a.40.2' + (',wvtt' if subtitle_tracks else '')
         attributes = [
             f"BANDWIDTH={rendition['bandwidth']}",
             f'RESOLUTION={width}x{height}',
@@ -2021,7 +2065,7 @@ def export_hls_web(root, project, audio='closed-description', captions='none', c
         tone_map_hdr = hls_source_needs_tone_mapping(source)
         with temporary_video_caption_file(project, 'open' if captions == 'open' else 'none', content) as open_caption_path:
             for rendition in renditions:
-                emit(f"Creating {rendition['name']} Web Playback video")
+                emit(f"Creating {rendition['label']} Web Playback video")
                 create_hls_video_rendition(
                     source, project, temporary / 'video', rendition,
                     open_caption_path=open_caption_path,

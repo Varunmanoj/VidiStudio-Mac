@@ -12,8 +12,20 @@ class Validation(unittest.TestCase):
             engine.hls_web_export_type('closed-description', 'dual-closed', 'transcript'),
             'Web Playback - Closed Audio Description with Transcript and Descriptive Transcript Closed Captions',
         )
-        renditions = engine.hls_video_renditions({'width': 1920, 'height': 1080})
-        self.assertEqual([item['size'] for item in renditions], [(1280, 720), (852, 480)])
+        full_hd = engine.hls_video_renditions({'width': 1920, 'height': 1080})
+        self.assertEqual([item['name'] for item in full_hd], ['1080p', '720p', '480p'])
+        self.assertEqual([item['size'] for item in full_hd], [(1920, 1080), (1280, 720), (852, 480)])
+        ultra_hd = engine.hls_video_renditions({'width': 3840, 'height': 2160})
+        self.assertEqual([item['name'] for item in ultra_hd], ['4k', '1080p', '720p', '480p'])
+        self.assertEqual(
+            [item['size'] for item in ultra_hd],
+            [(3840, 2160), (1920, 1080), (1280, 720), (852, 480)],
+        )
+        larger_than_4k = engine.hls_video_renditions({'width': 7680, 'height': 4320})
+        self.assertEqual(larger_than_4k[0]['size'], (7680, 4320))
+        self.assertEqual(larger_than_4k[1]['size'], (3840, 2160))
+        self.assertEqual(full_hd[0]['codec'], 'avc1.64002a')
+        self.assertEqual(ultra_hd[0]['codec'], 'avc1.640034')
         self.assertEqual(engine.fitted_video_size(640, 360, 1280, 720), (640, 360))
 
     def test_youtube_validation_uses_configured_video_model_and_closes_client(self):
@@ -439,6 +451,28 @@ class Validation(unittest.TestCase):
             self.assertFalse(p['hasProcessed'])
             self.assertTrue((root/'source/video.mp4').exists())
             self.assertFalse((root/'metadata/history').exists())
+
+    def test_deleting_descriptions_also_deletes_their_narration_audio(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            (root/'audio-description').mkdir()
+            narration = root/'audio-description/cue.wav'
+            narration.write_bytes(b'narration')
+            project = dict(
+                transcript=[{'text': 'Dialogue'}], summary='Summary',
+                cues=[{'text': 'Description', 'audio': 'audio-description/cue.wav'}],
+                exports=[], thumbnails=[], undoStack=[[{'text': 'Before'}]], redoStack=[],
+                transcriptUndoStack=[], transcriptRedoStack=[], descriptionsGenerated=True,
+                transcriptGenerated=True, summaryGenerated=True, hasProcessed=True,
+            )
+
+            engine.delete_generated_components(root, project, ['descriptions'])
+
+            self.assertEqual(project['cues'], [])
+            self.assertFalse(project['descriptionsGenerated'])
+            self.assertEqual(project['undoStack'], [])
+            self.assertFalse(narration.exists())
+            self.assertFalse((root/'audio-description').exists())
 
     def test_cleanup_project_storage_keeps_only_canonical_and_referenced_files(self):
         with tempfile.TemporaryDirectory() as temp:
@@ -890,6 +924,41 @@ class Validation(unittest.TestCase):
             self.assertEqual(video['color_primaries'], 'bt709')
             self.assertEqual(video['color_transfer'], 'bt709')
             self.assertEqual(video['color_space'], 'bt709')
+
+    def test_hls_web_export_preserves_4k_and_adds_lower_resolutions(self):
+        with tempfile.TemporaryDirectory(prefix='vidistudio-4k-hls-test-') as temp:
+            root = Path(temp)
+            (root/'source').mkdir()
+            (root/'exports').mkdir()
+            source = root/'source/4k.mp4'
+            engine.run([
+                engine.tool('ffmpeg'), '-y', '-v', 'error', '-f', 'lavfi',
+                '-i', 'color=c=black:size=3840x2160:rate=2', '-t', '1.5',
+                '-c:v', 'libx264', '-preset', 'ultrafast', '-pix_fmt', 'yuv420p', source,
+            ])
+            project = {
+                'name': '4K Web Demo', 'sourceType': 'upload', 'source': 'source/4k.mp4',
+                'duration': 1.5, 'width': 3840, 'height': 2160, 'hasAudio': False,
+                'transcript': [], 'cues': [], 'exports': [], 'exportMediaInfo': {},
+            }
+
+            engine.export_hls_web(root, project, audio='original')
+
+            output = root/project['exports'][0]
+            expected = {
+                '4k': (3840, 2160),
+                '1080p': (1920, 1080),
+                '720p': (1280, 720),
+                '480p': (852, 480),
+            }
+            for name, size in expected.items():
+                info = engine.probe(output/'video'/f'{name}.m3u8')
+                video = next(stream for stream in info['streams'] if stream['codec_type'] == 'video')
+                self.assertEqual((video['width'], video['height']), size)
+            master = (output/'master.m3u8').read_text()
+            self.assertEqual(master.count('#EXT-X-STREAM-INF:'), 4)
+            self.assertIn('RESOLUTION=3840x2160', master)
+            self.assertIn('CODECS="avc1.640034,mp4a.40.2"', master)
 
     def test_original_and_described_program_audio_export_as_mp3(self):
         with tempfile.TemporaryDirectory(prefix='vidistudio-audio-export-test-') as temp:

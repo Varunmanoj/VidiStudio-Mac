@@ -67,11 +67,47 @@ struct GeneratedContentDeletionView: View {
         Set(GeneratedContentComponent.allCases.filter { $0.hasContent(in: project) })
     }
 
+    private var effectiveSelection: Set<GeneratedContentComponent> {
+        guard selection.contains(.descriptions), available.contains(.narration) else { return selection }
+        return selection.union([.narration])
+    }
+
     private var selectAll: Binding<Bool> {
         Binding(
-            get: { !available.isEmpty && selection == available },
+            get: { !available.isEmpty && effectiveSelection == available },
             set: { selection = $0 ? available : [] }
         )
+    }
+
+    private func selectionBinding(for component: GeneratedContentComponent) -> Binding<Bool> {
+        Binding(
+            get: { effectiveSelection.contains(component) },
+            set: { selected in
+                if selected { selection.insert(component) }
+                else { selection.remove(component) }
+            }
+        )
+    }
+
+    private func explanation(for component: GeneratedContentComponent) -> String {
+        if component == .narration, selection.contains(.descriptions), available.contains(.narration) {
+            return "Included automatically because deleting AD Descriptions also removes their narration audio."
+        }
+        return component.explanation
+    }
+
+    private func isDisabled(_ component: GeneratedContentComponent) -> Bool {
+        !available.contains(component)
+            || (component == .narration && selection.contains(.descriptions))
+    }
+
+    private func accessibilityHint(for component: GeneratedContentComponent) -> String {
+        if component == .narration, selection.contains(.descriptions), available.contains(.narration) {
+            return "Selected automatically and cannot be changed while AD Descriptions is selected."
+        }
+        return available.contains(component)
+            ? component.explanation
+            : "This project has no \(component.title.lowercased()) to delete."
     }
 
     var body: some View {
@@ -90,22 +126,16 @@ struct GeneratedContentDeletionView: View {
 
             VStack(alignment: .leading, spacing: 12) {
                 ForEach(GeneratedContentComponent.allCases) { component in
-                    Toggle(isOn: Binding(
-                        get: { selection.contains(component) },
-                        set: { selected in
-                            if selected { selection.insert(component) }
-                            else { selection.remove(component) }
-                        }
-                    )) {
+                    Toggle(isOn: selectionBinding(for: component)) {
                         VStack(alignment: .leading, spacing: 3) {
                             Text(component.title)
-                            Text(component.explanation)
+                            Text(explanation(for: component))
                                 .font(.caption)
                                 .foregroundStyle(.secondary)
                         }
                     }
-                    .disabled(!available.contains(component))
-                    .accessibilityHint(available.contains(component) ? component.explanation : "This project has no \(component.title.lowercased()) to delete.")
+                    .disabled(isDisabled(component))
+                    .accessibilityHint(accessibilityHint(for: component))
                 }
             }
 
@@ -118,12 +148,12 @@ struct GeneratedContentDeletionView: View {
                     .keyboardShortcut(.cancelAction)
                 Spacer()
                 Button("Delete Selected…", systemImage: "trash", role: .destructive) {
-                    if studio.confirmDeleteGeneratedContent(project, components: selection) {
+                    if studio.confirmDeleteGeneratedContent(project, components: effectiveSelection) {
                         dismiss()
                     }
                 }
                 .keyboardShortcut(.defaultAction)
-                .disabled(selection.isEmpty || studio.busy)
+                .disabled(effectiveSelection.isEmpty || studio.busy)
             }
         }
         .padding(24)

@@ -414,7 +414,7 @@ struct ExportDialog: View {
                 return "You will get one text file containing the selected project content."
             }
         case .webPlayback:
-            return "You will get one folder ready to upload for online playback. It includes two picture qualities so playback can adjust to the viewer's connection. \(webAudio.exportDescription) \(webTranscript.exportDescription) A sample web player is included."
+            return "You will get one folder ready to upload for online playback. It keeps the video's original picture size as the highest quality and adds every smaller standard quality down to 480p, without enlarging smaller videos. \(webAudio.exportDescription) \(webTranscript.exportDescription) A sample web player is included."
         }
     }
 
@@ -585,7 +585,7 @@ struct ExportDialog: View {
             }
         } message: { _ in
             if category == .webPlayback {
-                Text("Open captions become a permanent part of both adaptive Web Playback video renditions. Closed captions remain selectable and let each viewer turn them on or off. Choose Export with Open Captions only when the words must always appear in the picture.")
+                Text("Open captions become a permanent part of every adaptive Web Playback video rendition. Closed captions remain selectable and let each viewer turn them on or off. Choose Export with Open Captions only when the words must always appear in the picture.")
             } else {
                 Text("Open captions become a permanent part of the picture, so VidiStudio must create a new copy of the video. It keeps the same picture size and preserves HDR where possible, but some original quality or iPhone Dolby Vision information may change. For the closest match to the original, use closed captions instead.")
             }
