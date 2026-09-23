@@ -149,7 +149,7 @@ struct UserFacingIssue: Equatable {
         case "export-final-video", "export-selectable-video", "export-closed-audio-description-video",
              "export-open-audio-description-video", "export-closed-caption-video",
              "export-dual-closed-caption-video", "export-open-caption-video", "export-original-audio",
-             "export-described-audio", "export-audio", "export-subtitles":
+             "export-described-audio", "export-audio", "export-subtitles", "export-hls":
             return UserFacingIssue(
                 title: "Export Couldn’t Be Created",
                 message: "Your source video and existing exports are unchanged. Check that the project drive has enough free space, then try again."

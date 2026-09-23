@@ -1287,7 +1287,7 @@ final class StudioModel {
             engineCheckStatus = .checking
         }
         let target = project ?? (["import-video", "import-youtube", "doctor", "validate-config", "list-models"].contains(command) ? nil : selected)
-        if ["export-final-video", "export-selectable-video", "export-closed-audio-description-video", "export-open-audio-description-video", "export-closed-caption-video", "export-dual-closed-caption-video", "export-open-caption-video"].contains(command), let target, target.isYouTubeURLProject {
+        if ["export-final-video", "export-selectable-video", "export-closed-audio-description-video", "export-open-audio-description-video", "export-closed-caption-video", "export-dual-closed-caption-video", "export-open-caption-video", "export-hls"].contains(command), let target, target.isYouTubeURLProject {
             errorTitle = "Video Export Isn’t Available"
             error = "This project uses a YouTube link, so VidiStudio does not have a local video to export. You can still export text and available narration audio."
             return
@@ -1304,11 +1304,15 @@ final class StudioModel {
         }
         if let target, !confirmAnalysisReplacement(command, project: target) { return }
         var exportOptions: [String] = []
-        if ["export-final-video", "export-selectable-video", "export-closed-audio-description-video", "export-open-audio-description-video", "export-described-audio", "export-audio"].contains(command), let target {
+        let webPlaybackNeedsNarration = command == "export-hls"
+            && (extra.contains("closed-description") || extra.contains("open-description"))
+        if (["export-final-video", "export-selectable-video", "export-closed-audio-description-video", "export-open-audio-description-video", "export-described-audio", "export-audio"].contains(command) || webPlaybackNeedsNarration), let target {
             guard let options = confirmIncompleteNarrationExport(
                 project: target,
                 audioOnly: command == "export-audio",
-                exportKindOverride: command == "export-described-audio" ? "final audio" : nil
+                exportKindOverride: command == "export-described-audio"
+                    ? "final audio"
+                    : command == "export-hls" ? "Web Playback folder" : nil
             ) else { return }
             exportOptions = options
         }

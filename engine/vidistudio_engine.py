@@ -1,6 +1,6 @@
 """VidiStudio portable local project engine. stdout is newline-delimited JSON."""
 from __future__ import annotations
-import argparse, contextlib, json, math, os, platform, plistlib, re, shutil, subprocess, sys, tempfile, time, uuid, wave
+import argparse, contextlib, html, json, math, os, platform, plistlib, re, shutil, subprocess, sys, tempfile, time, uuid, wave
 import signal
 import gemini_adapter
 import parity
@@ -1189,6 +1189,26 @@ def commit_export(project, relative, output, temporary, video_processing=None):
     emit('Export created', export=relative)
 
 
+def commit_directory_export(project, relative, output, temporary):
+    """Replace one generated export folder without exposing a partial package."""
+    backup = output.with_name(f'.{output.name}.replaced-{uuid.uuid4().hex}')
+    try:
+        if output.exists():
+            os.replace(output, backup)
+        os.replace(temporary, output)
+    except Exception:
+        if backup.exists() and not output.exists():
+            os.replace(backup, output)
+        raise
+    else:
+        if backup.exists():
+            shutil.rmtree(backup)
+    project['exports'] = [path for path in project.get('exports', []) if path != relative]
+    project['exports'].append(relative)
+    project.setdefault('exportMediaInfo', {}).pop(relative, None)
+    emit('Export created', export=relative)
+
+
 def write_text_export(root, project, export_type, extension, text, replace_existing=False):
     relative, output, temporary = prepare_export_target(
         root, project, export_type, extension, replace_existing
@@ -1723,6 +1743,315 @@ def export(root,p,audio_only=False,allow_incomplete=False,selectable=False,capti
         export_temporary.unlink(missing_ok=True)
 
 
+HLS_SEGMENT_DURATION = 6
+
+
+def hls_web_export_type(audio, captions, content):
+    audio_names = {
+        'original': 'Original Audio',
+        'closed-description': 'Closed Audio Description',
+        'open-description': 'Open Audio Description',
+    }
+    if audio not in audio_names:
+        raise ValueError('Web Playback audio must be original, closed-description, or open-description.')
+    return 'Web Playback - ' + audio_names[audio] + caption_export_suffix(captions, content)
+
+
+def fitted_video_size(width, height, maximum_width, maximum_height):
+    """Fit a source inside one HLS rendition without upscaling or odd dimensions."""
+    width, height = max(2, int(width)), max(2, int(height))
+    scale = min(1.0, maximum_width / width, maximum_height / height)
+    fitted_width = max(2, int(width * scale) // 2 * 2)
+    fitted_height = max(2, int(height * scale) // 2 * 2)
+    return fitted_width, fitted_height
+
+
+def hls_video_renditions(project):
+    width, height = int(project.get('width') or 0), int(project.get('height') or 0)
+    if width < 1 or height < 1:
+        raise ValueError('Video dimensions are missing. Prepare the project metadata before exporting Web Playback.')
+    high_size = fitted_video_size(width, height, 1280, 720)
+    low_size = fitted_video_size(width, height, 854, 480)
+    if high_size == low_size:
+        return [
+            dict(name='high', size=high_size, bitrate='1400k', maxrate='1540k', buffer='2800k', bandwidth=1750000),
+            dict(name='economy', size=low_size, bitrate='700k', maxrate='770k', buffer='1400k', bandwidth=1000000),
+        ]
+    return [
+        dict(name='720p', size=high_size, bitrate='2800k', maxrate='3080k', buffer='5600k', bandwidth=3500000),
+        dict(name='480p', size=low_size, bitrate='1000k', maxrate='1100k', buffer='2000k', bandwidth=1350000),
+    ]
+
+
+def hls_source_needs_tone_mapping(source):
+    video = next(
+        (stream for stream in probe(source).get('streams', []) if stream.get('codec_type') == 'video'),
+        {},
+    )
+    return video.get('color_transfer') in ('smpte2084', 'arib-std-b67') or video.get('color_primaries') == 'bt2020'
+
+
+def create_hls_video_rendition(source, project, destination, rendition, open_caption_path=None, tone_map_hdr=False):
+    width, height = rendition['size']
+    filters = []
+    if tone_map_hdr:
+        filters += [
+            'zscale=t=linear:npl=100',
+            'format=gbrpf32le',
+            'tonemap=mobius:param=0.3:desat=0',
+            'zscale=p=bt709:t=bt709:m=bt709:r=tv',
+            'format=yuv420p',
+        ]
+    if open_caption_path is not None:
+        filters.append(f"ass=filename='{ffmpeg_filter_path(open_caption_path)}'")
+    filters.append(f'scale={width}:{height}')
+    playlist = destination / f"{rendition['name']}.m3u8"
+    segments = destination / f"{rendition['name']}-%05d.ts"
+    run([
+        tool('ffmpeg'), '-y', '-v', 'error', '-i', source,
+        '-map', '0:v:0', '-an', '-sn', '-vf', ','.join(filters),
+        '-c:v', 'libx264', '-preset', 'medium', '-profile:v', 'high', '-level:v', '4.0',
+        '-pix_fmt', 'yuv420p', '-b:v', rendition['bitrate'], '-maxrate', rendition['maxrate'],
+        '-bufsize', rendition['buffer'], '-sc_threshold', '0',
+        '-force_key_frames', f'expr:gte(t,n_forced*{HLS_SEGMENT_DURATION})',
+        '-f', 'hls', '-hls_time', str(HLS_SEGMENT_DURATION), '-hls_playlist_type', 'vod',
+        '-hls_flags', 'independent_segments', '-hls_segment_filename', segments,
+        '-t', str(project['duration']), playlist,
+    ])
+
+
+def create_hls_audio_rendition(root, project, destination, name, described=False, allow_incomplete=False):
+    source = local(root, project['source'])
+    playlist = destination / f'{name}.m3u8'
+    segments = destination / f'{name}-%05d.ts'
+    if described:
+        cues = exportable_narration_cues(root, project, allow_incomplete)
+        narration_args, filters = audio_description_mix(root, project, cues, audio_only=False)
+        inputs = ['-i', source, *narration_args]
+        mapping = ['-filter_complex', ';'.join(filters), '-map', '[mix]']
+    elif project.get('hasAudio'):
+        inputs = ['-i', source]
+        mapping = ['-map', '0:a:0']
+    else:
+        inputs = ['-f', 'lavfi', '-i', 'anullsrc=r=48000:cl=stereo']
+        mapping = ['-map', '0:a:0']
+    run([
+        tool('ffmpeg'), '-y', '-v', 'error', *inputs, *mapping, '-vn', '-sn',
+        '-c:a', 'aac', '-profile:a', 'aac_low', '-b:a', '192k', '-ar', '48000', '-ac', '2',
+        '-f', 'hls', '-hls_time', str(HLS_SEGMENT_DURATION), '-hls_playlist_type', 'vod',
+        '-hls_segment_filename', segments, '-t', str(project['duration']), playlist,
+    ])
+
+
+def webvtt_timestamp(seconds):
+    milliseconds = max(0, int(round(float(seconds) * 1000)))
+    return f'{milliseconds // 3600000:02}:{milliseconds // 60000 % 60:02}:{milliseconds // 1000 % 60:02}.{milliseconds % 1000:03}'
+
+
+def write_hls_subtitle_rendition(project, destination, name, content):
+    segments = validated_caption_segments(project, content)
+    vtt_name = f'{name}.vtt'
+    lines = ['WEBVTT', 'X-TIMESTAMP-MAP=LOCAL:00:00:00.000,MPEGTS:0', '']
+    for index, segment in enumerate(segments, 1):
+        lines += [
+            str(index),
+            f"{webvtt_timestamp(segment['start'])} --> {webvtt_timestamp(segment['end'])}",
+            segment['text'],
+            '',
+        ]
+    (destination / vtt_name).write_text('\n'.join(lines), encoding='utf-8')
+    duration = float(project['duration'])
+    (destination / f'{name}.m3u8').write_text(
+        '#EXTM3U\n'
+        '#EXT-X-VERSION:3\n'
+        f'#EXT-X-TARGETDURATION:{max(1, math.ceil(duration))}\n'
+        '#EXT-X-MEDIA-SEQUENCE:0\n'
+        '#EXT-X-PLAYLIST-TYPE:VOD\n'
+        f'#EXTINF:{duration:.3f},\n'
+        f'{vtt_name}\n'
+        '#EXT-X-ENDLIST\n',
+        encoding='utf-8',
+    )
+
+
+def hls_attribute(value):
+    return str(value).replace('\\', '\\\\').replace('"', '\\"')
+
+
+def write_hls_master(project, destination, renditions, audio, captions, content):
+    lines = ['#EXTM3U', '#EXT-X-VERSION:3', '#EXT-X-INDEPENDENT-SEGMENTS']
+    lines.append(
+        '#EXT-X-MEDIA:TYPE=AUDIO,GROUP-ID="audio",NAME="Original Audio",LANGUAGE="en",'
+        'DEFAULT=YES,AUTOSELECT=YES,URI="audio/original.m3u8"'
+    )
+    if audio == 'closed-description':
+        lines.append(
+            '#EXT-X-MEDIA:TYPE=AUDIO,GROUP-ID="audio",NAME="English - Audio Description",LANGUAGE="en",'
+            'DEFAULT=NO,AUTOSELECT=YES,CHARACTERISTICS="public.accessibility.describes-video",'
+            'URI="audio/described.m3u8"'
+        )
+    elif audio == 'open-description':
+        lines[-1] = (
+            '#EXT-X-MEDIA:TYPE=AUDIO,GROUP-ID="audio",NAME="English - Audio Description",LANGUAGE="en",'
+            'DEFAULT=YES,AUTOSELECT=YES,CHARACTERISTICS="public.accessibility.describes-video",'
+            'URI="audio/described.m3u8"'
+        )
+
+    subtitle_tracks = []
+    if captions == 'dual-closed':
+        subtitle_tracks = [
+            ('transcript', 'English Transcript', 'transcript'),
+            ('ad-transcript', 'English Descriptive Transcript', 'combined'),
+        ]
+    elif captions == 'closed':
+        subtitle_tracks = [
+            ('ad-transcript', 'English Descriptive Transcript', 'combined')
+            if content == 'combined'
+            else ('transcript', 'English Transcript', 'transcript')
+        ]
+    for name, title, _ in subtitle_tracks:
+        lines.append(
+            '#EXT-X-MEDIA:TYPE=SUBTITLES,GROUP-ID="subtitles",'
+            f'NAME="{hls_attribute(title)}",LANGUAGE="en",DEFAULT=NO,AUTOSELECT=YES,FORCED=NO,'
+            'CHARACTERISTICS="public.accessibility.transcribes-spoken-dialog,public.accessibility.describes-music-and-sound",'
+            f'URI="subtitles/{name}.m3u8"'
+        )
+
+    for rendition in renditions:
+        width, height = rendition['size']
+        codecs = 'avc1.640028,mp4a.40.2' + (',wvtt' if subtitle_tracks else '')
+        attributes = [
+            f"BANDWIDTH={rendition['bandwidth']}",
+            f'RESOLUTION={width}x{height}',
+            f'CODECS="{codecs}"',
+            'AUDIO="audio"',
+        ]
+        if subtitle_tracks:
+            attributes.append('SUBTITLES="subtitles"')
+        lines += ['#EXT-X-STREAM-INF:' + ','.join(attributes), f"video/{rendition['name']}.m3u8"]
+    (destination / 'master.m3u8').write_text('\n'.join(lines) + '\n', encoding='utf-8')
+
+
+def write_hls_web_files(project, destination):
+    title = html.escape(str(project.get('name') or 'VidiStudio Web Playback'))
+    width, height = fitted_video_size(project.get('width') or 16, project.get('height') or 9, 960, 540)
+    (destination / 'index.html').write_text(f'''<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>{title}</title>
+  <link href="https://vjs.zencdn.net/8.23.4/video-js.css" rel="stylesheet">
+</head>
+<body>
+  <main>
+    <h1>{title}</h1>
+    <video-js id="vidistudio-player" class="vjs-default-skin vjs-big-play-centered" controls preload="metadata" width="960" height="540">
+      <source src="master.m3u8" type="application/x-mpegURL">
+      <p class="vjs-no-js">Enable JavaScript to play this HLS video.</p>
+    </video-js>
+    <p><a href="master.m3u8">Open the HLS master playlist</a></p>
+  </main>
+  <script src="https://vjs.zencdn.net/8.23.4/video.min.js"></script>
+  <script>videojs('vidistudio-player', {{fluid: true, aspectRatio: '{width}:{height}'}});</script>
+</body>
+</html>
+''', encoding='utf-8')
+    (destination / 'README.txt').write_text(
+        'VidiStudio Web Playback (HLS)\n\n'
+        'Upload this entire folder to one location on an HTTP or HTTPS web server. '\
+        'Open index.html to use the included Video.js player, or load master.m3u8 from your own Video.js player.\n\n'
+        'Recommended MIME types:\n'
+        '  .m3u8  application/vnd.apple.mpegurl\n'
+        '  .ts    video/mp2t\n'
+        '  .vtt   text/vtt\n\n'
+        'If the player and media use different origins, configure CORS for GET requests. '\
+        'Do not rename or move individual files inside this folder because the playlists use relative URLs.\n',
+        encoding='utf-8',
+    )
+
+
+def validate_hls_web_export(destination, project, renditions, audio, captions):
+    master = (destination / 'master.m3u8').read_text(encoding='utf-8')
+    if '#EXT-X-STREAM-INF:' not in master or 'AUDIO="audio"' not in master:
+        raise ValueError('Web Playback export is missing its HLS video or audio declarations.')
+    if audio == 'closed-description' and 'public.accessibility.describes-video' not in master:
+        raise ValueError('Web Playback export is missing Audio Description accessibility metadata.')
+    if captions in ('closed', 'dual-closed') and 'SUBTITLES="subtitles"' not in master:
+        raise ValueError('Web Playback export is missing its switchable caption declarations.')
+    expected_duration = float(project['duration'])
+    for rendition in renditions:
+        info = probe(destination / 'video' / f"{rendition['name']}.m3u8")
+        videos = [stream for stream in info.get('streams', []) if stream.get('codec_type') == 'video']
+        if len(videos) != 1 or videos[0].get('codec_name') != 'h264':
+            raise ValueError('Web Playback export is missing an H.264 video rendition.')
+        duration = float(info.get('format', {}).get('duration', videos[0].get('duration', 0)))
+        if abs(duration - expected_duration) > .75:
+            raise ValueError('Web Playback video duration does not match the project.')
+    audio_names = ('original', 'described') if audio == 'closed-description' else (
+        ('described',) if audio == 'open-description' else ('original',)
+    )
+    for name in audio_names:
+        info = probe(destination / 'audio' / f'{name}.m3u8')
+        streams = [stream for stream in info.get('streams', []) if stream.get('codec_type') == 'audio']
+        if len(streams) != 1 or streams[0].get('codec_name') != 'aac':
+            raise ValueError('Web Playback export is missing an AAC audio rendition.')
+    if not (destination / 'index.html').is_file() or not (destination / 'README.txt').is_file():
+        raise ValueError('Web Playback export is missing its Video.js player or hosting instructions.')
+
+
+def export_hls_web(root, project, audio='closed-description', captions='none', content='transcript',
+                   allow_incomplete=False, replace_existing=False):
+    """Create an adaptive HLS VOD folder for Video.js and native HLS players."""
+    if project.get('sourceType') == 'youtube' or not project.get('source'):
+        raise ValueError('Web Playback export requires a local source video.')
+    if captions not in ('none', 'closed', 'open', 'dual-closed'):
+        raise ValueError('Web Playback captions must be none, closed, open, or dual-closed.')
+    export_type = hls_web_export_type(audio, captions, content)
+    relative = export_relative_path(root, project, export_type, 'folder').removesuffix('.folder')
+    output = root / relative
+    if output.exists() and not replace_existing:
+        raise ValueError('An export with these options already exists. Confirm replacement to overwrite it.')
+    temporary = output.with_name(f'.{output.name}.generating-{uuid.uuid4().hex}')
+    try:
+        (temporary / 'video').mkdir(parents=True)
+        (temporary / 'audio').mkdir()
+        source = local(root, project['source'])
+        renditions = hls_video_renditions(project)
+        tone_map_hdr = hls_source_needs_tone_mapping(source)
+        with temporary_video_caption_file(project, 'open' if captions == 'open' else 'none', content) as open_caption_path:
+            for rendition in renditions:
+                emit(f"Creating {rendition['name']} Web Playback video")
+                create_hls_video_rendition(
+                    source, project, temporary / 'video', rendition,
+                    open_caption_path=open_caption_path,
+                    tone_map_hdr=tone_map_hdr,
+                )
+        if audio in ('original', 'closed-description'):
+            emit('Creating original Web Playback audio')
+            create_hls_audio_rendition(root, project, temporary / 'audio', 'original')
+        if audio in ('closed-description', 'open-description'):
+            emit('Creating described Web Playback audio')
+            create_hls_audio_rendition(
+                root, project, temporary / 'audio', 'described', described=True,
+                allow_incomplete=allow_incomplete,
+            )
+        if captions in ('closed', 'dual-closed'):
+            (temporary / 'subtitles').mkdir()
+            tracks = [('transcript', 'transcript'), ('ad-transcript', 'combined')] if captions == 'dual-closed' else [
+                ('ad-transcript', 'combined') if content == 'combined' else ('transcript', 'transcript')
+            ]
+            for name, track_content in tracks:
+                write_hls_subtitle_rendition(project, temporary / 'subtitles', name, track_content)
+        write_hls_master(project, temporary, renditions, audio, captions, content)
+        write_hls_web_files(project, temporary)
+        validate_hls_web_export(temporary, project, renditions, audio, captions)
+        commit_directory_export(project, relative, output, temporary)
+    finally:
+        if temporary.exists():
+            shutil.rmtree(temporary)
+
+
 @contextlib.contextmanager
 def project_lock(root):
     lock=root/'.engine.lock'
@@ -1845,7 +2174,7 @@ def validate_analysis_prerequisites(command, root, project):
 
 def main():
     parser=argparse.ArgumentParser(description=__doc__)
-    parser.add_argument('command',choices=['reanalyze-transcript-segment','undo-transcript','redo-transcript','reanalyze-segment','prepare-analysis-video','check-video-availability','cleanup-project','clear-generated','delete-generated','delete-segment-audio','list-models','preview-tts','import-video','probe-video','generate-thumbnails','transcribe','generate-summary','generate-ad-cues','synthesize-tts','export-final-video','export-selectable-video','export-closed-audio-description-video','export-open-audio-description-video','export-closed-caption-video','export-dual-closed-caption-video','export-open-caption-video','export-original-audio','export-described-audio','save-cues','save-segments','doctor',*parity.COMMANDS])
+    parser.add_argument('command',choices=['reanalyze-transcript-segment','undo-transcript','redo-transcript','reanalyze-segment','prepare-analysis-video','check-video-availability','cleanup-project','clear-generated','delete-generated','delete-segment-audio','list-models','preview-tts','import-video','probe-video','generate-thumbnails','transcribe','generate-summary','generate-ad-cues','synthesize-tts','export-final-video','export-selectable-video','export-closed-audio-description-video','export-open-audio-description-video','export-closed-caption-video','export-dual-closed-caption-video','export-open-caption-video','export-original-audio','export-described-audio','export-hls','save-cues','save-segments','doctor',*parity.COMMANDS])
     parser.add_argument('--project',type=Path); parser.add_argument('--video',type=Path); parser.add_argument('--library',type=Path); parser.add_argument('--input',type=Path)
     parser.add_argument('--content',choices=['transcript','summary','descriptions','combined'],default='descriptions'); parser.add_argument('--url'); parser.add_argument('--name'); parser.add_argument('--timestamp',type=float,default=0); parser.add_argument('--duration',type=float); parser.add_argument('--segment'); parser.add_argument('--format',choices=['srt','vtt','txt','json','md'],default='srt'); parser.add_argument('--changed',action='store_true'); parser.add_argument('--start-stage',default='transcribe')
     parser.add_argument('--output', type=Path); parser.add_argument('--text')
@@ -1853,6 +2182,7 @@ def main():
     parser.add_argument('--allow-incomplete-narration',action='store_true',help='Export video or narration audio omitting missing/outdated narration after explicit confirmation.')
     parser.add_argument('--replace-existing',action='store_true',help='Replace the existing export for the same configuration after explicit confirmation.')
     parser.add_argument('--captions', choices=['none','closed','open','dual-closed'], default='none', help='Add no transcript, one switchable caption track, two switchable transcript tracks, or permanently rendered captions to an Audio Description video.')
+    parser.add_argument('--web-audio', choices=['original','closed-description','open-description'], default='closed-description', help='Choose the audio presentation for a Web Playback HLS package.')
     args=parser.parse_args()
     if args.command == 'preview-tts':
         preview_tts(args.output, args.text); return
@@ -1926,6 +2256,11 @@ def main():
             elif args.command=='export-open-caption-video': export_captioned_video(root,p,open_captions=True,content=args.content,replace_existing=args.replace_existing)
             elif args.command=='export-original-audio': export_program_audio(root,p,replace_existing=args.replace_existing)
             elif args.command=='export-described-audio': export_program_audio(root,p,described=True,allow_incomplete=args.allow_incomplete_narration,replace_existing=args.replace_existing)
+            elif args.command=='export-hls':
+                export_hls_web(
+                    root,p,audio=args.web_audio,captions=args.captions,content=args.content,
+                    allow_incomplete=args.allow_incomplete_narration,replace_existing=args.replace_existing,
+                )
             elif args.command=='save-cues':
                 if not args.input: raise ValueError('--input is required.')
                 cues=validate_cues(json.loads(args.input.read_text()),p['duration'],p['transcript'])

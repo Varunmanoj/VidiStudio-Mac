@@ -39,11 +39,12 @@ struct CreatedExportsView: View {
         ) { selection in
             Button {
                 if let url = project.url(selection.path) {
-                    NSWorkspace.shared.open(url)
+                    let target = selection.isDirectory ? url.appendingPathComponent("index.html") : url
+                    NSWorkspace.shared.open(target)
                 }
                 selectedExport = nil
             } label: {
-                Label("Open File", systemImage: "arrow.up.forward.app")
+                Label(selection.isDirectory ? "Open Web Player" : "Open File", systemImage: "arrow.up.forward.app")
             }
             .disabled(studio.busy || project.url(selection.path) == nil)
 
@@ -61,7 +62,7 @@ struct CreatedExportsView: View {
                 studio.deleteExport(project, path: selection.path)
                 selectedExport = nil
             } label: {
-                Label("Delete File", systemImage: "trash")
+                Label("Delete Export", systemImage: "trash")
             }
             .disabled(studio.busy)
 
@@ -75,6 +76,10 @@ struct CreatedExportsView: View {
 
     private func exportRow(path: String, kind: ExportCategory) -> some View {
         let filename = URL(fileURLWithPath: path).lastPathComponent
+        var isDirectory: ObjCBool = false
+        if let url = project.url(path) {
+            _ = FileManager.default.fileExists(atPath: url.path, isDirectory: &isDirectory)
+        }
         return HStack(spacing: 8) {
             Label(filename, systemImage: kind.icon)
                 .lineLimit(1)
@@ -83,7 +88,11 @@ struct CreatedExportsView: View {
                 .frame(maxWidth: .infinity, alignment: .leading)
 
             Button {
-                selectedExport = ExportSelection(path: path, filename: filename)
+                selectedExport = ExportSelection(
+                    path: path,
+                    filename: filename,
+                    isDirectory: isDirectory.boolValue
+                )
             } label: {
                 Image(systemName: "eye.circle")
             }
@@ -101,5 +110,6 @@ struct CreatedExportsView: View {
 private struct ExportSelection: Identifiable {
     let path: String
     let filename: String
+    let isDirectory: Bool
     var id: String { path }
 }

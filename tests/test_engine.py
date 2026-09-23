@@ -7,6 +7,15 @@ ENGINE=Path(__file__).resolve().parents[1]/'engine/vidistudio_engine.py'
 sys.path.insert(0,str(ENGINE.parent))
 spec=importlib.util.spec_from_file_location('engine',ENGINE); engine=importlib.util.module_from_spec(spec); spec.loader.exec_module(engine)
 class Validation(unittest.TestCase):
+    def test_hls_export_names_and_renditions_are_stable(self):
+        self.assertEqual(
+            engine.hls_web_export_type('closed-description', 'dual-closed', 'transcript'),
+            'Web Playback - Closed Audio Description with Transcript and Descriptive Transcript Closed Captions',
+        )
+        renditions = engine.hls_video_renditions({'width': 1920, 'height': 1080})
+        self.assertEqual([item['size'] for item in renditions], [(1280, 720), (852, 480)])
+        self.assertEqual(engine.fitted_video_size(640, 360, 1280, 720), (640, 360))
+
     def test_youtube_validation_uses_configured_video_model_and_closes_client(self):
         client = Mock()
         with patch.object(engine, 'client_and_model', return_value=(client, 'gemini-youtube')), \
@@ -853,6 +862,35 @@ class Validation(unittest.TestCase):
             self.assertEqual(project['exportMediaInfo'][project['exports'][0]]['videoProcessing'], 'renderedOpenCaptions')
             self.assertIn('HDR (HLG)', project['exportMediaInfo'][project['exports'][0]]['color'])
 
+    def test_hls_web_export_tone_maps_hdr_for_browser_compatible_video(self):
+        with tempfile.TemporaryDirectory(prefix='vidistudio-hdr-hls-test-') as temp:
+            root = Path(temp)
+            (root/'source').mkdir()
+            (root/'exports').mkdir()
+            source = root/'source/hdr.mp4'
+            engine.run([
+                engine.tool('ffmpeg'), '-y', '-v', 'error', '-f', 'lavfi',
+                '-i', 'testsrc2=size=320x180:rate=24', '-t', '1.5',
+                '-vf', 'format=yuv420p10le', '-c:v', 'libx265', '-preset', 'ultrafast',
+                '-x265-params', 'log-level=error:colorprim=bt2020:transfer=arib-std-b67:colormatrix=bt2020nc',
+                '-color_primaries', 'bt2020', '-color_trc', 'arib-std-b67', '-colorspace', 'bt2020nc', source,
+            ])
+            project = {
+                'name': 'HDR Web Demo', 'sourceType': 'upload', 'source': 'source/hdr.mp4',
+                'duration': 1.5, 'width': 320, 'height': 180, 'hasAudio': False,
+                'transcript': [], 'cues': [], 'exports': [], 'exportMediaInfo': {},
+            }
+            self.assertTrue(engine.hls_source_needs_tone_mapping(source))
+            engine.export_hls_web(root, project, audio='original')
+            output = root/project['exports'][0]
+            high = engine.probe(output/'video/high.m3u8')
+            video = next(stream for stream in high['streams'] if stream['codec_type'] == 'video')
+            self.assertEqual(video['codec_name'], 'h264')
+            self.assertEqual(video['pix_fmt'], 'yuv420p')
+            self.assertEqual(video['color_primaries'], 'bt709')
+            self.assertEqual(video['color_transfer'], 'bt709')
+            self.assertEqual(video['color_space'], 'bt709')
+
     def test_original_and_described_program_audio_export_as_mp3(self):
         with tempfile.TemporaryDirectory(prefix='vidistudio-audio-export-test-') as temp:
             root = Path(temp)
@@ -1036,7 +1074,30 @@ class Validation(unittest.TestCase):
             cli('export-described-audio','--project',folder)
             described_audio=folder/project()['exports'][6]
             self.assertEqual(engine.probe(described_audio)['streams'][0]['codec_name'],'mp3')
-            for expected in [output,selectable,closed_caption,dual_closed_caption,open_caption,original_audio,described_audio]:
+            cli('export-hls','--project',folder,'--web-audio','closed-description','--captions','dual-closed')
+            web_folder=folder/project()['exports'][7]
+            self.assertTrue(web_folder.is_dir())
+            self.assertEqual(
+                project()['exports'][7],
+                'exports/sample video - Web Playback - Closed Audio Description with Transcript and Descriptive Transcript Closed Captions',
+            )
+            master=(web_folder/'master.m3u8').read_text()
+            self.assertEqual(master.count('#EXT-X-STREAM-INF:'),2)
+            self.assertEqual(master.count('#EXT-X-MEDIA:TYPE=AUDIO'),2)
+            self.assertEqual(master.count('#EXT-X-MEDIA:TYPE=SUBTITLES'),2)
+            self.assertIn('public.accessibility.describes-video',master)
+            self.assertIn('SUBTITLES="subtitles"',master)
+            self.assertIn('videojs', (web_folder/'index.html').read_text().lower())
+            descriptive_vtt=(web_folder/'subtitles/ad-transcript.vtt').read_text()
+            self.assertIn('X-TIMESTAMP-MAP=LOCAL:00:00:00.000,MPEGTS:0',descriptive_vtt)
+            self.assertIn('Audio description: Colorful shapes move.',descriptive_vtt)
+            self.assertTrue(list((web_folder/'video').glob('*.ts')))
+            self.assertTrue(list((web_folder/'audio').glob('*.ts')))
+            cli('export-hls','--project',folder,'--web-audio','closed-description','--captions','dual-closed',success=False)
+            self.assertTrue(web_folder.is_dir())
+            cli('export-hls','--project',folder,'--web-audio','closed-description','--captions','dual-closed','--replace-existing')
+            self.assertEqual(len(project()['exports']),8)
+            for expected in [output,selectable,closed_caption,dual_closed_caption,open_caption,original_audio,described_audio,web_folder]:
                 cli('delete-export','--project',folder,'--name',project()['exports'][0])
                 self.assertFalse(expected.exists())
             self.assertEqual(project()['exports'],[])

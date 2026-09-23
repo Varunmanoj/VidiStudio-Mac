@@ -262,6 +262,7 @@ def execute(args,root,p,e):
     elif command=='delete-export':
         if args.name not in p['exports']:raise ValueError('Select an existing export.')
         source=e.local(root,args.name)
-        if source.is_dir() and not source.is_symlink():raise ValueError('The selected export is not a file.')
-        source.unlink(missing_ok=True);p['exports'].remove(args.name)
+        if source.is_dir() and not source.is_symlink():e.shutil.rmtree(source)
+        else:source.unlink(missing_ok=True)
+        p['exports'].remove(args.name)
         (p.get('exportMediaInfo') or {}).pop(args.name,None)

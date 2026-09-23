@@ -54,6 +54,7 @@ enum StudioExportAction: Hashable {
     case describedAudio
     case narrationAudio
     case text(content: String, format: String)
+    case webPlayback(audio: String, captions: VideoCaptionOption)
 
     var command: String {
         switch self {
@@ -66,6 +67,7 @@ enum StudioExportAction: Hashable {
         case .describedAudio: return "export-described-audio"
         case .narrationAudio: return "export-audio"
         case .text: return "export-subtitles"
+        case .webPlayback: return "export-hls"
         }
     }
 
@@ -77,6 +79,8 @@ enum StudioExportAction: Hashable {
             return ["--content", content]
         case .text(let content, let format):
             return ["--content", content, "--format", format]
+        case .webPlayback(let audio, let captions):
+            return ["--web-audio", audio] + captions.arguments
         default:
             return []
         }
@@ -113,6 +117,15 @@ enum StudioExportAction: Hashable {
                 "combined": "AD Transcript",
             ][content] ?? "Text"
             descriptor = (type, format)
+        case .webPlayback(let audio, let captions):
+            let audioName = [
+                "original": "Original Audio",
+                "closed-description": "Closed Audio Description",
+                "open-description": "Open Audio Description",
+            ][audio] ?? "Audio"
+            let folderName = Self.portableProjectName(project.name)
+                + " - Web Playback - " + audioName + captions.exportTypeSuffix
+            return "exports/\(folderName)"
         }
         return "exports/\(Self.portableProjectName(project.name)) - \(descriptor.type).\(descriptor.extension)"
     }
@@ -144,14 +157,21 @@ enum ExportCategory: String, CaseIterable, Identifiable {
     case video
     case audio
     case text
+    case webPlayback
 
     var id: Self { self }
-    var title: String { rawValue.capitalized }
+    var title: String {
+        switch self {
+        case .webPlayback: return "Web Playback"
+        default: return rawValue.capitalized
+        }
+    }
     var icon: String {
         switch self {
         case .video: return "film"
         case .audio: return "waveform"
         case .text: return "doc.text"
+        case .webPlayback: return "globe"
         }
     }
 
@@ -159,6 +179,7 @@ enum ExportCategory: String, CaseIterable, Identifiable {
         let fileExtension = URL(fileURLWithPath: path).pathExtension.lowercased()
         if ["mp4", "mov", "m4v"].contains(fileExtension) { return .video }
         if ["m4a", "aac", "mp3", "wav"].contains(fileExtension) { return .audio }
+        if fileExtension.isEmpty { return .webPlayback }
         return .text
     }
 }
@@ -174,6 +195,23 @@ private enum VideoAudioChoice: String, CaseIterable, Identifiable {
         case .original: return "Original Audio Only"
         case .closedDescription: return "Closed Audio Description"
         case .openDescription: return "Open Audio Description"
+        }
+    }
+    var webArgument: String {
+        switch self {
+        case .original: return "original"
+        case .closedDescription: return "closed-description"
+        case .openDescription: return "open-description"
+        }
+    }
+    var exportDescription: String {
+        switch self {
+        case .original:
+            return "The exported video will use the original soundtrack without Audio Description."
+        case .closedDescription:
+            return "The exported video will include the original soundtrack and a separate described soundtrack that viewers can choose."
+        case .openDescription:
+            return "The exported video will include one soundtrack with Audio Description mixed in, so every viewer hears it."
         }
     }
 }
@@ -222,6 +260,22 @@ private enum VideoTranscriptChoice: String, CaseIterable, Identifiable {
         default: return false
         }
     }
+    var exportDescription: String {
+        switch self {
+        case .none:
+            return "No captions will be included."
+        case .transcriptClosed:
+            return "Viewers can turn the spoken-dialogue captions on or off."
+        case .transcriptOpen:
+            return "The spoken-dialogue captions will always be visible in the picture."
+        case .adTranscriptClosed:
+            return "Viewers can turn a complete text track with dialogue and visual descriptions on or off."
+        case .adTranscriptOpen:
+            return "Dialogue and visual descriptions will always be visible together in the picture."
+        case .transcriptAndDescriptiveTranscriptClosed:
+            return "Viewers can choose either standard dialogue captions or a complete text track with dialogue and visual descriptions."
+        }
+    }
 }
 
 private enum AudioExportChoice: String, CaseIterable, Identifiable {
@@ -244,6 +298,16 @@ private enum AudioExportChoice: String, CaseIterable, Identifiable {
         case .narration: return .narrationAudio
         }
     }
+    var exportDescription: String {
+        switch self {
+        case .original:
+            return "You will get one audio file containing the video's original soundtrack, without Audio Description."
+        case .described:
+            return "You will get one audio file containing the original soundtrack with synchronized Audio Description mixed in."
+        case .narration:
+            return "You will get one audio file containing only the Audio Description narration at the correct times, with silence between descriptions."
+        }
+    }
 }
 
 struct ExportDialog: View {
@@ -257,6 +321,8 @@ struct ExportDialog: View {
     @State private var audioChoice: AudioExportChoice
     @State private var textContent: String
     @State private var textFormat: String
+    @State private var webAudio = VideoAudioChoice.closedDescription
+    @State private var webTranscript = VideoTranscriptChoice.none
     @State private var replacementAction: StudioExportAction?
     @State private var openCaptionAction: StudioExportAction?
 
@@ -311,12 +377,69 @@ struct ExportDialog: View {
             return audioChoice.action
         case .text:
             return .text(content: textContent, format: textFormat)
+        case .webPlayback:
+            return .webPlayback(audio: webAudio.webArgument, captions: webTranscript.captions)
         }
     }
 
     private var canSave: Bool {
         guard !busy, let selectedAction else { return false }
         return canPerform(selectedAction)
+    }
+
+    private var selectedExportDescription: String {
+        switch category {
+        case .video:
+            if videoAudio == .original && videoTranscript == .none {
+                return "Choose Audio Description, captions, or both to create an accessible video."
+            }
+            let picture = videoTranscript.rendersIntoVideo
+                ? "A new copy of the picture will be created so the captions are always visible."
+                : "The picture itself will stay unchanged."
+            return "You will get one video file. \(videoAudio.exportDescription) \(videoTranscript.exportDescription) \(picture)"
+        case .audio:
+            return audioChoice.exportDescription
+        case .text:
+            let formatName = textFormatDescription
+            switch textContent {
+            case "transcript":
+                return "You will get one \(formatName) containing the video's spoken dialogue and its timing."
+            case "summary":
+                return "You will get one Markdown document containing the project's video summary."
+            case "descriptions":
+                return "You will get one \(formatName) containing the Audio Description script and its timing."
+            case "combined":
+                return "You will get one \(formatName) containing spoken dialogue and Audio Description together in time order."
+            default:
+                return "You will get one text file containing the selected project content."
+            }
+        case .webPlayback:
+            return "You will get one folder ready to upload for online playback. It includes two picture qualities so playback can adjust to the viewer's connection. \(webAudio.exportDescription) \(webTranscript.exportDescription) A sample web player is included."
+        }
+    }
+
+    private var textFormatDescription: String {
+        switch textFormat {
+        case "srt": return "caption file"
+        case "vtt": return "web caption file"
+        case "txt": return "plain-text file"
+        case "json": return "structured text file"
+        case "md": return "Markdown document"
+        default: return "text file"
+        }
+    }
+
+    private var selectedExportDescriptionIcon: String {
+        canSave ? "checkmark.circle" : "info.circle"
+    }
+
+    private var selectedExportDescriptionView: some View {
+        Label(selectedExportDescription, systemImage: selectedExportDescriptionIcon)
+            .font(.caption)
+            .foregroundStyle(.secondary)
+            .fixedSize(horizontal: false, vertical: true)
+            .accessibilityLabel("What will be exported")
+            .accessibilityValue(selectedExportDescription)
     }
 
     var body: some View {
@@ -327,7 +450,7 @@ struct ExportDialog: View {
             }
             .listStyle(.sidebar)
             .navigationTitle("Export")
-            .navigationSplitViewColumnWidth(min: 150, ideal: 170, max: 210)
+            .navigationSplitViewColumnWidth(min: 180, ideal: 200, max: 230)
         } detail: {
             VStack(alignment: .leading, spacing: 0) {
                 VStack(alignment: .leading, spacing: 3) {
@@ -361,25 +484,7 @@ struct ExportDialog: View {
                                 }
                             }
                             .pickerStyle(.radioGroup)
-                            if videoTranscript == .transcriptAndDescriptiveTranscriptClosed {
-                                Text("Adds two switchable English tracks so viewers can choose standard captions or a descriptive transcript containing dialogue and visual descriptions.")
-                                    .font(.caption)
-                                    .foregroundStyle(.secondary)
-                            }
-                            if videoTranscript.rendersIntoVideo {
-                                Label("Open captions become a permanent part of the picture. VidiStudio keeps the same picture size and preserves HDR where possible, but creating a new video can slightly change quality. Choose closed captions to keep the original picture unchanged.", systemImage: "info.circle")
-                                    .font(.caption)
-                                    .foregroundStyle(.secondary)
-                            } else if !(videoAudio == .original && videoTranscript == .none) {
-                                Label("The original picture is kept unchanged. VidiStudio only adds your selected audio and captions.", systemImage: "checkmark.circle")
-                                    .font(.caption)
-                                    .foregroundStyle(.secondary)
-                            }
-                            if videoAudio == .original && videoTranscript == .none {
-                                Label("Choose Audio Description or a transcript to create an accessible video export.", systemImage: "exclamationmark.triangle")
-                                    .font(.caption)
-                                    .foregroundStyle(.secondary)
-                            }
+                            selectedExportDescriptionView
                         }
                     case .audio:
                         Section("Audio") {
@@ -391,13 +496,7 @@ struct ExportDialog: View {
                                 }
                             }
                             .pickerStyle(.radioGroup)
-                            Text(audioChoice == .original
-                                ? "Exports the video's original soundtrack without Audio Description."
-                                : audioChoice == .described
-                                    ? "Exports the final program soundtrack with synchronized Audio Description mixed in."
-                                    : "Exports only synchronized Audio Description narration, with silence between segments.")
-                                .font(.caption)
-                                .foregroundStyle(.secondary)
+                            selectedExportDescriptionView
                         }
                     case .text:
                         Section("Text Content") {
@@ -413,6 +512,27 @@ struct ExportDialog: View {
                                     Text(format == "md" ? "Markdown" : format.uppercased()).tag(format)
                                 }
                             }
+                            selectedExportDescriptionView
+                        }
+                    case .webPlayback:
+                        Section("Audio") {
+                            Picker("Audio included in Web Playback", selection: $webAudio) {
+                                ForEach(VideoAudioChoice.allCases) { option in
+                                    Text(option.title).tag(option)
+                                }
+                            }
+                            .pickerStyle(.radioGroup)
+                        }
+                        Section("Transcript and Captions") {
+                            Picker("Transcript included in Web Playback", selection: $webTranscript) {
+                                ForEach(VideoTranscriptChoice.allCases) { option in
+                                    Text(option.title)
+                                        .tag(option)
+                                        .disabled(!option.requiredContents.allSatisfy(project.canExportText))
+                                }
+                            }
+                            .pickerStyle(.radioGroup)
+                            selectedExportDescriptionView
                         }
                     }
                 }
@@ -436,7 +556,7 @@ struct ExportDialog: View {
             }
         }
         .navigationSplitViewStyle(.balanced)
-        .frame(width: 760, height: 560)
+        .frame(width: 800, height: 560)
         .smoothPresentation()
         .onChange(of: textContent) {
             if !textFormats.contains(textFormat) {
@@ -464,7 +584,11 @@ struct ExportDialog: View {
                 continueSaving(action)
             }
         } message: { _ in
-            Text("Open captions become a permanent part of the picture, so VidiStudio must create a new copy of the video. It keeps the same picture size and preserves HDR where possible, but some original quality or iPhone Dolby Vision information may change. For the closest match to the original, use closed captions instead.")
+            if category == .webPlayback {
+                Text("Open captions become a permanent part of both adaptive Web Playback video renditions. Closed captions remain selectable and let each viewer turn them on or off. Choose Export with Open Captions only when the words must always appear in the picture.")
+            } else {
+                Text("Open captions become a permanent part of the picture, so VidiStudio must create a new copy of the video. It keeps the same picture size and preserves HDR where possible, but some original quality or iPhone Dolby Vision information may change. For the closest match to the original, use closed captions instead.")
+            }
         }
         .alert(
             "Replace Existing Export?",
@@ -483,7 +607,7 @@ struct ExportDialog: View {
                 perform(action, true)
             }
         } message: { action in
-            Text("\(URL(fileURLWithPath: action.targetRelativePath(for: project)).lastPathComponent) already exists. Replacing it permanently deletes the current file and saves the new export in its place.")
+            Text("\(URL(fileURLWithPath: action.targetRelativePath(for: project)).lastPathComponent) already exists. Replacing it permanently deletes the current export and saves the new one in its place.")
         }
     }
 
@@ -507,12 +631,16 @@ struct ExportDialog: View {
             return project.hasExportableNarration()
         case .text(let content, _):
             return project.canExportText(content)
+        case .webPlayback(_, let captions):
+            guard !project.isYouTubeURLProject, !project.source.isEmpty else { return false }
+            return captions.requiredContents.allSatisfy(project.canExportText)
         }
     }
 
     private func save() {
         guard canSave, let selectedAction else { return }
-        if videoTranscript.rendersIntoVideo {
+        let selectedTranscript = category == .webPlayback ? webTranscript : videoTranscript
+        if selectedTranscript.rendersIntoVideo {
             openCaptionAction = selectedAction
             return
         }
@@ -530,13 +658,18 @@ struct ExportDialog: View {
     }
 
     private func preferClosedCaptions() {
-        switch videoTranscript {
-        case .transcriptOpen:
-            videoTranscript = .transcriptClosed
-        case .adTranscriptOpen:
-            videoTranscript = .adTranscriptClosed
-        default:
-            break
+        if category == .webPlayback {
+            switch webTranscript {
+            case .transcriptOpen: webTranscript = .transcriptClosed
+            case .adTranscriptOpen: webTranscript = .adTranscriptClosed
+            default: break
+            }
+        } else {
+            switch videoTranscript {
+            case .transcriptOpen: videoTranscript = .transcriptClosed
+            case .adTranscriptOpen: videoTranscript = .adTranscriptClosed
+            default: break
+            }
         }
     }
 }
