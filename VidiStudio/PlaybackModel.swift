@@ -266,6 +266,10 @@ final class PlaybackModel {
         else if player.timeControlStatus == .playing { player.pause() }
         else { player.play() }
     }
+    func playPlayback() {
+        if let webView { webView.evaluateJavaScript("player?.playVideo()", completionHandler: nil) }
+        else { player.play() }
+    }
     func pauseAndCaptureTime(_ completion: @escaping (Double) -> Void) {
         stopNarration()
         playing = false
@@ -308,6 +312,10 @@ final class PlaybackModel {
         time = max(0, seconds)
         if let webView { webView.evaluateJavaScript("player?.seekTo(\(time),true)", completionHandler: nil) }
         else { player.seek(to: CMTime(seconds: time, preferredTimescale: 600)) }
+    }
+    func seekRelative(_ seconds: Double, duration: Double) {
+        guard seconds.isFinite, duration.isFinite, time.isFinite else { return }
+        seek(min(max(0, time + seconds), max(0, duration)))
     }
     /// Pause video playback and stop narration without moving the playhead.
     func pausePlayback() {

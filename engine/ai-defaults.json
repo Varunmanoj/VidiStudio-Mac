@@ -4,7 +4,7 @@
     "summary": "gemini-3.8-flash",
     "audio_descriptions": "gemini-3.8-flash",
     "text_rewrite": "gemini-3.8-flash",
-    "tts_audio": "gemini-2.5-flash-preview-tts",
+    "tts_audio": "gemini-3.8-flash-lite-tts",
     "screen_text": "gemini-3.8-flash",
     "youtube_transcript": "gemini-3.8-flash"
   },

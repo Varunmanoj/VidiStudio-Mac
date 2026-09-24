@@ -1193,7 +1193,7 @@ final class StudioModel {
     private func chooseAvailableGeminiModels() {
         let priorities: [String: [String]] = [
             "transcript": ["gemini-3.5-transcribe"],
-            "tts_audio": ["gemini-3.1-flash-tts-preview", "gemini-2.5-flash-preview-tts"],
+            "tts_audio": ["gemini-3.8-flash-lite-tts", "gemini-3.8-flash-tts", "gemini-3.1-flash-tts-preview", "gemini-2.5-flash-preview-tts"],
         ]
         for stage in ["transcript", "youtube_transcript", "summary", "audio_descriptions", "screen_text", "text_rewrite", "tts_audio"] {
             let options = geminiModels(for: stage)

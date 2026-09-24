@@ -1562,8 +1562,8 @@ struct ProjectEditor: View {
             previewHidden = false
             DispatchQueue.main.async { playback.toggleVideoFullScreen() }
         case "play": playback.togglePlayback()
-        case "back": playback.seek(max(0, playback.time - 5))
-        case "forward": playback.seek(min(project.duration, playback.time + 5))
+        case "back": playback.seekRelative(-5, duration: project.duration)
+        case "forward": playback.seekRelative(5, duration: project.duration)
         case "narration": playback.narrationEnabled.toggle()
         case "caption-cycle": cycleCaptionDisplayMode()
         case "caption-off": studio.settings.captionDisplayMode = "off"
@@ -1804,12 +1804,13 @@ struct TimelineView: View {
     private let trackSpacing: CGFloat = 8
     private let rowSpacing: CGFloat = 4
     private let thumbnailHeight: CGFloat = 42
+    private let transportHeight: CGFloat = 34
     private let segmentHeight: CGFloat = 26
 
     private var duration: Double { max(0, project.duration) }
 
     private var tracksHeight: CGFloat {
-        thumbnailHeight + rowSpacing + segmentHeight + rowSpacing + segmentHeight
+        thumbnailHeight + rowSpacing + transportHeight + rowSpacing + segmentHeight + rowSpacing + segmentHeight
     }
 
     private var timelineValue: Binding<Double> {
@@ -1892,6 +1893,52 @@ struct TimelineView: View {
         .clipShape(.rect(cornerRadius: 5))
     }
 
+    private func shortcut(_ id: String) -> String {
+        StudioShortcut.editor.first(where: { $0.id == id })?.spoken ?? ""
+    }
+
+    private var transportControls: some View {
+        HStack(spacing: 8) {
+            Button { playback.seekRelative(-5, duration: duration) } label: {
+                MaterialIcon(glyph: "\u{e020}", size: 19).frame(width: 24, height: 22)
+            }
+            .accessibilityLabel("Rewind 5 seconds")
+            .accessibilityHint(shortcut("back"))
+            .help("Rewind 5 seconds (\(shortcut("back")))")
+            .disabled(playback.time <= 0)
+
+            Button { playback.playPlayback() } label: {
+                MaterialIcon(glyph: "\u{e037}", size: 19).frame(width: 24, height: 22)
+            }
+            .accessibilityLabel("Play video")
+            .accessibilityHint(shortcut("play"))
+            .help("Play video (\(shortcut("play")))")
+            .disabled(playback.playing)
+
+            Button { playback.pausePlayback() } label: {
+                MaterialIcon(glyph: "\u{e034}", size: 19).frame(width: 24, height: 22)
+            }
+            .accessibilityLabel("Pause video")
+            .accessibilityHint(shortcut("play"))
+            .help("Pause video (\(shortcut("play")))")
+            .disabled(!playback.playing)
+
+            Button { playback.seekRelative(5, duration: duration) } label: {
+                MaterialIcon(glyph: "\u{e01f}", size: 19).frame(width: 24, height: 22)
+            }
+            .accessibilityLabel("Fast forward 5 seconds")
+            .accessibilityHint(shortcut("forward"))
+            .help("Fast forward 5 seconds (\(shortcut("forward")))")
+            .disabled(duration <= 0 || playback.time >= duration)
+        }
+        .buttonStyle(.bordered)
+        .controlSize(.small)
+        .frame(maxWidth: .infinity)
+        .frame(height: transportHeight)
+        .accessibilityElement(children: .contain)
+        .accessibilityLabel("Video playback controls")
+    }
+
     private func segmentTrack(
         _ segments: [Segment],
         title: String,
@@ -1951,6 +1998,7 @@ struct TimelineView: View {
                             trackLabel("Thumbnails", systemImage: "photo.on.rectangle", height: thumbnailHeight)
                             thumbnailTrack(width: timelineWidth)
                         }
+                        transportControls
                         HStack(spacing: trackSpacing) {
                             trackLabel("Transcript", systemImage: "text.bubble", height: segmentHeight)
                             segmentTrack(
@@ -1974,7 +2022,9 @@ struct TimelineView: View {
                     VStack(spacing: 0) {
                         Circle().fill(.white).frame(width: 10, height: 10)
                             .overlay { Circle().stroke(.tint, lineWidth: 2) }
-                        Rectangle().fill(.tint).frame(width: 2)
+                        Rectangle().fill(.tint).frame(width: 2, height: thumbnailHeight - 10)
+                        Color.clear.frame(height: rowSpacing + transportHeight + rowSpacing)
+                        Rectangle().fill(.tint).frame(width: 2, height: segmentHeight * 2 + rowSpacing)
                     }
                     .frame(width: 10, height: tracksHeight)
                     .position(

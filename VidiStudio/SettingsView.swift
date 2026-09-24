@@ -267,6 +267,10 @@ struct SettingsView: View {
                             Text("Used when the selected transcription model accepts video prompts. Gemini 3.5 Transcribe instead uses its automatic multilingual speech setting.")
                                 .font(.caption)
                                 .foregroundStyle(.secondary)
+                        } else if stage == "tts_audio" {
+                            Text("Gemini 3.8 Flash TTS and Flash-Lite TTS speak the description text verbatim. This older narration prompt applies only to earlier TTS models.")
+                                .font(.caption)
+                                .foregroundStyle(.secondary)
                         }
                         Text("System instruction").font(.caption)
                         TextEditor(text: prompt(stage, "system_instruction")).frame(minHeight: 90).accessibilityLabel("\(stage) system instruction")

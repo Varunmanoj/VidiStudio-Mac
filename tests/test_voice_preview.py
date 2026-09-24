@@ -14,6 +14,7 @@ class VoicePreview(unittest.TestCase):
         client = Mock()
         client.models.list.return_value = [
             SimpleNamespace(name='models/gemini-3.8-flash', display_name='Gemini 3.8 Flash', supported_actions=['generateContent', 'countTokens']),
+            SimpleNamespace(name='models/gemini-3.8-flash-lite-tts', display_name='Gemini 3.8 Flash-Lite TTS', supported_actions=['generateContent']),
             SimpleNamespace(name='models/gemini-2.5-flash-preview-tts', display_name='Gemini 2.5 Flash TTS', supported_actions=['generateContent']),
             SimpleNamespace(name='models/gemini-embedding-001', display_name='Gemini Embedding', supported_actions=['embedContent']),
             SimpleNamespace(name='models/imagen-4.0-generate-001', display_name='Imagen 4', supported_actions=['predict']),
@@ -25,6 +26,7 @@ class VoicePreview(unittest.TestCase):
         self.assertEqual([model['name'] for model in event['models']], [
             'gemini-2.5-flash-preview-tts',
             'gemini-3.8-flash',
+            'gemini-3.8-flash-lite-tts',
         ])
         client.close.assert_called_once()
 
@@ -45,6 +47,36 @@ class VoicePreview(unittest.TestCase):
                 self.assertEqual(audio.getframerate(), 24000)
                 self.assertEqual(audio.getnframes(), 2400)
             self.assertFalse((Path(directory)/'project.json').exists())
+
+    def test_gemini_38_reads_verbatim_text_and_preserves_complete_wav(self):
+        source = io.BytesIO()
+        with wave.open(source, 'wb') as audio:
+            audio.setnchannels(1)
+            audio.setsampwidth(2)
+            audio.setframerate(24000)
+            audio.writeframes(b'\0\0' * 2400)
+        cfg = {'geminiVoice':'Kore', 'prompts':{'tts_audio':{'user_prompt':'Read clearly and naturally: {text}'}}}
+        for model in ('gemini-3.8-flash-tts', 'gemini-3.8-flash-lite-tts'):
+            with self.subTest(model=model), tempfile.TemporaryDirectory() as directory:
+                output = Path(directory) / 'sample.wav'
+                client = Mock()
+                client.models.generate_content.return_value = SimpleNamespace(candidates=[SimpleNamespace(content=SimpleNamespace(parts=[SimpleNamespace(inline_data=SimpleNamespace(data=source.getvalue(), mime_type='audio/wav'))]))])
+                with patch.object(engine, 'config', return_value=cfg), patch.object(engine, 'client_and_model', return_value=(client, model)):
+                    engine.gemini_speech(output, 'A woman types.', {})
+                self.assertEqual(client.models.generate_content.call_args.kwargs['contents'], 'A woman types.')
+                self.assertEqual(output.read_bytes(), source.getvalue())
+                with wave.open(str(output)) as audio:
+                    self.assertEqual(audio.getnframes(), 2400)
+
+    def test_malformed_wav_is_not_wrapped_as_raw_audio(self):
+        client = Mock()
+        client.models.generate_content.return_value = SimpleNamespace(candidates=[SimpleNamespace(content=SimpleNamespace(parts=[SimpleNamespace(inline_data=SimpleNamespace(data=b'RIFFbad', mime_type='audio/wav'))]))])
+        cfg = {'prompts':{'tts_audio':{'user_prompt':'{text}'}}}
+        with tempfile.TemporaryDirectory() as directory, patch.object(engine, 'config', return_value=cfg), patch.object(engine, 'client_and_model', return_value=(client, 'gemini-3.8-flash-tts')):
+            output = Path(directory) / 'sample.wav'
+            with self.assertRaisesRegex(ValueError, 'invalid WAV'):
+                engine.gemini_speech(output, 'Test', {})
+            self.assertFalse(output.exists())
 
     def test_missing_audio_reports_actionable_failure_and_closes_client(self):
         client = Mock()

@@ -809,12 +809,24 @@ def gemini_speech(output, text, project):
     cfg = config()
     client, model = client_and_model('tts')
     try:
-        response = client.models.generate_content(model=model, contents=parity.render(cfg['prompts']['tts_audio']['user_prompt'], project, text=text), config=types.GenerateContentConfig(response_modalities=['AUDIO'], speech_config=types.SpeechConfig(voice_config=types.VoiceConfig(prebuilt_voice_config=types.PrebuiltVoiceConfig(voice_name=cfg.get('geminiVoice','Kore'))))))
+        # Gemini 3.8 TTS treats input as a verbatim transcript. Older TTS models
+        # still use the configurable prompt that accompanied their raw PCM output.
+        contents = text if model in ('gemini-3.8-flash-tts', 'gemini-3.8-flash-lite-tts') else parity.render(cfg['prompts']['tts_audio']['user_prompt'], project, text=text)
+        response = client.models.generate_content(model=model, contents=contents, config=types.GenerateContentConfig(response_modalities=['AUDIO'], speech_config=types.SpeechConfig(voice_config=types.VoiceConfig(prebuilt_voice_config=types.PrebuiltVoiceConfig(voice_name=cfg.get('geminiVoice','Kore'))))))
         parts = [part for candidate in (response.candidates or []) for part in (candidate.content.parts if candidate.content else [])]
-        data = next((part.inline_data.data for part in parts if part.inline_data and part.inline_data.data), None)
+        audio = next((part.inline_data for part in parts if part.inline_data and part.inline_data.data), None)
+        data = audio.data if audio else None
         if not data: raise ValueError('Gemini returned no audio. Check the TTS model and selected voice in Settings.')
-        with wave.open(str(output), 'wb') as f:
-            f.setnchannels(1); f.setsampwidth(2); f.setframerate(24000); f.writeframes(data)
+        mime = str(getattr(audio, 'mime_type', '') or '').lower()
+        if data[:4] == b'RIFF' and data[8:12] == b'WAVE':
+            output.write_bytes(data)
+        elif mime in ('audio/wav', 'audio/x-wav') or data[:4] == b'RIFF':
+            raise ValueError('Gemini returned an invalid WAV narration file.')
+        elif not mime or mime.startswith(('audio/l16', 'audio/pcm')):
+            with wave.open(str(output), 'wb') as f:
+                f.setnchannels(1); f.setsampwidth(2); f.setframerate(24000); f.writeframes(data)
+        else:
+            raise ValueError('Gemini returned an unsupported narration audio format.')
     finally:
         client.close()
 

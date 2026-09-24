@@ -92,10 +92,21 @@ struct UserFacingIssue: Equatable {
                 message: "Make sure the project folder is available and VidiStudio has permission to use it, then try again."
             )
         }
+        if let regex = try? NSRegularExpression(pattern: #"^ad segment ([0-9]+) takes ([0-9]+(?:\.[0-9]+)?)s but has ([0-9]+(?:\.[0-9]+)?)s"#),
+           let match = regex.firstMatch(in: detail, range: NSRange(detail.startIndex..., in: detail)) {
+            let text = detail as NSString
+            let segment = text.substring(with: match.range(at: 1))
+            let needed = text.substring(with: match.range(at: 2))
+            let available = text.substring(with: match.range(at: 3))
+            return UserFacingIssue(
+                title: "Narration Doesn’t Fit",
+                message: "Audio Description \(segment) takes about \(needed) seconds to speak but has \(available) seconds. In Descriptions, use Rewrite to Fit or edit its text and timing, then generate narration again."
+            )
+        }
         if detail.contains("narration") && (detail.contains("fit") || detail.contains("too long") || detail.contains("slot")) {
             return UserFacingIssue(
                 title: "Narration Doesn’t Fit",
-                message: "One or more descriptions are too long for their time slots. Shorten the text or adjust the timing, then generate narration again."
+                message: "One or more descriptions are too long for their time slots. In Descriptions, use Rewrite to Fit or edit the text and timing, then generate narration again."
             )
         }
         if detail.contains("overlap") || detail.contains("start time") || detail.contains("end time") {
