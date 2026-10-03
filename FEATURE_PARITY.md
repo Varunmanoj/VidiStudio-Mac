@@ -18,7 +18,8 @@ Reference: the authenticated accessivideo.pages.dev application and its React/Py
 | Screen-text OCR | Current timestamp for YouTube, captured image for local source; review and add as cue |
 | Narration | Offline system voices, optional Gemini TTS; one cue, all, or changed cues; optional live on-device playback without files |
 | Narration preview | Individual audio preview and synchronized description playback |
-| Exports | SRT, VTT, text, JSON; narration M4A; final MP4 with original audio |
+| Exports | SRT, VTT, text, JSON; Video Format picker: MKV (default), MP4, MOV, M4V; Audio Format picker: WAV (default), MP3, M4A for original, narration-only, and described audio |
+| YouTube audio exports | Original YouTube audio, narration-only audio, then combined YouTube audio/narration, each with WAV (default), MP3, and M4A; bundled yt-dlp/Deno retrieval and temporary cleanup; complete mix for manual YouTube Studio upload |
 | YouTube video export | Not available for URL-backed projects; narration and text exports remain available |
 | Appearance | Light, dark, system; standard macOS controls and typography; bundled Material Symbols |
 | Settings | Two-column native sidebar; searchable language/region voice browser with samples and refresh; personal key, per-stage model IDs, API version, processing mode, prompt pairs, voice and tool paths |

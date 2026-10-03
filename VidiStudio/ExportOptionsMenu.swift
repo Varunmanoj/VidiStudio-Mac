@@ -45,14 +45,16 @@ enum VideoCaptionOption: Hashable {
 }
 
 enum StudioExportAction: Hashable {
-    case selectableVideo(captions: VideoCaptionOption)
-    case mixedVideo(captions: VideoCaptionOption)
-    case closedCaptionVideo(content: String)
-    case dualClosedCaptionVideo
-    case openCaptionVideo(content: String)
-    case originalAudio
-    case describedAudio
-    case narrationAudio
+    case selectableVideo(captions: VideoCaptionOption, format: String)
+    case mixedVideo(captions: VideoCaptionOption, format: String)
+    case closedCaptionVideo(content: String, format: String)
+    case dualClosedCaptionVideo(format: String)
+    case openCaptionVideo(content: String, format: String)
+    case originalAudio(format: String)
+    case describedAudio(format: String)
+    case youtubeOriginalAudio(format: String)
+    case youtubeDescribedAudio(format: String)
+    case narrationAudio(format: String)
     case text(content: String, format: String)
     case webPlayback(audio: String, captions: VideoCaptionOption)
 
@@ -65,6 +67,8 @@ enum StudioExportAction: Hashable {
         case .openCaptionVideo: return "export-open-caption-video"
         case .originalAudio: return "export-original-audio"
         case .describedAudio: return "export-described-audio"
+        case .youtubeOriginalAudio: return "export-youtube-original-audio"
+        case .youtubeDescribedAudio: return "export-youtube-described-audio"
         case .narrationAudio: return "export-audio"
         case .text: return "export-subtitles"
         case .webPlayback: return "export-hls"
@@ -73,16 +77,17 @@ enum StudioExportAction: Hashable {
 
     var arguments: [String] {
         switch self {
-        case .selectableVideo(let captions), .mixedVideo(let captions):
-            return captions.arguments
-        case .closedCaptionVideo(let content), .openCaptionVideo(let content):
-            return ["--content", content]
+        case .selectableVideo(let captions, let format), .mixedVideo(let captions, let format):
+            return captions.arguments + ["--media-format", format]
+        case .closedCaptionVideo(let content, let format), .openCaptionVideo(let content, let format):
+            return ["--content", content, "--media-format", format]
+        case .dualClosedCaptionVideo(let format), .originalAudio(let format), .describedAudio(let format),
+             .youtubeOriginalAudio(let format), .youtubeDescribedAudio(let format), .narrationAudio(let format):
+            return ["--media-format", format]
         case .text(let content, let format):
             return ["--content", content, "--format", format]
         case .webPlayback(let audio, let captions):
             return ["--web-audio", audio] + captions.arguments
-        default:
-            return []
         }
     }
 
@@ -93,22 +98,26 @@ enum StudioExportAction: Hashable {
     func targetRelativePath(for project: StudioProject) -> String {
         let descriptor: (type: String, extension: String)
         switch self {
-        case .selectableVideo(let captions):
-            descriptor = ("Closed Audio Description" + captions.exportTypeSuffix, "mov")
-        case .mixedVideo(let captions):
-            descriptor = ("Open Audio Description" + captions.exportTypeSuffix, "mp4")
-        case .closedCaptionVideo(let content):
-            descriptor = ("\(content == "combined" ? "AD Transcript" : "Transcript") Closed Caption Video", "mp4")
-        case .dualClosedCaptionVideo:
-            descriptor = ("Transcript and Descriptive Transcript Closed Caption Video", "mp4")
-        case .openCaptionVideo(let content):
-            descriptor = ("\(content == "combined" ? "AD Transcript" : "Transcript") Open Caption Video", "mp4")
-        case .originalAudio:
-            descriptor = ("Original Video Audio", "mp3")
-        case .describedAudio:
-            descriptor = ("Final Audio with Audio Description", "mp3")
-        case .narrationAudio:
-            descriptor = ("Narration Audio", "m4a")
+        case .selectableVideo(let captions, let format):
+            descriptor = ("Closed Audio Description" + captions.exportTypeSuffix, format)
+        case .mixedVideo(let captions, let format):
+            descriptor = ("Open Audio Description" + captions.exportTypeSuffix, format)
+        case .closedCaptionVideo(let content, let format):
+            descriptor = ("\(content == "combined" ? "AD Transcript" : "Transcript") Closed Caption Video", format)
+        case .dualClosedCaptionVideo(let format):
+            descriptor = ("Transcript and Descriptive Transcript Closed Caption Video", format)
+        case .openCaptionVideo(let content, let format):
+            descriptor = ("\(content == "combined" ? "AD Transcript" : "Transcript") Open Caption Video", format)
+        case .originalAudio(let format):
+            descriptor = ("Original Video Audio", format)
+        case .describedAudio(let format):
+            descriptor = ("Final Audio with Audio Description", format)
+        case .youtubeOriginalAudio(let format):
+            descriptor = ("YouTube Audio Only", format)
+        case .youtubeDescribedAudio(let format):
+            descriptor = ("YouTube Studio Audio Description", format)
+        case .narrationAudio(let format):
+            descriptor = ("Narration Audio", format)
         case .text(let content, let format):
             let type = [
                 "transcript": "Transcript",
@@ -177,7 +186,7 @@ enum ExportCategory: String, CaseIterable, Identifiable {
 
     static func resolve(path: String) -> Self {
         let fileExtension = URL(fileURLWithPath: path).pathExtension.lowercased()
-        if ["mp4", "mov", "m4v"].contains(fileExtension) { return .video }
+        if ["mkv", "mp4", "mov", "m4v"].contains(fileExtension) { return .video }
         if ["m4a", "aac", "mp3", "wav"].contains(fileExtension) { return .audio }
         if fileExtension.isEmpty { return .webPlayback }
         return .text
@@ -202,16 +211,6 @@ private enum VideoAudioChoice: String, CaseIterable, Identifiable {
         case .original: return "original"
         case .closedDescription: return "closed-description"
         case .openDescription: return "open-description"
-        }
-    }
-    var exportDescription: String {
-        switch self {
-        case .original:
-            return "The exported video will use the original soundtrack without Audio Description."
-        case .closedDescription:
-            return "The exported video will include the original soundtrack and a separate described soundtrack that viewers can choose."
-        case .openDescription:
-            return "The exported video will include one soundtrack with Audio Description mixed in, so every viewer hears it."
         }
     }
 }
@@ -260,52 +259,32 @@ private enum VideoTranscriptChoice: String, CaseIterable, Identifiable {
         default: return false
         }
     }
-    var exportDescription: String {
-        switch self {
-        case .none:
-            return "No captions will be included."
-        case .transcriptClosed:
-            return "Viewers can turn the spoken-dialogue captions on or off."
-        case .transcriptOpen:
-            return "The spoken-dialogue captions will always be visible in the picture."
-        case .adTranscriptClosed:
-            return "Viewers can turn a complete text track with dialogue and visual descriptions on or off."
-        case .adTranscriptOpen:
-            return "Dialogue and visual descriptions will always be visible together in the picture."
-        case .transcriptAndDescriptiveTranscriptClosed:
-            return "Viewers can choose either standard dialogue captions or a complete text track with dialogue and visual descriptions."
-        }
-    }
 }
 
 private enum AudioExportChoice: String, CaseIterable, Identifiable {
     case original
     case described
+    case youtubeOriginal
+    case youtubeDescribed
     case narration
 
     var id: Self { self }
     var title: String {
         switch self {
-        case .original: return "Original Video Audio — MP3"
-        case .described: return "Final Audio with Audio Description — MP3"
-        case .narration: return "Narration Audio Only — M4A"
+        case .original: return "Original Video Audio"
+        case .described: return "Final Audio with Audio Description"
+        case .youtubeOriginal: return "YouTube Audio Only"
+        case .youtubeDescribed: return "YouTube Audio with Narration"
+        case .narration: return "Narration Audio Only"
         }
     }
-    var action: StudioExportAction {
+    func action(format: String) -> StudioExportAction {
         switch self {
-        case .original: return .originalAudio
-        case .described: return .describedAudio
-        case .narration: return .narrationAudio
-        }
-    }
-    var exportDescription: String {
-        switch self {
-        case .original:
-            return "You will get one audio file containing the video's original soundtrack, without Audio Description."
-        case .described:
-            return "You will get one audio file containing the original soundtrack with synchronized Audio Description mixed in."
-        case .narration:
-            return "You will get one audio file containing only the Audio Description narration at the correct times, with silence between descriptions."
+        case .original: return .originalAudio(format: format)
+        case .described: return .describedAudio(format: format)
+        case .youtubeOriginal: return .youtubeOriginalAudio(format: format)
+        case .youtubeDescribed: return .youtubeDescribedAudio(format: format)
+        case .narration: return .narrationAudio(format: format)
         }
     }
 }
@@ -316,6 +295,8 @@ struct ExportDialog: View {
     let busy: Bool
     let perform: (StudioExportAction, Bool) -> Void
     @State private var category: ExportCategory
+    @State private var videoFormat = "mkv"
+    @State private var audioFormat = "wav"
     @State private var videoAudio = VideoAudioChoice.closedDescription
     @State private var videoTranscript = VideoTranscriptChoice.none
     @State private var audioChoice: AudioExportChoice
@@ -339,10 +320,12 @@ struct ExportDialog: View {
         self.perform = perform
         let firstText = ["transcript", "summary", "descriptions", "combined"]
             .first(where: project.canExportText) ?? "transcript"
-        _category = State(initialValue: project.isYouTubeURLProject
-            ? (project.hasExportableNarration() ? .audio : .text)
-            : .video)
-        _audioChoice = State(initialValue: project.isYouTubeURLProject ? .narration : .described)
+        _category = State(initialValue: project.isYouTubeURLProject ? .audio : .video)
+        let narrationReady = project.hasCompleteExportNarration()
+        _videoAudio = State(initialValue: narrationReady ? .closedDescription : .original)
+        _webAudio = State(initialValue: narrationReady ? .closedDescription : .original)
+        _videoTranscript = State(initialValue: !narrationReady && project.canExportText("transcript") ? .transcriptClosed : .none)
+        _audioChoice = State(initialValue: project.isYouTubeURLProject ? .youtubeOriginal : narrationReady ? .described : .original)
         _textContent = State(initialValue: firstText)
         _textFormat = State(initialValue: firstText == "summary" ? "md" : "srt")
         _replacementAction = State(initialValue: nil)
@@ -351,6 +334,10 @@ struct ExportDialog: View {
 
     private var availableCategories: [ExportCategory] {
         project.isYouTubeURLProject ? [.audio, .text] : ExportCategory.allCases
+    }
+
+    private var audioChoices: [AudioExportChoice] {
+        project.isYouTubeURLProject ? [.youtubeOriginal, .narration, .youtubeDescribed] : [.original, .described, .narration]
     }
 
     private var textFormats: [String] {
@@ -364,17 +351,17 @@ struct ExportDialog: View {
             case .original:
                 switch videoTranscript.captions {
                 case .none: return nil
-                case .closed(let content): return .closedCaptionVideo(content: content)
-                case .open(let content): return .openCaptionVideo(content: content)
-                case .dualClosed: return .dualClosedCaptionVideo
+                case .closed(let content): return .closedCaptionVideo(content: content, format: videoFormat)
+                case .open(let content): return .openCaptionVideo(content: content, format: videoFormat)
+                case .dualClosed: return .dualClosedCaptionVideo(format: videoFormat)
                 }
             case .closedDescription:
-                return .selectableVideo(captions: videoTranscript.captions)
+                return .selectableVideo(captions: videoTranscript.captions, format: videoFormat)
             case .openDescription:
-                return .mixedVideo(captions: videoTranscript.captions)
+                return .mixedVideo(captions: videoTranscript.captions, format: videoFormat)
             }
         case .audio:
-            return audioChoice.action
+            return audioChoice.action(format: audioFormat)
         case .text:
             return .text(content: textContent, format: textFormat)
         case .webPlayback:
@@ -385,61 +372,6 @@ struct ExportDialog: View {
     private var canSave: Bool {
         guard !busy, let selectedAction else { return false }
         return canPerform(selectedAction)
-    }
-
-    private var selectedExportDescription: String {
-        switch category {
-        case .video:
-            if videoAudio == .original && videoTranscript == .none {
-                return "Choose Audio Description, captions, or both to create an accessible video."
-            }
-            let picture = videoTranscript.rendersIntoVideo
-                ? "A new copy of the picture will be created so the captions are always visible."
-                : "The picture itself will stay unchanged."
-            return "You will get one video file. \(videoAudio.exportDescription) \(videoTranscript.exportDescription) \(picture)"
-        case .audio:
-            return audioChoice.exportDescription
-        case .text:
-            let formatName = textFormatDescription
-            switch textContent {
-            case "transcript":
-                return "You will get one \(formatName) containing the video's spoken dialogue and its timing."
-            case "summary":
-                return "You will get one Markdown document containing the project's video summary."
-            case "descriptions":
-                return "You will get one \(formatName) containing the Audio Description script and its timing."
-            case "combined":
-                return "You will get one \(formatName) containing spoken dialogue and Audio Description together in time order."
-            default:
-                return "You will get one text file containing the selected project content."
-            }
-        case .webPlayback:
-            return "You will get one folder ready to upload for online playback. It keeps the video's original picture size as the highest quality and adds every smaller standard quality down to 480p, without enlarging smaller videos. \(webAudio.exportDescription) \(webTranscript.exportDescription) A sample web player is included."
-        }
-    }
-
-    private var textFormatDescription: String {
-        switch textFormat {
-        case "srt": return "caption file"
-        case "vtt": return "web caption file"
-        case "txt": return "plain-text file"
-        case "json": return "structured text file"
-        case "md": return "Markdown document"
-        default: return "text file"
-        }
-    }
-
-    private var selectedExportDescriptionIcon: String {
-        canSave ? "checkmark.circle" : "info.circle"
-    }
-
-    private var selectedExportDescriptionView: some View {
-        Label(selectedExportDescription, systemImage: selectedExportDescriptionIcon)
-            .font(.caption)
-            .foregroundStyle(.secondary)
-            .fixedSize(horizontal: false, vertical: true)
-            .accessibilityLabel("What will be exported")
-            .accessibilityValue(selectedExportDescription)
     }
 
     var body: some View {
@@ -467,72 +399,83 @@ struct ExportDialog: View {
                 Form {
                     switch category {
                     case .video:
-                        Section("Audio") {
-                            Picker("Audio included in the video", selection: $videoAudio) {
-                                ForEach(VideoAudioChoice.allCases) { option in
-                                    Text(option.title).tag(option)
+                        Section {
+                            Picker("Format", selection: $videoFormat) {
+                                ForEach(["mkv", "mp4", "mov", "m4v"], id: \.self) { format in
+                                    Text(format.uppercased()).tag(format)
                                 }
                             }
-                            .pickerStyle(.radioGroup)
+                            .pickerStyle(.menu)
+                        }
+                        Section("Audio") {
+                            ExportRadioGroup(
+                                title: "Audio included in the video",
+                                options: VideoAudioChoice.allCases.map { option in
+                                    (option, option.title, canUseVideoAudio(option))
+                                },
+                                selection: $videoAudio
+                            )
                         }
                         Section("Transcript and Captions") {
-                            Picker("Transcript included in the video", selection: $videoTranscript) {
-                                ForEach(VideoTranscriptChoice.allCases) { option in
-                                    Text(option.title)
-                                        .tag(option)
-                                        .disabled(!option.requiredContents.allSatisfy(project.canExportText))
-                                }
-                            }
-                            .pickerStyle(.radioGroup)
-                            selectedExportDescriptionView
+                            ExportRadioGroup(
+                                title: "Transcript included in the video",
+                                options: VideoTranscriptChoice.allCases.map { option in
+                                    (option, option.title, option.requiredContents.allSatisfy(project.canExportText) && (option != .none || videoAudio != .original))
+                                },
+                                selection: $videoTranscript
+                            )
                         }
                     case .audio:
-                        Section("Audio") {
-                            Picker("Audio to save", selection: $audioChoice) {
-                                ForEach(AudioExportChoice.allCases) { option in
-                                    Text(option.title)
-                                        .tag(option)
-                                        .disabled(!canPerform(option.action))
+                        Section {
+                            Picker("Format", selection: $audioFormat) {
+                                ForEach(["wav", "mp3", "m4a"], id: \.self) { format in
+                                    Text(format.uppercased()).tag(format)
                                 }
                             }
-                            .pickerStyle(.radioGroup)
-                            selectedExportDescriptionView
+                            .pickerStyle(.menu)
+                        }
+                        Section("Audio") {
+                            ExportRadioGroup(
+                                title: "Audio to save",
+                                options: audioChoices.map { option in
+                                    (option, option.title, canPerform(option.action(format: audioFormat)))
+                                },
+                                selection: $audioChoice
+                            )
                         }
                     case .text:
                         Section("Text Content") {
-                            Picker("Content", selection: $textContent) {
-                                ForEach(textTypes, id: \.content) { option in
-                                    Text(option.title)
-                                        .tag(option.content)
-                                        .disabled(!project.canExportText(option.content))
-                                }
-                            }
+                            ExportRadioGroup(
+                                title: "Content",
+                                options: textTypes.map { option in
+                                    (option.content, option.title, project.canExportText(option.content))
+                                },
+                                selection: $textContent
+                            )
                             Picker("Format", selection: $textFormat) {
                                 ForEach(textFormats, id: \.self) { format in
                                     Text(format == "md" ? "Markdown" : format.uppercased()).tag(format)
                                 }
                             }
-                            selectedExportDescriptionView
                         }
                     case .webPlayback:
                         Section("Audio") {
-                            Picker("Audio included in Web Playback", selection: $webAudio) {
-                                ForEach(VideoAudioChoice.allCases) { option in
-                                    Text(option.title).tag(option)
-                                }
-                            }
-                            .pickerStyle(.radioGroup)
+                            ExportRadioGroup(
+                                title: "Audio included in Web Playback",
+                                options: VideoAudioChoice.allCases.map { option in
+                                    (option, option.title, canUseVideoAudio(option))
+                                },
+                                selection: $webAudio
+                            )
                         }
                         Section("Transcript and Captions") {
-                            Picker("Transcript included in Web Playback", selection: $webTranscript) {
-                                ForEach(VideoTranscriptChoice.allCases) { option in
-                                    Text(option.title)
-                                        .tag(option)
-                                        .disabled(!option.requiredContents.allSatisfy(project.canExportText))
-                                }
-                            }
-                            .pickerStyle(.radioGroup)
-                            selectedExportDescriptionView
+                            ExportRadioGroup(
+                                title: "Transcript included in Web Playback",
+                                options: VideoTranscriptChoice.allCases.map { option in
+                                    (option, option.title, option.requiredContents.allSatisfy(project.canExportText))
+                                },
+                                selection: $webTranscript
+                            )
                         }
                     }
                 }
@@ -603,6 +546,7 @@ struct ExportDialog: View {
             }
             Button("Replace Export", role: .destructive) {
                 replacementAction = nil
+                guard !busy, canPerform(action) else { return }
                 dismiss()
                 perform(action, true)
             }
@@ -611,28 +555,38 @@ struct ExportDialog: View {
         }
     }
 
+    private func canUseVideoAudio(_ choice: VideoAudioChoice) -> Bool {
+        guard !project.isYouTubeURLProject, project.hasFile(project.source) else { return false }
+        return choice == .original || project.hasCompleteExportNarration()
+    }
+
     private func canPerform(_ action: StudioExportAction) -> Bool {
         switch action {
-        case .selectableVideo(let captions), .mixedVideo(let captions):
-            guard !project.isYouTubeURLProject, !project.source.isEmpty else { return false }
+        case .selectableVideo(let captions, _), .mixedVideo(let captions, _):
+            guard canUseVideoAudio(.closedDescription) else { return false }
             return captions.requiredContents.allSatisfy(project.canExportText)
-        case .closedCaptionVideo(let content), .openCaptionVideo(let content):
-            return !project.isYouTubeURLProject && !project.source.isEmpty && project.canExportText(content)
+        case .closedCaptionVideo(let content, _), .openCaptionVideo(let content, _):
+            return !project.isYouTubeURLProject && project.hasFile(project.source) && project.canExportText(content)
         case .dualClosedCaptionVideo:
             return !project.isYouTubeURLProject
-                && !project.source.isEmpty
+                && project.hasFile(project.source)
                 && project.canExportText("transcript")
                 && project.canExportText("combined")
         case .originalAudio:
-            return !project.isYouTubeURLProject && !project.source.isEmpty && project.hasAudio
+            return !project.isYouTubeURLProject && project.hasFile(project.source) && project.hasAudio
         case .describedAudio:
-            return !project.isYouTubeURLProject && !project.source.isEmpty
+            return canUseVideoAudio(.closedDescription)
+        case .youtubeOriginalAudio:
+            return project.isYouTubeURLProject
+        case .youtubeDescribedAudio:
+            return project.isYouTubeURLProject && project.hasCompleteExportNarration()
         case .narrationAudio:
-            return project.hasExportableNarration()
+            return project.hasCompleteExportNarration()
         case .text(let content, _):
             return project.canExportText(content)
-        case .webPlayback(_, let captions):
-            guard !project.isYouTubeURLProject, !project.source.isEmpty else { return false }
+        case .webPlayback(let audio, let captions):
+            let choice: VideoAudioChoice = audio == "original" ? .original : .closedDescription
+            guard canUseVideoAudio(choice) else { return false }
             return captions.requiredContents.allSatisfy(project.canExportText)
         }
     }
@@ -640,7 +594,7 @@ struct ExportDialog: View {
     private func save() {
         guard canSave, let selectedAction else { return }
         let selectedTranscript = category == .webPlayback ? webTranscript : videoTranscript
-        if selectedTranscript.rendersIntoVideo {
+        if (category == .video || category == .webPlayback) && selectedTranscript.rendersIntoVideo {
             openCaptionAction = selectedAction
             return
         }
@@ -648,6 +602,7 @@ struct ExportDialog: View {
     }
 
     private func continueSaving(_ action: StudioExportAction) {
+        guard !busy, canPerform(action) else { return }
         let relative = action.targetRelativePath(for: project)
         if let target = project.url(relative), FileManager.default.fileExists(atPath: target.path) {
             replacementAction = action

@@ -60,6 +60,24 @@ struct UserFacingIssue: Equatable {
 
     static func forEngine(command: String, technicalDetails: String?) -> UserFacingIssue {
         let detail = technicalDetails?.lowercased() ?? ""
+        if command.hasPrefix("export-youtube-") {
+            if detail.contains("duration") || detail.contains("timing") {
+                return UserFacingIssue(
+                    title: "YouTube Audio Timing Needs Attention",
+                    message: "The soundtrack no longer matches this project's timing. Refresh the transcript and descriptions, or import the matching original video, then try again."
+                )
+            }
+            if detail.contains("narration") || detail.contains("synthesize") || detail.contains("ad segment") {
+                return UserFacingIssue(
+                    title: "Narration Needs Attention",
+                    message: "Generate narration for every current description and check that it fits its time slot, then export again."
+                )
+            }
+            return UserFacingIssue(
+                title: "YouTube Audio Export Couldn’t Finish",
+                message: "Check your connection and that the video is public, then try again. If YouTube blocks the download, import your original video as a local project and export its described audio. Your completed work is safe."
+            )
+        }
         if detail.contains("api key") || detail.contains("unauthenticated") || detail.contains("unauthorized")
             || detail.contains("401") || detail.contains("403") {
             return UserFacingIssue(

@@ -81,7 +81,7 @@ private struct ProjectArtifactState {
                 availability = .unavailable
                 accessibilityLabel = "Video export unavailable for YouTube projects"
             } else {
-                let videoExtensions = Set(["mp4", "mov", "m4v"])
+                let videoExtensions = Set(["mkv", "mp4", "mov", "m4v"])
                 count = project.exports.filter { videoExtensions.contains(URL(fileURLWithPath: $0).pathExtension.lowercased()) }.count
                 availability = count > 0 ? .generated : .notGenerated
                 accessibilityLabel = count > 0

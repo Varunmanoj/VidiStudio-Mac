@@ -30,3 +30,9 @@ typing-inspection==0.4.4
 typing_extensions==4.16.0
 urllib3==2.7.0
 websockets==16.1.1
+brotli==1.2.0
+deno==2.9.7
+mutagen==1.48.1
+pycryptodomex==3.23.0
+yt-dlp==2026.8.19
+yt-dlp-ejs==0.8.0

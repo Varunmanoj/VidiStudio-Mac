@@ -1452,28 +1452,28 @@ struct ProjectEditor: View {
                                 .disabled(studio.busy)
                                 .help("Edit \(row.kind.lowercased()) text and timing")
                                 if row.isDescription {
-                                    Menu {
-                                        Button("Rewrite to Fit", systemImage: "wand.and.stars") { studio.execute("rewrite-cue", extra: ["--segment", cue.id]) }
-                                        Button("Synthesize This Segment", systemImage: "waveform") { studio.execute("synthesize-tts", extra: ["--segment", cue.id]) }
-                                        Button("Delete Segment Audio…", systemImage: "speaker.slash", role: .destructive) {
+                                    SegmentActionsMenu(actions: [
+                                        .init(title: "Rewrite to Fit", glyph: "\u{e65f}") {
+                                            studio.execute("rewrite-cue", extra: ["--segment", cue.id])
+                                        },
+                                        .init(title: "Synthesize This Segment", glyph: "\u{e1b8}") {
+                                            studio.execute("synthesize-tts", extra: ["--segment", cue.id])
+                                        },
+                                        .init(title: "Delete Segment Audio…", glyph: "\u{e04f}", enabled: cue.audio != nil) {
                                             studio.confirmDeleteSegmentAudio(project, cue: cue) {
                                                 stopNarrationPreview()
                                                 playback.stopNarrationPlayback()
                                             }
-                                        }
-                                        .disabled(cue.audio == nil)
-                                        Button("Delete Segment…", systemImage: "trash", role: .destructive) {
+                                        },
+                                        .init(title: "Delete Segment…", glyph: "\u{e872}") {
                                             studio.confirmDeleteSegment(project, cue: cue) {
                                                 stopNarrationPreview()
                                                 playback.stopNarrationPlayback()
                                             }
-                                        }
-                                    } label: { Image(systemName: "ellipsis") }
-                                        .menuStyle(.borderlessButton)
-                                        .menuIndicator(.hidden)
-                                        .fixedSize()
-                                        .disabled(studio.busy)
-                                        .accessibilityLabel("Segment actions")
+                                        },
+                                    ])
+                                    .fixedSize()
+                                    .disabled(studio.busy)
                                 }
                             }
                         }.padding(.vertical, 8)

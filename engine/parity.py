@@ -258,7 +258,7 @@ def execute(args,root,p,e):
                 text+=f"{i}\n{clock(c['start'],sep)} --> {clock(c['end'],sep)}\n{c['text']}\n\n"
         export_type={'transcript':'Transcript','descriptions':'Descriptions','combined':'AD Transcript'}[args.content]
         e.write_text_export(root,p,export_type,args.format,text,args.replace_existing)
-    elif command=='export-audio':e.export(root,p,audio_only=True,allow_incomplete=getattr(args,'allow_incomplete_narration',False),replace_existing=args.replace_existing)
+    elif command=='export-audio':e.export(root,p,audio_only=True,allow_incomplete=getattr(args,'allow_incomplete_narration',False),replace_existing=args.replace_existing,media_format=getattr(args,'media_format',None))
     elif command=='delete-export':
         if args.name not in p['exports']:raise ValueError('Select an existing export.')
         source=e.local(root,args.name)

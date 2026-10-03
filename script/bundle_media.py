@@ -26,9 +26,12 @@ def copy(path):
     subprocess.run(['codesign','--force','--sign','-',str(target)],check=True,capture_output=True)
     return target
 for name in ['ffmpeg','ffprobe']:
-    binary=shutil.which(name)
+    full=Path('/opt/homebrew/opt/ffmpeg-full/bin')/name
+    binary=str(full) if full.is_file() else shutil.which(name)
     if not binary: raise RuntimeError(name+' missing')
     copy(binary)
+from deno._find_deno import find_deno_bin
+copy(find_deno_bin())
 for target in seen.values():
     if any(d.startswith(('/opt/homebrew/','/usr/local/')) for d in deps(target)): raise RuntimeError('Nonportable dependency '+str(target))
 print('Bundled',len(seen),'media binaries and libraries')

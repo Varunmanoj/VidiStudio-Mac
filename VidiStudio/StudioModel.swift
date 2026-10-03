@@ -289,6 +289,19 @@ struct StudioProject: Codable, Identifiable {
         default: return false
         }
     }
+    func hasCompleteExportNarration() -> Bool {
+        guard duration.isFinite, duration > 0, !cues.isEmpty else { return false }
+        return cues.allSatisfy { cue in
+            guard SynchronizedAudioStatus.resolve(cue: cue, project: self) == .generated,
+                  !cue.text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
+                  cue.start.isFinite, cue.end.isFinite,
+                  cue.start >= 0, cue.end > cue.start, cue.end <= duration,
+                  let path = cue.audio, let url = url(path),
+                  let values = try? url.resourceValues(forKeys: [.isRegularFileKey, .fileSizeKey]),
+                  values.isRegularFile == true, (values.fileSize ?? 0) > 0 else { return false }
+            return true
+        }
+    }
     func hasExportableNarration() -> Bool {
         cues.contains {
             SynchronizedAudioStatus.resolve(cue: $0, project: self) == .generated
@@ -1256,35 +1269,22 @@ final class StudioModel {
         return alert.runModal() == .alertSecondButtonReturn
     }
 
-    private func confirmIncompleteNarrationExport(project: StudioProject, audioOnly: Bool, exportKindOverride: String? = nil) -> [String]? {
+    private func requireCompleteNarrationForExport(project: StudioProject) -> Bool {
         var current = project
         do {
-            guard let folder = project.folder else { return nil }
+            guard let folder = project.folder else { return false }
             current = try JSONDecoder().decode(StudioProject.self, from: Data(contentsOf: folder.appendingPathComponent("project.json")))
             current.folder = folder
         } catch {
             present(.exportPreparation, technicalDetails: error.localizedDescription, context: "Prepare export")
-            return nil
+            return false
         }
-        let missing = current.cues.filter {
-            SynchronizedAudioStatus.resolve(cue: $0, project: current) != .generated
+        guard current.hasCompleteExportNarration() else {
+            errorTitle = "Narration Isn’t Ready to Export"
+            error = "Generate current narration for every AD segment before exporting. Check that each segment fits within the video."
+            return false
         }
-        if audioOnly && !current.hasExportableNarration() {
-            self.error = "Generate narration for at least one AD segment before exporting narration audio."
-            return nil
-        }
-        guard !missing.isEmpty || current.cues.isEmpty else { return [] }
-        let alert = NSAlert()
-        let exportKind = exportKindOverride ?? (audioOnly ? "narration audio" : "video")
-        alert.messageText = "Export \(exportKind) with incomplete audio descriptions?"
-        alert.informativeText = current.cues.isEmpty
-            ? "This project has no AD segments. Continuing exports \(exportKind) without audio descriptions."
-            : "\(missing.count) of \(current.cues.count) AD segments have missing narration or narration for earlier text. Continuing exports \(exportKind) with available, synchronized narration only. Those \(missing.count) descriptions will be omitted from the audio. This does not generate missing narration. Cancel and choose Synthesize Narration to include all descriptions."
-        alert.alertStyle = .warning
-        alert.addButton(withTitle: "Cancel")
-        alert.addButton(withTitle: "Export Anyway")
-        guard alert.runModal() == .alertSecondButtonReturn else { return nil }
-        return ["--allow-incomplete-narration"]
+        return true
     }
 
     func execute(
@@ -1318,18 +1318,10 @@ final class StudioModel {
             return
         }
         if let target, !confirmAnalysisReplacement(command, project: target) { return }
-        var exportOptions: [String] = []
         let webPlaybackNeedsNarration = command == "export-hls"
             && (extra.contains("closed-description") || extra.contains("open-description"))
-        if (["export-final-video", "export-selectable-video", "export-closed-audio-description-video", "export-open-audio-description-video", "export-described-audio", "export-audio"].contains(command) || webPlaybackNeedsNarration), let target {
-            guard let options = confirmIncompleteNarrationExport(
-                project: target,
-                audioOnly: command == "export-audio",
-                exportKindOverride: command == "export-described-audio"
-                    ? "final audio"
-                    : command == "export-hls" ? "Web Playback folder" : nil
-            ) else { return }
-            exportOptions = options
+        if (["export-final-video", "export-selectable-video", "export-closed-audio-description-video", "export-open-audio-description-video", "export-described-audio", "export-youtube-described-audio", "export-audio"].contains(command) || webPlaybackNeedsNarration), let target {
+            guard requireCompleteNarrationForExport(project: target) else { return }
         }
         guard let engine = Bundle.main.resourceURL?.appendingPathComponent("Engine/vidistudio-engine"), FileManager.default.isExecutableFile(atPath: engine.path) else {
             let issue = UserFacingIssue(
@@ -1358,7 +1350,7 @@ final class StudioModel {
         progress = 0
         message = UserFacingProgress.message(for: command)
         let task = Process(); task.executableURL = engine
-        task.arguments = [command] + (target?.folder.map { ["--project", $0.path] } ?? []) + extra + exportOptions
+        task.arguments = [command] + (target?.folder.map { ["--project", $0.path] } ?? []) + extra
         task.environment = ProcessInfo.processInfo.environment.merging(["VIDISTUDIO_CONFIG": (configurationURL ?? StudioSettings.url).path]) { _, new in new }
         let output = Pipe(); task.standardOutput = output
         let stderr = Pipe(); task.standardError = stderr
@@ -1444,11 +1436,12 @@ final class StudioModel {
             reload()
             if task.terminationStatus == 0, ["export-selectable-video", "export-closed-audio-description-video"].contains(command), let folder = target?.folder {
                 do {
-                    guard let path = completedExportPath,
-                          URL(fileURLWithPath: path).pathExtension.lowercased() == "mov" else {
+                    guard let path = completedExportPath else {
                         throw AccessibilityMetadataWriterError.exportNotFound
                     }
-                    try await AppleAccessibilityMetadataWriter().finalizeClosedDescriptionTrack(at: folder.appendingPathComponent(path))
+                    if URL(fileURLWithPath: path).pathExtension.lowercased() == "mov" {
+                        try await AppleAccessibilityMetadataWriter().finalizeClosedDescriptionTrack(at: folder.appendingPathComponent(path))
+                    }
                     message = "Closed Audio Description export complete"
                 } catch {
                     present(.exportMetadata, technicalDetails: error.localizedDescription, context: "Finish export accessibility information")
