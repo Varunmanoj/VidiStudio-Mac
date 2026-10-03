@@ -18,7 +18,7 @@ enum AccessibilityMetadataWriterError: LocalizedError {
         case .exportNotFound:
             return "The new Closed Audio Description export could not be found."
         case .wrongAudioTrackCount(let count):
-            return "Expected two audio tracks, but found \(count)."
+            return "The export has an unexpected number of audio tracks (\(count))."
         case .characteristicMissing:
             return "AVFoundation did not recognize the descriptive-audio characteristic after writing it."
         case .captionCharacteristicMissing:
@@ -33,23 +33,25 @@ enum AccessibilityMetadataWriterError: LocalizedError {
 
 struct AppleAccessibilityMetadataWriter: AccessibilityMetadataWriting {
     func finalizeClosedDescriptionTrack(at url: URL) async throws {
+        try await finalizeVideoTracks(at: url, described: true)
+    }
+
+    func finalizeVideoTracks(at url: URL, described: Bool) async throws {
         let movie = AVMutableMovie(
             url: url,
             options: [AVURLAssetPreferPreciseDurationAndTimingKey: true]
         )
         let audioTracks = movie.tracks(withMediaType: .audio)
-        guard audioTracks.count == 2 else {
+        guard audioTracks.count <= 2, !described || !audioTracks.isEmpty else {
             throw AccessibilityMetadataWriterError.wrongAudioTrackCount(audioTracks.count)
         }
-
-        let originalTrack = audioTracks[0]
-        let descriptionTrack = audioTracks[1]
-        originalTrack.extendedLanguageTag = "en"
-        descriptionTrack.extendedLanguageTag = "en"
-        originalTrack.alternateGroupID = 1
-        descriptionTrack.alternateGroupID = 1
-        originalTrack.isEnabled = true
-        descriptionTrack.isEnabled = true
+        let describedIndex = described ? audioTracks.count - 1 : nil
+        let audioNames = audioTracks.indices.map { $0 == describedIndex ? "English - Audio Description" : "Original Audio" }
+        for track in audioTracks {
+            track.extendedLanguageTag = "en"
+            track.alternateGroupID = audioTracks.count > 1 ? 1 : 0
+            track.isEnabled = true
+        }
 
         func titleMetadata(_ title: String) -> AVMutableMetadataItem {
             let item = AVMutableMetadataItem()
@@ -67,11 +69,12 @@ struct AppleAccessibilityMetadataWriter: AccessibilityMetadataWriting {
             return item
         }
 
-        originalTrack.metadata = originalTrack.metadata + [titleMetadata("Original Audio")]
-        descriptionTrack.metadata = descriptionTrack.metadata + [
-            titleMetadata("English - Audio Description"),
-            characteristicMetadata(.describesVideoForAccessibility),
-        ]
+        for (index, track) in audioTracks.enumerated() {
+            track.metadata = track.metadata + [titleMetadata(audioNames[index])]
+            if index == describedIndex {
+                track.metadata = track.metadata + [characteristicMetadata(.describesVideoForAccessibility)]
+            }
+        }
 
         func portableLegibleHandlerName(_ track: AVMutableMovieTrack) async throws -> String {
             var values: [String] = []
@@ -97,13 +100,14 @@ struct AppleAccessibilityMetadataWriter: AccessibilityMetadataWriting {
             textHandlerNames.append(try await portableLegibleHandlerName(track))
         }
         let legibleTracks = subtitleTracks + textTracks
-        for track in legibleTracks {
+        for (index, track) in legibleTracks.enumerated() {
             track.extendedLanguageTag = "en"
             track.alternateGroupID = 2
             track.isEnabled = true
-            track.metadata = track.metadata + [
-                characteristicMetadata(.transcribesSpokenDialogForAccessibility)
-            ]
+            track.metadata = track.metadata + [characteristicMetadata(.transcribesSpokenDialogForAccessibility)]
+            if (subtitleHandlerNames + textHandlerNames)[index] == "AD Transcript" {
+                track.metadata = track.metadata + [characteristicMetadata(.describesVideoForAccessibility)]
+            }
         }
 
         try movie.writeHeader(
@@ -113,25 +117,30 @@ struct AppleAccessibilityMetadataWriter: AccessibilityMetadataWriting {
         )
         try restorePortableHandlerNames(
             at: url,
+            audioNames: audioNames.map { $0 == "Original Audio" ? $0 : "English AD" },
             subtitleNames: subtitleHandlerNames,
             textNames: textHandlerNames
         )
 
         let verifiedAsset = AVURLAsset(url: url)
         let verifiedAudioTracks = try await verifiedAsset.loadTracks(withMediaType: .audio)
-        guard verifiedAudioTracks.count == 2 else {
+        guard verifiedAudioTracks.count == audioTracks.count else {
             throw AccessibilityMetadataWriterError.wrongAudioTrackCount(verifiedAudioTracks.count)
         }
-        let characteristics = try await verifiedAudioTracks[1].load(.mediaCharacteristics)
-        guard characteristics.contains(.describesVideoForAccessibility) else {
-            throw AccessibilityMetadataWriterError.characteristicMissing
+        if let describedIndex {
+            let characteristics = try await verifiedAudioTracks[describedIndex].load(.mediaCharacteristics)
+            guard characteristics.contains(.describesVideoForAccessibility) else {
+                throw AccessibilityMetadataWriterError.characteristicMissing
+            }
         }
         let verifiedSubtitleTracks = try await verifiedAsset.loadTracks(withMediaType: .subtitle)
         let verifiedTextTracks = try await verifiedAsset.loadTracks(withMediaType: .text)
         let verifiedLegibleTracks = verifiedSubtitleTracks + verifiedTextTracks
-        for track in verifiedLegibleTracks {
+        for (index, track) in verifiedLegibleTracks.enumerated() {
             let characteristics = try await track.load(.mediaCharacteristics)
-            guard characteristics.contains(.transcribesSpokenDialogForAccessibility) else {
+            let requiresVisualDescriptions = (subtitleHandlerNames + textHandlerNames)[index] == "AD Transcript"
+            guard characteristics.contains(.transcribesSpokenDialogForAccessibility),
+                  !requiresVisualDescriptions || characteristics.contains(.describesVideoForAccessibility) else {
                 throw AccessibilityMetadataWriterError.captionCharacteristicMissing
             }
         }
@@ -143,6 +152,7 @@ struct AppleAccessibilityMetadataWriter: AccessibilityMetadataWriting {
     /// the final `moov` atom, preserving every atom's byte length.
     private func restorePortableHandlerNames(
         at url: URL,
+        audioNames: [String],
         subtitleNames: [String],
         textNames: [String]
     ) throws {
@@ -188,9 +198,9 @@ struct AppleAccessibilityMetadataWriter: AccessibilityMetadataWriting {
 
         let audioCount = try data.replacePascalHandlerNames(
             named: "Core Media Audio",
-            with: ["Original Audio", "English AD"]
+            with: audioNames
         )
-        guard audioCount == 2 else {
+        guard audioCount == audioNames.count else {
             throw AccessibilityMetadataWriterError.handlerNamesMissing(audioCount)
         }
         _ = try data.replacePascalHandlerNames(named: "Core Media Subtitle", with: subtitleNames)

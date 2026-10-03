@@ -346,6 +346,7 @@ struct SettingsView: View {
         .formStyle(.grouped)
         .navigationTitle(section)
         }
+        .safeAreaInset(edge: .top, spacing: 0) { ActiveExportProgressView() }
         .navigationSplitViewStyle(.balanced)
         .frame(minWidth: 850, idealWidth: 940, minHeight: 650, idealHeight: 740)
         .smoothPresentation()

@@ -271,14 +271,7 @@ struct ContentView: View {
             clear: { deletionProject = $0 }
         )
         .safeAreaInset(edge: .top, spacing: 0) {
-            if let activity = studio.exportActivity {
-                ExportProgressBanner(
-                    activity: activity,
-                    status: studio.message,
-                    cancelling: studio.cancellationRequested,
-                    cancel: studio.cancelCurrentOperation
-                )
-            }
+            ActiveExportProgressView()
         }
         .background(WindowFitter().frame(width: 0, height: 0))
         .focusedSceneValue(\.projectBrowser, ProjectBrowserActions(
@@ -363,14 +356,7 @@ struct ProjectEditorWindow: View {
             .inspectorColumnWidth(min: 250, ideal: 272, max: 340)
         }
         .safeAreaInset(edge: .top, spacing: 0) {
-            if let activity = studio.exportActivity {
-                ExportProgressBanner(
-                    activity: activity,
-                    status: studio.message,
-                    cancelling: studio.cancellationRequested,
-                    cancel: studio.cancelCurrentOperation
-                )
-            }
+            ActiveExportProgressView()
         }
         .smoothPresentation()
         .background(WindowFitter().frame(width: 0, height: 0))

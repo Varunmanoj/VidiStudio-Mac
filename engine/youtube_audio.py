@@ -58,7 +58,8 @@ def download(url, directory, emit, ffmpeg_path=None):
         if status['status'] == 'downloading' and now - last_update >= 1:
             total = status.get('total_bytes') or status.get('total_bytes_estimate')
             percentage = min(100, round(downloaded * 100 / total)) if total else None
-            emit('Downloading original YouTube audio' + (f' — {percentage}%' if percentage is not None else ''))
+            emit('Downloading original YouTube audio' + (f' — {percentage}%' if percentage is not None else ''),
+                 exportProgress=min(0.25, downloaded / total * 0.25) if total else None)
             last_update = now
 
     options = {
@@ -112,7 +113,7 @@ def soundtrack(url, emit):
         if not getattr(sys, 'frozen', False):
             command.append(str(Path(__file__).with_name('vidistudio_engine.py')))
         command += ['download-youtube-audio', '--url', url, '--output', temporary]
-        emit('Downloading original YouTube audio')
+        emit('Downloading original YouTube audio', exportProgress=None)
         process = subprocess.Popen(command, stderr=subprocess.DEVNULL, start_new_session=os.name != 'nt')
         try:
             deadline = time.monotonic() + DOWNLOAD_TIMEOUT

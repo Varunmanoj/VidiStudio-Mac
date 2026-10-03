@@ -2,6 +2,8 @@
 from __future__ import annotations
 import argparse, contextlib, html, json, math, os, platform, plistlib, re, shutil, subprocess, sys, tempfile, time, uuid, wave
 import signal
+import queue
+import threading
 import gemini_adapter
 import parity
 import youtube_audio
@@ -63,16 +65,86 @@ def tool(name):
     raise ValueError(f'{name} is unavailable. Set its path in Settings.')
 
 
-def run(args, timeout=3600):
+def run(args, timeout=3600, export_progress=None):
+    if export_progress:
+        args = [args[0], '-progress', 'pipe:1', '-nostats', '-stats_period', '0.25', *args[1:]]
     process = subprocess.Popen([str(x) for x in args], stdout=subprocess.PIPE,
                                stderr=subprocess.PIPE, text=True, start_new_session=os.name != 'nt')
+    readers = []
     try:
+        if export_progress:
+            duration, start, end, message = export_progress
+            events = queue.Queue(maxsize=256)
+            stopped = threading.Event()
+
+            def drain(stream, channel):
+                try:
+                    for line in stream:
+                        while not stopped.is_set():
+                            try:
+                                events.put((channel, line), timeout=0.1)
+                                break
+                            except queue.Full:
+                                pass
+                        if stopped.is_set(): return
+                finally:
+                    stream.close()
+                    while not stopped.is_set():
+                        try:
+                            events.put((channel, None), timeout=0.1)
+                            break
+                        except queue.Full:
+                            pass
+
+            for stream, channel in ((process.stdout, 'out'), (process.stderr, 'err')):
+                reader = threading.Thread(target=drain, args=(stream, channel), daemon=True)
+                reader.start()
+                readers.append(reader)
+            deadline = time.monotonic() + timeout
+            stderr = ''
+            closed = set()
+            seconds = 0.0
+            last_fraction = start
+            emit(message, exportProgress=start)
+            while len(closed) < 2:
+                if time.monotonic() >= deadline:
+                    raise subprocess.TimeoutExpired(args, timeout)
+                try:
+                    channel, line = events.get(timeout=min(0.1, max(0.001, deadline - time.monotonic())))
+                except queue.Empty:
+                    continue
+                if line is None:
+                    closed.add(channel)
+                elif channel == 'err':
+                    stderr = (stderr + line)[-2000:]
+                else:
+                    key, _, value = line.strip().partition('=')
+                    if key == 'out_time_us':
+                        try: seconds = max(seconds, float(value) / 1_000_000)
+                        except ValueError: pass
+                    elif key == 'progress':
+                        ratio = min(1, max(0, seconds / duration)) if duration > 0 else 0
+                        fraction = start + (end - start) * ratio
+                        if fraction - last_fraction >= 0.005:
+                            emit(message, exportProgress=fraction)
+                            last_fraction = fraction
+            process.wait(timeout=max(0.001, deadline - time.monotonic()))
+            if process.returncode:
+                raise ValueError(stderr or f'Command failed: {Path(args[0]).name}')
+            emit(message, exportProgress=end)
+            return ''
         stdout, stderr = process.communicate(timeout=timeout)
         if process.returncode:
             raise ValueError(stderr[-2000:] or f'Command failed: {Path(args[0]).name}')
         return stdout
     finally:
+        if readers: stopped.set()
         youtube_audio.stop_worker(process)
+        for reader in readers: reader.join(timeout=1)
+
+
+def run_export(args, duration, start=0.02, end=0.92, message='Creating export', timeout=3600):
+    return run(args, timeout=timeout, export_progress=(float(duration), start, end, message))
 
 
 def probe(video):
@@ -1195,6 +1267,7 @@ def validate_rendered_video(source, output):
 
 def commit_export(project, relative, output, temporary, video_processing=None):
     """Atomically replace the configured export and keep one project-list entry."""
+    emit('Checking exported file', exportProgress=0.96)
     media_information = export_media_information(temporary, video_processing) if video_processing else None
     os.replace(temporary, output)
     project['exports'] = [path for path in project.get('exports', []) if path != relative]
@@ -1204,7 +1277,7 @@ def commit_export(project, relative, output, temporary, video_processing=None):
         project['exportMediaInfo'][relative] = media_information
     else:
         project['exportMediaInfo'].pop(relative, None)
-    emit('Export created', export=relative)
+    emit('Export created', export=relative, exportProgress=0.99)
 
 
 def commit_directory_export(project, relative, output, temporary):
@@ -1224,7 +1297,7 @@ def commit_directory_export(project, relative, output, temporary):
     project['exports'] = [path for path in project.get('exports', []) if path != relative]
     project['exports'].append(relative)
     project.setdefault('exportMediaInfo', {}).pop(relative, None)
-    emit('Export created', export=relative)
+    emit('Export created', export=relative, exportProgress=0.99)
 
 
 def write_text_export(root, project, export_type, extension, text, replace_existing=False):
@@ -1402,6 +1475,22 @@ def audio_encoding_args(format):
     raise ValueError('Choose WAV, MP3, or M4A for audio export.')
 
 
+def video_audio_metadata(described=False, index=0, default=True):
+    title = 'English - Audio Description' if described else 'Original Audio'
+    disposition = ('default+' if default else '') + 'visual_impaired' if described else ('default' if default else '0')
+    return [
+        f'-metadata:s:a:{index}', 'language=eng',
+        f'-metadata:s:a:{index}', f'handler_name={title}',
+        f'-metadata:s:a:{index}', f'title={title}',
+        f'-disposition:a:{index}', disposition,
+    ]
+
+
+def source_video_audio_codec(source):
+    streams = [stream for stream in probe(source).get('streams', []) if stream.get('codec_type') == 'audio']
+    return 'copy' if streams and streams[0].get('codec_name') == 'aac' else 'aac'
+
+
 def caption_output_args(captions, path, input_index, content, format='mp4'):
     if captions == 'open':
         return ['-vf', f"ass=filename='{ffmpeg_filter_path(path)}'"]
@@ -1418,7 +1507,7 @@ def caption_output_args(captions, path, input_index, content, format='mp4'):
             f'-metadata:s:s:{stream_index}', 'language=eng',
             f'-metadata:s:s:{stream_index}', f'handler_name={title}',
             f'-metadata:s:s:{stream_index}', f'title={title}',
-            f'-disposition:s:{stream_index}', '0',
+            f'-disposition:s:{stream_index}', 'descriptions' if ('Descriptive' in title or 'AD Transcript' in title) else '0',
         ]
     return result
 
@@ -1448,10 +1537,15 @@ def validate_video_caption_streams(info, captions):
                 raise ValueError('Video export is missing the closed-caption presentation canvas.')
             if stream.get('tags', {}).get('language') != 'eng':
                 raise ValueError('Video export is missing caption language metadata.')
+            title = stream.get('tags', {}).get('title') or stream.get('tags', {}).get('name') or stream.get('tags', {}).get('handler_name')
+            if title not in ('English Transcript', 'English Descriptive Transcript', 'English AD Transcript'):
+                raise ValueError('Video export is missing its transcript track title.')
+            if is_matroska and title != 'English Transcript' and stream.get('disposition', {}).get('descriptions') != 1:
+                raise ValueError('Video export is missing its descriptive-transcript flag.')
         if captions == 'dual-closed':
             expected_titles = ('English Transcript', 'English Descriptive Transcript')
             actual_titles = tuple(
-                stream.get('tags', {}).get('title') or stream.get('tags', {}).get('handler_name')
+                stream.get('tags', {}).get('title') or stream.get('tags', {}).get('name') or stream.get('tags', {}).get('handler_name')
                 for stream in subtitles
             )
             if actual_titles != expected_titles:
@@ -1469,6 +1563,8 @@ def validate_captioned_video(output, expected_duration, captions):
     if len(videos) != 1:
         raise ValueError('Captioned video export did not contain exactly one video track.')
     validate_video_caption_streams(info, captions)
+    if any(stream.get('codec_name') != 'aac' for stream in info.get('streams', []) if stream.get('codec_type') == 'audio'):
+        raise ValueError('Video export audio tracks must use AAC.')
     duration = float(info.get('format', {}).get('duration', videos[0].get('duration', 0)))
     if abs(duration - expected_duration) > .25:
         raise ValueError('Captioned video export duration does not match the project.')
@@ -1491,6 +1587,7 @@ def export_captioned_video(root, project, open_captions=False, content='transcri
     relative, output, export_temporary = prepare_export_target(
         root, project, export_type, format, replace_existing
     )
+    source_audio_codec = source_video_audio_codec(local(root, project['source']))
     with contextlib.ExitStack() as cleanup:
         cleanup.callback(export_temporary.unlink, missing_ok=True)
         caption_path = cleanup.enter_context(temporary_video_caption_file(project, captions, content))
@@ -1499,27 +1596,26 @@ def export_captioned_video(root, project, open_captions=False, content='transcri
             common = [
                 tool('ffmpeg'), '-y', '-v', 'error', '-i', source,
                 '-map', '0:v:0', '-map', '0:a:0?', '-vf', f"ass=filename='{ffmpeg_filter_path(caption_path)}'",
-                '-map_metadata', '0', *video_render_args(source), *video_container_args(format),
+                '-map_metadata', '0', *video_render_args(source), *video_audio_metadata(), *video_container_args(format),
                 '-t', str(project['duration']),
             ]
-            attempts = [['-c:a', 'copy'], ['-c:a', 'aac']]
+            attempts = [['-c:a', source_audio_codec, '-b:a', '256k']]
         else:
             common = [
                 tool('ffmpeg'), '-y', '-v', 'error', '-i', local(root, project['source']),
                 *caption_input_args(captions, caption_path, project),
                 '-map', '0:v:0', '-map', '0:a:0?',
                 *caption_output_args(captions, caption_path, 1, content, format),
-                *video_container_args(format), '-t', str(project['duration']),
+                *video_audio_metadata(), *video_container_args(format), '-t', str(project['duration']),
             ]
             attempts = [
-                ['-c:v', 'copy', '-c:a', 'copy'],
-                ['-c:v', 'copy', '-c:a', 'aac'],
+                ['-c:v', 'copy', '-c:a', source_audio_codec, '-b:a', '256k'],
             ]
         last_error = None
         for codecs in attempts:
             export_temporary.unlink(missing_ok=True)
             try:
-                run([*common, *codecs, export_temporary])
+                run_export([*common, *codecs, export_temporary], project['duration'], message='Creating video export')
                 validate_captioned_video(export_temporary, float(project['duration']), captions)
                 if open_captions:
                     validate_rendered_video(source, export_temporary)
@@ -1577,6 +1673,8 @@ def validate_closed_audio_description_export(output, expected_duration, captions
     info = probe(output)
     videos = [stream for stream in info['streams'] if stream.get('codec_type') == 'video']
     audio = [stream for stream in info['streams'] if stream.get('codec_type') == 'audio']
+    if any(stream.get('codec_name') != 'aac' for stream in audio):
+        raise ValueError('Closed Audio Description audio tracks must use AAC.')
     if len(videos) != 1 or len(audio) != 2:
         raise ValueError('Closed Audio Description export did not contain one video and two audio tracks.')
     if audio[0].get('disposition', {}).get('default') != 1 or audio[1].get('disposition', {}).get('default') != 0:
@@ -1586,7 +1684,7 @@ def validate_closed_audio_description_export(output, expected_duration, captions
     expected = [('Original Audio', 'eng'), ('English - Audio Description', 'eng')]
     for stream, (title, language) in zip(audio, expected):
         tags = stream.get('tags', {})
-        actual_title = tags.get('title') or tags.get('handler_name')
+        actual_title = tags.get('title') or tags.get('name') or tags.get('handler_name')
         if actual_title != title or tags.get('language') != language:
             raise ValueError('Closed Audio Description export is missing audio-track titles or language metadata.')
         start = float(stream.get('start_time', 0))
@@ -1625,31 +1723,25 @@ def mux_closed_audio_description(root, p, cues, captions='none', content='transc
             '-filter_complex',';'.join(filters),
             '-map','0:v:0','-map',f'{program_audio_input}:a:0','-map','[mix]',
             *caption_output_args(captions, caption_path, caption_index, content, format),
-            '-metadata:s:a:0','language=eng','-metadata:s:a:0','handler_name=Original Audio',
-            '-metadata:s:a:0','title=Original Audio',
-            '-metadata:s:a:1','language=eng','-metadata:s:a:1','handler_name=English - Audio Description',
-            '-metadata:s:a:1','title=English - Audio Description',
-            '-disposition:a:0','default','-disposition:a:1','visual_impaired',
-            '-c:a:1','aac',*video_container_args(format),'-t',str(p['duration']),
+            *video_audio_metadata(), *video_audio_metadata(described=True, index=1, default=False),
+            '-c:a:1','aac','-b:a','256k',*video_container_args(format),'-t',str(p['duration']),
         ]
         # Open captions require video encoding. Every other mode requires a
         # validated stream copy and never silently falls back to transcoding.
-        original_audio_codec = 'copy' if has_program_audio else 'aac'
+        original_audio_codec = source_video_audio_codec(source) if has_program_audio else 'aac'
         if captions == 'open':
             attempts = [
                 [*video_render_args(source),'-map_metadata','0','-c:a:0',original_audio_codec],
-                [*video_render_args(source),'-map_metadata','0','-c:a:0','aac'],
             ]
         else:
             attempts = [
                 ['-c:v','copy','-c:a:0',original_audio_codec],
-                ['-c:v','copy','-c:a:0','aac'],
             ]
         last_error = None
         for codecs in attempts:
             export_temporary.unlink(missing_ok=True)
             try:
-                run([*common,*codecs,export_temporary])
+                run_export([*common,*codecs,export_temporary], p['duration'], message='Creating described video')
                 validate_closed_audio_description_export(export_temporary, float(p['duration']), captions)
                 if captions == 'open':
                     validate_rendered_video(source, export_temporary)
@@ -1722,7 +1814,7 @@ def export_program_audio(root, project, described=False, allow_incomplete=False,
     )
     emit('Creating ' + export_type)
     try:
-        run([*args, export_temporary])
+        run_export([*args, export_temporary], project['duration'], message='Creating audio export')
         validate_audio_export(export_temporary, float(project['duration']), format)
         commit_export(project, relative, output, export_temporary)
     finally:
@@ -1763,11 +1855,11 @@ def export_youtube_audio(root, project, described=False, replace_existing=False,
                 audio_args = ['-map', '0:a:0']
                 output_duration = actual_duration
                 emit('Creating YouTube audio-only ' + format.upper())
-            run([
+            run_export([
                 tool('ffmpeg'), '-y', '-v', 'error', '-i', source, *audio_args, '-vn',
                 *audio_encoding_args(format),
                 '-t', str(output_duration), temporary,
-            ])
+            ], output_duration, start=0.25, message='Creating YouTube audio export')
             validate_audio_export(temporary, output_duration, format)
             commit_export(project, relative, output, temporary)
     finally:
@@ -1820,10 +1912,10 @@ def export(root,p,audio_only=False,allow_incomplete=False,selectable=False,capti
                 else:
                     args += ['-c:v','copy']
             args += ['-map','[mix]']
-            args += audio_encoding_args(format) if audio_only else ['-c:a','aac',*video_container_args(format)]
+            args += audio_encoding_args(format) if audio_only else ['-c:a','aac','-b:a','256k', *video_audio_metadata(described=True), *video_container_args(format)]
             args += ['-t',str(p['duration']),export_temporary]
             emit('Creating narration audio' if audio_only else 'Adding narration to the video')
-            run(args)
+            run_export(args, p['duration'], message='Creating narration audio' if audio_only else 'Creating described video')
             if audio_only:
                 validate_audio_export(export_temporary, float(p['duration']), format)
             else:
@@ -1932,7 +2024,7 @@ def hls_source_needs_tone_mapping(source):
     return video.get('color_transfer') in ('smpte2084', 'arib-std-b67') or video.get('color_primaries') == 'bt2020'
 
 
-def create_hls_video_rendition(source, project, destination, rendition, open_caption_path=None, tone_map_hdr=False):
+def create_hls_video_rendition(source, project, destination, rendition, open_caption_path=None, tone_map_hdr=False, progress_range=(0.02, 0.92)):
     width, height = rendition['size']
     filters = []
     if tone_map_hdr:
@@ -1948,7 +2040,7 @@ def create_hls_video_rendition(source, project, destination, rendition, open_cap
     filters.append(f'scale={width}:{height}')
     playlist = destination / f"{rendition['name']}.m3u8"
     segments = destination / f"{rendition['name']}-%05d.ts"
-    run([
+    run_export([
         tool('ffmpeg'), '-y', '-v', 'error', '-i', source,
         '-map', '0:v:0', '-an', '-sn', '-vf', ','.join(filters),
         '-c:v', 'libx264', '-preset', 'medium', '-profile:v', 'high', '-level:v', rendition['level'],
@@ -1958,10 +2050,10 @@ def create_hls_video_rendition(source, project, destination, rendition, open_cap
         '-f', 'hls', '-hls_time', str(HLS_SEGMENT_DURATION), '-hls_playlist_type', 'vod',
         '-hls_flags', 'independent_segments', '-hls_segment_filename', segments,
         '-t', str(project['duration']), playlist,
-    ])
+    ], project['duration'], *progress_range, message="Creating Web Playback video")
 
 
-def create_hls_audio_rendition(root, project, destination, name, described=False, allow_incomplete=False):
+def create_hls_audio_rendition(root, project, destination, name, described=False, allow_incomplete=False, progress_range=(0.02, 0.92)):
     source = local(root, project['source'])
     playlist = destination / f'{name}.m3u8'
     segments = destination / f'{name}-%05d.ts'
@@ -1976,12 +2068,12 @@ def create_hls_audio_rendition(root, project, destination, name, described=False
     else:
         inputs = ['-f', 'lavfi', '-i', 'anullsrc=r=48000:cl=stereo']
         mapping = ['-map', '0:a:0']
-    run([
+    run_export([
         tool('ffmpeg'), '-y', '-v', 'error', *inputs, *mapping, '-vn', '-sn',
         '-c:a', 'aac', '-profile:a', 'aac_low', '-b:a', '192k', '-ar', '48000', '-ac', '2',
         '-f', 'hls', '-hls_time', str(HLS_SEGMENT_DURATION), '-hls_playlist_type', 'vod',
         '-hls_segment_filename', segments, '-t', str(project['duration']), playlist,
-    ])
+    ], project['duration'], *progress_range, message='Creating Web Playback audio')
 
 
 def webvtt_timestamp(seconds):
@@ -2022,18 +2114,18 @@ def hls_attribute(value):
 def write_hls_master(project, destination, renditions, audio, captions, content):
     lines = ['#EXTM3U', '#EXT-X-VERSION:3', '#EXT-X-INDEPENDENT-SEGMENTS']
     lines.append(
-        '#EXT-X-MEDIA:TYPE=AUDIO,GROUP-ID="audio",NAME="Original Audio",LANGUAGE="en",'
+        '#EXT-X-MEDIA:TYPE=AUDIO,GROUP-ID="audio",NAME="Original Audio",LANGUAGE="en",CHANNELS="2",'
         'DEFAULT=YES,AUTOSELECT=YES,URI="audio/original.m3u8"'
     )
     if audio == 'closed-description':
         lines.append(
-            '#EXT-X-MEDIA:TYPE=AUDIO,GROUP-ID="audio",NAME="English - Audio Description",LANGUAGE="en",'
+            '#EXT-X-MEDIA:TYPE=AUDIO,GROUP-ID="audio",NAME="English - Audio Description",LANGUAGE="en",CHANNELS="2",'
             'DEFAULT=NO,AUTOSELECT=YES,CHARACTERISTICS="public.accessibility.describes-video",'
             'URI="audio/described.m3u8"'
         )
     elif audio == 'open-description':
         lines[-1] = (
-            '#EXT-X-MEDIA:TYPE=AUDIO,GROUP-ID="audio",NAME="English - Audio Description",LANGUAGE="en",'
+            '#EXT-X-MEDIA:TYPE=AUDIO,GROUP-ID="audio",NAME="English - Audio Description",LANGUAGE="en",CHANNELS="2",'
             'DEFAULT=YES,AUTOSELECT=YES,CHARACTERISTICS="public.accessibility.describes-video",'
             'URI="audio/described.m3u8"'
         )
@@ -2050,11 +2142,12 @@ def write_hls_master(project, destination, renditions, audio, captions, content)
             if content == 'combined'
             else ('transcript', 'English Transcript', 'transcript')
         ]
-    for name, title, _ in subtitle_tracks:
+    for name, title, track_content in subtitle_tracks:
+        autoselect = 'NO' if track_content == 'combined' else 'YES'
         lines.append(
             '#EXT-X-MEDIA:TYPE=SUBTITLES,GROUP-ID="subtitles",'
-            f'NAME="{hls_attribute(title)}",LANGUAGE="en",DEFAULT=NO,AUTOSELECT=YES,FORCED=NO,'
-            'CHARACTERISTICS="public.accessibility.transcribes-spoken-dialog,public.accessibility.describes-music-and-sound",'
+            f'NAME="{hls_attribute(title)}",LANGUAGE="en",DEFAULT=NO,AUTOSELECT={autoselect},FORCED=NO,'
+            'CHARACTERISTICS="public.accessibility.transcribes-spoken-dialog",'
             f'URI="subtitles/{name}.m3u8"'
         )
 
@@ -2160,6 +2253,15 @@ def export_hls_web(root, project, audio='closed-description', captions='none', c
         source = local(root, project['source'])
         renditions = hls_video_renditions(project)
         tone_map_hdr = hls_source_needs_tone_mapping(source)
+        job_count = len(renditions) + int(audio in ('original', 'closed-description')) + int(audio in ('closed-description', 'open-description'))
+        completed_jobs = 0
+
+        def next_progress_range():
+            nonlocal completed_jobs
+            start = 0.02 + 0.90 * completed_jobs / job_count
+            completed_jobs += 1
+            return start, 0.02 + 0.90 * completed_jobs / job_count
+
         with temporary_video_caption_file(project, 'open' if captions == 'open' else 'none', content) as open_caption_path:
             for rendition in renditions:
                 emit(f"Creating {rendition['label']} Web Playback video")
@@ -2167,16 +2269,18 @@ def export_hls_web(root, project, audio='closed-description', captions='none', c
                     source, project, temporary / 'video', rendition,
                     open_caption_path=open_caption_path,
                     tone_map_hdr=tone_map_hdr,
+                    progress_range=next_progress_range(),
                 )
         if audio in ('original', 'closed-description'):
             emit('Creating original Web Playback audio')
-            create_hls_audio_rendition(root, project, temporary / 'audio', 'original')
+            create_hls_audio_rendition(root, project, temporary / 'audio', 'original', progress_range=next_progress_range())
         if audio in ('closed-description', 'open-description'):
             emit('Creating described Web Playback audio')
             create_hls_audio_rendition(
                 root, project, temporary / 'audio', 'described', described=True,
-                allow_incomplete=allow_incomplete,
+                allow_incomplete=allow_incomplete, progress_range=next_progress_range(),
             )
+        emit('Packaging Web Playback', exportProgress=0.94)
         if captions in ('closed', 'dual-closed'):
             (temporary / 'subtitles').mkdir()
             tracks = [('transcript', 'transcript'), ('ad-transcript', 'combined')] if captions == 'dual-closed' else [
@@ -2186,6 +2290,7 @@ def export_hls_web(root, project, audio='closed-description', captions='none', c
                 write_hls_subtitle_rendition(project, temporary / 'subtitles', name, track_content)
         write_hls_master(project, temporary, renditions, audio, captions, content)
         write_hls_web_files(project, temporary)
+        emit('Checking Web Playback files', exportProgress=0.96)
         validate_hls_web_export(temporary, project, renditions, audio, captions)
         commit_directory_export(project, relative, output, temporary)
     finally:

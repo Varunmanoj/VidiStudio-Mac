@@ -215,11 +215,6 @@ struct VideoPreparationActivity {
     let message: String
 }
 
-struct ExportActivity: Equatable {
-    let projectID: String
-    let projectName: String
-}
-
 struct StudioProject: Codable, Identifiable {
     var schemaVersion: Int
     var id: String
@@ -722,7 +717,13 @@ final class StudioModel {
     var busy = false
     var processingSection: String?
     var videoPreparationActivity: VideoPreparationActivity?
-    var exportActivity: ExportActivity?
+    var exportActivity: ExportSession? {
+        didSet {
+            if let oldValue, oldValue.id != exportActivity?.id {
+                ExportSessionRegistry.shared.end(oldValue)
+            }
+        }
+    }
     var cancellationRequested = false
     var message = "All files stay in your local project folders."
     var progress = 0.0
@@ -742,6 +743,8 @@ final class StudioModel {
         guard busy, !cancellationRequested, let process else { return }
         cancellationRequested = true
         message = exportActivity == nil ? "Stopping the current operation…" : "Stopping the export…"
+        exportActivity?.cancelling = true
+        exportActivity?.status = message
         process.terminate()
     }
 
@@ -1336,7 +1339,11 @@ final class StudioModel {
         busy = true
         cancellationRequested = false
         if Self.isExportCommand(command), let target {
-            exportActivity = ExportActivity(projectID: target.id, projectName: target.name)
+            exportActivity = ExportSessionRegistry.shared.begin(
+                projectID: target.id, projectName: target.name,
+                status: UserFacingProgress.message(for: command), cancel: { [weak self] in
+                    self?.cancelCurrentOperation()
+                })
         } else {
             exportActivity = nil
         }
@@ -1381,9 +1388,14 @@ final class StudioModel {
                     let eventIsError = event["error"] as? Bool == true
                     let eventIsWarning = event["warning"] as? Bool == true
                     if let text = eventMessage {
-                        logs.append(text)
-                        if logs.count > 200 { logs.removeFirst() }
-                        if !eventIsError && !eventIsWarning { message = text }
+                        if event["exportProgress"] == nil {
+                            logs.append(text)
+                            if logs.count > 200 { logs.removeFirst() }
+                        }
+                        if !eventIsError && !eventIsWarning {
+                            message = text
+                            if exportActivity?.cancelling != true { exportActivity?.status = text }
+                        }
                     }
                     if let text = event["screenText"] as? String { screenText = text; screenTimestamp = event["timestamp"] as? Double ?? 0 }
                     if let rawModels = event["models"] as? [[String: Any]] {
@@ -1391,7 +1403,13 @@ final class StudioModel {
                         geminiModelsLoaded = true
                         chooseAvailableGeminiModels()
                     }
-                    if let value = event["progress"] as? Double { progress = value }
+                    if let value = event["progress"] as? Double {
+                        progress = value
+                        exportActivity?.update(fraction: value)
+                    }
+                    if event.keys.contains("exportProgress") {
+                        exportActivity?.update(fraction: event["exportProgress"] as? Double)
+                    }
                     if let section = event["processingSection"] as? String {
                         processingSection = section
                     }
@@ -1430,19 +1448,20 @@ final class StudioModel {
                     context: "Read \(command) result"
                 )
             }
+            exportActivity?.canCancel = false
             task.waitUntilExit()
             stderr.fileHandleForReading.readabilityHandler = nil
             if let cleanupURL { try? FileManager.default.removeItem(at: cleanupURL) }
             reload()
-            if task.terminationStatus == 0, ["export-selectable-video", "export-closed-audio-description-video"].contains(command), let folder = target?.folder {
+            if task.terminationStatus == 0, Self.isExportCommand(command), let folder = target?.folder,
+               let path = completedExportPath, URL(fileURLWithPath: path).pathExtension.lowercased() == "mov" {
                 do {
-                    guard let path = completedExportPath else {
-                        throw AccessibilityMetadataWriterError.exportNotFound
-                    }
-                    if URL(fileURLWithPath: path).pathExtension.lowercased() == "mov" {
-                        try await AppleAccessibilityMetadataWriter().finalizeClosedDescriptionTrack(at: folder.appendingPathComponent(path))
-                    }
-                    message = "Closed Audio Description export complete"
+                    let described = ["export-selectable-video", "export-closed-audio-description-video",
+                                     "export-final-video", "export-open-audio-description-video"].contains(command)
+                    exportActivity?.status = "Finishing accessibility information"
+                    exportActivity?.update(fraction: 0.99)
+                    try await AppleAccessibilityMetadataWriter().finalizeVideoTracks(at: folder.appendingPathComponent(path), described: described)
+                    message = "Video export complete"
                 } catch {
                     present(.exportMetadata, technicalDetails: error.localizedDescription, context: "Finish export accessibility information")
                 }

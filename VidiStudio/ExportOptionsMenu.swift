@@ -642,15 +642,23 @@ struct ProjectExportButton: View {
     }
 }
 
+struct ActiveExportProgressView: View {
+    private var registry = ExportSessionRegistry.shared
+
+    var body: some View {
+        VStack(spacing: 0) {
+            ForEach(registry.sessions) { ExportProgressBanner(activity: $0) }
+        }
+    }
+}
+
 struct ExportProgressBanner: View {
-    let activity: ExportActivity
-    let status: String
-    let cancelling: Bool
-    let cancel: () -> Void
+    let activity: ExportSession
 
     var body: some View {
         HStack(spacing: 12) {
             ProgressView()
+                .progressViewStyle(.circular)
                 .controlSize(.small)
                 .accessibilityLabel("Export in progress")
                 .accessibilityValue(activity.projectName)
@@ -659,16 +667,26 @@ struct ExportProgressBanner: View {
                 Text("Exporting \(activity.projectName)…")
                     .font(.headline)
                     .lineLimit(1)
-                Text(cancelling ? "Stopping the export…" : status)
+                Text(activity.cancelling ? "Stopping the export…" : activity.status)
                     .font(.caption)
                     .foregroundStyle(.secondary)
                     .lineLimit(2)
+                HStack {
+                    ProgressView(value: activity.fraction)
+                        .progressViewStyle(.linear)
+                        .accessibilityLabel("Export progress for \(activity.projectName)")
+                    if let fraction = activity.fraction {
+                        Text("\(Int(fraction * 100))%")
+                            .font(.caption.monospacedDigit())
+                            .foregroundStyle(.secondary)
+                    }
+                }
             }
 
             Spacer(minLength: 12)
 
-            Button(cancelling ? "Cancelling…" : "Cancel Export", systemImage: "xmark.circle", action: cancel)
-                .disabled(cancelling)
+            Button(activity.cancelling ? "Cancelling…" : "Cancel Export", action: activity.cancel)
+                .disabled(activity.cancelling || !activity.canCancel)
                 .fixedSize()
                 .accessibilityHint("Stops the current export. Finished exports already saved remain available.")
         }
