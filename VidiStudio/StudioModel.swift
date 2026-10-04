@@ -31,12 +31,12 @@ enum DescriptionOrigin: String, CaseIterable {
         case .unknown: return "Origin unknown"
         }
     }
-    var glyph: String {
+    var iconName: String {
         switch self {
-        case .ai: return "\u{e65f}"
-        case .aiModified: return "\u{e3c9}"
-        case .manual: return "\u{e7fe}"
-        case .unknown: return "\u{e887}"
+        case .ai: return "sparkles"
+        case .aiModified: return "pencil"
+        case .manual: return "person"
+        case .unknown: return "questionmark.circle"
         }
     }
     var color: Color {
@@ -53,7 +53,7 @@ struct DescriptionOriginLabel: View {
     let origin: DescriptionOrigin
     var body: some View {
         HStack(spacing: 5) {
-            MaterialIcon(glyph: origin.glyph)
+            Image(systemName: origin.iconName).accessibilityHidden(true)
             Text(origin.title).font(.caption.weight(.semibold))
         }
         .foregroundStyle(origin.color)
@@ -87,11 +87,11 @@ enum SynchronizedAudioStatus: Equatable {
         }
     }
 
-    var glyph: String {
+    var iconName: String {
         switch self {
-        case .generated: return "\u{e86c}"
-        case .needsRegeneration: return "\u{e629}"
-        case .notGenerated: return "\u{e1b8}"
+        case .generated: return "checkmark.circle"
+        case .needsRegeneration: return "arrow.clockwise"
+        case .notGenerated: return "waveform"
         }
     }
 
@@ -109,7 +109,7 @@ struct SynchronizedAudioStatusLabel: View {
 
     var body: some View {
         HStack(spacing: 5) {
-            MaterialIcon(glyph: status.glyph)
+            Image(systemName: status.iconName).accessibilityHidden(true)
             Text(status.title).font(.caption.weight(.semibold))
         }
         .foregroundStyle(status.color)

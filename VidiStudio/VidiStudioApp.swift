@@ -2,27 +2,45 @@ import SwiftUI
 import AppKit
 
 final class VidiStudioAppDelegate: NSObject, NSApplicationDelegate {
-    private var menuObserver: NSObjectProtocol?
+    private var menuObservers: [NSObjectProtocol] = []
+    private var menuRefreshPending = false
 
     func applicationDidFinishLaunching(_ notification: Notification) {
-        menuObserver = NotificationCenter.default.addObserver(
-            forName: NSMenu.didAddItemNotification,
-            object: nil,
-            queue: .main
-        ) { [weak self] notification in
-            guard notification.object as? NSMenu === NSApp.mainMenu else { return }
-            DispatchQueue.main.async { self?.removeEmptyFormatMenu() }
+        for name in [NSMenu.didAddItemNotification, NSMenu.didChangeItemNotification] {
+            menuObservers.append(NotificationCenter.default.addObserver(
+                forName: name, object: nil, queue: .main
+            ) { [weak self] _ in
+                self?.scheduleMenuRefresh()
+            })
         }
-        DispatchQueue.main.async { self.removeEmptyFormatMenu() }
+        menuObservers.append(NotificationCenter.default.addObserver(
+            forName: NSMenu.didBeginTrackingNotification, object: nil, queue: .main
+        ) { notification in
+            guard let menu = notification.object as? NSMenu else { return }
+            NativeMenuIcons.apply(to: menu, isMenuBar: menu === NSApp.mainMenu)
+        })
+        scheduleMenuRefresh()
     }
 
     func applicationDidBecomeActive(_ notification: Notification) {
-        DispatchQueue.main.async { self.removeEmptyFormatMenu() }
+        scheduleMenuRefresh()
     }
 
     func applicationWillTerminate(_ notification: Notification) {
-        if let menuObserver {
-            NotificationCenter.default.removeObserver(menuObserver)
+        menuObservers.forEach { NotificationCenter.default.removeObserver($0) }
+        menuObservers.removeAll()
+    }
+
+    private func scheduleMenuRefresh() {
+        guard !menuRefreshPending else { return }
+        menuRefreshPending = true
+        DispatchQueue.main.async { [weak self] in
+            guard let self else { return }
+            self.removeEmptyFormatMenu()
+            if let menu = NSApp.mainMenu {
+                NativeMenuIcons.apply(to: menu, isMenuBar: true)
+            }
+            self.menuRefreshPending = false
         }
     }
 

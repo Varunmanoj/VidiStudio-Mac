@@ -39,9 +39,22 @@
 		7A10000230ABCDEF00112233 /* VidiStudioShareExtension.appex */ = {isa = PBXFileReference; explicitFileType = "wrapper.app-extension"; includeInIndex = 0; path = VidiStudioShareExtension.appex; sourceTree = BUILT_PRODUCTS_DIR; };
 /* End PBXFileReference section */
 
+/* Begin PBXFileSystemSynchronizedBuildFileExceptionSet section */
+		601FEEC53072A458002409EF /* Exceptions for "VidiStudio" folder in "VidiStudioShareExtension" target */ = {
+			isa = PBXFileSystemSynchronizedBuildFileExceptionSet;
+			membershipExceptions = (
+				NativeMenuIcons.swift,
+			);
+			target = 7A10000930ABCDEF00112233 /* VidiStudioShareExtension */;
+		};
+/* End PBXFileSystemSynchronizedBuildFileExceptionSet section */
+
 /* Begin PBXFileSystemSynchronizedRootGroup section */
 		606DD78F304FDCFF001DA857 /* VidiStudio */ = {
 			isa = PBXFileSystemSynchronizedRootGroup;
+			exceptions = (
+				601FEEC53072A458002409EF /* Exceptions for "VidiStudio" folder in "VidiStudioShareExtension" target */,
+			);
 			path = VidiStudio;
 			sourceTree = "<group>";
 		};
@@ -376,7 +389,7 @@
 				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
 				CODE_SIGN_STYLE = Automatic;
 				COMBINE_HIDPI_IMAGES = YES;
-				CURRENT_PROJECT_VERSION = 54;
+				CURRENT_PROJECT_VERSION = 57;
 				DEAD_CODE_STRIPPING = YES;
 				DEVELOPMENT_TEAM = LLVWNNUV26;
 				ENABLE_APP_SANDBOX = NO;
@@ -391,7 +404,7 @@
 					"@executable_path/../Frameworks",
 				);
 				MACOSX_DEPLOYMENT_TARGET = 27.0;
-				MARKETING_VERSION = 1.0.53;
+				MARKETING_VERSION = 1.0.56;
 				PRODUCT_BUNDLE_IDENTIFIER = Varunmanojkumar.VidiStudio;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				REGISTER_APP_GROUPS = YES;
@@ -411,7 +424,7 @@
 				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
 				CODE_SIGN_STYLE = Automatic;
 				COMBINE_HIDPI_IMAGES = YES;
-				CURRENT_PROJECT_VERSION = 54;
+				CURRENT_PROJECT_VERSION = 57;
 				DEAD_CODE_STRIPPING = YES;
 				DEVELOPMENT_TEAM = LLVWNNUV26;
 				ENABLE_APP_SANDBOX = NO;
@@ -426,7 +439,7 @@
 					"@executable_path/../Frameworks",
 				);
 				MACOSX_DEPLOYMENT_TARGET = 27.0;
-				MARKETING_VERSION = 1.0.53;
+				MARKETING_VERSION = 1.0.56;
 				PRODUCT_BUNDLE_IDENTIFIER = Varunmanojkumar.VidiStudio;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				REGISTER_APP_GROUPS = YES;
@@ -446,7 +459,7 @@
 				CODE_SIGN_ENTITLEMENTS = Config/VidiStudioShareExtension.entitlements;
 				CODE_SIGN_STYLE = Automatic;
 				COMBINE_HIDPI_IMAGES = YES;
-				CURRENT_PROJECT_VERSION = 54;
+				CURRENT_PROJECT_VERSION = 57;
 				DEAD_CODE_STRIPPING = YES;
 				DEVELOPMENT_TEAM = LLVWNNUV26;
 				ENABLE_APP_SANDBOX = YES;
@@ -460,7 +473,7 @@
 					"@executable_path/../../../../Frameworks",
 				);
 				MACOSX_DEPLOYMENT_TARGET = 27.0;
-				MARKETING_VERSION = 1.0.53;
+				MARKETING_VERSION = 1.0.56;
 				PRODUCT_BUNDLE_IDENTIFIER = Varunmanojkumar.VidiStudio.ShareExtension;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				SKIP_INSTALL = YES;
@@ -480,7 +493,7 @@
 				CODE_SIGN_ENTITLEMENTS = Config/VidiStudioShareExtension.entitlements;
 				CODE_SIGN_STYLE = Automatic;
 				COMBINE_HIDPI_IMAGES = YES;
-				CURRENT_PROJECT_VERSION = 54;
+				CURRENT_PROJECT_VERSION = 57;
 				DEAD_CODE_STRIPPING = YES;
 				DEVELOPMENT_TEAM = LLVWNNUV26;
 				ENABLE_APP_SANDBOX = YES;
@@ -494,7 +507,7 @@
 					"@executable_path/../../../../Frameworks",
 				);
 				MACOSX_DEPLOYMENT_TARGET = 27.0;
-				MARKETING_VERSION = 1.0.53;
+				MARKETING_VERSION = 1.0.56;
 				PRODUCT_BUNDLE_IDENTIFIER = Varunmanojkumar.VidiStudio.ShareExtension;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				SKIP_INSTALL = YES;

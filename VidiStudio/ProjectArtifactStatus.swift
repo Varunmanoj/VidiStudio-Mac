@@ -19,13 +19,13 @@ enum ProjectArtifactKind: CaseIterable, Identifiable {
         }
     }
 
-    var glyph: String {
+    var iconName: String {
         switch self {
-        case .transcript: return "\u{e873}"
-        case .summary: return "\u{f071}"
-        case .descriptions: return "\u{e050}"
-        case .finalVideo: return "\u{e02c}"
-        case .narrationAudio: return "\u{e3a1}"
+        case .transcript: return "text.bubble"
+        case .summary: return "text.alignleft"
+        case .descriptions: return "text.below.photo"
+        case .finalVideo: return "film"
+        case .narrationAudio: return "waveform"
         }
     }
 }
@@ -35,11 +35,11 @@ private enum ProjectArtifactAvailability {
     case notGenerated
     case unavailable
 
-    var badgeGlyph: String {
+    var badgeIconName: String {
         switch self {
-        case .generated: return "\u{e86c}"
-        case .notGenerated: return "\u{e836}"
-        case .unavailable: return "\u{e14b}"
+        case .generated: return "checkmark.circle.fill"
+        case .notGenerated: return "circle"
+        case .unavailable: return "minus.circle"
         }
     }
 
@@ -111,9 +111,9 @@ struct ProjectArtifactStatusIcon: View {
     var body: some View {
         HStack(spacing: 4) {
             ZStack(alignment: .bottomTrailing) {
-                MaterialIcon(glyph: kind.glyph, size: 19)
+                Image(systemName: kind.iconName).font(.system(size: 19)).accessibilityHidden(true)
                     .foregroundStyle(state.availability == .generated ? .primary : .secondary)
-                MaterialIcon(glyph: state.availability.badgeGlyph, size: 10)
+                Image(systemName: state.availability.badgeIconName).font(.system(size: 10)).accessibilityHidden(true)
                     .foregroundStyle(state.availability.color)
                     .padding(1)
                     .background(.background, in: Circle())

@@ -11,6 +11,8 @@ from pathlib import Path
 import parity
 
 DOWNLOAD_TIMEOUT = 900
+DOWNLOAD_ATTEMPTS = 3
+RETRY_DELAYS = (2, 4)
 MAX_AUDIO_BYTES = 2 * 1024 * 1024 * 1024
 DOWNLOAD_ERROR = ('YouTube audio could not be downloaded. Check your connection and that the video '
                   'is public, then try again. If YouTube blocks the download, import your original '
@@ -73,20 +75,41 @@ def download(url, directory, emit, ffmpeg_path=None):
     }
     if ffmpeg_path:
         options['ffmpeg_location'] = str(Path(ffmpeg_path).parent)
-    try:
-        with yt_dlp.YoutubeDL(options) as downloader:
-            info = downloader.extract_info(url, download=False)
-            if not info or info.get('_type', 'video') != 'video':
-                raise ValueError('Choose one public YouTube video.')
-            if info.get('is_live') or info.get('live_status') in ('is_live', 'is_upcoming', 'post_live'):
-                raise ValueError('Wait until the YouTube live video has finished processing before exporting.')
-            if info.get('availability') not in (None, 'public'):
-                raise ValueError('The YouTube video must be public before its audio can be exported.')
-            downloader.process_info(info)
-    except Exception:
-        # Downloader errors may contain temporary signed stream URLs. Keep them
-        # out of stdout, application logs, and saved project errors.
-        raise ValueError(DOWNLOAD_ERROR) from None
+    for attempt in range(DOWNLOAD_ATTEMPTS):
+        last_update = 0
+        try:
+            # Re-extract stream details and discard failed/partial files before
+            # trying again. A stale output must never be used as the soundtrack.
+            with tempfile.TemporaryDirectory(prefix='attempt-', dir=directory) as temporary:
+                attempt_options = dict(options, outtmpl=str(Path(temporary) / 'soundtrack.%(ext)s'))
+                with yt_dlp.YoutubeDL(attempt_options) as downloader:
+                    info = downloader.extract_info(url, download=False)
+                    if not info or info.get('_type', 'video') != 'video':
+                        raise ValueError('Choose one public YouTube video.')
+                    if info.get('is_live') or info.get('live_status') in ('is_live', 'is_upcoming', 'post_live'):
+                        raise ValueError('Wait until the YouTube live video has finished processing before exporting.')
+                    if info.get('availability') not in (None, 'public'):
+                        raise ValueError('The YouTube video must be public before its audio can be exported.')
+                    downloader.process_info(info)
+                files = [item for item in Path(temporary).glob('soundtrack.*')
+                         if item.is_file() and item.suffix not in ('.part', '.ytdl')]
+                if len(files) != 1 or not files[0].stat().st_size:
+                    raise yt_dlp.utils.DownloadError(DOWNLOAD_ERROR)
+                if files[0].stat().st_size > MAX_AUDIO_BYTES:
+                    raise ValueError('The YouTube audio is too large to download. Import your original video instead.')
+                files[0].replace(Path(directory) / files[0].name)
+            return
+        except (yt_dlp.utils.DownloadError, OSError):
+            if attempt + 1 == DOWNLOAD_ATTEMPTS:
+                raise ValueError(DOWNLOAD_ERROR) from None
+        except Exception:
+            # Downloader errors may contain temporary signed stream URLs. Keep
+            # them out of stdout, application logs, and saved project errors.
+            # Validation failures and cancellation do not start another attempt.
+            raise ValueError(DOWNLOAD_ERROR) from None
+        emit(f'YouTube audio download failed. Retrying — attempt {attempt + 2} of {DOWNLOAD_ATTEMPTS}',
+             exportProgress=None)
+        time.sleep(RETRY_DELAYS[attempt])
 
 
 def stop_worker(process):

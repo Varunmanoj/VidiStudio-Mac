@@ -5,7 +5,7 @@ import SwiftUI
 struct SegmentActionsMenu: NSViewRepresentable {
     struct Action {
         let title: String
-        let glyph: String
+        let systemImage: String
         var enabled = true
         let perform: () -> Void
     }
@@ -32,14 +32,14 @@ struct SegmentActionsMenu: NSViewRepresentable {
         let menu = NSMenu()
         menu.autoenablesItems = false
         let trigger = NSMenuItem(title: "", action: nil, keyEquivalent: "")
-        trigger.image = MaterialIcon.menuImage(glyph: "\u{e5d3}")
+        trigger.image = NSImage(systemSymbolName: "ellipsis", accessibilityDescription: nil)
         if #available(macOS 27.0, *) { trigger.preferredImageVisibility = .visible }
         menu.addItem(trigger)
         for (index, action) in actions.enumerated() {
             let item = NSMenuItem(title: action.title, action: #selector(Coordinator.performAction(_:)), keyEquivalent: "")
             item.target = context.coordinator
             item.tag = index
-            item.image = MaterialIcon.menuImage(glyph: action.glyph)
+            item.image = NSImage(systemSymbolName: action.systemImage, accessibilityDescription: nil)
             // macOS 27 normally hides images when their visibility is automatic.
             if #available(macOS 27.0, *) { item.preferredImageVisibility = .visible }
             item.isEnabled = enabled && action.enabled

@@ -685,7 +685,7 @@ struct ExportProgressBanner: View {
 
             Spacer(minLength: 12)
 
-            Button(activity.cancelling ? "Cancelling…" : "Cancel Export", action: activity.cancel)
+            Button(activity.cancelling ? "Cancelling…" : "Cancel Export", systemImage: "stop.circle", action: activity.cancel)
                 .disabled(activity.cancelling || !activity.canCancel)
                 .fixedSize()
                 .accessibilityHint("Stops the current export. Finished exports already saved remain available.")

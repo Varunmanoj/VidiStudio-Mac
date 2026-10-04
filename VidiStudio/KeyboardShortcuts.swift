@@ -165,6 +165,7 @@ struct StudioShortcut: Identifiable {
         case "preview": return "video"
         case "fullscreen": return "arrow.up.left.and.arrow.down.right"
         case "play": return "playpause"
+        case "stop": return "stop.fill"
         case "back": return "gobackward.5"
         case "forward": return "goforward.5"
         case "narration": return "speaker.wave.2"
@@ -191,6 +192,10 @@ struct StudioShortcut: Identifiable {
         case "redo": return "arrow.uturn.forward"
         case "summary-play-pause": return "playpause"
         case "export": return "square.and.arrow.up"
+        case "analyze", "generate-ad-cues": return "sparkles"
+        case "transcribe": return "text.bubble"
+        case "generate-summary": return "text.alignleft"
+        case "reanalyze-selection": return "arrow.triangle.2.circlepath"
         default: return "arrow.clockwise"
         }
     }
@@ -199,6 +204,7 @@ struct StudioShortcut: Identifiable {
         .init(id: "preview", title: "Show or Hide Preview", key: "v", modifiers: [.command, .shift], spoken: "Command + Shift + V", group: "Playback"),
         .init(id: "fullscreen", title: "Full-Screen Video", key: "f", modifiers: [.command, .option], spoken: "Command + Option + F; Escape to return", group: "Playback"),
         .init(id: "play", title: "Play or Pause", key: .space, modifiers: [.command, .shift], spoken: "Command + Shift + Space", group: "Playback"),
+        .init(id: "stop", title: "Stop Video", key: ".", modifiers: [.command, .shift], spoken: "Command + Shift + Period", group: "Playback"),
         .init(id: "back", title: "Rewind 5 Seconds", key: .leftArrow, modifiers: [.command, .option], spoken: "Command + Option + Left Arrow", group: "Playback"),
         .init(id: "forward", title: "Fast Forward 5 Seconds", key: .rightArrow, modifiers: [.command, .option], spoken: "Command + Option + Right Arrow", group: "Playback"),
         .init(id: "narration", title: "Toggle Narration", key: "d", modifiers: [.command, .shift], spoken: "Command + Shift + D", group: "Playback"),
@@ -287,7 +293,7 @@ struct StudioCommands: Commands {
                 }
             }
             Divider()
-            Menu("Summary Reading") {
+            Menu("Summary Reading", systemImage: "speaker.wave.2") {
                 shortcutEntries(StudioShortcut.editor.filter { $0.group == "Summary" })
                 Divider()
                 Button("Read Summary from Start", systemImage: "forward.end") { editor?.run("summary-from-start") }
@@ -300,10 +306,10 @@ struct StudioCommands: Commands {
             .disabled(editor?.summaryActive != true)
         }
         CommandMenu("Project") {
-            Menu("Editor Sections") {
+            Menu("Editor Sections", systemImage: "rectangle.split.3x1") {
                 shortcutEntries(StudioShortcut.editor.filter { ["transcript", "summary", "descriptions", "ad-overview", "ad-transcript"].contains($0.id) })
             }
-            Menu("Segments") {
+            Menu("Segments", systemImage: "timeline.selection") {
                 Button(editor?.segmentEditModeTitle ?? "Edit Segments", systemImage: editor?.segmentEditMode == true ? "checkmark" : "pencil") {
                     editor?.run("segment-edit-mode")
                 }
@@ -329,7 +335,7 @@ struct StudioCommands: Commands {
                 Divider()
                 shortcutEntries(StudioShortcut.editor.filter { ["follow", "undo", "redo"].contains($0.id) })
             }
-            Menu("Analysis") {
+            Menu("Analysis", systemImage: "sparkles") {
                 shortcutEntries(StudioShortcut.editor.filter { $0.id == "analyze" })
                 Divider()
                 Button(editor?.hasGeneratedThumbnails == true ? "Regenerate Video Details & Timeline Pictures…" : "Generate Video Details & Timeline Pictures", systemImage: "photo.on.rectangle.angled") { editor?.run("prepare-video") }
@@ -344,7 +350,7 @@ struct StudioCommands: Commands {
                     .keyboardShortcut("d", modifiers: [.command, .option, .shift])
                     .disabled(editor?.canRun("generate-ad-cues") != true)
             }
-            Menu("Narration") {
+            Menu("Narration", systemImage: "speaker.wave.2") {
                 Button("Synthesize Narration", systemImage: "speaker.wave.2") { editor?.run("synthesize-tts") }
                     .disabled(editor?.canRun("synthesize-tts") != true)
                 Button("Synthesize Changed Segments", systemImage: "waveform") { editor?.run("synthesize-changed") }
@@ -414,7 +420,7 @@ struct ShortcutReferenceView: View {
         VStack(alignment: .leading, spacing: 14) {
             Text("Keyboard Shortcuts").font(.title2).accessibilityAddTraits(.isHeader)
             Text("These shortcuts apply to the native macOS app. Editor commands are available with a project open and no editing sheet or processing operation active.")
-            Text("The File menu contains Export with Video, Audio, and Text choices. View can show or hide the preview and the complete timeline. The centered transport row beneath the thumbnails shares the Playback menu shortcuts for Play/Pause and five-second Rewind/Fast Forward on local and YouTube videos. Playback also contains Transcript Overlay controls on Transcript, Descriptions, and AD Transcript, plus Summary Reading commands that become available only on Summary. Project > Segments mirrors segment editing, creation, selection, bulk editing, deletion, Follow, Undo, and Redo. Project > Analysis contains Video Details and Timeline Pictures, Analyze Video, and the individual Transcript, Summary, and Audio Description stages. The inspector stays specific to its open section. Existing content is regenerated only after confirmation.")
+            Text("The File menu contains Export with Video, Audio, and Text choices. View can show or hide the preview and the complete timeline. The centered transport row beneath the thumbnails shares the Playback menu shortcuts for a single Play/Pause toggle, Stop Video, and five-second Rewind/Fast Forward on local and YouTube videos. Pause keeps the current position; Stop returns to the beginning and stops narration. Playback also contains Transcript Overlay controls on Transcript, Descriptions, and AD Transcript, plus Summary Reading commands that become available only on Summary. Project > Segments mirrors segment editing, creation, selection, bulk editing, deletion, Follow, Undo, and Redo. Project > Analysis contains Video Details and Timeline Pictures, Analyze Video, and the individual Transcript, Summary, and Audio Description stages. The inspector stays specific to its open section. Existing content is regenerated only after confirmation.")
             shortcutRow("New Project", value: "Command + N")
             shortcutRow("Open Project Folder", value: "Command + Shift + O")
             shortcutRow("Rename Selected Project", value: "Return; All Projects")

@@ -66,7 +66,7 @@ struct CreatedExportsView: View {
             }
             .disabled(studio.busy)
 
-            Button("Cancel", role: .cancel) {
+            Button("Cancel", systemImage: "xmark", role: .cancel) {
                 selectedExport = nil
             }
         } message: { selection in
@@ -94,7 +94,7 @@ struct CreatedExportsView: View {
                     isDirectory: isDirectory.boolValue
                 )
             } label: {
-                Image(systemName: "eye.circle")
+                Image(systemName: "info.circle")
             }
             .labelStyle(.iconOnly)
             .font(.title3)

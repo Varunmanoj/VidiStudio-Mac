@@ -11,6 +11,7 @@ from unittest.mock import Mock, patch
 
 from test_engine import engine
 import youtube_audio
+from yt_dlp.utils import DownloadError
 
 
 class YouTubeAudio(unittest.TestCase):
@@ -57,10 +58,10 @@ class YouTubeAudio(unittest.TestCase):
     def test_download_does_not_expose_signed_urls_or_use_browser_credentials(self):
         downloader = Mock()
         downloader.extract_info.side_effect = RuntimeError('403 https://stream.invalid/?token=private')
-        with patch('yt_dlp.YoutubeDL') as provider:
+        with tempfile.TemporaryDirectory() as directory, patch('yt_dlp.YoutubeDL') as provider:
             provider.return_value.__enter__.return_value = downloader
             with self.assertRaises(ValueError) as error:
-                youtube_audio.download('https://youtu.be/abcdefghijk', '/tmp/test', Mock())
+                youtube_audio.download('https://youtu.be/abcdefghijk', directory, Mock())
             self.assertNotIn('token=', str(error.exception))
             options = provider.call_args.args[0]
             self.assertFalse(options['cachedir'])
@@ -70,12 +71,100 @@ class YouTubeAudio(unittest.TestCase):
 
     def test_rejects_live_or_restricted_videos_before_downloading(self):
         for info in ({'is_live': True}, {'availability': 'private'}, {'_type': 'playlist'}):
-            with self.subTest(info=info), patch('yt_dlp.YoutubeDL') as provider:
+            with self.subTest(info=info), tempfile.TemporaryDirectory() as directory, \
+                 patch('yt_dlp.YoutubeDL') as provider, patch.object(youtube_audio.time, 'sleep') as sleep:
                 downloader = provider.return_value.__enter__.return_value
                 downloader.extract_info.return_value = info
                 with self.assertRaises(ValueError):
-                    youtube_audio.download('https://youtu.be/abcdefghijk', '/tmp/test', Mock())
+                    youtube_audio.download('https://youtu.be/abcdefghijk', directory, Mock())
                 downloader.process_info.assert_not_called()
+                self.assertEqual(provider.call_count, 1)
+                sleep.assert_not_called()
+
+    def test_full_download_retries_refresh_streams_and_discard_failed_outputs(self):
+        for failure in ('extraction', 'download', 'missing', 'empty'):
+            for failures in (0, 1, 2):
+                with self.subTest(failure=failure, failures=failures), tempfile.TemporaryDirectory() as directory:
+                    attempts = []
+
+                    def provider(options):
+                        destination = Path(options['outtmpl'].replace('%(ext)s', 'webm'))
+                        self.assertTrue(all(not path.exists() for path in attempts))
+                        attempts.append(destination.parent)
+                        downloader = Mock()
+                        downloader.extract_info.return_value = {'availability': 'public'}
+                        if len(attempts) <= failures and failure == 'extraction':
+                            downloader.extract_info.side_effect = DownloadError('403 https://stream.invalid/?token=private')
+
+                        def process(info):
+                            if len(attempts) <= failures:
+                                destination.with_suffix('.part').write_bytes(b'partial')
+                                if failure == 'download':
+                                    destination.write_bytes(b'stale output')
+                                    raise DownloadError('connection lost')
+                                if failure == 'empty':
+                                    destination.touch()
+                            else:
+                                destination.write_bytes(b'complete soundtrack')
+
+                        downloader.process_info.side_effect = process
+                        manager = Mock()
+                        manager.__enter__ = Mock(return_value=downloader)
+                        manager.__exit__ = Mock(return_value=False)
+                        return manager
+
+                    emit = Mock()
+                    with patch('yt_dlp.YoutubeDL', side_effect=provider) as factory, \
+                         patch.object(youtube_audio.time, 'sleep') as sleep:
+                        youtube_audio.download('https://youtu.be/abcdefghijk', directory, emit)
+                    self.assertEqual(factory.call_count, failures + 1)
+                    self.assertEqual([call.args[0] for call in sleep.call_args_list], [2, 4][:failures])
+                    self.assertEqual((Path(directory)/'soundtrack.webm').read_bytes(), b'complete soundtrack')
+                    self.assertEqual([item.name for item in Path(directory).iterdir()], ['soundtrack.webm'])
+                    self.assertEqual(len(emit.call_args_list), failures)
+                    for attempt, event in enumerate(emit.call_args_list, start=2):
+                        self.assertIn(f'attempt {attempt} of 3', event.args[0])
+                        self.assertNotIn('token=', event.args[0])
+                        self.assertIsNone(event.kwargs['exportProgress'])
+
+    def test_failed_download_stops_after_three_attempts_with_safe_error(self):
+        with tempfile.TemporaryDirectory() as directory, patch('yt_dlp.YoutubeDL') as provider, \
+             patch.object(youtube_audio.time, 'sleep') as sleep:
+            downloader = provider.return_value.__enter__.return_value
+            downloader.extract_info.side_effect = DownloadError('403 https://stream.invalid/?token=private')
+            emit = Mock()
+            with self.assertRaises(ValueError) as error:
+                youtube_audio.download('https://youtu.be/abcdefghijk', directory, emit)
+            self.assertEqual(str(error.exception), youtube_audio.DOWNLOAD_ERROR)
+            self.assertEqual(provider.call_count, 3)
+            self.assertEqual(sleep.call_count, 2)
+            self.assertEqual(list(Path(directory).iterdir()), [])
+
+    def test_audio_size_limit_does_not_retry(self):
+        with tempfile.TemporaryDirectory() as directory, patch('yt_dlp.YoutubeDL') as provider, \
+             patch.object(youtube_audio.time, 'sleep') as sleep:
+            downloader = provider.return_value.__enter__.return_value
+            downloader.extract_info.return_value = {'availability': 'public'}
+
+            def process(info):
+                options = provider.call_args.args[0]
+                options['progress_hooks'][0]({'status': 'downloading', 'downloaded_bytes': youtube_audio.MAX_AUDIO_BYTES + 1})
+
+            downloader.process_info.side_effect = process
+            with self.assertRaises(ValueError):
+                youtube_audio.download('https://youtu.be/abcdefghijk', directory, Mock())
+            self.assertEqual(provider.call_count, 1)
+            sleep.assert_not_called()
+
+    def test_cancelling_retry_wait_starts_no_further_attempt(self):
+        with tempfile.TemporaryDirectory() as directory, patch('yt_dlp.YoutubeDL') as provider, \
+             patch.object(youtube_audio.time, 'sleep', side_effect=engine.ProcessingCancelled('Cancelled')):
+            downloader = provider.return_value.__enter__.return_value
+            downloader.extract_info.side_effect = DownloadError('connection lost')
+            with self.assertRaises(engine.ProcessingCancelled):
+                youtube_audio.download('https://youtu.be/abcdefghijk', directory, Mock())
+            self.assertEqual(provider.call_count, 1)
+            self.assertEqual(list(Path(directory).iterdir()), [])
 
     def test_invalid_url_starts_no_worker(self):
         with patch.object(youtube_audio.subprocess, 'Popen') as popen:

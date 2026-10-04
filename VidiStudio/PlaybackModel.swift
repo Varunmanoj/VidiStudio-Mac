@@ -98,6 +98,9 @@ final class PlaybackModel {
     var playing = false {
         didSet { if !playing { stopNarration() } }
     }
+    var buffering = false
+    var playbackActive: Bool { playing || buffering }
+
     var narrationEnabled = false {
         didSet { if !narrationEnabled { stopNarration() } }
     }
@@ -200,6 +203,12 @@ final class PlaybackModel {
     }
     var webView: WKWebView?
     private var observer: Any?
+    @ObservationIgnored private var playbackRequestID = UUID()
+
+    private func cancelPendingPlayback() {
+        playbackRequestID = UUID()
+        player.currentItem?.cancelPendingSeeks()
+    }
     func observe() {
         guard observer == nil else { return }
         observer = player.addPeriodicTimeObserver(forInterval: CMTime(seconds: 0.15, preferredTimescale: 600), queue: .main) { [weak self] time in
@@ -207,6 +216,7 @@ final class PlaybackModel {
                 guard let self, time.seconds.isFinite, self.webView == nil else { return }
                 self.time = time.seconds
                 self.playing = self.player.timeControlStatus == .playing
+                self.buffering = self.player.timeControlStatus == .waitingToPlayAtSpecifiedRate
             }
         }
     }
@@ -253,6 +263,7 @@ final class PlaybackModel {
         setNarrationDucking(narration?.isPlaying == true)
     }
     func stop() {
+        cancelPendingPlayback()
         indicatedSegment = nil
         exitVideoFullScreen()
         stopNarration()
@@ -262,8 +273,8 @@ final class PlaybackModel {
     }
     func togglePlayback() {
         if playing || player.timeControlStatus == .playing { stopNarration() }
-        if let webView { webView.evaluateJavaScript("player && (player.getPlayerState() === 1 ? player.pauseVideo() : player.playVideo())", completionHandler: nil) }
-        else if player.timeControlStatus == .playing { player.pause() }
+        if let webView { webView.evaluateJavaScript("player && ([1, 3].includes(player.getPlayerState()) ? player.pauseVideo() : player.playVideo())", completionHandler: nil) }
+        else if player.timeControlStatus != .paused { pausePlayback() }
         else { player.play() }
     }
     func playPlayback() {
@@ -271,8 +282,10 @@ final class PlaybackModel {
         else { player.play() }
     }
     func pauseAndCaptureTime(_ completion: @escaping (Double) -> Void) {
+        cancelPendingPlayback()
         stopNarration()
         playing = false
+        buffering = false
         if let webView {
             webView.evaluateJavaScript("player ? (player.pauseVideo(), player.getCurrentTime()) : null") { [weak self] result, _ in
                 Task { @MainActor [weak self] in
@@ -291,6 +304,8 @@ final class PlaybackModel {
     }
     func play(from seconds: Double) {
         guard seconds.isFinite else { return }
+        cancelPendingPlayback()
+        let requestID = playbackRequestID
         indicatedSegment = nil
         stopNarration()
         time = max(0, seconds)
@@ -299,7 +314,7 @@ final class PlaybackModel {
         } else {
             player.seek(to: CMTime(seconds: time, preferredTimescale: 600), toleranceBefore: .zero, toleranceAfter: .zero) { [weak self] finished in
                 Task { @MainActor [weak self] in
-                    guard finished, let self else { return }
+                    guard finished, let self, self.playbackRequestID == requestID else { return }
                     self.player.play()
                 }
             }
@@ -307,6 +322,7 @@ final class PlaybackModel {
     }
     func seek(_ seconds: Double) {
         guard seconds.isFinite else { return }
+        cancelPendingPlayback()
         indicatedSegment = nil
         stopNarration()
         time = max(0, seconds)
@@ -319,11 +335,28 @@ final class PlaybackModel {
     }
     /// Pause video playback and stop narration without moving the playhead.
     func pausePlayback() {
+        cancelPendingPlayback()
         stopNarration()
         playing = false
+        buffering = false
         if let webView { webView.evaluateJavaScript("player?.pauseVideo()", completionHandler: nil) }
         else { player.pause() }
     }
+    /// Stop the transport without tearing down the player, timeline observer,
+    /// or full-screen surface. Play can start again from the first frame.
+    func stopPlayback() {
+        pausePlayback()
+        indicatedSegment = nil
+        time = 0
+        if let webView {
+            // seekTo can start playback from ended/cued states. A final pause
+            // keeps Stop at the beginning in all iframe player states.
+            webView.evaluateJavaScript("player && (player.pauseVideo(), player.seekTo(0, true), player.pauseVideo())", completionHandler: nil)
+        } else {
+            player.seek(to: .zero, toleranceBefore: .zero, toleranceAfter: .zero)
+        }
+    }
+
 }
 
 struct YouTubePlayer: NSViewRepresentable {
@@ -380,7 +413,9 @@ struct YouTubePlayer: NSViewRepresentable {
             guard let data = message.body as? [String: Any] else { return }
             if let time = data["time"] as? Double, time.isFinite { playback.time = time }
             if let title = data["title"] as? String, !title.isEmpty { playback.videoTitle = title }
-            playback.playing = (data["state"] as? Int) == 1
+            let state = data["state"] as? Int
+            playback.playing = state == 1
+            playback.buffering = state == 3
             if let duration = data["duration"] as? Double, duration.isFinite { playback.duration = duration }
         }
     }

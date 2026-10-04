@@ -1093,7 +1093,7 @@ struct ProjectEditor: View {
                     studio.cancelCurrentOperation()
                 } label: {
                     HStack(spacing: 6) {
-                        MaterialIcon(glyph: "\u{e047}")
+                        Image(systemName: "stop.circle").accessibilityHidden(true)
                         Text("Cancel Processing")
                     }
                 }
@@ -1380,7 +1380,7 @@ struct ProjectEditor: View {
                                     if row.isDescription { playback.narrationEnabled = true }
                                     playback.play(from: cue.start)
                                 } label: {
-                                    MaterialIcon(glyph: "\u{e037}")
+                                    Image(systemName: "play.fill").accessibilityHidden(true)
                                 }
                                 .buttonStyle(.borderless)
                                 .accessibilityLabel(row.playbackLabel)
@@ -1392,7 +1392,7 @@ struct ProjectEditor: View {
                             VStack(alignment: .leading, spacing: 6) {
                                 if tab == "ad-transcript" {
                                     HStack(spacing: 6) {
-                                        MaterialIcon(glyph: row.isDescription ? "\u{e050}" : "\u{e0b7}")
+                                        Image(systemName: row.isDescription ? "text.below.photo" : "text.bubble").accessibilityHidden(true)
                                         Text(row.kind).font(.caption.bold())
                                     }
                                     .foregroundStyle(row.color)
@@ -1439,19 +1439,19 @@ struct ProjectEditor: View {
                                 .help("Edit \(row.kind.lowercased()) text and timing")
                                 if row.isDescription {
                                     SegmentActionsMenu(actions: [
-                                        .init(title: "Rewrite to Fit", glyph: "\u{e65f}") {
+                                        .init(title: "Rewrite to Fit", systemImage: "sparkles") {
                                             studio.execute("rewrite-cue", extra: ["--segment", cue.id])
                                         },
-                                        .init(title: "Synthesize This Segment", glyph: "\u{e1b8}") {
+                                        .init(title: "Synthesize This Segment", systemImage: "waveform") {
                                             studio.execute("synthesize-tts", extra: ["--segment", cue.id])
                                         },
-                                        .init(title: "Delete Segment Audio…", glyph: "\u{e04f}", enabled: cue.audio != nil) {
+                                        .init(title: "Delete Segment Audio…", systemImage: "speaker.slash", enabled: cue.audio != nil) {
                                             studio.confirmDeleteSegmentAudio(project, cue: cue) {
                                                 stopNarrationPreview()
                                                 playback.stopNarrationPlayback()
                                             }
                                         },
-                                        .init(title: "Delete Segment…", glyph: "\u{e872}") {
+                                        .init(title: "Delete Segment…", systemImage: "trash") {
                                             studio.confirmDeleteSegment(project, cue: cue) {
                                                 stopNarrationPreview()
                                                 playback.stopNarrationPlayback()
@@ -1548,6 +1548,7 @@ struct ProjectEditor: View {
             previewHidden = false
             DispatchQueue.main.async { playback.toggleVideoFullScreen() }
         case "play": playback.togglePlayback()
+        case "stop": playback.stopPlayback()
         case "back": playback.seekRelative(-5, duration: project.duration)
         case "forward": playback.seekRelative(5, duration: project.duration)
         case "narration": playback.narrationEnabled.toggle()
@@ -1879,50 +1880,9 @@ struct TimelineView: View {
         .clipShape(.rect(cornerRadius: 5))
     }
 
-    private func shortcut(_ id: String) -> String {
-        StudioShortcut.editor.first(where: { $0.id == id })?.spoken ?? ""
-    }
-
     private var transportControls: some View {
-        HStack(spacing: 8) {
-            Button { playback.seekRelative(-5, duration: duration) } label: {
-                MaterialIcon(glyph: "\u{e020}", size: 19).frame(width: 24, height: 22)
-            }
-            .accessibilityLabel("Rewind 5 seconds")
-            .accessibilityHint(shortcut("back"))
-            .help("Rewind 5 seconds (\(shortcut("back")))")
-            .disabled(playback.time <= 0)
-
-            Button { playback.playPlayback() } label: {
-                MaterialIcon(glyph: "\u{e037}", size: 19).frame(width: 24, height: 22)
-            }
-            .accessibilityLabel("Play video")
-            .accessibilityHint(shortcut("play"))
-            .help("Play video (\(shortcut("play")))")
-            .disabled(playback.playing)
-
-            Button { playback.pausePlayback() } label: {
-                MaterialIcon(glyph: "\u{e034}", size: 19).frame(width: 24, height: 22)
-            }
-            .accessibilityLabel("Pause video")
-            .accessibilityHint(shortcut("play"))
-            .help("Pause video (\(shortcut("play")))")
-            .disabled(!playback.playing)
-
-            Button { playback.seekRelative(5, duration: duration) } label: {
-                MaterialIcon(glyph: "\u{e01f}", size: 19).frame(width: 24, height: 22)
-            }
-            .accessibilityLabel("Fast forward 5 seconds")
-            .accessibilityHint(shortcut("forward"))
-            .help("Fast forward 5 seconds (\(shortcut("forward")))")
-            .disabled(duration <= 0 || playback.time >= duration)
-        }
-        .buttonStyle(.bordered)
-        .controlSize(.small)
-        .frame(maxWidth: .infinity)
-        .frame(height: transportHeight)
-        .accessibilityElement(children: .contain)
-        .accessibilityLabel("Video playback controls")
+        VideoPlaybackControls(playback: playback, duration: duration)
+            .frame(height: transportHeight)
     }
 
     private func segmentTrack(
@@ -2162,7 +2122,7 @@ private struct SegmentTimingValidationView: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
             HStack(spacing: 8) {
-                MaterialIcon(glyph: "\u{e000}")
+                Image(systemName: "exclamationmark.circle").accessibilityHidden(true)
                     .foregroundStyle(.red)
                 Text(errors.count == 1 ? "Timing error" : "\(errors.count) timing errors")
                     .font(.headline)
@@ -2299,7 +2259,7 @@ private struct SegmentEditor: View {
                             dismiss()
                         } label: {
                             HStack {
-                                MaterialIcon(glyph: "\u{e8b6}")
+                                Image(systemName: "magnifyingglass").accessibilityHidden(true)
                                 Text("Re-Analyze This Segment")
                             }
                         }
