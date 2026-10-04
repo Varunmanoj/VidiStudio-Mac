@@ -965,12 +965,14 @@ struct ProjectEditor: View {
                     }
                     .labelStyle(.iconOnly)
                     .help("View video full screen; press Escape to return")
-                    Button("Read Frame Text", systemImage: "text.viewfinder") {
-                        readCurrentFrameText()
+                    if tab == "descriptions" || tab == "ad-transcript" {
+                        Button("Read Frame Text", systemImage: "text.viewfinder") {
+                            readCurrentFrameText()
+                        }
+                        .labelStyle(.iconOnly)
+                        .help("Extract text from the current video frame")
+                        .disabled(studio.busy)
                     }
-                    .labelStyle(.iconOnly)
-                    .help("Extract text from the current video frame")
-                    .disabled(studio.busy)
                     if captionControlsAvailable {
                         Menu {
                             Button("Off", systemImage: studio.settings.captionDisplayMode == "off" ? "checkmark" : "captions.bubble") {
@@ -1144,7 +1146,7 @@ struct ProjectEditor: View {
     }
 
     private func segmentEditor(for row: TranscriptRow) -> some View {
-        let readFrameAction: ((Double) -> Void)? = row.isDescription
+        let readFrameAction: ((Double) -> Void)? = (tab == "descriptions" || tab == "ad-transcript") && row.isDescription
             ? { timestamp in readFrameForSegment(at: timestamp) }
             : nil
         return SegmentEditor(
