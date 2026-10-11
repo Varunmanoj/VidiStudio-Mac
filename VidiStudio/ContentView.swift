@@ -833,6 +833,8 @@ struct ProjectEditor: View {
     @State private var readingFrameForSegment = false
     @State private var followTranscript = true
     @State private var summaryReader = SummaryReadbackModel()
+    @State private var summaryEditMode = false
+    @State private var summaryDraftText = ""
     private var transcriptRows: [TranscriptRow] {
         let dialogue = project.transcript.map { TranscriptRow(segment: $0, isDescription: false) }
         let descriptions = project.cues.map { TranscriptRow(segment: $0, isDescription: true) }
@@ -1029,7 +1031,7 @@ struct ProjectEditor: View {
                         : action.command == "prepare-video" ? "Read video details and create timeline pictures without using AI" : action.title.hasPrefix("Regenerate") ? "Regenerate the existing content after confirmation" : "Generate content for this section")
                     .fixedSize()
             }
-            if tab == "descriptions" || (tab == "transcript" && segmentEditMode) {
+            if tab == "descriptions" || tab == "transcript" {
                 Button("Add Segment", systemImage: "plus") {
                     presentNewSegment(isDescription: tab == "descriptions")
                 }
@@ -1039,6 +1041,16 @@ struct ProjectEditor: View {
                     .help(tab == "transcript"
                         ? "Add a new transcript segment at the current video time"
                         : "Add a new Audio Description segment at the current video time")
+            }
+            if tab == "summary" {
+                Button(summaryEditMode ? "Done" : "Edit", systemImage: summaryEditMode ? "checkmark" : "pencil") {
+                    toggleSummaryEditMode()
+                }
+                .disabled(studio.busy)
+                .fixedSize()
+                .accessibilityLabel(summaryEditMode ? "Done editing summary" : "Edit summary")
+                .accessibilityHint(summaryEditMode ? "Saves your changes and returns to the reading view" : "Edit the summary directly right inside like a notepad")
+                .help(summaryEditMode ? "Save summary changes and finish editing" : "Edit the summary directly like a notepad")
             }
             if segmentEditingAvailable {
                 if segmentEditMode {
@@ -1355,13 +1367,26 @@ struct ProjectEditor: View {
             } else if tab == "ad-overview" {
                 ADOverviewView(studio: studio, project: project)
             } else if tab == "summary" {
-                SummaryReaderView(
-                    markdown: project.summary.isEmpty ? "Generate a summary after transcription to capture the story and visual context." : project.summary,
-                    model: summaryReader,
-                    settings: studio.settings,
-                    follow: followTranscript,
-                    hasSummary: !project.summary.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
-                )
+                if summaryEditMode {
+                    SummaryEditorView(
+                        text: $summaryDraftText,
+                        onDone: { commitSummaryEdits() },
+                        onCancel: {
+                            summaryDraftText = project.summary
+                            summaryEditMode = false
+                            refreshEditorShortcutActions()
+                        }
+                    )
+                } else {
+                    SummaryReaderView(
+                        markdown: project.summary.isEmpty ? "Generate a summary after transcription to capture the story and visual context." : project.summary,
+                        model: summaryReader,
+                        settings: studio.settings,
+                        follow: followTranscript,
+                        hasSummary: !project.summary.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
+                        onEdit: { startSummaryEditing() }
+                    )
+                }
             } else {
                 let segments = transcriptRows
                 if segments.isEmpty {
@@ -1462,27 +1487,76 @@ struct ProjectEditor: View {
                                     ])
                                     .fixedSize()
                                     .disabled(studio.busy)
+                                } else {
+                                    SegmentActionsMenu(actions: [
+                                        .init(title: "Edit Segment…", systemImage: "pencil") {
+                                            playback.pauseAndCaptureTime { _ in segmentToEdit = row }
+                                        },
+                                        .init(title: "Re-Analyze This Segment…", systemImage: "sparkles") {
+                                            studio.reanalyzeSegment(cue, hint: "", isDescription: false)
+                                        },
+                                        .init(title: "Delete Segment…", systemImage: "trash") {
+                                            studio.confirmDeleteSegments(project, transcriptIDs: [cue.id], descriptionIDs: [], beforeDelete: {})
+                                        },
+                                    ])
+                                    .fixedSize()
+                                    .disabled(studio.busy)
                                 }
                             }
                         }.padding(.vertical, 8)
                             .accessibilityElement(children: .contain)
                             .id(row.id)
+                            .contentShape(Rectangle())
+                            .onTapGesture(count: 2) {
+                                playback.pauseAndCaptureTime { _ in segmentToEdit = row }
+                            }
                             .listRowBackground(playback.time >= cue.start && playback.time < cue.end ? Color.accentColor.opacity(0.15) : Color.clear)
                             .contextMenu {
-                                if row.isDescription {
-                                    Button("Play from Description", systemImage: "play.fill") {
-                                        playback.narrationEnabled = true
-                                        playback.play(from: cue.start)
-                                    }
-                                    .help("Play the video from this description's start time with narration on")
-                                    .accessibilityLabel("Play from description starting at \(timecode(cue.start))")
-                                    Button("Skip to Description", systemImage: "forward.end.fill") {
-                                        playback.seek(cue.start)
-                                        playback.pausePlayback()
-                                    }
-                                    .help("Move the playhead to this description's start time and pause the video")
-                                    .accessibilityLabel("Skip to description at \(timecode(cue.start)) and pause")
+                                Button("Edit \(row.kind) Segment…", systemImage: "pencil") {
+                                    playback.pauseAndCaptureTime { _ in segmentToEdit = row }
                                 }
+                                .help("Edit \(row.kind.lowercased()) text and timing in a dialog")
+                                .accessibilityLabel("Edit \(row.kind.lowercased()) segment starting at \(timecode(cue.start))")
+
+                                Button("Play from \(row.kind)", systemImage: "play.fill") {
+                                    if row.isDescription { playback.narrationEnabled = true }
+                                    playback.play(from: cue.start)
+                                }
+                                .help("Play the video from this \(row.kind.lowercased())'s start time")
+                                .accessibilityLabel("Play from \(row.kind.lowercased()) starting at \(timecode(cue.start))")
+
+                                Button("Skip to \(row.kind)", systemImage: "forward.end.fill") {
+                                    playback.seek(cue.start)
+                                    playback.pausePlayback()
+                                }
+                                .help("Move the playhead to this \(row.kind.lowercased())'s start time and pause the video")
+                                .accessibilityLabel("Skip to \(row.kind.lowercased()) at \(timecode(cue.start)) and pause")
+
+                                if row.isDescription {
+                                    Button("Rewrite to Fit", systemImage: "sparkles") {
+                                        studio.execute("rewrite-cue", extra: ["--segment", cue.id])
+                                    }
+                                    .disabled(studio.busy)
+                                } else {
+                                    Button("Re-Analyze This Segment…", systemImage: "sparkles") {
+                                        studio.reanalyzeSegment(cue, hint: "", isDescription: false)
+                                    }
+                                    .disabled(studio.busy)
+                                }
+
+                                Divider()
+
+                                Button("Delete Segment…", systemImage: "trash", role: .destructive) {
+                                    if row.isDescription {
+                                        studio.confirmDeleteSegment(project, cue: cue) {
+                                            stopNarrationPreview()
+                                            playback.stopNarrationPlayback()
+                                        }
+                                    } else {
+                                        studio.confirmDeleteSegments(project, transcriptIDs: [cue.id], descriptionIDs: [], beforeDelete: {})
+                                    }
+                                }
+                                .disabled(studio.busy)
                             }
                     }.listStyle(.inset)
                     .onChange(of: segments.first(where: { playback.time >= $0.segment.start && playback.time < $0.segment.end })?.id) { _, id in
@@ -1560,9 +1634,13 @@ struct ProjectEditor: View {
         case "caption-ad-transcript": studio.settings.captionDisplayMode = "ad-transcript"
         case "follow": followTranscript.toggle()
         case "segment-edit-mode":
-            segmentEditMode.toggle()
-            if !segmentEditMode { selectedSegmentIDs.removeAll() }
-            refreshEditorShortcutActions()
+            if tab == "summary" {
+                toggleSummaryEditMode()
+            } else {
+                segmentEditMode.toggle()
+                if !segmentEditMode { selectedSegmentIDs.removeAll() }
+                refreshEditorShortcutActions()
+            }
         case "segment-select-all":
             selectedSegmentIDs = Set(transcriptRows.map(\.id))
             refreshEditorShortcutActions()
@@ -1599,6 +1677,30 @@ struct ProjectEditor: View {
         }
     }
 
+    private func startSummaryEditing() {
+        summaryReader.stop()
+        summaryDraftText = project.summary
+        summaryEditMode = true
+        refreshEditorShortcutActions()
+    }
+
+    private func commitSummaryEdits() {
+        let trimmed = summaryDraftText.trimmingCharacters(in: .whitespacesAndNewlines)
+        if trimmed != project.summary.trimmingCharacters(in: .whitespacesAndNewlines) {
+            studio.saveSummary(summaryDraftText)
+        }
+        summaryEditMode = false
+        refreshEditorShortcutActions()
+    }
+
+    private func toggleSummaryEditMode() {
+        if summaryEditMode {
+            commitSummaryEdits()
+        } else {
+            startSummaryEditing()
+        }
+    }
+
     private func refreshEditorShortcutActions(updateHandler: Bool = false) {
         if updateHandler {
             shortcutActions.handler = { action in runEditorShortcut(action) }
@@ -1612,15 +1714,21 @@ struct ProjectEditor: View {
         shortcutActions.hasTranscriptText = !project.transcript.isEmpty
         shortcutActions.canToggleNarration = narrationControlAvailable
         shortcutActions.canToggleFollow = followControlAvailable
-        shortcutActions.canAddSegment = tab == "descriptions" || (tab == "transcript" && segmentEditMode)
+        shortcutActions.canAddSegment = tab == "descriptions" || tab == "transcript"
         switch tab {
         case "transcript": shortcutActions.addSegmentTitle = "Add Transcript Segment"
         case "descriptions": shortcutActions.addSegmentTitle = "Add Audio Description Segment"
         default: shortcutActions.addSegmentTitle = "Add Segment"
         }
-        shortcutActions.segmentEditingAvailable = segmentEditingAvailable
-        shortcutActions.segmentEditMode = segmentEditMode
-        shortcutActions.segmentEditModeTitle = segmentEditMode ? "Done Editing Segments" : "Edit \(segmentSectionTitle) Segments"
+        if tab == "summary" {
+            shortcutActions.segmentEditingAvailable = true
+            shortcutActions.segmentEditMode = summaryEditMode
+            shortcutActions.segmentEditModeTitle = summaryEditMode ? "Done Editing Summary" : "Edit Summary"
+        } else {
+            shortcutActions.segmentEditingAvailable = segmentEditingAvailable
+            shortcutActions.segmentEditMode = segmentEditMode
+            shortcutActions.segmentEditModeTitle = segmentEditMode ? "Done Editing Segments" : "Edit \(segmentSectionTitle) Segments"
+        }
         shortcutActions.segmentCount = transcriptRows.count
         shortcutActions.selectedSegmentCount = selectedSegmentIDs.count
         shortcutActions.canGenerateDescriptions = project.canGenerateDescriptions
@@ -1698,8 +1806,43 @@ struct ProjectEditor: View {
         .onChange(of: timelineVisible) { _, _ in refreshEditorShortcutActions() }
     }
 
-    var body: some View {
+    private var editorWithSummaryUpdates: some View {
         editorWithVoiceUpdates
+        .onChange(of: project.summary) { _, newSummary in
+            if !summaryEditMode {
+                summaryDraftText = newSummary
+            }
+            refreshEditorShortcutActions()
+        }
+        .onChange(of: summaryEditMode) { _, _ in refreshEditorShortcutActions() }
+        .onChange(of: summaryReader.isReading) { _, _ in refreshEditorShortcutActions() }
+        .onChange(of: summaryReader.isPaused) { _, _ in refreshEditorShortcutActions() }
+        .onChange(of: summaryReader.selectedRange) { _, _ in refreshEditorShortcutActions() }
+        .onChange(of: summaryReader.sentences.count) { _, _ in refreshEditorShortcutActions() }
+    }
+
+    private var editorWithShortcutUpdates: some View {
+        editorWithSummaryUpdates
+        .onChange(of: previewHidden) { _, _ in refreshEditorShortcutActions() }
+        .onChange(of: shortcutsBlocked) { _, _ in refreshEditorShortcutActions() }
+        .onChange(of: segmentToEdit?.id) { _, _ in refreshEditorShortcutActions() }
+        .onChange(of: segmentBatchToEdit?.id) { _, _ in refreshEditorShortcutActions() }
+        .onChange(of: studio.screenText) { _, _ in refreshEditorShortcutActions() }
+        .onChange(of: studio.busy) { _, _ in refreshEditorShortcutActions() }
+        .onChange(of: project.updatedAt) { _, _ in refreshEditorShortcutActions(updateHandler: true) }
+        .onChange(of: studio.settings.captionDisplayMode) { _, _ in refreshEditorShortcutActions() }
+        .onChange(of: tab) { oldTab, _ in
+            if oldTab == "summary" && summaryEditMode {
+                commitSummaryEdits()
+            }
+            selectedSegmentIDs.removeAll()
+            segmentEditMode = false
+            refreshEditorShortcutActions()
+        }
+    }
+
+    var body: some View {
+        editorWithShortcutUpdates
         .onAppear {
             preparePlayback()
             refreshEditorShortcutActions(updateHandler: true)
@@ -1711,24 +1854,6 @@ struct ProjectEditor: View {
             playback.stop()
             stopNarrationPreview()
         }
-        .onChange(of: previewHidden) { _, _ in refreshEditorShortcutActions() }
-        .onChange(of: shortcutsBlocked) { _, _ in refreshEditorShortcutActions() }
-        .onChange(of: segmentToEdit?.id) { _, _ in refreshEditorShortcutActions() }
-        .onChange(of: segmentBatchToEdit?.id) { _, _ in refreshEditorShortcutActions() }
-        .onChange(of: studio.screenText) { _, _ in refreshEditorShortcutActions() }
-        .onChange(of: studio.busy) { _, _ in refreshEditorShortcutActions() }
-        .onChange(of: project.updatedAt) { _, _ in refreshEditorShortcutActions(updateHandler: true) }
-        .onChange(of: tab) { _, _ in
-            selectedSegmentIDs.removeAll()
-            segmentEditMode = false
-            refreshEditorShortcutActions()
-        }
-        .onChange(of: studio.settings.captionDisplayMode) { _, _ in refreshEditorShortcutActions() }
-        .onChange(of: project.summary) { _, _ in refreshEditorShortcutActions() }
-        .onChange(of: summaryReader.isReading) { _, _ in refreshEditorShortcutActions() }
-        .onChange(of: summaryReader.isPaused) { _, _ in refreshEditorShortcutActions() }
-        .onChange(of: summaryReader.selectedRange) { _, _ in refreshEditorShortcutActions() }
-        .onChange(of: summaryReader.sentences.count) { _, _ in refreshEditorShortcutActions() }
         .sheet(isPresented: screenTextPresented) { screenTextReview }
         .sheet(item: $segmentToEdit, onDismiss: {
             readingFrameForSegment = false

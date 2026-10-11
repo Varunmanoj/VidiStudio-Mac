@@ -1,3 +1,13 @@
+## 2026-10-11 — Transcript and summary edit functionality — version 1.0.58 (build 59)
+
+Added full editing capabilities for transcript dialogue segments and project summaries matching the descriptions workflow and notepad-style editing:
+- Transcript dialogue segments: Transcript rows now feature a dedicated SegmentActionsMenu (Edit Segment…, Re-Analyze This Segment…, Delete Segment…), support double-click to open SegmentEditor, full context menu actions (Edit, Play, Skip, Re-Analyze, Delete), and Add Segment toolbar button availability in the Transcript tab. SegmentEditor supports modifying speaker dialogue text, start timing, and duration with boundary validation and collision detection.
+- Summary editing: Summary section provides inline notepad-style text editing directly inside the view via SummaryEditorView, with a live word/character count, Revert button, Done button, and multi-line TextEditor. Toolbar Edit/Done toggle button and Command-Option-E shortcut seamlessly switch between formatted readback mode (with spoken sentence highlighting) and inline editing. Modifications are atomically persisted via a new `save-summary` command in the Python engine.
+- Documentation and Help: Updated editor.html and regenerated the 13-page Apple Help book bundle.
+- Version bump: Advanced app and Share extension Debug and Release settings from 1.0.57 (build 58) to 1.0.58 (build 59).
+
+Validation: Required `VIDISTUDIO_CONFIGURATION=Release ./script/build_and_run.sh --verify` passed with macOS access, including 13 packaged Help pages, registration, anchors, links, style, search index, deep signing, and launch (process 73122). Release bundle metadata reports 1.0.58 / build 59. All 106 regression tests passed in 48.113 seconds with `VIDISTUDIO_TEST_ENGINE` pointing to the verified Release executable at `Contents/Resources/Engine/vidistudio-engine`. Decomposed ContentView view modifiers to resolve Swift compiler type-checking timeout under Release optimization. `git diff --check` passed.
+
 ## 2026-10-04 — Read Frame Text section availability — version 1.0.57 (build 58)
 
 Read Frame Text now appears in the editor toolbar only in Descriptions and AD Transcript. Transcript, Summary, and AD Overview no longer expose the button. The single-segment action remains available for Audio Description rows in Descriptions and AD Transcript and is unavailable for dialogue rows. Existing frame extraction, processing status, and review behavior are unchanged. Updated README and Editor Help. Advanced app and Share extension Debug/Release settings together from 1.0.56/build 57 to 1.0.57/build 58.

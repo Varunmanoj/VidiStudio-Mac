@@ -1070,6 +1070,11 @@ class Validation(unittest.TestCase):
             }))
             cli('save-segments','--project',folder,'--input',segments)
             self.assertEqual(project()['transcript'][0]['text'], 'The edited final caption.')
+            summary_input = root/'summary.json'
+            summary_input.write_text(json.dumps({'summary': 'A manually edited summary of the scene.'}))
+            cli('save-summary','--project',folder,'--input',summary_input)
+            self.assertEqual(project()['summary'], 'A manually edited summary of the scene.')
+            self.assertTrue(project()['summaryGenerated'])
             self.assertTrue(generated_audio.exists())
             expected_voice = engine.system_voice_signature({})
             self.assertEqual(project()['cues'][0]['audioSettings'], f'system|{expected_voice}|1.100|1.150|0.700')

@@ -1564,6 +1564,23 @@ final class StudioModel {
             present(.projectSave, technicalDetails: error.localizedDescription, context: "Save transcript and Audio Description segments")
         }
     }
+
+    func saveSummary(_ text: String) {
+        guard let project = selected, !busy else { return }
+        struct EditableSummary: Encodable {
+            let summary: String
+        }
+        let directory = FileManager.default.temporaryDirectory.appendingPathComponent("vidistudio-summary-\(UUID().uuidString)")
+        let input = directory.appendingPathComponent("summary.json")
+        do {
+            try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true, attributes: [.posixPermissions: 0o700])
+            try JSONEncoder().encode(EditableSummary(summary: text)).write(to: input, options: .atomic)
+            execute("save-summary", extra: ["--input", input.path], project: project, cleanupURL: directory)
+        } catch {
+            try? FileManager.default.removeItem(at: directory)
+            present(.projectSave, technicalDetails: error.localizedDescription, context: "Save project summary")
+        }
+    }
 }
 
 func timecode(_ seconds: Double) -> String {

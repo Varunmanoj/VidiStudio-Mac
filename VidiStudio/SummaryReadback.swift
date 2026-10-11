@@ -942,6 +942,7 @@ struct SummaryReaderView: View {
     var follow: Bool = true
     /// When true the text is an instructional placeholder, so reading controls stay disabled.
     var hasSummary: Bool = true
+    var onEdit: (() -> Void)? = nil
 
     var body: some View {
         VStack(spacing: 0) {
@@ -1004,6 +1005,15 @@ struct SummaryReaderView: View {
 
             Spacer(minLength: 8)
 
+            if let onEdit {
+                Button("Edit Summary", systemImage: "pencil") {
+                    onEdit()
+                }
+                .buttonStyle(.bordered)
+                .help("Edit the summary directly right inside like a notepad")
+                .accessibilityLabel("Edit summary directly")
+            }
+
             Text("Apple Speech")
                 .font(.caption)
                 .foregroundStyle(.secondary)
@@ -1027,8 +1037,77 @@ struct SummaryReaderView: View {
             .disabled(!hasSummary || !model.hasReadableSelection)
         Button("Read Selected Text Only", systemImage: "quote.bubble") { model.readSelectedText() }
             .disabled(!hasSummary || !model.hasNonEmptySelection)
+        if let onEdit {
+            Divider()
+            Button("Edit Summary…", systemImage: "pencil") { onEdit() }
+        }
         Divider()
         Button("Stop", systemImage: "stop.fill") { model.stop() }
             .disabled(!model.isReading)
+    }
+}
+
+// MARK: - Notepad-style inline summary editor
+
+struct SummaryEditorView: View {
+    @Binding var text: String
+    let onDone: () -> Void
+    let onCancel: () -> Void
+
+    private var wordCount: Int {
+        text.split(whereSeparator: { $0.isWhitespace || $0.isNewline }).count
+    }
+
+    var body: some View {
+        VStack(spacing: 0) {
+            HStack(spacing: 12) {
+                Label("Edit Summary", systemImage: "pencil")
+                    .font(.headline)
+                    .accessibilityAddTraits(.isHeader)
+                Text("\(wordCount) words · \(text.count) characters")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .monospacedDigit()
+                    .accessibilityLabel("\(wordCount) words, \(text.count) characters")
+                Spacer()
+                Button("Revert", systemImage: "arrow.uturn.backward") {
+                    onCancel()
+                }
+                .buttonStyle(.bordered)
+                .help("Discard uncommitted edits and restore the saved summary")
+                .accessibilityLabel("Revert summary changes")
+                Button("Done", systemImage: "checkmark") {
+                    onDone()
+                }
+                .buttonStyle(.borderedProminent)
+                .keyboardShortcut(.defaultAction)
+                .help("Save summary changes and return to the reading view")
+                .accessibilityLabel("Done editing summary")
+            }
+            .controlSize(.small)
+            .padding(.horizontal, 16)
+            .padding(.vertical, 10)
+            Divider()
+            ZStack(alignment: .topLeading) {
+                if text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                    Text("Type or paste your project summary here. You can use Markdown headings (#), paragraphs, and bullet points (-).")
+                        .font(.body)
+                        .foregroundStyle(.tertiary)
+                        .padding(.horizontal, 24)
+                        .padding(.vertical, 20)
+                        .allowsHitTesting(false)
+                }
+                TextEditor(text: $text)
+                    .font(.body)
+                    .lineSpacing(5)
+                    .padding(.horizontal, 18)
+                    .padding(.vertical, 14)
+                    .scrollContentBackground(.hidden)
+                    .background(Color(nsColor: .textBackgroundColor))
+                    .accessibilityLabel("Summary text editor")
+                    .accessibilityHint("Edit the summary directly right inside like in a notepad. Press Done to save.")
+            }
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
+        }
     }
 }

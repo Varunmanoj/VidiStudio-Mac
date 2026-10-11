@@ -242,7 +242,7 @@ enum UserFacingProgress {
         case "prepare-analysis-video": return "Preparing video for analysis…"
         case "check-video-availability": return "Checking video availability…"
         case "capture-frame": return "Reading text from the selected frame…"
-        case "save-cues", "save-segments": return "Saving your changes…"
+        case "save-cues", "save-segments", "save-summary": return "Saving your changes…"
         case "delete-export", "delete-generated", "delete-segment-audio": return "Updating the project…"
         case "doctor", "validate-config": return "Checking VidiStudio…"
         case "list-models": return "Loading available Gemini models…"
