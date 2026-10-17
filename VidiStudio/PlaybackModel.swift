@@ -249,7 +249,7 @@ final class PlaybackModel {
         stopDeviceSpeech()
         guard narrationEnabled, playing,
               let cue = project.cues.first(where: { time >= $0.start && time < $0.end }),
-              cue.audioText == cue.text,
+              cue.narrationUpdateReasons.isEmpty,
               let path = cue.audio, let url = project.url(path) else {
             narration?.stop(); narrationID = nil; setNarrationDucking(false); return
         }
@@ -327,6 +327,13 @@ final class PlaybackModel {
                 }
             }
         }
+    }
+    /// Move the playhead to a segment and preserve the current play state: keep
+    /// playing when the video was already playing (or buffering), otherwise just
+    /// jump and leave the video paused. Used by the left play control on rows.
+    func goTo(_ seconds: Double) {
+        guard seconds.isFinite else { return }
+        if playbackActive { play(from: seconds) } else { seek(seconds) }
     }
     func seek(_ seconds: Double) {
         guard seconds.isFinite else { return }

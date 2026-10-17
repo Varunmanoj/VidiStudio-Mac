@@ -10,6 +10,9 @@ struct ADOverviewView: View {
     private var ready: Int { project.cues.filter { audioStatus($0) == .generated }.count }
     private var stale: Int { project.cues.filter { audioStatus($0) == .needsRegeneration }.count }
     private var missing: Int { project.cues.filter { audioStatus($0) == .notGenerated }.count }
+    private var narrationControlsDisabled: Bool {
+        studio.busy || project.cues.isEmpty || (studio.settings.ttsMode == "gemini" && !studio.hasApiKey)
+    }
     private var selectedVoice: String {
         if studio.settings.ttsMode == "gemini" { return studio.settings.geminiVoice }
         if !studio.settings.systemVoice.isEmpty { return studio.settings.systemVoice }
@@ -79,12 +82,18 @@ struct ADOverviewView: View {
                                 .help(studio.settings.ttsMode == "gemini" && !studio.hasApiKey
                                     ? "Enter your Gemini API key in Settings → Gemini API to synthesize narration with Gemini TTS"
                                     : "Create narration audio for all Audio Description segments")
+                                .disabled(narrationControlsDisabled)
                             Button("Generate Missing or Changed Audio") { studio.execute("synthesize-tts", extra: ["--changed"]) }
                                 .help(studio.settings.ttsMode == "gemini" && !studio.hasApiKey
                                     ? "Enter your Gemini API key in Settings → Gemini API to synthesize narration with Gemini TTS"
-                                    : "Recreate narration only for descriptions whose text or voice settings changed")
+                                    : "Generate missing narration and regenerate descriptions with text, timing, or generation issues")
+                                .disabled(narrationControlsDisabled || stale + missing == 0)
                         }
-                        .disabled(studio.busy || project.cues.isEmpty || (studio.settings.ttsMode == "gemini" && !studio.hasApiKey))
+                        Button("Review Narration Issues") {
+                            studio.narrationFailureReport = studio.narrationIssueReport(for: project)
+                        }
+                        .help("Review missing audio, generation failures, and text or timing changes without generating narration")
+                        .disabled(studio.busy)
                         if studio.settings.ttsMode == "gemini" && !studio.hasApiKey {
                             HStack(spacing: 8) {
                                 Image(systemName: "key.slash.fill")
@@ -106,5 +115,82 @@ struct ADOverviewView: View {
             .frame(maxWidth: .infinity, alignment: .leading)
             .padding(20)
         }
+    }
+}
+
+/// Narration issues available after generation and from AD Overview at any time.
+struct NarrationFailuresView: View {
+    let report: NarrationFailureReport
+    @Environment(\.dismiss) private var dismiss
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 16) {
+            HStack(alignment: .top, spacing: 12) {
+                Image(systemName: report.failures.isEmpty ? "checkmark.circle.fill" : "exclamationmark.triangle.fill")
+                    .font(.title)
+                    .foregroundStyle(report.failures.isEmpty ? Color.green : Color.orange)
+                    .accessibilityHidden(true)
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(report.title)
+                        .font(.headline)
+                    Text(report.detail)
+                        .font(.subheadline)
+                        .foregroundStyle(.secondary)
+                }
+            }
+            .accessibilityElement(children: .combine)
+            if !report.failures.isEmpty {
+                Text("Start and end: HH:MM:SS.mmm (hours:minutes:seconds.milliseconds). Duration is in seconds.")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                ScrollView {
+                    Grid(alignment: .topLeading, horizontalSpacing: 12, verticalSpacing: 10) {
+                        GridRow {
+                            Text("AD").frame(width: 35, alignment: .leading)
+                            Text("Start").frame(width: 120, alignment: .leading)
+                            Text("End").frame(width: 120, alignment: .leading)
+                            Text("Duration").frame(width: 90, alignment: .leading)
+                            Text("Reason").frame(minWidth: 300, maxWidth: .infinity, alignment: .leading)
+                        }
+                        .font(.caption.weight(.semibold))
+                        .accessibilityHidden(true)
+                        Divider().gridCellColumns(5).gridCellUnsizedAxes(.horizontal)
+                        ForEach(report.failures) { failure in
+                            GridRow {
+                                Text(String(failure.id)).monospacedDigit()
+                                    .frame(width: 35, alignment: .leading)
+                                    .accessibilityLabel("AD segment \(failure.id)")
+                                Text(NarrationTimeFormat.timestamp(failure.start)).monospacedDigit()
+                                    .frame(width: 120, alignment: .leading)
+                                    .accessibilityLabel("Start: \(NarrationTimeFormat.spokenTime(failure.start))")
+                                Text(NarrationTimeFormat.timestamp(failure.end)).monospacedDigit()
+                                    .frame(width: 120, alignment: .leading)
+                                    .accessibilityLabel("End: \(NarrationTimeFormat.spokenTime(failure.end))")
+                                Text(NarrationTimeFormat.duration(failure.duration)).monospacedDigit()
+                                    .frame(width: 90, alignment: .leading)
+                                    .accessibilityLabel("Duration: \(NarrationTimeFormat.spokenDuration(failure.duration))")
+                                Text(failure.reason)
+                                    .fixedSize(horizontal: false, vertical: true)
+                                    .frame(minWidth: 300, maxWidth: .infinity, alignment: .leading)
+                                    .textSelection(.enabled)
+                                    .accessibilityLabel("Reason: \(failure.reason)")
+                            }
+                            .accessibilityElement(children: .combine)
+                            Divider().gridCellColumns(5).gridCellUnsizedAxes(.horizontal)
+                        }
+                    }
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                }
+                .frame(minWidth: 800, minHeight: 240, idealHeight: 340, maxHeight: 420)
+                .accessibilityLabel("Narration issues")
+            }
+            HStack {
+                Spacer()
+                Button("Done") { dismiss() }
+                    .keyboardShortcut(.defaultAction)
+            }
+        }
+        .padding(20)
+        .frame(minWidth: 840)
     }
 }

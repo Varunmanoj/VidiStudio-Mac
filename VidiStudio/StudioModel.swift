@@ -14,10 +14,27 @@ struct Segment: Codable, Identifiable, Hashable {
     var audioText: String?
     var audioDuration: Double?
     var audioSettings: String?
+    var audioStart: Double?
+    var audioEnd: Double?
+    var audioError: String?
     var origin: String?
     var aiOriginalText: String?
 
     var provenance: DescriptionOrigin { DescriptionOrigin(rawValue: origin ?? "") ?? .unknown }
+
+    var narrationUpdateReasons: [String] {
+        var reasons: [String] = []
+        if let error = audioError, !error.isEmpty { reasons.append(error) }
+        if audioText != text { reasons.append("Description text changed since the narration was generated.") }
+        if audioStart.map({ abs($0 - start) > 0.001 }) == true
+            || audioEnd.map({ abs($0 - end) > 0.001 }) == true {
+            reasons.append("Segment timing changed since the narration was generated.")
+        }
+        if let duration = audioDuration, duration > end - start + 0.001 {
+            reasons.append(String(format: "Narration is %.2fs but the segment timing only allows %.2fs.", duration, end - start))
+        }
+        return reasons
+    }
 }
 
 enum DescriptionOrigin: String, CaseIterable {
@@ -71,10 +88,9 @@ enum SynchronizedAudioStatus: Equatable {
               FileManager.default.fileExists(atPath: url.path) else {
             return .notGenerated
         }
-        // The settings signature records which voice created this file. A later
-        // voice change must not invalidate or replace otherwise synchronized
-        // project audio; only a text change requires regeneration.
-        return cue.audioText == cue.text
+        // Voice settings alone do not invalidate existing audio. Text/timing
+        // changes and saved generation issues do require attention.
+        return cue.narrationUpdateReasons.isEmpty
             ? .generated
             : .needsRegeneration
     }
@@ -213,6 +229,24 @@ struct AnalysisVideoAvailability: Codable {
 struct VideoPreparationActivity {
     let projectID: String
     let message: String
+}
+
+/// A description the engine could not narrate during a generation run.
+struct NarrationFailure: Identifiable, Hashable {
+    let id: Int
+    let start: Double
+    let end: Double
+    let duration: Double
+    let reason: String
+}
+
+/// The summary shown for narration status, both after a run and on demand.
+struct NarrationFailureReport: Identifiable {
+    let id = UUID()
+    let title: String
+    let detail: String
+    let generated: Int
+    let failures: [NarrationFailure]
 }
 
 /// Per-section processing state for the Transcript, Summary, and Audio
@@ -750,6 +784,7 @@ final class StudioModel {
     var progress = 0.0
     var error: String?
     var errorTitle = StudioModel.defaultErrorTitle
+    var narrationFailureReport: NarrationFailureReport?
     var logs: [String] = []
     var screenText: String?
     var screenTimestamp = 0.0
@@ -777,6 +812,36 @@ final class StudioModel {
     func dismissError() {
         error = nil
         errorTitle = StudioModel.defaultErrorTitle
+    }
+
+    /// Builds the narration status report from the current project so the issues
+    /// can be reviewed at any time without regenerating every description.
+    func narrationIssueReport(for project: StudioProject) -> NarrationFailureReport {
+        var failures: [NarrationFailure] = []
+        var ready = 0
+        for (index, cue) in project.cues.enumerated() {
+            var reasons: [String]
+            if SynchronizedAudioStatus.resolve(cue: cue, project: project) == .notGenerated {
+                if let error = cue.audioError, !error.isEmpty {
+                    reasons = [error]
+                } else {
+                    reasons = [cue.audio == nil ? "Narration audio has not been generated." : "The generated narration audio file is missing or unavailable."]
+                }
+            } else {
+                reasons = cue.narrationUpdateReasons
+            }
+            if !reasons.isEmpty {
+                failures.append(NarrationFailure(id: index + 1, start: cue.start, end: cue.end,
+                                                 duration: cue.end - cue.start, reason: reasons.joined(separator: "\n")))
+            } else {
+                ready += 1
+            }
+        }
+        let total = project.cues.count
+        let detail = total == 0 ? "There are no audio description segments in this project yet." : failures.isEmpty
+            ? "All \(total) audio description segments have current narration audio."
+            : "\(failures.count) of \(total) description\(total == 1 ? "" : "s") need attention."
+        return NarrationFailureReport(title: "Narration status", detail: detail, generated: ready, failures: failures)
     }
 
     func present(_ issue: UserFacingIssue, technicalDetails: String? = nil, context: String = "VidiStudio") {
@@ -1468,6 +1533,25 @@ final class StudioModel {
                             reload()
                             videoPreparationActivity = nil
                         default: break
+                        }
+                    }
+                    if let rawFailures = event["narrationFailures"] as? [[String: Any]] {
+                        let failures = rawFailures.compactMap { item -> NarrationFailure? in
+                            guard let index = item["index"] as? Int else { return nil }
+                            return NarrationFailure(
+                                id: index,
+                                start: item["start"] as? Double ?? 0,
+                                end: item["end"] as? Double ?? 0,
+                                duration: item["duration"] as? Double ?? 0,
+                                reason: item["reason"] as? String ?? "Unknown error")
+                        }
+                        if !failures.isEmpty {
+                            let generated = event["narrationGenerated"] as? Int ?? 0
+                            narrationFailureReport = NarrationFailureReport(
+                                title: "Some descriptions need attention",
+                                detail: "Narration finished for \(generated) description\(generated == 1 ? "" : "s"). \(failures.count) could not be created.",
+                                generated: generated,
+                                failures: failures)
                         }
                     }
                     if let path = event["export"] as? String { completedExportPath = path }

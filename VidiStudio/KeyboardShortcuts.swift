@@ -23,6 +23,8 @@ final class EditorShortcutActions {
     var canGenerateDescriptions = false
     var hasNarrationAudio = false
     var hasDescriptions = false
+    /// True when at least one description changed after its narration was generated.
+    var hasChangedNarration = false
     var hasGeneratedTranscript = false
     var hasGeneratedSummary = false
     var hasGeneratedThumbnails = false
@@ -118,9 +120,13 @@ final class EditorShortcutActions {
         case "prepare-video": return true
         case "transcribe", "generate-summary": return hasValidApiKey
         case "generate-ad-cues": return hasValidApiKey && canGenerateDescriptions
-        case "synthesize-tts", "synthesize-changed":
+        case "synthesize-tts":
             if ttsUsesGemini && !hasValidApiKey { return false }
             return hasDescriptions
+        case "synthesize-changed":
+            if ttsUsesGemini && !hasValidApiKey { return false }
+            return hasChangedNarration
+        case "review-narration-issues": return true
         case "delete-transcript": return hasGeneratedTranscript
         case "delete-summary": return hasGeneratedSummary
         case "delete-descriptions": return hasDescriptions
@@ -363,6 +369,8 @@ struct StudioCommands: Commands {
                     .disabled(editor?.canRun("synthesize-tts") != true)
                 Button("Synthesize Changed Segments", systemImage: "waveform") { editor?.run("synthesize-changed") }
                     .disabled(editor?.canRun("synthesize-changed") != true)
+                Button("Review Narration Issues…", systemImage: "list.bullet.clipboard") { editor?.run("review-narration-issues") }
+                    .disabled(editor?.canRun("review-narration-issues") != true)
                 Divider()
                 shortcutEntries(StudioShortcut.editor.filter { $0.id == "delete-narration" })
             }

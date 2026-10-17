@@ -1552,7 +1552,7 @@ struct ProjectEditor: View {
     }
 
     private func previewPrimaryControlIcon(for cue: Segment) -> String {
-        activePreviewCueID == cue.id ? "stop.circle" : "play.circle"
+        activePreviewCueID == cue.id ? "stop.circle" : "speaker.wave.2.circle"
     }
 
     private var previewPauseControlTitle: String {
@@ -1638,17 +1638,15 @@ struct ProjectEditor: View {
                                     .labelsHidden()
                                     .accessibilityLabel("Select \(row.kind.lowercased()) segment at \(timecode(cue.start))")
                             }
-                            if tab == "transcript" || tab == "ad-transcript" {
-                                Button {
-                                    if row.isDescription { playback.narrationEnabled = true }
-                                    playback.play(from: cue.start)
-                                } label: {
-                                    Image(systemName: "play.fill").accessibilityHidden(true)
-                                }
-                                .buttonStyle(.borderless)
-                                .accessibilityLabel(row.playbackLabel)
-                                .help(row.playbackLabel)
+                            Button {
+                                if row.isDescription { playback.narrationEnabled = true }
+                                playback.goTo(cue.start)
+                            } label: {
+                                Image(systemName: "play.fill").accessibilityHidden(true)
                             }
+                            .buttonStyle(.borderless)
+                            .accessibilityLabel(row.playbackLabel)
+                            .help(row.playbackLabel)
                             Button { playback.seek(cue.start) } label: {
                                 VStack { Text(timecode(cue.start)); Text(timecode(cue.end)).foregroundStyle(.secondary) }.monospacedDigit().font(.caption)
                             }.buttonStyle(.plain).help("Seek to \(timecode(cue.start))")
@@ -1907,6 +1905,7 @@ struct ProjectEditor: View {
         case "redo": studio.execute(tab == "transcript" ? "redo-transcript" : "redo-cues")
         case "synthesize-tts": studio.execute(action)
         case "synthesize-changed": studio.execute("synthesize-tts", extra: ["--changed"])
+        case "review-narration-issues": studio.narrationFailureReport = studio.narrationIssueReport(for: project)
         case "show-in-finder": if let folder = project.folder { NSWorkspace.shared.open(folder) }
         case "analyze", "prepare-video", "transcribe", "generate-summary": studio.execute(action)
         case "generate-ad-cues":
@@ -1974,6 +1973,9 @@ struct ProjectEditor: View {
         shortcutActions.canRedoSegment = !(tab == "transcript" ? project.transcriptRedoStack ?? [] : project.redoStack ?? []).isEmpty
         shortcutActions.hasNarrationAudio = GeneratedContentComponent.narration.hasContent(in: project)
         shortcutActions.hasDescriptions = GeneratedContentComponent.descriptions.hasContent(in: project)
+        shortcutActions.hasChangedNarration = project.cues.contains {
+            SynchronizedAudioStatus.resolve(cue: $0, project: project) == .needsRegeneration
+        }
         shortcutActions.hasGeneratedTranscript = GeneratedContentComponent.transcript.hasContent(in: project)
         shortcutActions.hasGeneratedSummary = GeneratedContentComponent.summary.hasContent(in: project)
         shortcutActions.hasApiKey = studio.hasApiKey
@@ -2114,6 +2116,9 @@ struct ProjectEditor: View {
                 selectedSegmentIDs.removeAll()
                 segmentEditMode = false
             }
+        }
+        .sheet(item: $studio.narrationFailureReport) { report in
+            NarrationFailuresView(report: report)
         }
     }
 

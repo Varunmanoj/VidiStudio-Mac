@@ -270,6 +270,103 @@ class Validation(unittest.TestCase):
             'AD segment 1 takes 14.8s but has 10.4s. Shorten its text or extend its gap.',
         )
 
+    def test_narration_duration_failure_remains_available_after_reopening(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            project = {'duration': 20, 'transcript': [], 'cues': [
+                {'id': 'ad', 'start': 1, 'end': 11.4, 'text': 'A long description.'}
+            ]}
+            def speech(output, text, project):
+                output.write_bytes(b'generated audio that does not fit')
+            with patch.object(engine, 'config', return_value={'ttsMode': 'gemini'}), \
+                 patch.object(engine, 'gemini_speech', speech), \
+                 patch.object(engine, 'probe', return_value={'format': {'duration': 14.8}}), \
+                 patch.object(engine, 'emit') as emit:
+                engine.synthesize(root, project)
+            reopened = json.loads((root/'project.json').read_text())
+            expected = 'AD segment 1 takes 14.8s but has 10.4s. Shorten its text or extend its gap.'
+            self.assertEqual(reopened['cues'][0]['audioError'], expected)
+            report = next(call.kwargs for call in emit.call_args_list if 'narrationFailures' in call.kwargs)
+            self.assertEqual(report['narrationFailures'][0]['reason'], expected)
+            self.assertEqual(report['narrationGenerated'], 0)
+            self.assertFalse(list((root/'audio-description').iterdir()))
+
+    def test_one_failing_description_does_not_stop_the_rest(self):
+        with tempfile.TemporaryDirectory(prefix='vidistudio-test-') as temp:
+            root = Path(temp)
+            project = {
+                'id': 'narration', 'name': 'Narration sample', 'duration': 30,
+                'source': 'source.mp4', 'transcript': [],
+                'cues': [
+                    {'id': 'a', 'start': 1, 'end': 4, 'text': 'First description.'},
+                    {'id': 'b', 'start': 5, 'end': 6, 'text': 'This one fails.'},
+                    {'id': 'c', 'start': 7, 'end': 10, 'text': 'Third description.'},
+                ],
+            }
+            engine.save(root, project)
+            (root/'source.mp4').write_bytes(b'placeholder')
+            events = []
+            def fake_speech(output, text, proj):
+                if text == 'This one fails.':
+                    raise ValueError('Gemini returned no audio. Check the TTS model and selected voice in Settings.')
+                output.write_bytes(b'RIFF\x00\x00\x00\x00WAVE')
+            with patch.object(engine, 'emit', lambda message, **values: events.append(dict(message=message, **values))), \
+                 patch.object(engine, 'config', lambda: {'ttsMode': 'gemini', 'geminiVoice': 'Kore'}), \
+                 patch.object(engine, 'gemini_speech', fake_speech), \
+                 patch.object(engine, 'probe', lambda path: {'format': {'duration': 2.0}}):
+                engine.synthesize(root, project)
+            saved = json.loads((root/'project.json').read_text())
+            by_id = {c['id']: c for c in saved['cues']}
+            self.assertTrue(by_id['a'].get('audio') and by_id['c'].get('audio'))
+            self.assertNotIn('audio', by_id['b'])
+            report = next((e for e in events if 'narrationFailures' in e), None)
+            self.assertIsNotNone(report)
+            self.assertEqual(report['narrationGenerated'], 2)
+            self.assertEqual(len(report['narrationFailures']), 1)
+            failure = report['narrationFailures'][0]
+            self.assertEqual(failure['index'], 2)
+            self.assertEqual((failure['start'], failure['end'], failure['duration']), (5.0, 6.0, 1.0))
+            self.assertIn('no audio', failure['reason'].lower())
+            self.assertEqual(by_id['b']['audioError'], failure['reason'])
+            self.assertEqual((by_id['a']['audioStart'], by_id['a']['audioEnd']), (1, 4))
+
+            # Reopen the saved project and retry just the issue, retaining the
+            # successful files. A later timing-only edit must also be selected.
+            created = []
+            def successful_speech(output, text, proj):
+                created.append(text)
+                output.write_bytes(b'audio')
+            with patch.object(engine, 'emit'), \
+                 patch.object(engine, 'config', return_value={'ttsMode': 'gemini', 'geminiVoice': 'Kore'}), \
+                 patch.object(engine, 'gemini_speech', successful_speech), \
+                 patch.object(engine, 'probe', return_value={'format': {'duration': 0.5}}):
+                engine.synthesize(root, saved, changed=True)
+                self.assertEqual(created, ['This one fails.'])
+                self.assertNotIn('audioError', saved['cues'][1])
+                self.assertEqual(saved['cues'][0]['audio'], by_id['a']['audio'])
+                saved['cues'][0].update(start=1.5, end=4.5)
+                created.clear()
+                engine.synthesize(root, saved, changed=True)
+                self.assertEqual(created, ['First description.'])
+                self.assertEqual((saved['cues'][0]['audioStart'], saved['cues'][0]['audioEnd']), (1.5, 4.5))
+
+    def test_legacy_narration_timing_is_preserved_before_edit(self):
+        cue = {'id': 'ad', 'start': 1, 'end': 4, 'text': 'Description',
+               'audio': 'audio-description/ad.wav', 'audioText': 'Description', 'audioDuration': 2}
+        project = {'duration': 20, 'transcript': [], 'cues': [cue], 'exports': []}
+        self.assertFalse(engine.narration_audio_needs_regeneration(cue))
+        edited = deepcopy(cue)
+        edited.update(start=2, end=5, audioStart=None, audioEnd=None)
+        engine.save_segments(project, [], [edited])
+        self.assertEqual((edited['audioStart'], edited['audioEnd']), (1, 4))
+        self.assertTrue(engine.narration_audio_needs_regeneration(edited))
+        restored = deepcopy(edited)
+        restored.update(start=1, end=4)
+        engine.save_segments(project, [], [restored])
+        self.assertFalse(engine.narration_audio_needs_regeneration(restored))
+        restored['end'] = 2
+        self.assertTrue(engine.narration_audio_needs_regeneration(restored))
+
     def test_description_generation_requires_transcript_and_summary(self):
         with tempfile.TemporaryDirectory() as temp:
             root = Path(temp)
