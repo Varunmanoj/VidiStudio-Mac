@@ -2,6 +2,17 @@
 
 A native SwiftUI and AVKit video accessibility editor with a portable Python command-line engine. Requires macOS 26 or later. The app uses local project folders; there is no Firebase, Firestore, sign-in, or cloud storage dependency. The editor is native; a WebKit view embeds only the YouTube player for YouTube projects.
 
+## Official Repositories & Live Website
+
+VidiStudio is maintained across dedicated desktop repositories and an online showcase:
+
+| Component | Platform / Role | Repository URL | Links |
+| :--- | :--- | :--- | :--- |
+| **macOS Application** | Native SwiftUI / AVKit (macOS 26+) | `https://github.com/Varunmanoj/VidiStudio-Mac.git` | [GitHub Repo](https://github.com/Varunmanoj/VidiStudio-Mac) |
+| **Windows Application** | Native WinUI 3 / .NET 8 (ARM64 & x64) | `https://github.com/Varunmanoj/Vidi-Studio-Windows.git` | [GitHub Repo](https://github.com/Varunmanoj/Vidi-Studio-Windows) |
+| **Online Showcase & Web** | React / Vite Landing Page & Documentation | `https://github.com/Varunmanoj/VidiStudio.git` | [GitHub Repo](https://github.com/Varunmanoj/VidiStudio) |
+| **Official Website** | Live Product Showcase & Feature Guide | — | [accessivideo.pages.dev](https://accessivideo.pages.dev/) |
+
 ## Build and run
 
 ```sh
