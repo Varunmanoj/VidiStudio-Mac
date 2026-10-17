@@ -1,3 +1,11 @@
+## 2026-10-17 — In-project progress indicators for Transcript, Summary, and Descriptions — version 1.0.63 (build 64)
+
+Analysis no longer replaces the editor content with a blocking card. Each section now shows its own progress in place: an inline spinner with a stage title (Generating transcript / Generating summary / Generating audio descriptions, or Preparing to upload / Uploading video) appears over the section being generated, a "Waiting to generate …" spinner appears over sections still in the queued plan, and a small ring also sits beside the section group in the inspector. A slim status bar above the section content carries the same stage title, the live engine message, and a Cancel button, and it appears only for section analysis. Navigation between sections stays enabled during an analysis run; the whole workspace is no longer locked.
+
+The plan is derived from the command (`analyze`/`regenerate-all` = transcript → summary → descriptions, plus the single-stage transcribe, summary, and description commands) and trimmed by `--start-stage`. Because the engine emits `processingSection` only when a stage starts and `videoPreparation` while the Files API upload runs, the model keeps a queued plan and advances on each stage-start event, clearing everything on completion, failure, or cancellation.
+
+Validation: `xcrun swiftc -parse` passed for the changed Swift files. `VIDISTUDIO_CONFIGURATION=Release ./script/build_and_run.sh --verify` passed with normal macOS access, validated the packaged registration plus all 13 Help pages, links, style, and search index, and launched process 70345; the bundle reports 1.0.63/build 64. `tests/test_parity.py` passed all 4 tests, `tests/test_engine.py` passed all 47 tests, `tests/test_segment_reanalysis.py` passed 16 tests, and `tests/test_transcript_reanalysis.py` passed 11 tests. `git diff --check` passed. The rendered spinners, queued labels, and VoiceOver announcements were not visually inspected, and no live Gemini analysis was run. No commit or push was made.
+
 ## 2026-10-17 — High-contrast red playhead and smooth playback synchronization across timeline tracks — version 1.0.62 (build 63)
 
 Implemented a high-contrast red playhead across all timeline tracks and resolved video playback synchronization lag:

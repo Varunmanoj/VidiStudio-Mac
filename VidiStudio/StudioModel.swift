@@ -215,6 +215,18 @@ struct VideoPreparationActivity {
     let message: String
 }
 
+/// Per-section processing state for the Transcript, Summary, and Audio
+/// Description sections. Sections run one stage at a time, so the section that
+/// owns the current engine stage shows a spinner while later stages wait their
+/// turn. Navigation between sections stays available throughout.
+enum SectionProcessingState: Equatable {
+    case idle
+    case queued
+    case active
+
+    var isProcessing: Bool { self != .idle }
+}
+
 struct StudioProject: Codable, Identifiable {
     var schemaVersion: Int
     var id: String
@@ -721,6 +733,10 @@ final class StudioModel {
     var settingsSection = "Appearance"
     var busy = false
     var processingSection: String?
+    /// Ordered analysis stages for the run in progress (for example
+    /// `["transcript", "summary", "descriptions"]` for Analyze Video). Empty for
+    /// commands that do not process a section.
+    var processingPlan: [String] = []
     var videoPreparationActivity: VideoPreparationActivity?
     var exportActivity: ExportSession? {
         didSet {
@@ -1371,6 +1387,7 @@ final class StudioModel {
                 projectID: target.id, message: "Checking video availability")
         }
         processingSection = Self.initialProcessingSection(for: command)
+        processingPlan = Self.analysisSections(for: command, extra: extra)
         var completedExportPath: String?
         var completedProjectPath: String?
         progress = 0
@@ -1394,6 +1411,7 @@ final class StudioModel {
             cancellationRequested = false
             videoPreparationActivity = nil
             processingSection = nil
+            processingPlan = []
             process = nil
             present(issue, technicalDetails: detail, context: "Start \(command)")
             completion?(nil)
@@ -1509,6 +1527,7 @@ final class StudioModel {
             exportActivity = nil
             cancellationRequested = false
             processingSection = nil
+            processingPlan = []
             process = nil
             reload()
             videoPreparationActivity = nil
@@ -1545,6 +1564,51 @@ final class StudioModel {
         case "generate-summary": return "summary"
         case "generate-ad-cues", "reanalyze-segment", "prepare-analysis-video": return "descriptions"
         default: return nil
+        }
+    }
+
+    /// The ordered analysis stages a command processes. Only commands that emit
+    /// a `processingSection` event are listed so the per-section spinner never
+    /// waits on a stage that will not report progress.
+    private static func analysisSections(for command: String, extra: [String]) -> [String] {
+        let stages: [String]
+        switch command {
+        case "analyze", "regenerate-all": stages = ["transcript", "summary", "descriptions"]
+        case "transcribe", "reanalyze-transcript-segment": stages = ["transcript"]
+        case "generate-summary": stages = ["summary"]
+        case "generate-ad-cues", "reanalyze-segment", "prepare-analysis-video": stages = ["descriptions"]
+        default: return []
+        }
+        guard let flagIndex = extra.firstIndex(of: "--start-stage"), extra.indices.contains(flagIndex + 1) else { return stages }
+        let startStage = extra[flagIndex + 1]
+        guard let index = stages.firstIndex(of: startStage) else { return stages }
+        return Array(stages[index...])
+    }
+
+    /// Combined processing state for a group of section keys (a tab can show
+    /// more than one stage, such as the AD Transcript list).
+    func sectionProcessingState(for sections: [String]) -> SectionProcessingState {
+        guard busy, exportActivity == nil, !processingPlan.isEmpty, !sections.isEmpty else { return .idle }
+        let current = processingSection ?? processingPlan.first ?? ""
+        guard let currentIndex = processingPlan.firstIndex(of: current) else { return .idle }
+        if sections.contains(current) { return .active }
+        let queued = sections.contains { section in
+            guard let index = processingPlan.firstIndex(of: section) else { return false }
+            return index > currentIndex
+        }
+        return queued ? .queued : .idle
+    }
+
+    /// Short, user-facing stage label shown in the project status bar while a
+    /// section is processed. Video preparation takes precedence so the Files API
+    /// upload step is called out before the stage name.
+    var processingStageTitle: String {
+        if let activity = videoPreparationActivity { return activity.message }
+        switch processingSection {
+        case "transcript": return "Generating transcript"
+        case "summary": return "Generating summary"
+        case "descriptions": return "Generating audio descriptions"
+        default: return processingPlan.isEmpty ? "Processing project" : "Processing"
         }
     }
 

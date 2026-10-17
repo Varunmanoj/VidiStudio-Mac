@@ -522,6 +522,15 @@ struct ProcessingInspector: View {
         }
     }
 
+    private var currentSectionKeys: [String] {
+        switch editorActions.activeSection {
+        case "transcript": return ["transcript"]
+        case "summary": return ["summary"]
+        case "descriptions", "ad-overview": return ["descriptions"]
+        default: return []
+        }
+    }
+
     var body: some View {
         VStack(spacing: 0) {
             if let project = studio.selected {
@@ -555,6 +564,23 @@ struct ProcessingInspector: View {
                                             .font(.caption)
                                             .foregroundStyle(.secondary)
                                     }
+                                }
+                                let sectionState = studio.sectionProcessingState(for: currentSectionKeys)
+                                if sectionState.isProcessing {
+                                    HStack(spacing: 6) {
+                                        ProgressView()
+                                            .controlSize(.small)
+                                            .accessibilityHidden(true)
+                                        Text(sectionState == .queued
+                                            ? "Waiting to generate \(sectionTitle.lowercased())…"
+                                            : studio.processingStageTitle)
+                                            .font(.caption)
+                                            .foregroundStyle(.secondary)
+                                    }
+                                    .accessibilityElement(children: .ignore)
+                                    .accessibilityLabel(sectionState == .queued
+                                        ? "Waiting to generate \(sectionTitle.lowercased())"
+                                        : studio.processingStageTitle)
                                 }
                                 if let action = editorActions.currentGenerationAction,
                                    let title = editorActions.currentGenerationTitle {
@@ -956,6 +982,37 @@ private struct TranscriptCaptionOverlay: View {
     }
 }
 
+/// Inline spinner shown inside a section while its stage runs (or while it
+/// waits its turn). It replaces only the section body, so the editor toolbar,
+/// preview, timeline, and inspector stay available for navigation.
+private struct SectionProcessingIndicator: View {
+    let title: String
+    let detail: String
+
+    var body: some View {
+        VStack(spacing: 16) {
+            ProgressView()
+                .controlSize(.large)
+                .scaleEffect(1.6)
+                .frame(width: 64, height: 64)
+            Text(title)
+                .font(.headline)
+                .multilineTextAlignment(.center)
+            if !detail.isEmpty {
+                Text(detail)
+                    .font(.callout)
+                    .foregroundStyle(.secondary)
+                    .multilineTextAlignment(.center)
+                    .frame(maxWidth: 420)
+            }
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel([title, detail].filter { !$0.isEmpty }.joined(separator: ". "))
+        .accessibilityHint("VidiStudio is working. This indicator continues spinning until the section finishes.")
+    }
+}
+
 struct ProjectEditor: View {
     var shortcutsBlocked = false
     @Bindable var studio: StudioModel
@@ -1072,11 +1129,34 @@ struct ProjectEditor: View {
         reduceMotion ? nil : .smooth(duration: 0.22)
     }
 
-    private var showsProcessingForCurrentSection: Bool {
-        guard studio.busy else { return false }
-        guard studio.exportActivity == nil else { return false }
-        guard let processingSection = studio.processingSection else { return true }
-        return processingSection == tab
+    /// Section keys shown by each editor tab. A tab can surface more than one
+    /// stage (AD Transcript combines the transcript and description stages).
+    private func processingSections(for tab: String) -> [String] {
+        switch tab {
+        case "transcript": return ["transcript"]
+        case "summary": return ["summary"]
+        case "descriptions": return ["descriptions"]
+        case "ad-overview": return ["descriptions"]
+        case "ad-transcript": return ["transcript", "descriptions"]
+        default: return []
+        }
+    }
+
+    private var currentProcessingState: SectionProcessingState {
+        studio.sectionProcessingState(for: processingSections(for: tab))
+    }
+
+    private var showsProjectStatusBar: Bool {
+        studio.busy && studio.exportActivity == nil
+    }
+
+    private var sectionProcessingName: String {
+        switch tab {
+        case "transcript": return "the transcript"
+        case "summary": return "the summary"
+        case "descriptions", "ad-overview", "ad-transcript": return "audio descriptions"
+        default: return "this section"
+        }
     }
 
     private func cycleCaptionDisplayMode() {
@@ -1247,13 +1327,21 @@ struct ProjectEditor: View {
 
     @ViewBuilder
     private var processingControlBar: some View {
-        if showsProcessingForCurrentSection {
+        if showsProjectStatusBar {
             HStack(spacing: 12) {
-                Text(studio.message)
-                    .font(.callout)
-                    .foregroundStyle(.secondary)
-                    .lineLimit(2)
-                    .accessibilityLabel("Processing status: \(studio.message)")
+                ProgressView()
+                    .controlSize(.small)
+                    .accessibilityHidden(true)
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(studio.processingStageTitle)
+                        .font(.callout.weight(.semibold))
+                    Text(studio.message)
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                        .lineLimit(2)
+                }
+                .accessibilityElement(children: .ignore)
+                .accessibilityLabel("\(studio.processingStageTitle). \(studio.message)")
                 Spacer(minLength: 12)
                 Button {
                     studio.cancelCurrentOperation()
@@ -1505,19 +1593,13 @@ struct ProjectEditor: View {
             editorToolbar
             if let error = playback.speechError { Text(error).foregroundStyle(.red).padding(8) }
             Divider()
-            if showsProcessingForCurrentSection {
-                VStack {
-                    Spacer(minLength: 24)
-                    ProgressView()
-                        .controlSize(.large)
-                        .scaleEffect(2)
-                        .frame(width: 88, height: 88)
-                        .accessibilityLabel("Processing")
-                        .accessibilityValue(studio.message)
-                        .accessibilityHint("VidiStudio is working. This indicator continues spinning until processing finishes.")
-                    Spacer(minLength: 24)
-                }
-                .frame(maxWidth: .infinity, maxHeight: .infinity)
+            if currentProcessingState.isProcessing {
+                SectionProcessingIndicator(
+                    title: currentProcessingState == .queued ? "Waiting to generate \(sectionProcessingName)" : studio.processingStageTitle,
+                    detail: currentProcessingState == .queued
+                        ? "This section updates automatically when its turn arrives. You can keep working in other sections."
+                        : studio.message
+                )
             } else if tab == "ad-overview" {
                 ADOverviewView(studio: studio, project: project)
             } else if tab == "summary" {
