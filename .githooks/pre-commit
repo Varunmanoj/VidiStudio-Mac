@@ -3,6 +3,8 @@ set -e
 # Auto-sync app version between macOS and Windows
 if command -v python3 >/dev/null 2>&1; then
   python3 script/sync_version.py --sync
+  python3 script/check_menu_parity.py --allow-missing
 elif command -v python >/dev/null 2>&1; then
   python script/sync_version.py --sync
+  python script/check_menu_parity.py --allow-missing
 fi

@@ -4,6 +4,7 @@ cd "$SRCROOT"
 export PATH="/opt/homebrew/bin:/usr/local/bin:$PATH"
 mkdir -p build
 python3 script/sync_version.py --sync
+python3 script/check_menu_parity.py --allow-missing
 if [[ ! -f build/engine/vidistudio-engine/.complete ]] || [[ -n "$(find engine -type f ! -path "*/__pycache__/*" -newer build/engine/vidistudio-engine/.complete -print -quit 2>/dev/null)" ]]; then
   ./script/prepare_engine.sh
 fi

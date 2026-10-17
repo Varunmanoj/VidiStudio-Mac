@@ -1973,6 +1973,7 @@ struct ProjectEditor: View {
         shortcutActions.canRedoSegment = !(tab == "transcript" ? project.transcriptRedoStack ?? [] : project.redoStack ?? []).isEmpty
         shortcutActions.hasNarrationAudio = GeneratedContentComponent.narration.hasContent(in: project)
         shortcutActions.hasDescriptions = GeneratedContentComponent.descriptions.hasContent(in: project)
+        shortcutActions.descriptionCount = project.cues.count
         shortcutActions.hasChangedNarration = project.cues.contains {
             SynchronizedAudioStatus.resolve(cue: $0, project: project) == .needsRegeneration
         }

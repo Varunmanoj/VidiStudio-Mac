@@ -23,6 +23,7 @@ final class EditorShortcutActions {
     var canGenerateDescriptions = false
     var hasNarrationAudio = false
     var hasDescriptions = false
+    var descriptionCount = 0
     /// True when at least one description changed after its narration was generated.
     var hasChangedNarration = false
     var hasGeneratedTranscript = false
@@ -118,11 +119,11 @@ final class EditorShortcutActions {
         case "caption-transcript": return captionControlsAvailable && hasTranscriptText
         case "caption-ad-transcript": return captionControlsAvailable && (hasTranscriptText || hasDescriptions)
         case "prepare-video": return true
-        case "transcribe", "generate-summary": return hasValidApiKey
+        case "analyze", "transcribe", "generate-summary": return hasValidApiKey
         case "generate-ad-cues": return hasValidApiKey && canGenerateDescriptions
         case "synthesize-tts":
             if ttsUsesGemini && !hasValidApiKey { return false }
-            return hasDescriptions
+            return descriptionCount > 0
         case "synthesize-changed":
             if ttsUsesGemini && !hasValidApiKey { return false }
             return hasChangedNarration
@@ -235,7 +236,7 @@ struct StudioShortcut: Identifiable {
         .init(id: "reanalyze-selection", title: "Re-Analyze a Video Section", key: "r", modifiers: [.command, .option], spoken: "Command + Option + R", group: "Segments"),
         .init(id: "add", title: "Add Segment", key: "n", modifiers: [.command, .shift], spoken: "Command + Shift + N", group: "Segments"),
         .init(id: "segment-select-all", title: "Select All Segments", key: "a", modifiers: [.command, .option], spoken: "Command + Option + A", group: "Segments"),
-        .init(id: "segment-deselect-all", title: "Deselect All Segments", key: "a", modifiers: [.command, .option, .shift], spoken: "Command + Option + Shift + A", group: "Segments"),
+        .init(id: "segment-deselect-all", title: "Deselect All Segments", key: "u", modifiers: [.command, .option, .shift], spoken: "Command + Option + Shift + U", group: "Segments"),
         .init(id: "segment-edit-selected", title: "Edit Selected Segments…", key: .return, modifiers: [.command, .option], spoken: "Command + Option + Return", group: "Segments"),
         .init(id: "segment-delete-selected", title: "Delete Selected Segments…", key: .delete, modifiers: [.command, .control], spoken: "Command + Control + Delete", group: "Segments"),
         .init(id: "follow", title: "Toggle Transcript Follow", key: "f", modifiers: [.command, .shift], spoken: "Command + Shift + F", group: "Editor"),
@@ -338,7 +339,7 @@ struct StudioCommands: Commands {
                     .keyboardShortcut("a", modifiers: [.command, .option])
                     .disabled(editor?.canRun("segment-select-all") != true)
                 Button("Deselect All Segments", systemImage: "square") { editor?.run("segment-deselect-all") }
-                    .keyboardShortcut("a", modifiers: [.command, .option, .shift])
+                    .keyboardShortcut("u", modifiers: [.command, .option, .shift])
                     .disabled(editor?.canRun("segment-deselect-all") != true)
                 Button("Edit Selected Segments…", systemImage: "square.and.pencil") { editor?.run("segment-edit-selected") }
                     .keyboardShortcut(.return, modifiers: [.command, .option])
