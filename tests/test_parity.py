@@ -69,4 +69,12 @@ class Parity(unittest.TestCase):
             self.assertNotIn(deleted,project['exports'])
             self.assertFalse((root/deleted).exists())
             self.assertFalse((root/'metadata/trash').exists())
+
+    def test_app_version_parity(self):
+        script = Path(__file__).resolve().parents[1] / 'script' / 'sync_version.py'
+        if script.exists():
+            import subprocess
+            res = subprocess.run([sys.executable, str(script), '--check'], capture_output=True, text=True)
+            self.assertEqual(res.returncode, 0, f"App versions are out of sync across macOS and Windows:\n{res.stdout}\n{res.stderr}")
+
 if __name__=='__main__':unittest.main()

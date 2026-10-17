@@ -1,0 +1,8 @@
+#!/usr/bin/env bash
+set -e
+# Auto-sync app version between macOS and Windows
+if command -v python3 >/dev/null 2>&1; then
+  python3 script/sync_version.py --sync
+elif command -v python >/dev/null 2>&1; then
+  python script/sync_version.py --sync
+fi

@@ -6,6 +6,7 @@ MODE="${1:-run}"
 CONFIGURATION="${VIDISTUDIO_CONFIGURATION:-Debug}"
 mkdir -p build
 pkill -x VidiStudio >/dev/null 2>&1 || true
+python3 script/sync_version.py --sync
 if [[ ! -f build/engine/vidistudio-engine/.complete ]] || [[ -n "$(find engine -type f ! -path "*/__pycache__/*" -newer build/engine/vidistudio-engine/.complete -print -quit 2>/dev/null)" ]]; then
   ./script/prepare_engine.sh
 fi
