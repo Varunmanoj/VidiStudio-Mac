@@ -202,6 +202,7 @@ final class PlaybackModel {
         deviceSpeech.stopSpeaking(at: .immediate); deviceCue = nil
     }
     var webView: WKWebView?
+    var isScrubbing = false
     private var observer: Any?
     @ObservationIgnored private var playbackRequestID = UUID()
 
@@ -211,9 +212,9 @@ final class PlaybackModel {
     }
     func observe() {
         guard observer == nil else { return }
-        observer = player.addPeriodicTimeObserver(forInterval: CMTime(seconds: 0.15, preferredTimescale: 600), queue: .main) { [weak self] time in
-            Task { @MainActor [weak self] in
-                guard let self, time.seconds.isFinite, self.webView == nil else { return }
+        observer = player.addPeriodicTimeObserver(forInterval: CMTime(seconds: 0.033, preferredTimescale: 600), queue: .main) { [weak self] time in
+            MainActor.assumeIsolated {
+                guard let self, time.seconds.isFinite, self.webView == nil, !self.isScrubbing else { return }
                 self.time = time.seconds
                 self.playing = self.player.timeControlStatus == .playing
                 self.buffering = self.player.timeControlStatus == .waitingToPlayAtSpecifiedRate
@@ -275,11 +276,17 @@ final class PlaybackModel {
         if playing || player.timeControlStatus == .playing { stopNarration() }
         if let webView { webView.evaluateJavaScript("player && ([1, 3].includes(player.getPlayerState()) ? player.pauseVideo() : player.playVideo())", completionHandler: nil) }
         else if player.timeControlStatus != .paused { pausePlayback() }
-        else { player.play() }
+        else {
+            observe()
+            player.play()
+        }
     }
     func playPlayback() {
         if let webView { webView.evaluateJavaScript("player?.playVideo()", completionHandler: nil) }
-        else { player.play() }
+        else {
+            observe()
+            player.play()
+        }
     }
     func pauseAndCaptureTime(_ completion: @escaping (Double) -> Void) {
         cancelPendingPlayback()
@@ -312,6 +319,7 @@ final class PlaybackModel {
         if let webView {
             webView.evaluateJavaScript("player && (player.seekTo(\(time), true), player.playVideo())", completionHandler: nil)
         } else {
+            observe()
             player.seek(to: CMTime(seconds: time, preferredTimescale: 600), toleranceBefore: .zero, toleranceAfter: .zero) { [weak self] finished in
                 Task { @MainActor [weak self] in
                     guard finished, let self, self.playbackRequestID == requestID else { return }
@@ -327,7 +335,7 @@ final class PlaybackModel {
         stopNarration()
         time = max(0, seconds)
         if let webView { webView.evaluateJavaScript("player?.seekTo(\(time),true)", completionHandler: nil) }
-        else { player.seek(to: CMTime(seconds: time, preferredTimescale: 600)) }
+        else { player.seek(to: CMTime(seconds: time, preferredTimescale: 600), toleranceBefore: .zero, toleranceAfter: .zero) }
     }
     func seekRelative(_ seconds: Double, duration: Double) {
         guard seconds.isFinite, duration.isFinite, time.isFinite else { return }
@@ -395,7 +403,7 @@ struct YouTubePlayer: NSViewRepresentable {
         // Keep YouTube's own captions/transcript state and keyboard controls
         // under YouTube's ownership. The SwiftUI transcript overlay sits above
         // this view without hit testing, so it does not replace or intercept them.
-        var player; function onYouTubeIframeAPIReady(){player=new YT.Player('player',{videoId:'\(id)',playerVars:{playsinline:1,disablekb:0,origin:'https://accessivideo.pages.dev'},events:{onReady:function(){setInterval(function(){window.webkit.messageHandlers.playback.postMessage({time:player.getCurrentTime(),duration:player.getDuration(),state:player.getPlayerState(),title:player.getVideoData().title || ''});},150);}}});}
+        var player; function onYouTubeIframeAPIReady(){player=new YT.Player('player',{videoId:'\(id)',playerVars:{playsinline:1,disablekb:0,origin:'https://accessivideo.pages.dev'},events:{onReady:function(){setInterval(function(){window.webkit.messageHandlers.playback.postMessage({time:player.getCurrentTime(),duration:player.getDuration(),state:player.getPlayerState(),title:player.getVideoData().title || ''});},40);}}});}
         </script></body></html>
         """
         view.loadHTMLString(html, baseURL: URL(string: "https://accessivideo.pages.dev"))
@@ -411,7 +419,7 @@ struct YouTubePlayer: NSViewRepresentable {
         init(_ playback: PlaybackModel) { self.playback = playback }
         func userContentController(_ userContentController: WKUserContentController, didReceive message: WKScriptMessage) {
             guard let data = message.body as? [String: Any] else { return }
-            if let time = data["time"] as? Double, time.isFinite { playback.time = time }
+            if let time = data["time"] as? Double, time.isFinite, !playback.isScrubbing { playback.time = time }
             if let title = data["title"] as? String, !title.isEmpty { playback.videoTitle = title }
             let state = data["state"] as? Int
             playback.playing = state == 1

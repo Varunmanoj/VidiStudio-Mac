@@ -2122,20 +2122,31 @@ struct TimelineView: View {
             .accessibilityAddTraits(.isHeader)
     }
 
-    private func seekSurface(width: CGFloat) -> some View {
+    private let playheadRed = Color(red: 229 / 255, green: 43 / 255, blue: 50 / 255)
+
+    private func seekSurface(width: CGFloat, accessible: Bool = true) -> some View {
         Rectangle()
             .fill(.clear)
             .contentShape(Rectangle())
             .gesture(
                 DragGesture(minimumDistance: 0)
-                    .onChanged { seek(at: $0.location.x, in: width) }
+                    .onChanged { gesture in
+                        playback.isScrubbing = true
+                        seek(at: gesture.location.x, in: width)
+                    }
+                    .onEnded { gesture in
+                        seek(at: gesture.location.x, in: width)
+                        playback.isScrubbing = false
+                    }
             )
             .accessibilityRepresentation {
-                Slider(value: timelineValue, in: 0...max(0.001, duration)) {
-                    Text("Video timeline")
+                if accessible {
+                    Slider(value: timelineValue, in: 0...max(0.001, duration)) {
+                        Text("Video timeline")
+                    }
+                    .accessibilityValue("\(preciseTimecode(playback.time)) of \(preciseTimecode(duration))")
+                    .accessibilityHint("Adjust to seek through the video")
                 }
-                .accessibilityValue("\(preciseTimecode(playback.time)) of \(preciseTimecode(duration))")
-                .accessibilityHint("Adjust to seek through the video")
             }
     }
 
@@ -2163,7 +2174,7 @@ struct TimelineView: View {
                 }
             }
             .frame(maxWidth: .infinity, alignment: .leading)
-            seekSurface(width: width)
+            seekSurface(width: width, accessible: true)
         }
         .frame(width: width, height: thumbnailHeight)
         .clipShape(.rect(cornerRadius: 5))
@@ -2208,6 +2219,7 @@ struct TimelineView: View {
                 .accessibilityLabel("\(title) at \(timecode(start)): \(segment.text)")
                 .accessibilityHint("Activate to seek to this segment")
             }
+            seekSurface(width: width, accessible: false)
         }
         .frame(width: width, height: segmentHeight)
         .clipShape(.rect(cornerRadius: 4))
@@ -2254,25 +2266,77 @@ struct TimelineView: View {
                         }
                     }
 
+                    // Prominent red playhead synchronized across all tracks
                     VStack(spacing: 0) {
-                        Circle().fill(.white).frame(width: 10, height: 10)
-                            .overlay { Circle().stroke(.tint, lineWidth: 2) }
-                        Rectangle().fill(.tint).frame(width: 2, height: thumbnailHeight - 10)
-                        Color.clear.frame(height: rowSpacing + transportHeight + rowSpacing)
-                        Rectangle().fill(.tint).frame(width: 2, height: segmentHeight * 2 + rowSpacing)
+                        // Thumbnail track playhead handle and needle
+                        ZStack {
+                            Circle()
+                                .fill(.white)
+                                .frame(width: 12, height: 12)
+                            Circle()
+                                .strokeBorder(playheadRed, lineWidth: 2.5)
+                                .frame(width: 12, height: 12)
+                            Circle()
+                                .fill(playheadRed)
+                                .frame(width: 4, height: 4)
+                        }
+                        .shadow(color: .black.opacity(0.45), radius: 1, x: 0, y: 0.5)
+
+                        RoundedRectangle(cornerRadius: 1)
+                            .fill(playheadRed)
+                            .frame(width: 3, height: thumbnailHeight - 12)
+                            .overlay {
+                                RoundedRectangle(cornerRadius: 1)
+                                    .strokeBorder(Color.white.opacity(0.35), lineWidth: 0.5)
+                            }
+                            .shadow(color: .black.opacity(0.65), radius: 1.5, x: 0, y: 1)
+
+                        // Transport gap connecting guide
+                        Rectangle()
+                            .fill(playheadRed.opacity(0.45))
+                            .frame(width: 1.5, height: rowSpacing + transportHeight + rowSpacing)
+
+                        // Transcript & Audio Description downward pointer and needle
+                        DownwardTriangle()
+                            .fill(playheadRed)
+                            .frame(width: 14, height: 8)
+                            .overlay {
+                                DownwardTriangle()
+                                    .stroke(Color.white.opacity(0.4), lineWidth: 0.5)
+                            }
+                            .shadow(color: .black.opacity(0.65), radius: 1.5, x: 0, y: 1)
+
+                        RoundedRectangle(cornerRadius: 1)
+                            .fill(playheadRed)
+                            .frame(width: 3, height: segmentHeight * 2 + rowSpacing - 8)
+                            .overlay {
+                                RoundedRectangle(cornerRadius: 1)
+                                    .strokeBorder(Color.white.opacity(0.35), lineWidth: 0.5)
+                            }
+                            .shadow(color: .black.opacity(0.65), radius: 1.5, x: 0, y: 1)
                     }
-                    .frame(width: 10, height: tracksHeight)
+                    .frame(width: 14, height: tracksHeight)
                     .position(
-                        x: trackLabelWidth + trackSpacing + min(max(5, timelineWidth * progress), max(5, timelineWidth - 5)),
+                        x: trackLabelWidth + trackSpacing + min(max(7, timelineWidth * progress), max(7, timelineWidth - 7)),
                         y: tracksHeight / 2
                     )
-                    .shadow(color: .black.opacity(0.65), radius: 1)
                     .allowsHitTesting(false)
                     .accessibilityHidden(true)
                 }
             }
             .frame(height: tracksHeight)
         }.padding(12)
+    }
+}
+
+private struct DownwardTriangle: Shape {
+    func path(in rect: CGRect) -> Path {
+        var path = Path()
+        path.move(to: CGPoint(x: rect.minX, y: rect.minY))
+        path.addLine(to: CGPoint(x: rect.maxX, y: rect.minY))
+        path.addLine(to: CGPoint(x: rect.midX, y: rect.maxY))
+        path.closeSubpath()
+        return path
     }
 }
 

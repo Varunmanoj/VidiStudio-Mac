@@ -1,3 +1,20 @@
+## 2026-10-17 — High-contrast red playhead and smooth playback synchronization across timeline tracks — version 1.0.62 (build 63)
+
+Implemented a high-contrast red playhead across all timeline tracks and resolved video playback synchronization lag:
+- High-visibility red playhead system: Replaced the previous 2px blue `.tint` playhead lines with a high-contrast red (`#E52B32`) playhead across all 140px of timeline tracks (Thumbnails, Transport, Transcript, and Audio Description).
+  - Thumbnail track: 12px circular handle with white fill, 2.5px red stroke, and 4px red center dot, paired with a 3px bold red needle featuring a subtle drop shadow and 0.5px white outline for sharp visibility across light and dark video frames.
+  - Transport track: 1.5px semi-transparent red hairline guide connecting the top and bottom sections.
+  - Transcript & Audio Description tracks: Red downward-pointing triangle pointer (`DownwardTriangle`, 14×8) with a 3px bold red needle with shadow and white outline extending across both tracks.
+- Full playback synchronization & smooth performance:
+  - Synchronous main-actor AVPlayer observer: Reduced the `CMTime` periodic observer interval from 0.15s (150ms) to 0.033s (~30 fps) and replaced asynchronous `Task { @MainActor in ... }` hopping with synchronous `MainActor.assumeIsolated { ... }` execution, eliminating playback stutter, timeline lag, and rubber-banding.
+  - Active drag/scrub protection: Added `@MainActor var isScrubbing = false` state to `PlaybackModel` and updated `seekSurface` with continuous `DragGesture` tracking. AVPlayer time updates are guarded so playback cannot fight or overwrite user-controlled scrub positions.
+  - Exact frame seek tolerance: Configured player seek operations with `.zero` tolerance (`toleranceBefore: .zero, toleranceAfter: .zero`) for exact frame positioning.
+  - YouTube playback synchronization: Tuned the YouTube iframe bridge polling interval from 150ms to 40ms, respecting scrubbing state.
+  - Universal timeline scrub surface: Added seek surface drag support across both the thumbnail strip and segment tracks (Transcript and Audio Description).
+- Version bump: Advanced app and Share extension Debug and Release settings from 1.0.61 (build 62) to 1.0.62 (build 63).
+
+Validation: Required `VIDISTUDIO_CONFIGURATION=Release ./script/build_and_run.sh --verify` passed with macOS access, including 13 packaged Help pages, registration, anchors, links, style, search index, deep signing, and launch (process 47139). Release bundle metadata reports 1.0.62 / build 63. All 110 regression tests passed in 46.965 seconds with `VIDISTUDIO_TEST_ENGINE` pointing to the verified Release executable at `build/DerivedData/Build/Products/Release/VidiStudio.app/Contents/Resources/Engine/vidistudio-engine`. `git diff --check` passed.
+
 ## 2026-10-17 — Invalid Gemini API key detection, feature gating, and error reporting — version 1.0.61 (build 62)
 
 Comprehensive handling and user-facing safeguards for invalid, expired, or malformed Gemini API keys across the application:
