@@ -1,3 +1,7 @@
+## 2026-10-17 — Version alignment for Windows segment-handler compatibility fix — version 1.0.69 (build 70)
+
+Synchronized the Mac version with the Windows fix restoring `SegmentSeek_Click` as a forwarding entry point to the current segment-play handler for older generated XAML. This release has no Mac application-code changes. Windows Python parity tests passed all 5 tests; Windows XAML/project/manifest XML validation passed. Version synchronization reports Mac 1.0.69/build 70 and Windows 1.0.69.0. `git diff --check` passed. No Mac rebuild or native Windows build was performed for this compatibility-only source fix.
+
 ## 2026-10-17 — Project narration review command and complete failure reasons — version 1.0.68 (build 69)
 
 Added **Project → Narration → Review Narration Issues…** through the focused editor action system. It opens the same project report from any editor section without requiring an API key or running generation. The AD Overview entry point remains available.
