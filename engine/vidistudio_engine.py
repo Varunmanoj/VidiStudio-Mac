@@ -482,6 +482,34 @@ def client_and_model(kind):
     return gemini_client(), model
 
 
+def detect_gemini_plan(client, available_names=None):
+    """Detect whether the configured Gemini API key is on a Free or Paid tier."""
+    if available_names:
+        for paid_indicator in ('gemini-omni-1.1-flash', 'gemini-omni-flash-preview'):
+            if paid_indicator in available_names:
+                return 'paid'
+    try:
+        getter = getattr(getattr(client, 'models', None), 'get', None)
+        if getter:
+            model = getter(model='gemini-omni-1.1-flash')
+            name = getattr(model, 'name', None)
+            if isinstance(name, str) and 'gemini-omni' in name:
+                return 'paid'
+    except Exception:
+        pass
+    try:
+        caches = getattr(client, 'caches', None)
+        if caches and hasattr(caches, 'list'):
+            # Only paid tier accounts have access to context caching
+            pager = caches.list()
+            res = list(pager)
+            if isinstance(res, list):
+                return 'paid'
+    except Exception:
+        pass
+    return 'free'
+
+
 def list_models():
     client = gemini_client()
     try:
@@ -500,7 +528,18 @@ def list_models():
         available.sort(key=lambda model: (model['displayName'].lower(), model['name']))
         if not available:
             raise ValueError('No compatible Gemini models are available for this API key.')
-        emit('Available Gemini models loaded', models=available)
+        available_names = {m['name'] for m in available}
+        plan = detect_gemini_plan(client, available_names)
+        try:
+            p = Path(os.environ.get('VIDISTUDIO_CONFIG', config_path()))
+            saved = json.loads(p.read_text()) if p.exists() else {}
+            if saved.get('geminiPlan') != plan:
+                saved['geminiPlan'] = plan
+                p.parent.mkdir(parents=True, exist_ok=True)
+                p.write_text(json.dumps(saved, indent=2))
+        except Exception:
+            pass
+        emit('Available Gemini models loaded', models=available, plan=plan, valid=True)
     finally:
         client.close()
 
@@ -2430,7 +2469,7 @@ def validate_analysis_prerequisites(command, root, project):
 
 def main():
     parser=argparse.ArgumentParser(description=__doc__)
-    parser.add_argument('command',choices=['reanalyze-transcript-segment','undo-transcript','redo-transcript','reanalyze-segment','prepare-analysis-video','check-video-availability','cleanup-project','clear-generated','delete-generated','delete-segment-audio','list-models','preview-tts','import-video','probe-video','generate-thumbnails','transcribe','generate-summary','generate-ad-cues','synthesize-tts','export-final-video','export-selectable-video','export-closed-audio-description-video','export-open-audio-description-video','export-closed-caption-video','export-dual-closed-caption-video','export-open-caption-video','export-original-audio','export-described-audio','export-youtube-described-audio','export-youtube-original-audio','download-youtube-audio','export-hls','save-cues','save-segments','save-summary','doctor',*parity.COMMANDS])
+    parser.add_argument('command',choices=['check-api-key','reanalyze-transcript-segment','undo-transcript','redo-transcript','reanalyze-segment','prepare-analysis-video','check-video-availability','cleanup-project','clear-generated','delete-generated','delete-segment-audio','list-models','preview-tts','import-video','probe-video','generate-thumbnails','transcribe','generate-summary','generate-ad-cues','synthesize-tts','export-final-video','export-selectable-video','export-closed-audio-description-video','export-open-audio-description-video','export-closed-caption-video','export-dual-closed-caption-video','export-open-caption-video','export-original-audio','export-described-audio','export-youtube-described-audio','export-youtube-original-audio','download-youtube-audio','export-hls','save-cues','save-segments','save-summary','doctor',*parity.COMMANDS])
     parser.add_argument('--project',type=Path); parser.add_argument('--video',type=Path); parser.add_argument('--library',type=Path); parser.add_argument('--input',type=Path)
     parser.add_argument('--media-format', choices=VIDEO_EXPORT_FORMATS + AUDIO_EXPORT_FORMATS)
     parser.add_argument('--content',choices=['transcript','summary','descriptions','combined'],default='descriptions'); parser.add_argument('--url'); parser.add_argument('--name'); parser.add_argument('--timestamp',type=float,default=0); parser.add_argument('--duration',type=float); parser.add_argument('--segment'); parser.add_argument('--format',choices=['srt','vtt','txt','json','md'],default='srt'); parser.add_argument('--changed',action='store_true'); parser.add_argument('--start-stage',default='transcribe')
@@ -2447,7 +2486,7 @@ def main():
         youtube_audio.download(args.url, args.output, emit, ffmpeg_path=tool('ffmpeg')); return
     if args.command == 'preview-tts':
         preview_tts(args.output, args.text); return
-    if args.command == 'list-models':
+    if args.command in ('list-models', 'check-api-key'):
         list_models(); return
     core=SimpleNamespace(**globals())
     if args.command in ('import-youtube','validate-config'):

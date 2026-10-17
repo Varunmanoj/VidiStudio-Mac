@@ -524,10 +524,15 @@ struct StudioSettings: Codable, Equatable {
     static let legacyDefaultLibraryURL = FileManager.default.homeDirectoryForCurrentUser
         .appendingPathComponent("Movies/VidiStudio Projects")
     var apiKey = ""
+    var geminiPlan = "free"
     var models: [String: String] = [:]
     var prompts: [String: [String: String]] = [:]
     var apiVersion = "v1beta"
     var videoProcessing = "agentic"
+
+    var hasApiKey: Bool {
+        !apiKey.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+    }
     var theme = "system"
     var ttsMode = "system"
     var narrationPlayback = "generated"
@@ -736,6 +741,9 @@ final class StudioModel {
     var isCreatingProject = false
     var availableGeminiModels: [GeminiModelOption] = []
     var geminiModelsLoaded = false
+    var apiKeyVerified: Bool? = nil
+    var apiKeyVerificationMessage: String? = nil
+    var hasApiKey: Bool { settings.hasApiKey }
     var engineCheckStatus: EngineCheckStatus = .unchecked
     var selected: StudioProject? { projects.first { $0.id == selectedID } }
 
@@ -1170,7 +1178,9 @@ final class StudioModel {
     }
     func loadGeminiModels() {
         guard !busy else { return }
-        guard !settings.apiKey.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
+        guard settings.hasApiKey else {
+            apiKeyVerified = false
+            apiKeyVerificationMessage = "Enter your Gemini API key in Settings → Gemini API to enable features."
             error = "Enter your Gemini API key first."
             return
         }
@@ -1182,12 +1192,19 @@ final class StudioModel {
             try FileManager.default.setAttributes([.posixPermissions: 0o600], ofItemAtPath: configuration.path)
             availableGeminiModels = []
             geminiModelsLoaded = false
-            execute("list-models", configurationURL: configuration, cleanupURL: directory)
+            apiKeyVerified = nil
+            apiKeyVerificationMessage = nil
+            execute("check-api-key", configurationURL: configuration, cleanupURL: directory)
         } catch {
             try? FileManager.default.removeItem(at: directory)
-            let issue = UserFacingIssue.forEngine(command: "list-models", technicalDetails: error.localizedDescription)
+            apiKeyVerified = false
+            apiKeyVerificationMessage = error.localizedDescription
+            let issue = UserFacingIssue.forEngine(command: "check-api-key", technicalDetails: error.localizedDescription)
             present(issue, technicalDetails: error.localizedDescription, context: "Load Gemini models")
         }
+    }
+    func checkGeminiApiKey() {
+        loadGeminiModels()
     }
     func geminiModels(for stage: String) -> [GeminiModelOption] {
         guard geminiModelsLoaded else {
@@ -1304,7 +1321,7 @@ final class StudioModel {
             error = nil
             engineCheckStatus = .checking
         }
-        let target = project ?? (["import-video", "import-youtube", "doctor", "validate-config", "list-models"].contains(command) ? nil : selected)
+        let target = project ?? (["import-video", "import-youtube", "doctor", "validate-config", "list-models", "check-api-key"].contains(command) ? nil : selected)
         if ["export-final-video", "export-selectable-video", "export-closed-audio-description-video", "export-open-audio-description-video", "export-closed-caption-video", "export-dual-closed-caption-video", "export-open-caption-video", "export-hls"].contains(command), let target, target.isYouTubeURLProject {
             errorTitle = "Video Export Isn’t Available"
             error = "This project uses a YouTube link, so VidiStudio does not have a local video to export. You can still export text and available narration audio."
@@ -1402,6 +1419,12 @@ final class StudioModel {
                         availableGeminiModels = rawModels.compactMap(GeminiModelOption.init(dictionary:))
                         geminiModelsLoaded = true
                         chooseAvailableGeminiModels()
+                        apiKeyVerified = true
+                        if let plan = event["plan"] as? String {
+                            settings.geminiPlan = plan
+                        }
+                        let planName = (event["plan"] as? String ?? settings.geminiPlan) == "paid" ? "Paid Plan" : "Free Plan"
+                        apiKeyVerificationMessage = "API key verified and active (\(planName)). \(availableGeminiModels.count) models available."
                     }
                     if let value = event["progress"] as? Double {
                         progress = value
@@ -1433,6 +1456,10 @@ final class StudioModel {
                         let issue = UserFacingIssue.forEngine(command: command, technicalDetails: detail)
                         present(issue, technicalDetails: detail, context: "Run \(command)")
                         if command == "doctor" { engineCheckStatus = .failed(issue.message) }
+                        if command == "list-models" || command == "check-api-key" {
+                            apiKeyVerified = false
+                            apiKeyVerificationMessage = detail
+                        }
                     }
                     if let path = event["project"] as? String {
                         completedProjectPath = path
@@ -1442,6 +1469,10 @@ final class StudioModel {
                 }
             } catch {
                 let detail = error.localizedDescription
+                if command == "list-models" || command == "check-api-key" {
+                    apiKeyVerified = false
+                    apiKeyVerificationMessage = detail
+                }
                 present(
                     UserFacingIssue.forEngine(command: command, technicalDetails: detail),
                     technicalDetails: detail,

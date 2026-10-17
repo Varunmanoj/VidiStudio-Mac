@@ -1,3 +1,30 @@
+## 2026-10-17 — Automatic API plan detection and simplified settings display — version 1.0.60 (build 61)
+
+Simplified the Gemini API settings workflow and automated Free vs. Paid plan detection:
+- Automatic API Plan Detection: The application engine now inspects the Gemini API dynamically via `detect_gemini_plan` during model listing and key verification. It checks access to paid-tier-only models (such as `gemini-omni-1.1-flash`) and context caching capabilities (`client.caches.list()`) to automatically determine whether the API key is on the Free Plan or Paid Plan, automatically selecting and persisting the plan in user config without requiring manual selection.
+- Automatic verification on key entry: The API key SecureField in Settings → Gemini API now triggers automatic verification and plan detection upon entry (via submit or debounced typing) and on view appearance, updating verification status and model availability seamlessly.
+- Simplified Settings UI: Removed the manual Plan Tier segmented picker and the detailed Functionality & Plan Limits breakdown containing Google AI Studio quota tables. The settings page now simply displays whether the entered API key is on the Free Plan or Paid Plan with a clean status badge and concise description.
+- Documentation and Help: Updated `docs/help/settings.html` to document automatic plan detection and rebuilt the 13-page Apple Help book bundle.
+- Version bump: Advanced app and Share extension Debug and Release settings from 1.0.59 (build 60) to 1.0.60 (build 61).
+
+Validation: Required `VIDISTUDIO_CONFIGURATION=Release ./script/build_and_run.sh --verify` passed with macOS access, including 13 packaged Help pages, registration, anchors, links, style, search index, deep signing, and launch (process 33715). Release bundle metadata reports 1.0.60 / build 61. All 108 regression tests passed in 48.692 seconds with `VIDISTUDIO_TEST_ENGINE` pointing to the verified Release executable at `build/DerivedData/Build/Products/Release/VidiStudio.app/Contents/Resources/Engine/vidistudio-engine`. `git diff --check` passed.
+
+## 2026-10-17 — Gemini API key enforcement and Plan capabilities breakdown — version 1.0.59 (build 60)
+
+Implemented system-wide API key enforcement, feature gating, live API key check, and Gemini plan capability breakdown across the Mac application:
+- API key requirement & feature gating: When no Gemini API key is configured, all AI-dependent buttons throughout the app are disabled and display prominent, clear explanatory messages and tooltips directing users to Settings → Gemini API.
+  - Project Browser: Top warning banner appears when API key is missing with direct button to open Settings; Analysis menu actions (Analyze Video, Generate Transcript, Generate Summary, Generate Audio Descriptions) are disabled with informative tooltips.
+  - New Project Sheet: Fetch Details and Create Project for YouTube sources are disabled when missing an API key with inline warning banner.
+  - Project Editor: Prominent top warning banner alerts the user when an API key is missing with a shortcut button to Settings; toolbar buttons (Read Frame Text, Generate Audio Descriptions/Analysis), segment actions (Rewrite to Fit, Synthesize This Segment, Re-Analyze This Segment), SegmentEditor actions, and ProcessingInspector actions are gated and explain the missing key.
+  - Audio Description & Voice Previews: Generate All AD Audio and Generate Missing or Changed Audio are disabled when using Gemini TTS without an API key; voice preview sample generation is disabled with inline warning notices.
+  - Keyboard Shortcuts: Editor shortcuts for AI operations (`transcribe`, `generate-summary`, `generate-ad-cues`, `reanalyze-selection`, and Gemini TTS synthesis) are gated in `canRun(_:)` to prevent trigger without an API key.
+- Check API Key & Plan: Added "Check API Key & Plan" button to Settings → Gemini API that validates the configured key against the Gemini API catalog via a new `check-api-key` engine command, displaying live verification status badges (Checking, Verified, Failed) and diagnostic messages.
+- Free vs. Paid Plan breakdown: Added an Account Plan segmented selector (Free Plan vs. Paid Plan) in Settings → Gemini API alongside an interactive `GeminiPlanCapabilitiesMatrixView` detailing rate limits, supported workflows, and capabilities for Free vs. Paid tiers across 8 distinct capabilities (Speech & Audio Transcription, Video Summaries, Audio Descriptions, On-Screen Text OCR, Description Rewrites, Gemini TTS Narration, YouTube Video Analysis, and Data Privacy & Training Terms).
+- Documentation and Help: Updated `docs/help/settings.html` with API key requirement, key verification, plan comparison, and capabilities reference; rebuilt the 13-page Apple Help book bundle.
+- Version bump: Advanced app and Share extension Debug and Release settings from 1.0.58 (build 59) to 1.0.59 (build 60).
+
+Validation: Required `VIDISTUDIO_CONFIGURATION=Release ./script/build_and_run.sh --verify` passed with macOS access, including 13 packaged Help pages, registration, anchors, links, style, search index, deep signing, and launch (process 29364). Release bundle metadata reports 1.0.59 / build 60. All 107 regression tests passed in 52.921 seconds with `VIDISTUDIO_TEST_ENGINE` pointing to the verified Release executable at `build/DerivedData/Build/Products/Release/VidiStudio.app/Contents/Resources/Engine/vidistudio-engine`. `git diff --check` passed.
+
 ## 2026-10-11 — Transcript and summary edit functionality — version 1.0.58 (build 59)
 
 Added full editing capabilities for transcript dialogue segments and project summaries matching the descriptions workflow and notepad-style editing:

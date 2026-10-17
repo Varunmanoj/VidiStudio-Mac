@@ -94,10 +94,20 @@ struct GeminiVoiceBrowser: View {
             TextField("Sample text", text: $sample, axis: .vertical).lineLimit(2...4)
             HStack {
                 Button(preview.loading ? "Generating Sample…" : "Play Voice Sample", systemImage: "play.circle") { preview.play(settings: studio.settings, text: sample) }
-                    .disabled(preview.loading || sample.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || sample.count > 500)
+                    .disabled(preview.loading || sample.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || sample.count > 500 || !studio.hasApiKey)
+                    .help(!studio.hasApiKey ? "Enter your Gemini API key in Settings → Gemini API to preview this voice" : "Play sample of Gemini voice \(studio.settings.geminiVoice)")
                     .accessibilityLabel("Play sample of Gemini voice \(studio.settings.geminiVoice)")
                 Button(preview.loading ? "Cancel Generation" : "Stop Sample", systemImage: "stop.circle") { preview.stop() }.disabled(!preview.loading && !preview.playing)
                 if preview.loading { ProgressView().controlSize(.small).accessibilityLabel("Generating voice sample") }
+            }
+            if !studio.hasApiKey {
+                HStack(spacing: 8) {
+                    Image(systemName: "key.slash.fill")
+                        .foregroundStyle(.orange)
+                    Text("Enter your Gemini API key in Settings → Gemini API to preview Gemini voices.")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
             }
             Text(isGemini38TTS
                  ? "Uses the current Gemini key, TTS model, and voice to read the sample text verbatim. Samples are cached for this settings session; changing the voice or sample creates a new preview. Gemini usage charges may apply."

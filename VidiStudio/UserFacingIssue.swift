@@ -187,9 +187,9 @@ struct UserFacingIssue: Equatable {
             return .projectSave
         case "doctor", "validate-config":
             return .engineCheck
-        case "list-models":
+        case "list-models", "check-api-key":
             return UserFacingIssue(
-                title: "Gemini Models Couldn’t Be Loaded",
+                title: "Gemini API Key or Models Couldn’t Be Verified",
                 message: "Check your Gemini API key and internet connection, then try again."
             )
         case "reanalyze-transcript-segment":
@@ -245,7 +245,7 @@ enum UserFacingProgress {
         case "save-cues", "save-segments", "save-summary": return "Saving your changes…"
         case "delete-export", "delete-generated", "delete-segment-audio": return "Updating the project…"
         case "doctor", "validate-config": return "Checking VidiStudio…"
-        case "list-models": return "Loading available Gemini models…"
+        case "list-models", "check-api-key": return "Checking Gemini API key and models…"
         case let value where value.hasPrefix("export-"): return "Creating your export…"
         default: return "Working on your project…"
         }

@@ -4,6 +4,7 @@ import AppKit
 struct ProjectAnalysisMenu: View {
     let project: StudioProject
     let busy: Bool
+    var hasApiKey: Bool = true
     let perform: (String) -> Void
 
     var body: some View {
@@ -14,19 +15,24 @@ struct ProjectAnalysisMenu: View {
             .help("Refresh video details and timeline pictures without using AI")
             Divider()
             Button("Analyze Video…", systemImage: "sparkles") { perform("analyze") }
-                .help("Generate the transcript, summary, and Audio Descriptions in sequence")
+                .disabled(!hasApiKey)
+                .help(!hasApiKey ? "Enter your Gemini API key in Settings → Gemini API to analyze this video" : "Generate the transcript, summary, and Audio Descriptions in sequence")
             Divider()
             Button(project.hasGeneratedTranscript ? "Regenerate Transcript…" : "Generate Transcript", systemImage: "text.bubble") {
                 perform("transcribe")
             }
+            .disabled(!hasApiKey)
+            .help(!hasApiKey ? "Enter your Gemini API key in Settings → Gemini API to transcribe speech" : "Generate dialogue transcript using Gemini")
             Button(project.summary.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? "Generate Summary" : "Regenerate Summary…", systemImage: "text.alignleft") {
                 perform("generate-summary")
             }
+            .disabled(!hasApiKey)
+            .help(!hasApiKey ? "Enter your Gemini API key in Settings → Gemini API to generate summaries" : "Generate video summary using Gemini")
             Button(project.cues.isEmpty ? "Generate Audio Descriptions" : "Regenerate Audio Descriptions…", systemImage: "sparkles") {
                 perform("generate-ad-cues")
             }
-            .disabled(!project.canGenerateDescriptions)
-            .help(project.canGenerateDescriptions ? "Generate timed Audio Description text" : "Generate the transcript and summary first")
+            .disabled(!hasApiKey || !project.canGenerateDescriptions)
+            .help(!hasApiKey ? "Enter your Gemini API key in Settings → Gemini API to generate Audio Descriptions" : project.canGenerateDescriptions ? "Generate timed Audio Description text" : "Generate the transcript and summary first")
         }
         .disabled(busy)
     }
@@ -40,6 +46,8 @@ struct ProjectBrowserPage: View {
     @Binding var gridItemSize: Double
     @Binding var selection: String?
     let busy: Bool
+    var hasApiKey: Bool = true
+    var openGeminiSettings: () -> Void = {}
     let newProject: () -> Void
     let openProjectFolder: () -> Void
     let openEditor: (StudioProject) -> Void
@@ -77,6 +85,35 @@ struct ProjectBrowserPage: View {
             .padding(.top, 20)
             .padding(.bottom, 14)
 
+            if !hasApiKey {
+                HStack(spacing: 12) {
+                    Image(systemName: "key.slash.fill")
+                        .font(.title2)
+                        .foregroundStyle(.orange)
+                    VStack(alignment: .leading, spacing: 3) {
+                        Text("Gemini API Key Required")
+                            .font(.headline)
+                        Text("Enter your Gemini API key in Settings → Gemini API to enable video transcription, summaries, audio descriptions, and narration across VidiStudio.")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                    }
+                    Spacer()
+                    Button("Open Gemini API Settings…") {
+                        openGeminiSettings()
+                    }
+                    .buttonStyle(.borderedProminent)
+                    .controlSize(.regular)
+                }
+                .padding(12)
+                .background(.orange.opacity(0.12), in: RoundedRectangle(cornerRadius: 10))
+                .overlay(
+                    RoundedRectangle(cornerRadius: 10)
+                        .stroke(.orange.opacity(0.3), lineWidth: 1)
+                )
+                .padding(.horizontal, 20)
+                .padding(.bottom, 12)
+            }
+
             Divider()
 
             if filteredProjects.isEmpty {
@@ -102,6 +139,7 @@ struct ProjectBrowserPage: View {
                     selection: $selection,
                     busy: busy,
                     itemSize: $gridItemSize,
+                    hasApiKey: hasApiKey,
                     open: openEditor,
                     rename: rename,
                     delete: delete,
@@ -251,7 +289,7 @@ struct ProjectBrowserPage: View {
         Button("Open in Project Folder", systemImage: "folder") {
             if let folder = project.folder { NSWorkspace.shared.open(folder) }
         }
-        ProjectAnalysisMenu(project: project, busy: busy) { command in
+        ProjectAnalysisMenu(project: project, busy: busy, hasApiKey: hasApiKey) { command in
             process(project, command)
         }
         ProjectExportButton(project: project, busy: busy) {

@@ -39,6 +39,7 @@ private struct GeminiModelMenuGroup: Identifiable {
 struct GeminiAPISettingsView: View {
     @Bindable var studio: StudioModel
     @Environment(\.openURL) private var openURL
+    @State private var keyDebounceTask: Task<Void, Never>?
 
     private let apiKeyPage = URL(string: "https://aistudio.google.com/api-keys")!
 
@@ -57,8 +58,45 @@ struct GeminiAPISettingsView: View {
 
     var body: some View {
         Section("Connect to Gemini") {
+            if !studio.hasApiKey {
+                HStack(alignment: .top, spacing: 10) {
+                    Image(systemName: "exclamationmark.triangle.fill")
+                        .foregroundStyle(.orange)
+                        .imageScale(.medium)
+                    VStack(alignment: .leading, spacing: 3) {
+                        Text("API Key Required")
+                            .font(.subheadline.bold())
+                        Text("All AI features (transcription, summaries, audio descriptions, description rewrites, frame text OCR, and Gemini narration) are disabled across VidiStudio until an API key is entered.")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                    }
+                }
+                .padding(10)
+                .background(Color.orange.opacity(0.12), in: RoundedRectangle(cornerRadius: 8))
+            }
             SecureField("API key", text: $studio.settings.apiKey)
                 .accessibilityHint("Enter the key from your Google AI Studio account.")
+                .onSubmit {
+                    keyDebounceTask?.cancel()
+                    if studio.hasApiKey {
+                        studio.checkGeminiApiKey()
+                    }
+                }
+                .onChange(of: studio.settings.apiKey) { _, newValue in
+                    keyDebounceTask?.cancel()
+                    let trimmed = newValue.trimmingCharacters(in: .whitespacesAndNewlines)
+                    guard !trimmed.isEmpty else {
+                        studio.apiKeyVerified = nil
+                        studio.apiKeyVerificationMessage = nil
+                        return
+                    }
+                    keyDebounceTask = Task {
+                        try? await Task.sleep(nanoseconds: 700_000_000)
+                        if !Task.isCancelled {
+                            studio.checkGeminiApiKey()
+                        }
+                    }
+                }
             Button("Open API Keys in Google AI Studio", systemImage: "arrow.up.right.square") {
                 openURL(apiKeyPage)
             }
@@ -66,21 +104,96 @@ struct GeminiAPISettingsView: View {
             Text("Your key lets VidiStudio create transcripts, summaries, descriptions, and online narration.")
                 .font(.caption)
                 .foregroundStyle(.secondary)
-            Button(studio.geminiModelsLoaded ? "Reload Available Models" : "Load Available Models", systemImage: "arrow.clockwise") {
-                studio.loadGeminiModels()
+
+            HStack(spacing: 8) {
+                Button(studio.geminiModelsLoaded ? "Check API Key & Reload Models" : "Check API Key & Plan", systemImage: "arrow.clockwise") {
+                    studio.checkGeminiApiKey()
+                }
+                .disabled(studio.busy || !studio.hasApiKey)
+                .accessibilityHint("Checks the validity of your Gemini API key and detects available models and plan tier.")
             }
-            .disabled(studio.busy || studio.settings.apiKey.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+
             if studio.busy {
                 HStack {
                     ProgressView().controlSize(.small)
-                    Text("Checking available models…")
+                    Text("Checking API key and plan details…")
                 }
                 .accessibilityElement(children: .combine)
-            } else if studio.geminiModelsLoaded {
-                Text("\(studio.availableGeminiModels.count) available models loaded from Gemini.")
+            } else if let verified = studio.apiKeyVerified {
+                if verified {
+                    HStack(alignment: .top, spacing: 8) {
+                        Image(systemName: "checkmark.seal.fill")
+                            .foregroundStyle(.green)
+                            .imageScale(.medium)
+                        VStack(alignment: .leading, spacing: 2) {
+                            Text("API Key Verified (\(studio.settings.geminiPlan == "paid" ? "Paid Plan" : "Free Plan"))")
+                                .font(.subheadline.bold())
+                            if let message = studio.apiKeyVerificationMessage {
+                                Text(message)
+                                    .font(.caption)
+                                    .foregroundStyle(.secondary)
+                            }
+                        }
+                    }
+                    .padding(8)
+                    .background(Color.green.opacity(0.12), in: RoundedRectangle(cornerRadius: 8))
+                } else {
+                    HStack(alignment: .top, spacing: 8) {
+                        Image(systemName: "xmark.octagon.fill")
+                            .foregroundStyle(.red)
+                            .imageScale(.medium)
+                        VStack(alignment: .leading, spacing: 2) {
+                            Text("API Key Check Failed")
+                                .font(.subheadline.bold())
+                            Text(studio.apiKeyVerificationMessage ?? "The engine could not connect to Gemini with this key. Check the key and your network connection.")
+                                .font(.caption)
+                                .foregroundStyle(.secondary)
+                        }
+                    }
+                    .padding(8)
+                    .background(Color.red.opacity(0.12), in: RoundedRectangle(cornerRadius: 8))
+                }
+            } else if studio.hasApiKey {
+                Text("Click Check API Key & Plan to verify your key and load compatible models.")
+                    .font(.caption)
                     .foregroundStyle(.secondary)
-            } else {
-                Text("Enter your API key, then load the models available to your account.")
+            }
+        }
+        .onAppear {
+            if studio.hasApiKey && studio.apiKeyVerified == nil && !studio.busy {
+                studio.checkGeminiApiKey()
+            }
+        }
+
+        if studio.hasApiKey {
+            Section("Account Plan") {
+                HStack {
+                    Text("Plan Tier")
+                        .fontWeight(.medium)
+                    Spacer()
+                    if studio.busy {
+                        ProgressView().controlSize(.small)
+                    } else {
+                        HStack(spacing: 6) {
+                            Circle()
+                                .fill(studio.settings.geminiPlan == "paid" ? Color.blue : Color.secondary)
+                                .frame(width: 8, height: 8)
+                            Text(studio.settings.geminiPlan == "paid" ? "Paid Plan" : "Free Plan")
+                                .fontWeight(.semibold)
+                                .foregroundStyle(studio.settings.geminiPlan == "paid" ? Color.blue : Color.primary)
+                        }
+                        .padding(.horizontal, 10)
+                        .padding(.vertical, 4)
+                        .background(studio.settings.geminiPlan == "paid" ? Color.blue.opacity(0.12) : Color.secondary.opacity(0.12), in: Capsule())
+                    }
+                }
+                .accessibilityElement(children: .combine)
+                .accessibilityLabel("Account Plan: \(studio.settings.geminiPlan == "paid" ? "Paid Plan" : "Free Plan")")
+
+                Text(studio.settings.geminiPlan == "paid"
+                    ? "Detected Paid Plan: Higher rate limits and enterprise data privacy."
+                    : "Detected Free Plan: Standard rate limits and quotas.")
+                    .font(.caption)
                     .foregroundStyle(.secondary)
             }
         }

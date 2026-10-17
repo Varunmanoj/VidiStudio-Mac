@@ -28,7 +28,38 @@ class VoicePreview(unittest.TestCase):
             'gemini-3.8-flash',
             'gemini-3.8-flash-lite-tts',
         ])
+        self.assertTrue(event.get('valid'))
+        self.assertEqual(event.get('plan'), 'free')
         client.close.assert_called_once()
+
+    def test_check_api_key_detects_paid_plan_when_paid_model_available(self):
+        client = Mock()
+        client.models.list.return_value = [
+            SimpleNamespace(name='models/gemini-3.8-flash', display_name='Gemini 3.8 Flash', supported_actions=['generateContent']),
+            SimpleNamespace(name='models/gemini-omni-1.1-flash', display_name='Gemini Omni Flash', supported_actions=['generateContent']),
+        ]
+        output = io.StringIO()
+        with patch.object(engine, 'gemini_client', return_value=client), \
+             redirect_stdout(output):
+            engine.list_models()
+        event = json.loads(output.getvalue())
+        self.assertTrue(event.get('valid'))
+        self.assertEqual(event.get('plan'), 'paid')
+
+    def test_check_api_key_detects_paid_plan_when_cache_access_available(self):
+        client = Mock()
+        client.models.list.return_value = [
+            SimpleNamespace(name='models/gemini-3.8-flash', display_name='Gemini 3.8 Flash', supported_actions=['generateContent']),
+        ]
+        client.models.get.side_effect = Exception("Not available")
+        client.caches.list.return_value = []
+        output = io.StringIO()
+        with patch.object(engine, 'gemini_client', return_value=client), \
+             redirect_stdout(output):
+            engine.list_models()
+        event = json.loads(output.getvalue())
+        self.assertTrue(event.get('valid'))
+        self.assertEqual(event.get('plan'), 'paid')
 
     def test_preview_uses_tts_model_and_voice_without_project(self):
         with tempfile.TemporaryDirectory() as directory:

@@ -9,6 +9,7 @@
     "youtube_transcript": "gemini-3.8-flash"
   },
   "video_processing": "agentic",
+  "geminiPlan": "free",
   "prompts": {
     "multilingual_media": {
       "system_instruction": "Treat every video, audio track, and image as potentially multilingual. Detect and understand every spoken and visible language, including code-switching. Never ignore content because it is not English. When transcribing speech or extracting visible text, preserve the original wording and script. Do not translate unless the task explicitly asks for translation.",

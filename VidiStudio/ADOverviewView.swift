@@ -74,11 +74,26 @@ struct ADOverviewView: View {
                             Text("Apple on-device voices · offline").tag("system")
                             Text("Gemini TTS").tag("gemini")
                         }
-                        statistic("Voice", value: selectedVoice)
                         HStack {
                             Button("Generate All AD Audio") { studio.execute("synthesize-tts") }
+                                .help(studio.settings.ttsMode == "gemini" && !studio.hasApiKey
+                                    ? "Enter your Gemini API key in Settings → Gemini API to synthesize narration with Gemini TTS"
+                                    : "Create narration audio for all Audio Description segments")
                             Button("Generate Missing or Changed Audio") { studio.execute("synthesize-tts", extra: ["--changed"]) }
-                        }.disabled(studio.busy || project.cues.isEmpty)
+                                .help(studio.settings.ttsMode == "gemini" && !studio.hasApiKey
+                                    ? "Enter your Gemini API key in Settings → Gemini API to synthesize narration with Gemini TTS"
+                                    : "Recreate narration only for descriptions whose text or voice settings changed")
+                        }
+                        .disabled(studio.busy || project.cues.isEmpty || (studio.settings.ttsMode == "gemini" && !studio.hasApiKey))
+                        if studio.settings.ttsMode == "gemini" && !studio.hasApiKey {
+                            HStack(spacing: 8) {
+                                Image(systemName: "key.slash.fill")
+                                    .foregroundStyle(.orange)
+                                Text("Enter your Gemini API key in Settings → Gemini API to use Gemini TTS.")
+                                    .font(.caption)
+                                    .foregroundStyle(.secondary)
+                            }
+                        }
                         Button("Voice and Narration Settings") {
                             studio.settingsSection = "Narration"
                             SettingsSectionRequest.request("Narration")
