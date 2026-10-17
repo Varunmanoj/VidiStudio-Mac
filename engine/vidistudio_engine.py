@@ -46,6 +46,14 @@ def config():
 
 
 def safe_error(exc):
+    details = getattr(exc, 'details', None)
+    if details:
+        for d in details:
+            if isinstance(d, dict) and d.get('reason') == 'API_KEY_INVALID':
+                return 'API key not valid. Please check your Gemini API key in Settings.'
+    raw_message = getattr(exc, 'message', None) or str(exc)
+    if 'API_KEY_INVALID' in str(exc) or 'API key not valid' in raw_message:
+        return 'API key not valid. Please check your Gemini API key in Settings.'
     message = str(exc)
     try:
         key = config().get('apiKey')

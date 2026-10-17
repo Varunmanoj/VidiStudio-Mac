@@ -744,6 +744,8 @@ final class StudioModel {
     var apiKeyVerified: Bool? = nil
     var apiKeyVerificationMessage: String? = nil
     var hasApiKey: Bool { settings.hasApiKey }
+    var hasValidApiKey: Bool { hasApiKey && apiKeyVerified != false }
+    var isApiKeyInvalid: Bool { hasApiKey && apiKeyVerified == false }
     var engineCheckStatus: EngineCheckStatus = .unchecked
     var selected: StudioProject? { projects.first { $0.id == selectedID } }
 
@@ -1456,9 +1458,11 @@ final class StudioModel {
                         let issue = UserFacingIssue.forEngine(command: command, technicalDetails: detail)
                         present(issue, technicalDetails: detail, context: "Run \(command)")
                         if command == "doctor" { engineCheckStatus = .failed(issue.message) }
-                        if command == "list-models" || command == "check-api-key" {
+                        if command == "list-models" || command == "check-api-key" || detail.localizedCaseInsensitiveContains("api key not valid") || detail.localizedCaseInsensitiveContains("api_key_invalid") {
                             apiKeyVerified = false
                             apiKeyVerificationMessage = detail
+                            availableGeminiModels = []
+                            geminiModelsLoaded = false
                         }
                     }
                     if let path = event["project"] as? String {
@@ -1469,9 +1473,11 @@ final class StudioModel {
                 }
             } catch {
                 let detail = error.localizedDescription
-                if command == "list-models" || command == "check-api-key" {
+                if command == "list-models" || command == "check-api-key" || detail.localizedCaseInsensitiveContains("api key not valid") || detail.localizedCaseInsensitiveContains("api_key_invalid") {
                     apiKeyVerified = false
                     apiKeyVerificationMessage = detail
+                    availableGeminiModels = []
+                    geminiModelsLoaded = false
                 }
                 present(
                     UserFacingIssue.forEngine(command: command, technicalDetails: detail),
@@ -1513,6 +1519,13 @@ final class StudioModel {
             }
             if task.terminationStatus == 0 {
                 self.errorTitle = StudioModel.defaultErrorTitle
+            } else if command == "list-models" || command == "check-api-key" {
+                apiKeyVerified = false
+                availableGeminiModels = []
+                geminiModelsLoaded = false
+                if apiKeyVerificationMessage == nil {
+                    apiKeyVerificationMessage = self.error ?? "The Gemini API key could not be verified. Please check the key in Settings → Gemini API."
+                }
             }
             if command == "doctor" {
                 engineCheckStatus = task.terminationStatus == 0

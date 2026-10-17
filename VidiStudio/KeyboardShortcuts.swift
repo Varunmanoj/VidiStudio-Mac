@@ -27,6 +27,8 @@ final class EditorShortcutActions {
     var hasGeneratedSummary = false
     var hasGeneratedThumbnails = false
     var hasApiKey = false
+    var apiKeyVerified: Bool? = nil
+    var hasValidApiKey: Bool { hasApiKey && apiKeyVerified != false }
     var ttsUsesGemini = false
     /// Summary section readback state, synced by the project editor.
     var summaryActive = false
@@ -103,7 +105,7 @@ final class EditorShortcutActions {
         case "undo": return canUndoSegment
         case "redo": return canRedoSegment
         case "reanalyze-selection":
-            guard hasApiKey else { return false }
+            guard hasValidApiKey else { return false }
             return activeSection == "transcript" || (activeSection == "descriptions" && canGenerateDescriptions)
         case "segment-edit-mode": return segmentEditingAvailable
         case "segment-select-all": return segmentEditMode && segmentCount > 0 && selectedSegmentCount < segmentCount
@@ -114,10 +116,10 @@ final class EditorShortcutActions {
         case "caption-transcript": return captionControlsAvailable && hasTranscriptText
         case "caption-ad-transcript": return captionControlsAvailable && (hasTranscriptText || hasDescriptions)
         case "prepare-video": return true
-        case "transcribe", "generate-summary": return hasApiKey
-        case "generate-ad-cues": return hasApiKey && canGenerateDescriptions
+        case "transcribe", "generate-summary": return hasValidApiKey
+        case "generate-ad-cues": return hasValidApiKey && canGenerateDescriptions
         case "synthesize-tts", "synthesize-changed":
-            if ttsUsesGemini && !hasApiKey { return false }
+            if ttsUsesGemini && !hasValidApiKey { return false }
             return hasDescriptions
         case "delete-transcript": return hasGeneratedTranscript
         case "delete-summary": return hasGeneratedSummary

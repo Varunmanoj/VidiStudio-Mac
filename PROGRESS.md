@@ -1,3 +1,23 @@
+## 2026-10-17 — Invalid Gemini API key detection, feature gating, and error reporting — version 1.0.61 (build 62)
+
+Comprehensive handling and user-facing safeguards for invalid, expired, or malformed Gemini API keys across the application:
+- Clean Engine Error Reporting: Enhanced `safe_error()` in `engine/vidistudio_engine.py` to recognize `API_KEY_INVALID` and HTTP 400 client errors from the Gemini API and format them into clean, human-readable errors (`"API key not valid. Please check your Gemini API key in Settings."`) rather than exposing raw JSON error payloads or stack dumps, while maintaining strict redaction of keys.
+- Engine Command Error Handling: In `list_models()`, `check-api-key`, and all Gemini-invoking operations, uncaught exceptions from invalid keys now cleanly emit the sanitized error message and exit with non-zero exit codes. Added unit tests in `tests/test_voice_preview.py` validating sanitized error formatting and model listing behavior under invalid API keys.
+- User-Facing Issue Mapping: Updated `UserFacingIssue.forEngine()` in `UserFacingIssue.swift` to specifically detect invalid API key responses and present actionable dialog titles and explanations: `"Invalid Gemini API Key: Your Gemini API key could not be verified by Google AI Studio. Check and update your API key in Settings → Gemini API."`
+- Model State & Feature Gating: In `StudioModel.swift`, added `hasValidApiKey` (`hasApiKey && apiKeyVerified != false`) and `isApiKeyInvalid` (`hasApiKey && apiKeyVerified == false`). When key check fails or an API call rejects the key, `apiKeyVerified` is set to `false`, `availableGeminiModels` is cleared, and `geminiModelsLoaded` is reset to `false`.
+- Global UI Feature Disabling & Tooltips:
+  - Project Browser: When an API key is invalid, displays a prominent red warning banner (`"Invalid Gemini API Key: The entered Gemini API key could not be verified. AI features are disabled across VidiStudio until a valid key is entered."`) with an "Open Gemini API Settings…" shortcut button. Analysis actions (Analyze Video, Generate Transcript, Generate Summary, Generate Audio Descriptions) in the Project Browser and context menus are disabled with clear tooltips explaining that the key is invalid and must be updated.
+  - Project Editor: Displays the red "Invalid Gemini API Key" banner across the editor header; generation buttons, Gemini TTS narration buttons, video preparation / Files API buttons, frame text OCR, and segment re-analysis buttons are disabled with explanatory tooltips.
+  - New Project Dialog: YouTube Fetch Details and Create Project buttons are disabled when the key is invalid, accompanied by inline red diagnostic warnings.
+  - Keyboard Shortcuts: Gated `EditorShortcutActions.canRun()` with `hasValidApiKey` so shortcuts for AI operations (`transcribe`, `generate-summary`, `generate-ad-cues`, `reanalyze-selection`, and Gemini TTS) cannot be triggered with an invalid key.
+- Settings Presentation:
+  - Under "Connect to Gemini", when verification fails, a red warning card is displayed with icon `xmark.octagon.fill`, title `"API Key Check Failed (Invalid Key)"`, the exact diagnostic message, and a clear notification that all AI features remain disabled until a valid key is provided.
+  - In the "Account Plan" section, an invalid key now displays a red `"Invalid Key"` status capsule with the explanation `"The plan tier cannot be determined because the API key is invalid"`, replacing the previous fallback to "Free Plan".
+- Startup Verification: Background key check is automatically initiated when `ContentView` appears if an API key is present and unverified (`apiKeyVerified == nil`), immediately detecting invalid keys on application launch.
+- Version bump: Advanced app and Share extension Debug and Release settings from 1.0.60 (build 61) to 1.0.61 (build 62).
+
+Validation: Required `VIDISTUDIO_CONFIGURATION=Release ./script/build_and_run.sh --verify` passed with macOS access, including 13 packaged Help pages, registration, anchors, links, style, search index, deep signing, and launch (process 38391). Release bundle metadata reports 1.0.61 / build 62. All 110 regression tests passed in 47.632 seconds with `VIDISTUDIO_TEST_ENGINE` pointing to the verified Release executable at `build/DerivedData/Build/Products/Release/VidiStudio.app/Contents/Resources/Engine/vidistudio-engine`. `git diff --check` passed.
+
 ## 2026-10-17 — Automatic API plan detection and simplified settings display — version 1.0.60 (build 61)
 
 Simplified the Gemini API settings workflow and automated Free vs. Paid plan detection:

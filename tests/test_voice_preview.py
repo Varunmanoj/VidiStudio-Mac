@@ -124,3 +124,16 @@ class VoicePreview(unittest.TestCase):
         with patch.object(engine, 'config', return_value={'ttsMode':'system'}):
             with self.assertRaisesRegex(ValueError, 'Choose Gemini'):
                 engine.preview_tts(Path('/tmp/not-created-preview.wav'), 'Hello')
+
+    def test_safe_error_formats_invalid_api_key_cleanly(self):
+        exc = Exception("400 INVALID_ARGUMENT. {'error': {'code': 400, 'message': 'API key not valid. Please pass a valid API key.', 'status': 'INVALID_ARGUMENT', 'details': [{'reason': 'API_KEY_INVALID'}]}}")
+        msg = engine.safe_error(exc)
+        self.assertEqual(msg, "API key not valid. Please check your Gemini API key in Settings.")
+
+    def test_list_models_with_invalid_api_key_raises_sanitized_error(self):
+        client = Mock()
+        client.models.list.side_effect = Exception("400 API_KEY_INVALID: API key not valid. Please pass a valid API key.")
+        with patch.object(engine, 'gemini_client', return_value=client):
+            with self.assertRaises(Exception) as ctx:
+                engine.list_models()
+            self.assertEqual(engine.safe_error(ctx.exception), "API key not valid. Please check your Gemini API key in Settings.")

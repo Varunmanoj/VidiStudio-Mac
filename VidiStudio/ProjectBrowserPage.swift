@@ -5,7 +5,11 @@ struct ProjectAnalysisMenu: View {
     let project: StudioProject
     let busy: Bool
     var hasApiKey: Bool = true
+    var apiKeyVerified: Bool? = nil
     let perform: (String) -> Void
+
+    private var hasValidApiKey: Bool { hasApiKey && apiKeyVerified != false }
+    private var isApiKeyInvalid: Bool { hasApiKey && apiKeyVerified == false }
 
     var body: some View {
         Menu("Analysis", systemImage: "sparkles") {
@@ -15,24 +19,24 @@ struct ProjectAnalysisMenu: View {
             .help("Refresh video details and timeline pictures without using AI")
             Divider()
             Button("Analyze Video…", systemImage: "sparkles") { perform("analyze") }
-                .disabled(!hasApiKey)
-                .help(!hasApiKey ? "Enter your Gemini API key in Settings → Gemini API to analyze this video" : "Generate the transcript, summary, and Audio Descriptions in sequence")
+                .disabled(!hasValidApiKey)
+                .help(!hasApiKey ? "Enter your Gemini API key in Settings → Gemini API to analyze this video" : isApiKeyInvalid ? "Gemini API key is invalid — enter a valid key in Settings → Gemini API to analyze this video" : "Generate the transcript, summary, and Audio Descriptions in sequence")
             Divider()
             Button(project.hasGeneratedTranscript ? "Regenerate Transcript…" : "Generate Transcript", systemImage: "text.bubble") {
                 perform("transcribe")
             }
-            .disabled(!hasApiKey)
-            .help(!hasApiKey ? "Enter your Gemini API key in Settings → Gemini API to transcribe speech" : "Generate dialogue transcript using Gemini")
+            .disabled(!hasValidApiKey)
+            .help(!hasApiKey ? "Enter your Gemini API key in Settings → Gemini API to transcribe speech" : isApiKeyInvalid ? "Gemini API key is invalid — enter a valid key in Settings → Gemini API to transcribe speech" : "Generate dialogue transcript using Gemini")
             Button(project.summary.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? "Generate Summary" : "Regenerate Summary…", systemImage: "text.alignleft") {
                 perform("generate-summary")
             }
-            .disabled(!hasApiKey)
-            .help(!hasApiKey ? "Enter your Gemini API key in Settings → Gemini API to generate summaries" : "Generate video summary using Gemini")
+            .disabled(!hasValidApiKey)
+            .help(!hasApiKey ? "Enter your Gemini API key in Settings → Gemini API to generate summaries" : isApiKeyInvalid ? "Gemini API key is invalid — enter a valid key in Settings → Gemini API to generate summaries" : "Generate video summary using Gemini")
             Button(project.cues.isEmpty ? "Generate Audio Descriptions" : "Regenerate Audio Descriptions…", systemImage: "sparkles") {
                 perform("generate-ad-cues")
             }
-            .disabled(!hasApiKey || !project.canGenerateDescriptions)
-            .help(!hasApiKey ? "Enter your Gemini API key in Settings → Gemini API to generate Audio Descriptions" : project.canGenerateDescriptions ? "Generate timed Audio Description text" : "Generate the transcript and summary first")
+            .disabled(!hasValidApiKey || !project.canGenerateDescriptions)
+            .help(!hasApiKey ? "Enter your Gemini API key in Settings → Gemini API to generate Audio Descriptions" : isApiKeyInvalid ? "Gemini API key is invalid — enter a valid key in Settings → Gemini API to generate Audio Descriptions" : project.canGenerateDescriptions ? "Generate timed Audio Description text" : "Generate the transcript and summary first")
         }
         .disabled(busy)
     }
@@ -47,6 +51,8 @@ struct ProjectBrowserPage: View {
     @Binding var selection: String?
     let busy: Bool
     var hasApiKey: Bool = true
+    var apiKeyVerified: Bool? = nil
+    var apiKeyVerificationMessage: String? = nil
     var openGeminiSettings: () -> Void = {}
     let newProject: () -> Void
     let openProjectFolder: () -> Void
@@ -112,6 +118,33 @@ struct ProjectBrowserPage: View {
                 )
                 .padding(.horizontal, 20)
                 .padding(.bottom, 12)
+            } else if apiKeyVerified == false {
+                HStack(spacing: 12) {
+                    Image(systemName: "exclamationmark.octagon.fill")
+                        .font(.title2)
+                        .foregroundStyle(.red)
+                    VStack(alignment: .leading, spacing: 3) {
+                        Text("Invalid Gemini API Key")
+                            .font(.headline)
+                        Text(apiKeyVerificationMessage ?? "The entered Gemini API key could not be verified. AI features are disabled across VidiStudio until a valid key is entered.")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                    }
+                    Spacer()
+                    Button("Open Gemini API Settings…") {
+                        openGeminiSettings()
+                    }
+                    .buttonStyle(.borderedProminent)
+                    .controlSize(.regular)
+                }
+                .padding(12)
+                .background(.red.opacity(0.12), in: RoundedRectangle(cornerRadius: 10))
+                .overlay(
+                    RoundedRectangle(cornerRadius: 10)
+                        .stroke(.red.opacity(0.3), lineWidth: 1)
+                )
+                .padding(.horizontal, 20)
+                .padding(.bottom, 12)
             }
 
             Divider()
@@ -140,6 +173,7 @@ struct ProjectBrowserPage: View {
                     busy: busy,
                     itemSize: $gridItemSize,
                     hasApiKey: hasApiKey,
+                    apiKeyVerified: apiKeyVerified,
                     open: openEditor,
                     rename: rename,
                     delete: delete,
@@ -289,7 +323,7 @@ struct ProjectBrowserPage: View {
         Button("Open in Project Folder", systemImage: "folder") {
             if let folder = project.folder { NSWorkspace.shared.open(folder) }
         }
-        ProjectAnalysisMenu(project: project, busy: busy, hasApiKey: hasApiKey) { command in
+        ProjectAnalysisMenu(project: project, busy: busy, hasApiKey: hasApiKey, apiKeyVerified: apiKeyVerified) { command in
             process(project, command)
         }
         ProjectExportButton(project: project, busy: busy) {

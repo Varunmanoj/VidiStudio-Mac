@@ -142,15 +142,20 @@ struct GeminiAPISettingsView: View {
                         Image(systemName: "xmark.octagon.fill")
                             .foregroundStyle(.red)
                             .imageScale(.medium)
-                        VStack(alignment: .leading, spacing: 2) {
-                            Text("API Key Check Failed")
+                        VStack(alignment: .leading, spacing: 3) {
+                            Text("API Key Check Failed (Invalid Key)")
                                 .font(.subheadline.bold())
+                                .foregroundStyle(.red)
                             Text(studio.apiKeyVerificationMessage ?? "The engine could not connect to Gemini with this key. Check the key and your network connection.")
                                 .font(.caption)
                                 .foregroundStyle(.secondary)
+                            Text("All AI features remain disabled across VidiStudio until a valid Gemini API key is entered.")
+                                .font(.caption2.bold())
+                                .foregroundStyle(.red.opacity(0.85))
+                                .padding(.top, 2)
                         }
                     }
-                    .padding(8)
+                    .padding(10)
                     .background(Color.red.opacity(0.12), in: RoundedRectangle(cornerRadius: 8))
                 }
             } else if studio.hasApiKey {
@@ -173,6 +178,18 @@ struct GeminiAPISettingsView: View {
                     Spacer()
                     if studio.busy {
                         ProgressView().controlSize(.small)
+                    } else if studio.apiKeyVerified == false {
+                        HStack(spacing: 6) {
+                            Circle()
+                                .fill(Color.red)
+                                .frame(width: 8, height: 8)
+                            Text("Invalid Key")
+                                .fontWeight(.semibold)
+                                .foregroundStyle(Color.red)
+                        }
+                        .padding(.horizontal, 10)
+                        .padding(.vertical, 4)
+                        .background(Color.red.opacity(0.12), in: Capsule())
                     } else {
                         HStack(spacing: 6) {
                             Circle()
@@ -188,13 +205,19 @@ struct GeminiAPISettingsView: View {
                     }
                 }
                 .accessibilityElement(children: .combine)
-                .accessibilityLabel("Account Plan: \(studio.settings.geminiPlan == "paid" ? "Paid Plan" : "Free Plan")")
+                .accessibilityLabel("Account Plan: \(studio.apiKeyVerified == false ? "Invalid Key" : (studio.settings.geminiPlan == "paid" ? "Paid Plan" : "Free Plan"))")
 
-                Text(studio.settings.geminiPlan == "paid"
-                    ? "Detected Paid Plan: Higher rate limits and enterprise data privacy."
-                    : "Detected Free Plan: Standard rate limits and quotas.")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
+                if studio.apiKeyVerified == false {
+                    Text("The plan tier cannot be determined because the API key is invalid.")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                } else {
+                    Text(studio.settings.geminiPlan == "paid"
+                        ? "Detected Paid Plan: Higher rate limits and enterprise data privacy."
+                        : "Detected Free Plan: Standard rate limits and quotas.")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
             }
         }
 

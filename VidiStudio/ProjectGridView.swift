@@ -7,6 +7,7 @@ struct ProjectGridView: View {
     let busy: Bool
     @Binding var itemSize: Double
     var hasApiKey: Bool = true
+    var apiKeyVerified: Bool? = nil
     let open: (StudioProject) -> Void
     let rename: (StudioProject) -> Void
     let delete: (StudioProject) -> Void
@@ -52,7 +53,7 @@ struct ProjectGridView: View {
                         Button("Open in Project Folder", systemImage: "folder") {
                             if let folder = project.folder { NSWorkspace.shared.open(folder) }
                         }
-                        ProjectAnalysisMenu(project: project, busy: busy, hasApiKey: hasApiKey) { command in
+                        ProjectAnalysisMenu(project: project, busy: busy, hasApiKey: hasApiKey, apiKeyVerified: apiKeyVerified) { command in
                             process(project, command)
                         }
                         ProjectExportButton(project: project, busy: busy) {
