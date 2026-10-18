@@ -611,7 +611,7 @@ struct ProcessingInspector: View {
                                         }
                                     }
                                 }
-                                if editorActions.activeSection == "descriptions" || editorActions.activeSection == "ad-overview" {
+                                if ["descriptions", "ad-overview", "ad-transcript"].contains(editorActions.activeSection) {
                                     if studio.settings.ttsMode == "gemini" {
                                         if !studio.hasApiKey {
                                             HStack(spacing: 6) {
@@ -633,8 +633,28 @@ struct ProcessingInspector: View {
                                             }
                                         }
                                     }
+                                    if studio.isSynthesizingNarration {
+                                        HStack(spacing: 6) {
+                                            ProgressView()
+                                                .controlSize(.small)
+                                                .accessibilityHidden(true)
+                                            Image(systemName: "waveform.circle.fill")
+                                                .foregroundStyle(Color.accentColor)
+                                                .accessibilityHidden(true)
+                                            Text(studio.activeNarrationStatusText)
+                                                .font(.caption.weight(.semibold))
+                                                .foregroundStyle(.primary)
+                                        }
+                                        .accessibilityElement(children: .ignore)
+                                        .accessibilityLabel(studio.activeNarrationStatusText)
+                                    }
                                     HStack(spacing: 6) {
-                                        Button("Synthesize Narration", systemImage: "speaker.wave.2") {
+                                        Button(
+                                            studio.isSynthesizingNarration
+                                                ? (studio.narratingSegmentIndex.map { "Synthesizing AD \($0)…" } ?? "Synthesizing…")
+                                                : "Synthesize Narration",
+                                            systemImage: studio.isSynthesizingNarration ? "rays" : "speaker.wave.2"
+                                        ) {
                                             editorActions.run("synthesize-tts")
                                         }
                                         .frame(maxWidth: .infinity, alignment: .leading)
@@ -644,7 +664,11 @@ struct ProcessingInspector: View {
                                             : studio.settings.ttsMode == "gemini" && studio.isApiKeyInvalid
                                                 ? "Gemini API key is invalid — enter a valid key in Settings → Gemini API to synthesize Gemini TTS narration"
                                                 : "Create narration audio for all Audio Description segments")
-                                        if GeneratedContentComponent.narration.hasContent(in: p) {
+                                        if studio.isSynthesizingNarration {
+                                            ProgressView()
+                                                .controlSize(.small)
+                                                .accessibilityLabel("Synthesizing narration")
+                                        } else if GeneratedContentComponent.narration.hasContent(in: p) {
                                             Button("Delete Narration Audio…", systemImage: "trash", role: .destructive) {
                                                 studio.confirmDeleteGeneratedContent(p, component: .narration)
                                             }
@@ -1631,6 +1655,9 @@ struct ProjectEditor: View {
                     ScrollViewReader { reader in
                     List(segments) { row in
                         let cue = row.segment
+                        let adNumber = row.isDescription ? (project.cues.firstIndex(where: { $0.id == cue.id }).map { $0 + 1 }) : nil
+                        let isNarratingCue = row.isDescription && studio.isSegmentNarrating(cue.id)
+                        let isQueuedCue = row.isDescription && studio.isSegmentQueuedForNarration(cue.id)
                         HStack(alignment: .top, spacing: 16) {
                             if segmentEditMode {
                                 Toggle("Select \(row.kind.lowercased()) segment at \(timecode(cue.start))", isOn: selectionBinding(for: row.id))
@@ -1665,12 +1692,41 @@ struct ProjectEditor: View {
                                             cue: cue,
                                             project: project
                                         ),
-                                        detail: cue.narrationVoiceSummary
+                                        detail: cue.narrationVoiceSummary,
+                                        adNumber: adNumber,
+                                        isNarrating: isNarratingCue,
+                                        isQueued: isQueuedCue
                                     )
                                 }
                                 Text(cue.text).textSelection(.enabled)
                             }.frame(maxWidth: .infinity, alignment: .leading)
-                            if row.isDescription && tab == "descriptions" {
+                            if isNarratingCue {
+                                HStack(spacing: 6) {
+                                    ProgressView()
+                                        .controlSize(.small)
+                                        .accessibilityHidden(true)
+                                    Image(systemName: "waveform")
+                                        .foregroundStyle(Color.accentColor)
+                                        .accessibilityHidden(true)
+                                    Text("Generating…")
+                                        .font(.caption.weight(.semibold))
+                                        .foregroundStyle(Color.accentColor)
+                                }
+                                .accessibilityElement(children: .ignore)
+                                .accessibilityLabel("Generating narration audio for AD segment \(adNumber ?? 0)")
+                            } else if isQueuedCue {
+                                HStack(spacing: 4) {
+                                    Image(systemName: "clock.arrow.circlepath")
+                                        .foregroundStyle(.orange)
+                                        .accessibilityHidden(true)
+                                    Text("Queued")
+                                        .font(.caption)
+                                        .foregroundStyle(.orange)
+                                }
+                                .accessibilityElement(children: .ignore)
+                                .accessibilityLabel("Queued for narration generation")
+                            }
+                            if row.isDescription && (tab == "descriptions" || tab == "ad-transcript") {
                                 Button(previewPrimaryControlTitle(for: cue), systemImage: previewPrimaryControlIcon(for: cue)) {
                                     if activePreviewCueID == cue.id {
                                         stopNarrationPreview()
@@ -1705,9 +1761,13 @@ struct ProjectEditor: View {
                                             studio.execute("rewrite-cue", extra: ["--segment", cue.id])
                                         },
                                         .init(
-                                            title: cue.audio == nil ? "Synthesize This Segment" : "Regenerate Segment Narration",
-                                            systemImage: "waveform",
-                                            enabled: studio.settings.ttsMode != "gemini" || studio.hasValidApiKey
+                                            title: isNarratingCue
+                                                ? "Generating Audio for AD Segment \(adNumber ?? 0)…"
+                                                : isQueuedCue
+                                                    ? "Queued for Audio Generation (AD \(adNumber ?? 0))…"
+                                                    : (cue.audio == nil ? "Synthesize This Segment" : "Regenerate Segment Narration"),
+                                            systemImage: isNarratingCue ? "rays" : isQueuedCue ? "clock.arrow.circlepath" : "waveform",
+                                            enabled: !studio.busy && (studio.settings.ttsMode != "gemini" || studio.hasValidApiKey)
                                         ) {
                                             studio.execute("synthesize-tts", extra: ["--segment", cue.id])
                                         },
@@ -1749,11 +1809,16 @@ struct ProjectEditor: View {
                             .onTapGesture(count: 2) {
                                 playback.pauseAndCaptureTime { _ in segmentToEdit = row }
                             }
-                            .listRowBackground(playback.time >= cue.start && playback.time < cue.end ? Color.accentColor.opacity(0.15) : Color.clear)
+                            .listRowBackground(
+                                isNarratingCue
+                                    ? Color.accentColor.opacity(0.22)
+                                    : (playback.time >= cue.start && playback.time < cue.end ? Color.accentColor.opacity(0.15) : Color.clear)
+                            )
                             .contextMenu {
                                 Button("Edit \(row.kind) Segment…", systemImage: "pencil") {
                                     playback.pauseAndCaptureTime { _ in segmentToEdit = row }
                                 }
+                                .disabled(studio.busy)
                                 .help("Edit \(row.kind.lowercased()) text and timing in a dialog")
                                 .accessibilityLabel("Edit \(row.kind.lowercased()) segment starting at \(timecode(cue.start))")
 
@@ -1773,8 +1838,12 @@ struct ProjectEditor: View {
 
                                 if row.isDescription {
                                     Button(
-                                        cue.audio == nil ? "Synthesize This Segment" : "Regenerate Segment Narration",
-                                        systemImage: "waveform"
+                                        isNarratingCue
+                                            ? "Generating Audio for AD Segment \(adNumber ?? 0)…"
+                                            : isQueuedCue
+                                                ? "Queued for Audio Generation (AD \(adNumber ?? 0))…"
+                                                : (cue.audio == nil ? "Synthesize This Segment" : "Regenerate Segment Narration"),
+                                        systemImage: isNarratingCue ? "rays" : isQueuedCue ? "clock.arrow.circlepath" : "waveform"
                                     ) {
                                         studio.execute("synthesize-tts", extra: ["--segment", cue.id])
                                     }
@@ -1789,6 +1858,11 @@ struct ProjectEditor: View {
                                     .accessibilityLabel(
                                         "\(cue.audio == nil ? "Synthesize" : "Regenerate") narration audio for segment starting at \(timecode(cue.start))"
                                     )
+
+                                    if studio.isSynthesizingNarration && !isNarratingCue, let activeIdx = studio.narratingSegmentIndex {
+                                        Button("Currently Generating AD Segment \(activeIdx)…", systemImage: "rays") {}
+                                            .disabled(true)
+                                    }
 
                                     Button("Rewrite to Fit", systemImage: "sparkles") {
                                         studio.execute("rewrite-cue", extra: ["--segment", cue.id])
@@ -2017,6 +2091,9 @@ struct ProjectEditor: View {
         shortcutActions.apiKeyVerified = studio.apiKeyVerified
         shortcutActions.ttsUsesGemini = (studio.settings.ttsMode == "gemini")
         shortcutActions.hasGeneratedThumbnails = !project.thumbnails.isEmpty
+        shortcutActions.isSynthesizingNarration = studio.isSynthesizingNarration
+        shortcutActions.narratingSegmentIndex = studio.narratingSegmentIndex
+        shortcutActions.narratingTotalCount = studio.narratingTotalCount > 0 ? studio.narratingTotalCount : project.cues.count
         shortcutActions.summaryActive = (tab == "summary")
         shortcutActions.summaryReadable = !project.summary.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty && !studio.busy
         shortcutActions.summaryIsReading = summaryReader.isReading
@@ -2107,6 +2184,9 @@ struct ProjectEditor: View {
         .onChange(of: segmentBatchToEdit?.id) { _, _ in refreshEditorShortcutActions() }
         .onChange(of: studio.screenText) { _, _ in refreshEditorShortcutActions() }
         .onChange(of: studio.busy) { _, _ in refreshEditorShortcutActions() }
+        .onChange(of: studio.isSynthesizingNarration) { _, _ in refreshEditorShortcutActions() }
+        .onChange(of: studio.narratingSegmentID) { _, _ in refreshEditorShortcutActions() }
+        .onChange(of: studio.narratingSegmentIndex) { _, _ in refreshEditorShortcutActions() }
         .onChange(of: project.updatedAt) { _, _ in refreshEditorShortcutActions(updateHandler: true) }
         .onChange(of: studio.settings.captionDisplayMode) { _, _ in refreshEditorShortcutActions() }
         .onChange(of: studio.hasApiKey) { _, _ in refreshEditorShortcutActions() }

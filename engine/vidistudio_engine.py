@@ -1188,6 +1188,12 @@ def synthesize(root,p,segment=None,changed=False):
     has_usable = any(narration_audio_is_usable(root, c) for c in cues)
     has_unusable = any(not narration_audio_is_usable(root, c) for c in cues)
     preserve_existing_usable = changed or (segment is None and has_usable and has_unusable)
+    queued_ids = [
+        c['id'] for c in cues
+        if (not segment or c['id'] == segment)
+        and not (preserve_existing_usable and narration_audio_is_usable(root, c))
+    ]
+    total_to_attempt = max(1, len(queued_ids))
     failures = []
     generated = 0
     attempted = 0
@@ -1195,7 +1201,14 @@ def synthesize(root,p,segment=None,changed=False):
         if segment and c['id']!=segment: continue
         if preserve_existing_usable and narration_audio_is_usable(root, c): continue
         attempted += 1
-        emit(f'Creating narration for description {i+1} of {len(cues)}', progress=(attempted-1)/max(1,len(cues)))
+        emit(
+            f'Creating narration for description {i+1} of {len(cues)}',
+            progress=(attempted-1)/total_to_attempt,
+            narratingSegment=c['id'],
+            narratingIndex=i+1,
+            narratingTotal=len(cues),
+            narratingQueue=queued_ids[attempted-1:],
+        )
         name = 'audio-description/' + str(uuid.uuid4()) + '.mp3'
         output = root/name
         previous_audio = c.get('audio')
@@ -1238,6 +1251,15 @@ def synthesize(root,p,segment=None,changed=False):
             generated += 1
             if previous_audio and previous_audio != name and not any(item.get('audio') == previous_audio for item in cues):
                 local(root, previous_audio).unlink(missing_ok=True)
+            emit(
+                f'Completed narration for description {i+1} of {len(cues)}',
+                progress=attempted/total_to_attempt,
+                narratedSegment=c['id'],
+                narratedIndex=i+1,
+                narratingTotal=len(cues),
+                narratingQueue=queued_ids[attempted:],
+                project=str(root),
+            )
         except ProcessingCancelled:
             output.unlink(missing_ok=True)
             raise
@@ -1248,7 +1270,15 @@ def synthesize(root,p,segment=None,changed=False):
             p['cues'] = cues; save(root,p)
             failures.append({'index': i+1, 'start': round(c['start'],3), 'end': round(c['end'],3),
                              'duration': round(c['end']-c['start'],3), 'reason': c['audioError']})
-            emit(f"Description {i+1} needs attention: {c['audioError']}", warning=True)
+            emit(
+                f"Description {i+1} needs attention: {c['audioError']}",
+                warning=True,
+                narratedSegment=c['id'],
+                narratedIndex=i+1,
+                narratingTotal=len(cues),
+                narratingQueue=queued_ids[attempted:],
+                project=str(root),
+            )
         finally:
             textfile.unlink(missing_ok=True)
             if raw is not None: raw.unlink(missing_ok=True)

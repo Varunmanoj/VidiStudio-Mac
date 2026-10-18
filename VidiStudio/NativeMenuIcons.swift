@@ -103,6 +103,12 @@ enum NativeMenuIcons {
         case "Bottom": return "rectangle.bottomhalf.filled"
         case "Return to Previous Size": return "arrow.uturn.backward"
         default:
+            if item.title.hasPrefix("Generating Audio") || item.title.hasPrefix("Currently Generating AD") || item.title.hasPrefix("Synthesizing") {
+                return "rays"
+            }
+            if item.title.hasPrefix("Queued for Audio") {
+                return "clock.arrow.circlepath"
+            }
             // Window-list entries are created dynamically by AppKit.
             if item.menu === NSApp.windowsMenu { return "macwindow" }
             return nil

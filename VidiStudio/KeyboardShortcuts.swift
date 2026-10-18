@@ -33,8 +33,21 @@ final class EditorShortcutActions {
     var apiKeyVerified: Bool? = nil
     var hasValidApiKey: Bool { hasApiKey && apiKeyVerified != false }
     var ttsUsesGemini = false
+    var isSynthesizingNarration = false
+    var narratingSegmentIndex: Int? = nil
+    var narratingTotalCount = 0
     /// Summary section readback state, synced by the project editor.
     var summaryActive = false
+
+    var synthesizeNarrationTitle: String {
+        if isSynthesizingNarration {
+            if let idx = narratingSegmentIndex, narratingTotalCount > 0 {
+                return "Synthesizing AD Segment \(idx) of \(narratingTotalCount)…"
+            }
+            return "Synthesizing Narration…"
+        }
+        return "Synthesize Narration"
+    }
     var summaryReadable = false
     var summaryIsReading = false
     var summaryIsPaused = false
@@ -365,8 +378,8 @@ struct StudioCommands: Commands {
                     .keyboardShortcut("d", modifiers: [.command, .option, .shift])
                     .disabled(editor?.canRun("generate-ad-cues") != true)
             }
-            Menu("Narration", systemImage: "speaker.wave.2") {
-                Button("Synthesize Narration", systemImage: "speaker.wave.2") { editor?.run("synthesize-tts") }
+            Menu("Narration", systemImage: editor?.isSynthesizingNarration == true ? "rays" : "speaker.wave.2") {
+                Button(editor?.synthesizeNarrationTitle ?? "Synthesize Narration", systemImage: editor?.isSynthesizingNarration == true ? "rays" : "speaker.wave.2") { editor?.run("synthesize-tts") }
                     .disabled(editor?.canRun("synthesize-tts") != true)
                 Button("Synthesize Changed Segments", systemImage: "waveform") { editor?.run("synthesize-changed") }
                     .disabled(editor?.canRun("synthesize-changed") != true)

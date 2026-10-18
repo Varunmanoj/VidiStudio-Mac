@@ -89,6 +89,22 @@ struct ADOverviewView: View {
                             Text("Gemini TTS").tag("gemini")
                         }
                         statistic("Selected voice", value: studio.settings.currentNarrationSummary)
+                        if studio.isSynthesizingNarration {
+                            HStack(spacing: 8) {
+                                ProgressView()
+                                    .controlSize(.small)
+                                    .accessibilityHidden(true)
+                                Image(systemName: "waveform.circle.fill")
+                                    .foregroundStyle(Color.accentColor)
+                                    .accessibilityHidden(true)
+                                Text(studio.activeNarrationStatusText)
+                                    .font(.callout.weight(.semibold))
+                                    .foregroundStyle(.primary)
+                            }
+                            .padding(.vertical, 4)
+                            .accessibilityElement(children: .ignore)
+                            .accessibilityLabel(studio.activeNarrationStatusText)
+                        }
                         if voiceReport.hasDifferentVoices {
                             VStack(alignment: .leading, spacing: 6) {
                                 HStack(alignment: .top, spacing: 8) {

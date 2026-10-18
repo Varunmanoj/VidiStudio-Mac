@@ -125,15 +125,52 @@ enum SynchronizedAudioStatus: Equatable {
 struct SynchronizedAudioStatusLabel: View {
     let status: SynchronizedAudioStatus
     var detail: String? = nil
+    var adNumber: Int? = nil
+    var isNarrating: Bool = false
+    var isQueued: Bool = false
+
+    private var prefix: String {
+        guard let adNumber else { return "" }
+        return "AD \(adNumber) · "
+    }
+
+    private var displayTitle: String {
+        if isNarrating {
+            return "\(prefix)Generating narration audio…" + (detail.map { " · \($0)" } ?? "")
+        }
+        if isQueued {
+            return "\(prefix)Queued for narration generation…"
+        }
+        return "\(prefix)\(status.title)" + (detail.map { " · \($0)" } ?? "")
+    }
+
+    private var statusColor: Color {
+        if isNarrating { return .accentColor }
+        if isQueued { return .orange }
+        return status.color
+    }
+
+    private var statusIcon: String {
+        if isNarrating { return "waveform.circle.fill" }
+        if isQueued { return "clock.arrow.circlepath" }
+        return status.iconName
+    }
 
     var body: some View {
-        HStack(spacing: 5) {
-            Image(systemName: status.iconName).accessibilityHidden(true)
-            Text(detail.map { "\(status.title) · \($0)" } ?? status.title).font(.caption.weight(.semibold))
+        HStack(spacing: 6) {
+            if isNarrating {
+                ProgressView()
+                    .controlSize(.small)
+                    .accessibilityHidden(true)
+            }
+            Image(systemName: statusIcon)
+                .accessibilityHidden(true)
+            Text(displayTitle)
+                .font(.caption.weight(.semibold))
         }
-        .foregroundStyle(status.color)
+        .foregroundStyle(statusColor)
         .accessibilityElement(children: .ignore)
-        .accessibilityLabel(detail.map { "\(status.title), \($0)" } ?? status.title)
+        .accessibilityLabel(displayTitle)
     }
 }
 
@@ -950,6 +987,11 @@ final class StudioModel {
     var narrationFailureReport: NarrationFailureReport?
     var narrationVoiceReport: NarrationVoiceReport?
     @ObservationIgnored private var pendingVoiceMismatchReview = false
+    var isSynthesizingNarration = false
+    var narratingSegmentID: String?
+    var narratingSegmentIndex: Int?
+    var narratingTotalCount = 0
+    var narratingQueueIDs: Set<String> = []
     var logs: [String] = []
     var screenText: String?
     var screenTimestamp = 0.0
@@ -972,6 +1014,21 @@ final class StudioModel {
         exportActivity?.cancelling = true
         exportActivity?.status = message
         process.terminate()
+    }
+
+    func isSegmentNarrating(_ segmentID: String) -> Bool {
+        isSynthesizingNarration && narratingSegmentID == segmentID
+    }
+
+    func isSegmentQueuedForNarration(_ segmentID: String) -> Bool {
+        isSynthesizingNarration && narratingSegmentID != segmentID && narratingQueueIDs.contains(segmentID)
+    }
+
+    var activeNarrationStatusText: String {
+        if let index = narratingSegmentIndex, narratingTotalCount > 0 {
+            return "Generating audio for AD segment \(index) of \(narratingTotalCount)…"
+        }
+        return "Generating narration audio…"
     }
 
     func dismissError() {
@@ -1802,6 +1859,33 @@ final class StudioModel {
         }
         processingSection = Self.initialProcessingSection(for: command)
         processingPlan = Self.analysisSections(for: command, extra: extra)
+        if command == "synthesize-tts", let target {
+            isSynthesizingNarration = true
+            narratingTotalCount = target.cues.count
+            if let flagIdx = extra.firstIndex(of: "--segment"), extra.indices.contains(flagIdx + 1) {
+                let segID = extra[flagIdx + 1]
+                narratingQueueIDs = [segID]
+                narratingSegmentID = segID
+                narratingSegmentIndex = target.cues.firstIndex(where: { $0.id == segID }).map { $0 + 1 }
+            } else {
+                let changedOnly = extra.contains("--changed")
+                let hasUsable = target.cues.contains { SynchronizedAudioStatus.resolve(cue: $0, project: target) == .generated }
+                let hasUnusable = target.cues.contains { SynchronizedAudioStatus.resolve(cue: $0, project: target) != .generated }
+                let preserveUsable = changedOnly || (hasUsable && hasUnusable)
+                let queued = target.cues.enumerated().filter { _, cue in
+                    !preserveUsable || SynchronizedAudioStatus.resolve(cue: cue, project: target) != .generated
+                }
+                narratingQueueIDs = Set(queued.map { $0.element.id })
+                narratingSegmentID = queued.first?.element.id
+                narratingSegmentIndex = queued.first.map { $0.offset + 1 }
+            }
+        } else {
+            isSynthesizingNarration = false
+            narratingSegmentID = nil
+            narratingSegmentIndex = nil
+            narratingTotalCount = 0
+            narratingQueueIDs = []
+        }
         var completedExportPath: String?
         var completedProjectPath: String?
         progress = 0
@@ -1826,6 +1910,11 @@ final class StudioModel {
             videoPreparationActivity = nil
             processingSection = nil
             processingPlan = []
+            isSynthesizingNarration = false
+            narratingSegmentID = nil
+            narratingSegmentIndex = nil
+            narratingTotalCount = 0
+            narratingQueueIDs = []
             process = nil
             present(issue, technicalDetails: detail, context: "Start \(command)")
             completion?(nil)
@@ -1869,6 +1958,27 @@ final class StudioModel {
                     }
                     if let section = event["processingSection"] as? String {
                         processingSection = section
+                    }
+                    if let total = event["narratingTotal"] as? Int {
+                        narratingTotalCount = total
+                    }
+                    if let queue = event["narratingQueue"] as? [String] {
+                        narratingQueueIDs = Set(queue)
+                    }
+                    if let narratingID = event["narratingSegment"] as? String {
+                        narratingSegmentID = narratingID
+                        if let idx = event["narratingIndex"] as? Int {
+                            narratingSegmentIndex = idx
+                        }
+                    } else if event["narratedSegment"] is String {
+                        if let nextID = (event["narratingQueue"] as? [String])?.first {
+                            narratingSegmentID = nextID
+                            if let p = selected, let nextIdx = p.cues.firstIndex(where: { $0.id == nextID }) {
+                                narratingSegmentIndex = nextIdx + 1
+                            }
+                        } else {
+                            narratingSegmentID = nil
+                        }
                     }
                     if let state = event["videoPreparation"] as? String, let target {
                         switch state {
@@ -1961,6 +2071,11 @@ final class StudioModel {
             cancellationRequested = false
             processingSection = nil
             processingPlan = []
+            isSynthesizingNarration = false
+            narratingSegmentID = nil
+            narratingSegmentIndex = nil
+            narratingTotalCount = 0
+            narratingQueueIDs = []
             process = nil
             reload()
             videoPreparationActivity = nil
