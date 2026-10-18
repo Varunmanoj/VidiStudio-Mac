@@ -55,8 +55,8 @@ enum NativeMenuIcons {
         case "Summary Reading": return "speaker.wave.2"
         case "Editor Sections": return "rectangle.split.3x1"
         case "Segments": return "timeline.selection"
-        case "Analysis": return "sparkles"
-        case "Narration": return "speaker.wave.2"
+        case "Analysis", "AD Segment Generation": return "sparkles"
+        case "Narration", "Narration Audio": return "speaker.wave.2"
         case "Edit Audio description Segment…", "Edit Audio Description Segment…", "Edit Transcript Segment…", "Edit Segment…", "Rename":
             return "pencil"
         case "Play from Audio description", "Play from Audio Description", "Play from Transcript":
@@ -65,6 +65,10 @@ enum NativeMenuIcons {
             return "forward.end.fill"
         case "Synthesize This Segment", "Regenerate Segment Narration", "Synthesize Changed Segments":
             return "waveform"
+        case "Regenerate All Narration…":
+            return "arrow.clockwise"
+        case "Review Narration Voices…":
+            return "person.wave.2"
         case "Synthesize Narration":
             return "speaker.wave.2"
         case "Rewrite to Fit", "Re-Analyze This Segment…", "Analyze Video…", "Generate Audio Descriptions", "Regenerate Audio Descriptions…":

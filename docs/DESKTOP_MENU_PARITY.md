@@ -10,8 +10,10 @@ Mac is the reference layout. Windows' shared menus follow this order:
 - **Project:**
   - **Editor Sections:** Transcript, Summary, Descriptions, AD Overview, AD Transcript.
   - **Segments:** Edit Mode, Add; Re-Analyze a Video Section, Select All, Deselect All, Edit Selected, Delete Selected; Follow, Undo, Redo.
-  - **Analysis:** Analyze Video; Video Details/Timeline Pictures, Transcript, Summary, Audio Descriptions.
-  - **Narration:** Synthesize, Synthesize Changed Segments, Review Narration Issues; Delete All Narration Audio.
+  - **Analysis:** Analyze Video; Video Details/Timeline Pictures, Transcript, Summary.
+  - **Narration:**
+    - **AD Segment Generation:** Generate/Regenerate Audio Descriptions; Delete Descriptions.
+    - **Narration Audio:** Synthesize, Synthesize Changed Segments, Regenerate All Narration…, Review Narration Issues, Review Narration Voices; Delete All Narration Audio.
   - Delete Current Page; Show Project in Finder/File Explorer.
 - **Help:** VidiStudio Help; About is here on Windows and in the native app menu on Mac.
 
@@ -29,6 +31,10 @@ Translate Command to Ctrl and Option to Alt. Standard text editing retains nativ
 | Help | Command+Option+/ | F1 |
 
 Deselect All uses Command+Option+Shift+U / Ctrl+Alt+Shift+U to avoid colliding with Analyze Video. Ctrl+Shift+D toggles narration on Windows, matching Mac; it no longer generates all narration.
+
+Regenerate All Narration uses the same guarded command from the Inspector and menu on both desktops (no shortcut). Confirmation names the selected voice and warns that every segment's generated audio will be replaced, keeping text and timing. Full regeneration bypasses repair-only preservation of usable audio; each old file is retained until its replacement succeeds. A successful full run also updates the project's primary narration voice.
+
+The Narration menu mirrors the Inspector's separate AD generation and narration audio groups using native nested submenus. Audio Description generation moved from Analysis into AD Segment Generation; its Command+Option+Shift+D / Ctrl+Alt+Shift+D shortcut and prerequisites are unchanged. Description deletion targets descriptions regardless of the active editor section and uses the existing confirmation. Review Narration Voices remains directly after Review Narration Issues inside Narration Audio.
 
 ## Keeping parity
 

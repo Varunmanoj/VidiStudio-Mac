@@ -394,6 +394,58 @@ class Validation(unittest.TestCase):
             self.assertEqual(reopened['cues'][1]['audioEngine'], 'gemini')
             self.assertEqual(reopened['cues'][1]['audioVoice'], 'Puck')
 
+    def test_regenerate_all_narration_replaces_usable_audio_and_updates_primary_voice(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            (root/'audio-description').mkdir()
+            old = root/'audio-description/old.mp3'
+            old.write_bytes(b'old audio')
+            project = {'duration': 20, 'transcript': [], 'narrationEngine': 'gemini', 'narrationVoice': 'Kore', 'cues': [
+                {'id': 'a', 'start': 1, 'end': 4, 'text': 'Existing.', 'audioText': 'Existing.',
+                 'audio': 'audio-description/old.mp3', 'audioEngine': 'gemini', 'audioVoice': 'Kore'},
+                {'id': 'b', 'start': 5, 'end': 8, 'text': 'Missing.'},
+            ]}
+            with patch.object(engine, 'config', return_value={'ttsMode': 'gemini', 'geminiVoice': 'Puck'}), \
+                 patch.object(engine, 'gemini_speech', side_effect=lambda output, text, p: output.write_bytes(b'new audio')) as speech, \
+                 patch.object(engine, 'probe', return_value={'format': {'duration': 1}}), patch.object(engine, 'emit') as emit:
+                engine.synthesize(root, project, regenerate_all=True)
+            self.assertEqual(speech.call_count, 2)
+            self.assertFalse(old.exists())
+            reopened = json.loads((root/'project.json').read_text())
+            self.assertEqual(reopened['narrationVoice'], 'Puck')
+            self.assertTrue(all(c['audioVoice'] == 'Puck' for c in reopened['cues']))
+            self.assertEqual([c['text'] for c in reopened['cues']], ['Existing.', 'Missing.'])
+            self.assertEqual([(c['start'], c['end']) for c in reopened['cues']], [(1, 4), (5, 8)])
+            self.assertEqual(next(c.kwargs['narratingQueue'] for c in emit.call_args_list if 'narratingQueue' in c.kwargs), ['a', 'b'])
+
+    def test_regenerate_all_narration_keeps_old_audio_on_failure(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            old = root/'old.mp3'
+            old.write_bytes(b'old audio')
+            project = {'duration': 20, 'transcript': [], 'narrationEngine': 'gemini', 'narrationVoice': 'Kore', 'cues': [
+                {'id': 'a', 'start': 1, 'end': 4, 'text': 'Existing.', 'audioText': 'Existing.',
+                 'audio': 'old.mp3', 'audioEngine': 'gemini', 'audioVoice': 'Kore'},
+                {'id': 'b', 'start': 5, 'end': 8, 'text': 'Missing.'},
+            ]}
+            def speech(output, text, p):
+                if text == 'Existing.':
+                    raise ValueError('Speech unavailable')
+                output.write_bytes(b'new audio')
+            with patch.object(engine, 'config', return_value={'ttsMode': 'gemini', 'geminiVoice': 'Puck'}), \
+                 patch.object(engine, 'gemini_speech', side_effect=speech), \
+                 patch.object(engine, 'probe', return_value={'format': {'duration': 1}}), patch.object(engine, 'emit'):
+                engine.synthesize(root, project, regenerate_all=True)
+            self.assertEqual(old.read_bytes(), b'old audio')
+            self.assertEqual(project['cues'][0]['audio'], 'old.mp3')
+            self.assertEqual(project['cues'][1]['audioVoice'], 'Puck')
+            self.assertEqual(project['narrationVoice'], 'Kore')
+
+    def test_regenerate_all_narration_rejects_partial_generation_flags(self):
+        for extra in ({'segment': 'a'}, {'changed': True}):
+            with self.assertRaisesRegex(ValueError, 'cannot be combined'):
+                engine.synthesize(None, {}, regenerate_all=True, **extra)
+
     def test_legacy_narration_timing_is_preserved_before_edit(self):
         cue = {'id': 'ad', 'start': 1, 'end': 4, 'text': 'Description',
                'audio': 'audio-description/ad.wav', 'audioText': 'Description', 'audioDuration': 2}
@@ -1206,6 +1258,12 @@ class Validation(unittest.TestCase):
             self.assertEqual(engine.probe(generated_audio)['streams'][0]['codec_name'], 'mp3')
             self.assertEqual(project()['cues'][0]['audioEngine'], 'system')
             self.assertTrue(project()['cues'][0].get('audioVoice'))
+            cli('synthesize-tts','--project',folder,'--regenerate-all')
+            replacement_audio = folder/project()['cues'][0]['audio']
+            self.assertNotEqual(replacement_audio, generated_audio)
+            self.assertFalse(generated_audio.exists())
+            self.assertTrue(replacement_audio.exists())
+            generated_audio = replacement_audio
             editable_segments = project()
             editable_segments['transcript'][0]['text'] = 'The edited final caption.'
             segments = root/'segments.json'

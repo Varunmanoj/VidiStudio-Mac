@@ -1706,6 +1706,17 @@ final class StudioModel {
 
     private func confirmNarrationVoiceChange(_ command: String, extra: [String], project: StudioProject) -> Bool {
         guard command == "synthesize-tts" else { return true }
+        if extra.contains("--regenerate-all") {
+            let alert = NSAlert()
+            alert.messageText = "Regenerate all narration in “\(project.name)”?"
+            alert.informativeText = "All generated narration audio will be replaced by newly generated audio for every Audio Description segment using the currently selected voice: \(settings.currentNarrationSummary). Description text and timing will be kept. Existing audio is replaced only after each segment is generated successfully; if generation fails or is canceled, some old audio may remain. Do you want to continue?"
+            alert.alertStyle = .warning
+            alert.addButton(withTitle: "Cancel")
+            alert.addButton(withTitle: "Regenerate All Narration")
+            let confirmed = alert.runModal() == .alertSecondButtonReturn
+            pendingVoiceMismatchReview = confirmed
+            return confirmed
+        }
         var current = project
         if let folder = project.folder {
             do {
@@ -1871,7 +1882,7 @@ final class StudioModel {
                 let changedOnly = extra.contains("--changed")
                 let hasUsable = target.cues.contains { SynchronizedAudioStatus.resolve(cue: $0, project: target) == .generated }
                 let hasUnusable = target.cues.contains { SynchronizedAudioStatus.resolve(cue: $0, project: target) != .generated }
-                let preserveUsable = changedOnly || (hasUsable && hasUnusable)
+                let preserveUsable = !extra.contains("--regenerate-all") && (changedOnly || (hasUsable && hasUnusable))
                 let queued = target.cues.enumerated().filter { _, cue in
                     !preserveUsable || SynchronizedAudioStatus.resolve(cue: cue, project: target) != .generated
                 }

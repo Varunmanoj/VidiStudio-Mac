@@ -517,7 +517,6 @@ struct ProcessingInspector: View {
         case "transcript": return "Transcript"
         case "summary": return "Summary"
         case "descriptions": return "Descriptions"
-        case "ad-overview": return "Narration"
         default: return nil
         }
     }
@@ -544,7 +543,7 @@ struct ProcessingInspector: View {
                 VStack(alignment: .leading, spacing: 12) {
                     if let p = studio.selected {
                         if let sectionTitle = currentSectionTitle {
-                            GroupBox(sectionTitle) {
+                            GroupBox(editorActions.activeSection == "descriptions" ? "AD Segment Generation" : sectionTitle) {
                             VStack(alignment: .leading, spacing: 8) {
                                 if !studio.hasApiKey && editorActions.currentGenerationAction != "prepare-video" {
                                     HStack(spacing: 6) {
@@ -611,7 +610,23 @@ struct ProcessingInspector: View {
                                         }
                                     }
                                 }
-                                if ["descriptions", "ad-overview", "ad-transcript"].contains(editorActions.activeSection) {
+                                if ["transcript", "descriptions"].contains(editorActions.activeSection) {
+                                    HStack(spacing: 6) {
+                                        Button("Undo Segment Edit", systemImage: "arrow.uturn.backward") { editorActions.run("undo") }
+                                            .help("Undo the most recent saved segment edit")
+                                            .disabled(!editorActions.canRun("undo"))
+                                        Button("Redo", systemImage: "arrow.uturn.forward") { editorActions.run("redo") }
+                                            .help("Redo the most recently undone segment edit")
+                                            .disabled(!editorActions.canRun("redo"))
+                                    }
+                                    .disabled(studio.busy)
+                                }
+                            }
+                            }
+                        }
+                        if ["descriptions", "ad-overview", "ad-transcript"].contains(editorActions.activeSection) {
+                            GroupBox("Narration Audio") {
+                                VStack(alignment: .leading, spacing: 8) {
                                     if studio.settings.ttsMode == "gemini" {
                                         if !studio.hasApiKey {
                                             HStack(spacing: 6) {
@@ -686,19 +701,12 @@ struct ProcessingInspector: View {
                                         : studio.settings.ttsMode == "gemini" && studio.isApiKeyInvalid
                                             ? "Gemini API key is invalid — enter a valid key in Settings → Gemini API to synthesize changed segments"
                                             : "Recreate narration only for descriptions whose text changed")
-                                }
-                                if ["transcript", "descriptions"].contains(editorActions.activeSection) {
-                                    HStack(spacing: 6) {
-                                        Button("Undo Segment Edit", systemImage: "arrow.uturn.backward") { editorActions.run("undo") }
-                                            .help("Undo the most recent saved segment edit")
-                                            .disabled(!editorActions.canRun("undo"))
-                                        Button("Redo", systemImage: "arrow.uturn.forward") { editorActions.run("redo") }
-                                            .help("Redo the most recently undone segment edit")
-                                            .disabled(!editorActions.canRun("redo"))
+                                    Button("Regenerate All Narration…", systemImage: "arrow.clockwise") {
+                                        editorActions.run("regenerate-all-narration")
                                     }
-                                    .disabled(studio.busy)
+                                    .disabled(!editorActions.canRun("regenerate-all-narration"))
+                                    .help("Replace narration audio for every segment using the currently selected voice")
                                 }
-                            }
                             }
                         }
                         if !p.isYouTubeURLProject {
@@ -2012,8 +2020,10 @@ struct ProjectEditor: View {
         case "undo": studio.execute(tab == "transcript" ? "undo-transcript" : "undo-cues")
         case "redo": studio.execute(tab == "transcript" ? "redo-transcript" : "redo-cues")
         case "synthesize-tts": studio.execute(action)
+        case "regenerate-all-narration": studio.execute("synthesize-tts", extra: ["--regenerate-all"])
         case "synthesize-changed": studio.execute("synthesize-tts", extra: ["--changed"])
         case "review-narration-issues": studio.narrationFailureReport = studio.narrationIssueReport(for: project)
+        case "review-narration-voices": studio.narrationVoiceReport = studio.narrationVoiceUsageReport(for: project)
         case "show-in-finder": if let folder = project.folder { NSWorkspace.shared.open(folder) }
         case "analyze", "prepare-video", "transcribe", "generate-summary": studio.execute(action)
         case "generate-ad-cues":

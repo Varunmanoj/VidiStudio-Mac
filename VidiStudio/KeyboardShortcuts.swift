@@ -134,13 +134,13 @@ final class EditorShortcutActions {
         case "prepare-video": return true
         case "analyze", "transcribe", "generate-summary": return hasValidApiKey
         case "generate-ad-cues": return hasValidApiKey && canGenerateDescriptions
-        case "synthesize-tts":
+        case "synthesize-tts", "regenerate-all-narration":
             if ttsUsesGemini && !hasValidApiKey { return false }
             return descriptionCount > 0
         case "synthesize-changed":
             if ttsUsesGemini && !hasValidApiKey { return false }
             return hasChangedNarration
-        case "review-narration-issues": return true
+        case "review-narration-issues", "review-narration-voices": return true
         case "delete-transcript": return hasGeneratedTranscript
         case "delete-summary": return hasGeneratedSummary
         case "delete-descriptions": return hasDescriptions
@@ -374,19 +374,30 @@ struct StudioCommands: Commands {
                 Button(editor?.hasGeneratedSummary == true ? "Regenerate Summary…" : "Generate Summary", systemImage: "text.alignleft") { editor?.run("generate-summary") }
                     .keyboardShortcut("s", modifiers: [.command, .option, .shift])
                     .disabled(editor?.canRun("generate-summary") != true)
-                Button(editor?.hasDescriptions == true ? "Regenerate Audio Descriptions…" : "Generate Audio Descriptions", systemImage: "sparkles") { editor?.run("generate-ad-cues") }
-                    .keyboardShortcut("d", modifiers: [.command, .option, .shift])
-                    .disabled(editor?.canRun("generate-ad-cues") != true)
             }
             Menu("Narration", systemImage: editor?.isSynthesizingNarration == true ? "rays" : "speaker.wave.2") {
-                Button(editor?.synthesizeNarrationTitle ?? "Synthesize Narration", systemImage: editor?.isSynthesizingNarration == true ? "rays" : "speaker.wave.2") { editor?.run("synthesize-tts") }
-                    .disabled(editor?.canRun("synthesize-tts") != true)
-                Button("Synthesize Changed Segments", systemImage: "waveform") { editor?.run("synthesize-changed") }
-                    .disabled(editor?.canRun("synthesize-changed") != true)
-                Button("Review Narration Issues…", systemImage: "list.bullet.clipboard") { editor?.run("review-narration-issues") }
-                    .disabled(editor?.canRun("review-narration-issues") != true)
-                Divider()
-                shortcutEntries(StudioShortcut.editor.filter { $0.id == "delete-narration" })
+                Menu("AD Segment Generation", systemImage: "sparkles") {
+                    Button(editor?.hasDescriptions == true ? "Regenerate Audio Descriptions…" : "Generate Audio Descriptions", systemImage: "sparkles") { editor?.run("generate-ad-cues") }
+                        .keyboardShortcut("d", modifiers: [.command, .option, .shift])
+                        .disabled(editor?.canRun("generate-ad-cues") != true)
+                    Divider()
+                    Button("Delete Descriptions…", systemImage: "trash", role: .destructive) { editor?.run("delete-descriptions") }
+                        .disabled(editor?.canRun("delete-descriptions") != true)
+                }
+                Menu("Narration Audio", systemImage: "speaker.wave.2") {
+                    Button(editor?.synthesizeNarrationTitle ?? "Synthesize Narration", systemImage: editor?.isSynthesizingNarration == true ? "rays" : "speaker.wave.2") { editor?.run("synthesize-tts") }
+                        .disabled(editor?.canRun("synthesize-tts") != true)
+                    Button("Synthesize Changed Segments", systemImage: "waveform") { editor?.run("synthesize-changed") }
+                        .disabled(editor?.canRun("synthesize-changed") != true)
+                    Button("Regenerate All Narration…", systemImage: "arrow.clockwise") { editor?.run("regenerate-all-narration") }
+                        .disabled(editor?.canRun("regenerate-all-narration") != true)
+                    Button("Review Narration Issues…", systemImage: "list.bullet.clipboard") { editor?.run("review-narration-issues") }
+                        .disabled(editor?.canRun("review-narration-issues") != true)
+                    Button("Review Narration Voices…", systemImage: "person.wave.2") { editor?.run("review-narration-voices") }
+                        .disabled(editor?.canRun("review-narration-voices") != true)
+                    Divider()
+                    shortcutEntries(StudioShortcut.editor.filter { $0.id == "delete-narration" })
+                }
             }
             Button(editor?.currentDeleteTitle ?? "Delete Current Page…", systemImage: "trash", role: .destructive) {
                 guard let action = editor?.currentDeleteAction else { return }
