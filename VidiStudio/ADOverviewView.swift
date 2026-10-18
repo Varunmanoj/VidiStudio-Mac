@@ -10,6 +10,15 @@ struct ADOverviewView: View {
     private var ready: Int { project.cues.filter { audioStatus($0) == .generated }.count }
     private var stale: Int { project.cues.filter { audioStatus($0) == .needsRegeneration }.count }
     private var missing: Int { project.cues.filter { audioStatus($0) == .notGenerated }.count }
+    private var voiceReport: NarrationVoiceReport { studio.narrationVoiceUsageReport(for: project) }
+    private var narrationVoicesStatistic: String {
+        if voiceReport.allSegments.isEmpty { return "None" }
+        if voiceReport.hasDifferentVoices {
+            let activeCount = voiceReport.voiceSummaries.filter { $0.count > 0 }.count
+            return "\(activeCount) voice\(activeCount == 1 ? "" : "s") (\(voiceReport.differentSegments.count) different)"
+        }
+        return voiceReport.primaryVoiceLabel ?? selectedVoice
+    }
     private var narrationControlsDisabled: Bool {
         studio.busy || project.cues.isEmpty || (studio.settings.ttsMode == "gemini" && !studio.hasApiKey)
     }
@@ -48,6 +57,8 @@ struct ADOverviewView: View {
                             statistic("Description time", value: timecode(project.cues.reduce(0) { $0 + max(0, $1.end - $1.start) }))
                             Divider()
                             statistic("Spoken transcript segments", value: String(project.transcript.count))
+                            Divider()
+                            statistic("Narration voices", value: narrationVoicesStatistic)
                         }
                         .padding(.vertical, 4)
                     }
@@ -77,6 +88,35 @@ struct ADOverviewView: View {
                             Text("Apple on-device voices · offline").tag("system")
                             Text("Gemini TTS").tag("gemini")
                         }
+                        statistic("Selected voice", value: studio.settings.currentNarrationSummary)
+                        if voiceReport.hasDifferentVoices {
+                            VStack(alignment: .leading, spacing: 6) {
+                                HStack(alignment: .top, spacing: 8) {
+                                    Image(systemName: "exclamationmark.triangle.fill")
+                                        .foregroundStyle(.orange)
+                                        .accessibilityHidden(true)
+                                    VStack(alignment: .leading, spacing: 4) {
+                                        Text("Different narration voices are used in this project")
+                                            .font(.subheadline.weight(.semibold))
+                                        Text(voiceReport.detail)
+                                            .font(.caption)
+                                            .foregroundStyle(.secondary)
+                                        ForEach(voiceReport.voiceSummaries) { summary in
+                                            let segmentsList = summary.segmentNumbers.isEmpty
+                                                ? "0 segments"
+                                                : "\(summary.count) segment\(summary.count == 1 ? "" : "s") (AD \(summary.segmentNumbers.map(String.init).joined(separator: ", ")))"
+                                            Text("• \(summary.combinedLabel)\(summary.isDifferentVoice ? " — Different voice" : " — Primary voice"): \(segmentsList)")
+                                                .font(.caption)
+                                                .foregroundStyle(summary.isDifferentVoice ? Color.orange : Color.secondary)
+                                        }
+                                    }
+                                }
+                            }
+                            .padding(10)
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                            .background(Color.orange.opacity(0.1), in: RoundedRectangle(cornerRadius: 8))
+                            .accessibilityElement(children: .combine)
+                        }
                         HStack {
                             Button("Generate All AD Audio") { studio.execute("synthesize-tts") }
                                 .help(studio.settings.ttsMode == "gemini" && !studio.hasApiKey
@@ -89,11 +129,18 @@ struct ADOverviewView: View {
                                     : "Generate missing narration and regenerate descriptions with text, timing, or generation issues")
                                 .disabled(narrationControlsDisabled || stale + missing == 0)
                         }
-                        Button("Review Narration Issues") {
-                            studio.narrationFailureReport = studio.narrationIssueReport(for: project)
+                        HStack {
+                            Button("Review Narration Issues") {
+                                studio.narrationFailureReport = studio.narrationIssueReport(for: project)
+                            }
+                            .help("Review missing audio, generation failures, and text or timing changes without generating narration")
+                            .disabled(studio.busy)
+                            Button("Review Narration Voices") {
+                                studio.narrationVoiceReport = voiceReport
+                            }
+                            .help("Review how many segments use each voice, which segments use a different voice, and segment timing details")
+                            .disabled(studio.busy)
                         }
-                        .help("Review missing audio, generation failures, and text or timing changes without generating narration")
-                        .disabled(studio.busy)
                         if studio.settings.ttsMode == "gemini" && !studio.hasApiKey {
                             HStack(spacing: 8) {
                                 Image(systemName: "key.slash.fill")
@@ -144,39 +191,41 @@ struct NarrationFailuresView: View {
                     .font(.caption)
                     .foregroundStyle(.secondary)
                 ScrollView {
-                    Grid(alignment: .topLeading, horizontalSpacing: 12, verticalSpacing: 10) {
-                        GridRow {
-                            Text("AD").frame(width: 35, alignment: .leading)
-                            Text("Start").frame(width: 120, alignment: .leading)
-                            Text("End").frame(width: 120, alignment: .leading)
-                            Text("Duration").frame(width: 90, alignment: .leading)
-                            Text("Reason").frame(minWidth: 300, maxWidth: .infinity, alignment: .leading)
+                    VStack(alignment: .leading, spacing: 0) {
+                        HStack(alignment: .top, spacing: 12) {
+                            Text("AD").frame(width: 40, alignment: .leading)
+                            Text("Start").frame(width: 110, alignment: .leading)
+                            Text("End").frame(width: 110, alignment: .leading)
+                            Text("Duration").frame(width: 85, alignment: .leading)
+                            Text("Reason").frame(maxWidth: .infinity, alignment: .leading)
                         }
                         .font(.caption.weight(.semibold))
+                        .padding(.vertical, 8)
                         .accessibilityHidden(true)
-                        Divider().gridCellColumns(5).gridCellUnsizedAxes(.horizontal)
+                        Divider()
                         ForEach(report.failures) { failure in
-                            GridRow {
+                            HStack(alignment: .top, spacing: 12) {
                                 Text(String(failure.id)).monospacedDigit()
-                                    .frame(width: 35, alignment: .leading)
+                                    .frame(width: 40, alignment: .leading)
                                     .accessibilityLabel("AD segment \(failure.id)")
                                 Text(NarrationTimeFormat.timestamp(failure.start)).monospacedDigit()
-                                    .frame(width: 120, alignment: .leading)
+                                    .frame(width: 110, alignment: .leading)
                                     .accessibilityLabel("Start: \(NarrationTimeFormat.spokenTime(failure.start))")
                                 Text(NarrationTimeFormat.timestamp(failure.end)).monospacedDigit()
-                                    .frame(width: 120, alignment: .leading)
+                                    .frame(width: 110, alignment: .leading)
                                     .accessibilityLabel("End: \(NarrationTimeFormat.spokenTime(failure.end))")
                                 Text(NarrationTimeFormat.duration(failure.duration)).monospacedDigit()
-                                    .frame(width: 90, alignment: .leading)
+                                    .frame(width: 85, alignment: .leading)
                                     .accessibilityLabel("Duration: \(NarrationTimeFormat.spokenDuration(failure.duration))")
                                 Text(failure.reason)
                                     .fixedSize(horizontal: false, vertical: true)
-                                    .frame(minWidth: 300, maxWidth: .infinity, alignment: .leading)
+                                    .frame(maxWidth: .infinity, alignment: .leading)
                                     .textSelection(.enabled)
                                     .accessibilityLabel("Reason: \(failure.reason)")
                             }
+                            .padding(.vertical, 8)
                             .accessibilityElement(children: .combine)
-                            Divider().gridCellColumns(5).gridCellUnsizedAxes(.horizontal)
+                            Divider()
                         }
                     }
                     .frame(maxWidth: .infinity, alignment: .leading)
@@ -192,5 +241,121 @@ struct NarrationFailuresView: View {
         }
         .padding(20)
         .frame(minWidth: 840)
+    }
+}
+
+/// Dialog detailing how many segments use each narration voice and which segments use a different voice.
+struct NarrationVoicesView: View {
+    let report: NarrationVoiceReport
+    @Environment(\.dismiss) private var dismiss
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 16) {
+            HStack(alignment: .top, spacing: 12) {
+                Image(systemName: report.hasDifferentVoices ? "exclamationmark.triangle.fill" : "checkmark.circle.fill")
+                    .font(.title)
+                    .foregroundStyle(report.hasDifferentVoices ? Color.orange : Color.green)
+                    .accessibilityHidden(true)
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(report.title)
+                        .font(.headline)
+                    Text(report.detail)
+                        .font(.subheadline)
+                        .foregroundStyle(.secondary)
+                }
+            }
+            .accessibilityElement(children: .combine)
+            if !report.voiceSummaries.isEmpty {
+                GroupBox("Voice usage by segment count") {
+                    VStack(alignment: .leading, spacing: 8) {
+                        ForEach(report.voiceSummaries) { summary in
+                            let segmentText = summary.segmentNumbers.isEmpty
+                                ? "0 segments"
+                                : "\(summary.count) segment\(summary.count == 1 ? "" : "s") (AD \(summary.segmentNumbers.map(String.init).joined(separator: ", ")))"
+                            HStack {
+                                Text("\(summary.combinedLabel)\(summary.isDifferentVoice ? " · Different voice" : " · Primary voice")")
+                                    .font(.callout.weight(summary.isDifferentVoice ? .semibold : .regular))
+                                    .foregroundStyle(summary.isDifferentVoice ? Color.orange : Color.primary)
+                                Spacer()
+                                Text(segmentText)
+                                    .monospacedDigit()
+                                    .foregroundStyle(.secondary)
+                            }
+                            .accessibilityElement(children: .combine)
+                            if summary.id != report.voiceSummaries.last?.id {
+                                Divider()
+                            }
+                        }
+                    }
+                    .padding(.vertical, 4)
+                }
+            }
+            if !report.allSegments.isEmpty {
+                if !report.differentSegments.isEmpty {
+                    Text("Segments using a different voice: AD \(report.differentSegments.map { String($0.id) }.joined(separator: ", "))")
+                        .font(.subheadline.weight(.semibold))
+                        .foregroundStyle(.orange)
+                }
+                Text("Start and end: HH:MM:SS.mmm (hours:minutes:seconds.milliseconds). Duration is in seconds.")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                ScrollView {
+                    VStack(alignment: .leading, spacing: 0) {
+                        HStack(alignment: .top, spacing: 12) {
+                            Text("AD").frame(width: 40, alignment: .leading)
+                            Text("Start").frame(width: 110, alignment: .leading)
+                            Text("End").frame(width: 110, alignment: .leading)
+                            Text("Duration").frame(width: 85, alignment: .leading)
+                            Text("Voice & Engine").frame(width: 185, alignment: .leading)
+                            Text("Details").frame(maxWidth: .infinity, alignment: .leading)
+                        }
+                        .font(.caption.weight(.semibold))
+                        .padding(.vertical, 8)
+                        .accessibilityHidden(true)
+                        Divider()
+                        ForEach(report.allSegments) { entry in
+                            HStack(alignment: .top, spacing: 12) {
+                                Text(String(entry.id)).monospacedDigit()
+                                    .frame(width: 40, alignment: .leading)
+                                    .accessibilityLabel("AD segment \(entry.id)")
+                                Text(NarrationTimeFormat.timestamp(entry.start)).monospacedDigit()
+                                    .frame(width: 110, alignment: .leading)
+                                    .accessibilityLabel("Start: \(NarrationTimeFormat.spokenTime(entry.start))")
+                                Text(NarrationTimeFormat.timestamp(entry.end)).monospacedDigit()
+                                    .frame(width: 110, alignment: .leading)
+                                    .accessibilityLabel("End: \(NarrationTimeFormat.spokenTime(entry.end))")
+                                Text(NarrationTimeFormat.duration(entry.duration)).monospacedDigit()
+                                    .frame(width: 85, alignment: .leading)
+                                    .accessibilityLabel("Duration: \(NarrationTimeFormat.spokenDuration(entry.duration))")
+                                Text(entry.combinedLabel)
+                                    .fixedSize(horizontal: false, vertical: true)
+                                    .frame(width: 185, alignment: .leading)
+                                    .foregroundStyle(entry.usesDifferentVoice ? Color.orange : Color.primary)
+                                    .accessibilityLabel("Voice: \(entry.combinedLabel)")
+                                Text(entry.reason)
+                                    .fixedSize(horizontal: false, vertical: true)
+                                    .frame(maxWidth: .infinity, alignment: .leading)
+                                    .foregroundStyle(entry.usesDifferentVoice ? Color.orange : Color.secondary)
+                                    .textSelection(.enabled)
+                                    .accessibilityLabel("Details: \(entry.reason)")
+                            }
+                            .padding(.vertical, 8)
+                            .accessibilityElement(children: .combine)
+                            Divider()
+                        }
+                    }
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                }
+                .frame(minWidth: 800, minHeight: 220, idealHeight: 320, maxHeight: 400)
+                .accessibilityLabel("Narration voice segments")
+            }
+            HStack {
+                Spacer()
+                Button("Done") { dismiss() }
+                    .keyboardShortcut(.defaultAction)
+            }
+        }
+        .padding(20)
+        .frame(minWidth: 860)
     }
 }

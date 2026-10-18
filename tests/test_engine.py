@@ -350,6 +350,50 @@ class Validation(unittest.TestCase):
                 self.assertEqual(created, ['First description.'])
                 self.assertEqual((saved['cues'][0]['audioStart'], saved['cues'][0]['audioEnd']), (1.5, 4.5))
 
+    def test_narration_stores_engine_voice_and_mp3_and_preserves_mixed_voices(self):
+        with tempfile.TemporaryDirectory(prefix='vidistudio-voice-test-') as temp:
+            root = Path(temp)
+            project = {
+                'id': 'voice-project', 'name': 'Voice Project', 'duration': 20,
+                'source': 'source.mp4', 'transcript': [],
+                'cues': [
+                    {'id': 'seg1', 'start': 1.0, 'end': 4.0, 'text': 'First segment.'},
+                    {'id': 'seg2', 'start': 5.0, 'end': 9.0, 'text': 'Second segment.'},
+                ],
+            }
+            engine.save(root, project)
+            (root/'source.mp4').write_bytes(b'placeholder')
+            with patch.object(engine, 'emit'), \
+                 patch.object(engine, 'config', return_value={'ttsMode': 'gemini', 'geminiVoice': 'Kore'}), \
+                 patch.object(engine, 'gemini_speech', lambda output, text, proj: output.write_bytes(b'ID3-mp3-data')), \
+                 patch.object(engine, 'probe', return_value={'format': {'duration': 1.2}}):
+                engine.synthesize(root, project, segment='seg1')
+            saved = json.loads((root/'project.json').read_text())
+            self.assertEqual(saved.get('narrationEngine'), 'gemini')
+            self.assertEqual(saved.get('narrationVoice'), 'Kore')
+            seg1 = saved['cues'][0]
+            self.assertTrue(seg1['audio'].endswith('.mp3'))
+            self.assertTrue((root / seg1['audio']).is_file())
+            self.assertEqual(seg1['audioEngine'], 'gemini')
+            self.assertEqual(seg1['audioVoice'], 'Kore')
+            self.assertNotIn('audio', saved['cues'][1])
+
+            # Switching voice/engine and generating remaining narration preserves seg1's voice and stores the new voice on seg2.
+            with patch.object(engine, 'emit'), \
+                 patch.object(engine, 'config', return_value={'ttsMode': 'gemini', 'geminiVoice': 'Puck'}), \
+                 patch.object(engine, 'gemini_speech', lambda output, text, proj: output.write_bytes(b'ID3-mp3-data-2')), \
+                 patch.object(engine, 'probe', return_value={'format': {'duration': 1.5}}):
+                engine.synthesize(root, saved)
+            reopened = json.loads((root/'project.json').read_text())
+            self.assertEqual(reopened.get('narrationEngine'), 'gemini')
+            self.assertEqual(reopened.get('narrationVoice'), 'Kore')
+            self.assertEqual(reopened['cues'][0]['audioEngine'], 'gemini')
+            self.assertEqual(reopened['cues'][0]['audioVoice'], 'Kore')
+            self.assertEqual(reopened['cues'][0]['audio'], seg1['audio'])
+            self.assertTrue(reopened['cues'][1]['audio'].endswith('.mp3'))
+            self.assertEqual(reopened['cues'][1]['audioEngine'], 'gemini')
+            self.assertEqual(reopened['cues'][1]['audioVoice'], 'Puck')
+
     def test_legacy_narration_timing_is_preserved_before_edit(self):
         cue = {'id': 'ad', 'start': 1, 'end': 4, 'text': 'Description',
                'audio': 'audio-description/ad.wav', 'audioText': 'Description', 'audioDuration': 2}
@@ -1158,6 +1202,10 @@ class Validation(unittest.TestCase):
             cli('synthesize-tts','--project',folder)
             generated_audio=folder/project()['cues'][0]['audio']
             self.assertTrue(generated_audio.exists())
+            self.assertEqual(generated_audio.suffix, '.mp3')
+            self.assertEqual(engine.probe(generated_audio)['streams'][0]['codec_name'], 'mp3')
+            self.assertEqual(project()['cues'][0]['audioEngine'], 'system')
+            self.assertTrue(project()['cues'][0].get('audioVoice'))
             editable_segments = project()
             editable_segments['transcript'][0]['text'] = 'The edited final caption.'
             segments = root/'segments.json'

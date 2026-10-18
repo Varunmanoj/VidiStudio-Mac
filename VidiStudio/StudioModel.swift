@@ -14,6 +14,8 @@ struct Segment: Codable, Identifiable, Hashable {
     var audioText: String?
     var audioDuration: Double?
     var audioSettings: String?
+    var audioEngine: String?
+    var audioVoice: String?
     var audioStart: Double?
     var audioEnd: Double?
     var audioError: String?
@@ -122,15 +124,50 @@ enum SynchronizedAudioStatus: Equatable {
 
 struct SynchronizedAudioStatusLabel: View {
     let status: SynchronizedAudioStatus
+    var detail: String? = nil
 
     var body: some View {
         HStack(spacing: 5) {
             Image(systemName: status.iconName).accessibilityHidden(true)
-            Text(status.title).font(.caption.weight(.semibold))
+            Text(detail.map { "\(status.title) · \($0)" } ?? status.title).font(.caption.weight(.semibold))
         }
         .foregroundStyle(status.color)
         .accessibilityElement(children: .ignore)
-        .accessibilityLabel(status.title)
+        .accessibilityLabel(detail.map { "\(status.title), \($0)" } ?? status.title)
+    }
+}
+
+extension Segment {
+    var resolvedAudioEngine: String? {
+        if let engine = audioEngine?.trimmingCharacters(in: .whitespacesAndNewlines), !engine.isEmpty {
+            return engine
+        }
+        guard let settings = audioSettings?.trimmingCharacters(in: .whitespacesAndNewlines), !settings.isEmpty else {
+            return nil
+        }
+        let first = settings.split(separator: "|", omittingEmptySubsequences: false).first.map(String.init)?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        return first.isEmpty ? nil : first
+    }
+
+    var resolvedAudioVoice: String? {
+        if let voice = audioVoice?.trimmingCharacters(in: .whitespacesAndNewlines), !voice.isEmpty {
+            return voice
+        }
+        guard let settings = audioSettings?.trimmingCharacters(in: .whitespacesAndNewlines), !settings.isEmpty else {
+            return nil
+        }
+        let parts = settings.split(separator: "|", omittingEmptySubsequences: false).map(String.init)
+        guard parts.count > 1 else { return nil }
+        let raw = parts[1].trimmingCharacters(in: .whitespacesAndNewlines)
+        if raw.isEmpty { return nil }
+        return raw.lowercased().hasPrefix("default:") ? "System default" : raw
+    }
+
+    var narrationVoiceSummary: String? {
+        guard audio != nil else { return nil }
+        guard let engine = resolvedAudioEngine ?? (audio != nil ? "system" : nil),
+              let voice = resolvedAudioVoice ?? (audio != nil ? "System default" : nil) else { return nil }
+        return NarrationVoiceFormatting.combinedLabel(voice: voice, engine: engine)
     }
 }
 struct GeminiModelOption: Identifiable, Hashable {
@@ -249,6 +286,109 @@ struct NarrationFailureReport: Identifiable {
     let failures: [NarrationFailure]
 }
 
+enum NarrationVoiceFormatting {
+    static func engineDisplayName(_ engine: String?) -> String {
+        switch (engine ?? "").trimmingCharacters(in: .whitespacesAndNewlines).lowercased() {
+        case "gemini": return "Gemini TTS"
+        case "system": return "Apple on-device"
+        case "windows-core": return "Windows OneCore"
+        case "sapi5": return "SAPI 5"
+        default: return "Apple on-device"
+        }
+    }
+
+    static func voiceDisplayName(_ voice: String?) -> String {
+        let trimmed = (voice ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
+        if trimmed.isEmpty || trimmed.lowercased().hasPrefix("default:") {
+            return "System default"
+        }
+        if trimmed.contains("\\"), let last = trimmed.split(separator: "\\").last {
+            return String(last)
+        }
+        return trimmed
+    }
+
+    static func combinedLabel(voice: String?, engine: String?) -> String {
+        "\(voiceDisplayName(voice)) (\(engineDisplayName(engine)))"
+    }
+
+    static func isSystemDefaultVoice(_ voice: String) -> Bool {
+        let lower = voice.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        return lower == "system default" || lower.hasPrefix("system default (") || lower.hasPrefix("default:")
+    }
+
+    static func systemDefaultInnerVoice(_ voice: String) -> String? {
+        let trimmed = voice.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard trimmed.lowercased().hasPrefix("system default ("), trimmed.hasSuffix(")") else { return nil }
+        let start = trimmed.index(trimmed.startIndex, offsetBy: "System default (".count)
+        let end = trimmed.index(before: trimmed.endIndex)
+        let inner = String(trimmed[start..<end]).trimmingCharacters(in: .whitespacesAndNewlines)
+        return inner.isEmpty ? nil : inner
+    }
+
+    static func effectiveVoiceName(_ voice: String) -> String {
+        if let inner = systemDefaultInnerVoice(voice) {
+            return inner
+        }
+        return voiceDisplayName(voice)
+    }
+
+    static func voicesMatch(engineA: String, voiceA: String, engineB: String, voiceB: String) -> Bool {
+        let normEngineA = engineA.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        let normEngineB = engineB.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        guard normEngineA == normEngineB else { return false }
+        let trimA = voiceA.trimmingCharacters(in: .whitespacesAndNewlines)
+        let trimB = voiceB.trimmingCharacters(in: .whitespacesAndNewlines)
+        if isSystemDefaultVoice(trimA) && isSystemDefaultVoice(trimB) {
+            if let innerA = systemDefaultInnerVoice(trimA), let innerB = systemDefaultInnerVoice(trimB) {
+                return innerA.caseInsensitiveCompare(innerB) == .orderedSame
+            }
+            return true
+        }
+        return effectiveVoiceName(trimA).caseInsensitiveCompare(effectiveVoiceName(trimB)) == .orderedSame
+    }
+}
+
+struct NarrationVoiceSummary: Identifiable, Hashable {
+    let id: String
+    let engine: String
+    let engineDisplayName: String
+    let voice: String
+    let voiceDisplayName: String
+    let count: Int
+    let segmentNumbers: [Int]
+    let isDifferentVoice: Bool
+
+    var combinedLabel: String { "\(voiceDisplayName) (\(engineDisplayName))" }
+}
+
+struct NarrationVoiceSegmentEntry: Identifiable, Hashable {
+    let id: Int
+    let start: Double
+    let end: Double
+    let duration: Double
+    let engine: String
+    let engineDisplayName: String
+    let voice: String
+    let voiceDisplayName: String
+    let audioFile: String
+    let usesDifferentVoice: Bool
+    let reason: String
+
+    var combinedLabel: String { "\(voiceDisplayName) (\(engineDisplayName))" }
+}
+
+struct NarrationVoiceReport: Identifiable {
+    let id = UUID()
+    let title: String
+    let detail: String
+    let primaryVoiceLabel: String?
+    let hasDifferentVoices: Bool
+    let voiceSummaries: [NarrationVoiceSummary]
+    let differentSegments: [NarrationVoiceSegmentEntry]
+    let allSegments: [NarrationVoiceSegmentEntry]
+}
+
 /// Per-section processing state for the Transcript, Summary, and Audio
 /// Description sections. Sections run one stage at a time, so the section that
 /// owns the current engine stage shows a spinner while later stages wait their
@@ -286,6 +426,8 @@ struct StudioProject: Codable, Identifiable {
     var transcriptGenerated: Bool?
     var summaryGenerated: Bool?
     var descriptionsGenerated: Bool?
+    var narrationEngine: String?
+    var narrationVoice: String?
     var undoStack: [[Segment]]?
     var redoStack: [[Segment]]?
     var transcriptUndoStack: [[Segment]]?
@@ -611,6 +753,27 @@ struct StudioSettings: Codable, Equatable {
         return systemSpeechSignature
     }
 
+    var currentNarrationEngine: String {
+        ttsMode == "gemini" ? "gemini" : "system"
+    }
+
+    var currentNarrationVoice: String {
+        if ttsMode == "gemini" {
+            let trimmed = geminiVoice.trimmingCharacters(in: .whitespacesAndNewlines)
+            return trimmed.isEmpty ? "Kore" : trimmed
+        }
+        let selected = systemVoice.trimmingCharacters(in: .whitespacesAndNewlines)
+        if !selected.isEmpty { return selected }
+        if let voice = SystemSpeechVoiceResolver.defaultVoiceDisplayName {
+            return "System default (\(voice))"
+        }
+        return "System default"
+    }
+
+    var currentNarrationSummary: String {
+        NarrationVoiceFormatting.combinedLabel(voice: currentNarrationVoice, engine: currentNarrationEngine)
+    }
+
     var systemSpeechSignature: String {
         let selectedVoice = systemVoice.trimmingCharacters(in: .whitespacesAndNewlines)
         let voiceSignature = selectedVoice.isEmpty
@@ -785,6 +948,8 @@ final class StudioModel {
     var error: String?
     var errorTitle = StudioModel.defaultErrorTitle
     var narrationFailureReport: NarrationFailureReport?
+    var narrationVoiceReport: NarrationVoiceReport?
+    @ObservationIgnored private var pendingVoiceMismatchReview = false
     var logs: [String] = []
     var screenText: String?
     var screenTimestamp = 0.0
@@ -842,6 +1007,116 @@ final class StudioModel {
             ? "All \(total) audio description segments have current narration audio."
             : "\(failures.count) of \(total) description\(total == 1 ? "" : "s") need attention."
         return NarrationFailureReport(title: "Narration status", detail: detail, generated: ready, failures: failures)
+    }
+
+    /// Builds a detailed report of narration voice and engine usage across segments.
+    func narrationVoiceUsageReport(for project: StudioProject) -> NarrationVoiceReport {
+        var narratedEntries: [(index: Int, cue: Segment, engine: String, voice: String, path: String)] = []
+        for (index, cue) in project.cues.enumerated() {
+            guard let path = cue.audio,
+                  let url = project.url(path),
+                  FileManager.default.fileExists(atPath: url.path) else { continue }
+            let engine = cue.resolvedAudioEngine ?? "system"
+            let voice = cue.resolvedAudioVoice ?? "System default"
+            narratedEntries.append((index: index + 1, cue: cue, engine: engine, voice: voice, path: path))
+        }
+        guard !narratedEntries.isEmpty else {
+            return NarrationVoiceReport(
+                title: "Narration voice details",
+                detail: "No narration audio has been generated for this project yet.",
+                primaryVoiceLabel: nil,
+                hasDifferentVoices: false,
+                voiceSummaries: [],
+                differentSegments: [],
+                allSegments: []
+            )
+        }
+        let primaryEngine: String
+        let primaryVoice: String
+        if let savedEngine = project.narrationEngine?.trimmingCharacters(in: .whitespacesAndNewlines),
+           let savedVoice = project.narrationVoice?.trimmingCharacters(in: .whitespacesAndNewlines),
+           !savedEngine.isEmpty, !savedVoice.isEmpty {
+            primaryEngine = savedEngine
+            primaryVoice = savedVoice
+        } else {
+            primaryEngine = narratedEntries[0].engine
+            primaryVoice = narratedEntries[0].voice
+        }
+        let primaryLabel = NarrationVoiceFormatting.combinedLabel(voice: primaryVoice, engine: primaryEngine)
+        var allSegments: [NarrationVoiceSegmentEntry] = []
+        var differentSegments: [NarrationVoiceSegmentEntry] = []
+        var grouped: [(engine: String, voice: String, isDifferent: Bool, numbers: [Int])] = []
+
+        for item in narratedEntries {
+            let matchesPrimary = NarrationVoiceFormatting.voicesMatch(
+                engineA: item.engine, voiceA: item.voice,
+                engineB: primaryEngine, voiceB: primaryVoice
+            )
+            let engineDisplay = NarrationVoiceFormatting.engineDisplayName(item.engine)
+            let voiceDisplay = NarrationVoiceFormatting.voiceDisplayName(item.voice)
+            let reason = matchesPrimary
+                ? "Uses primary voice \(voiceDisplay) (\(engineDisplay))"
+                : "Different voice: uses \(voiceDisplay) (\(engineDisplay)) instead of \(primaryLabel)"
+            let entry = NarrationVoiceSegmentEntry(
+                id: item.index,
+                start: item.cue.start,
+                end: item.cue.end,
+                duration: max(0, item.cue.end - item.cue.start),
+                engine: item.engine,
+                engineDisplayName: engineDisplay,
+                voice: item.voice,
+                voiceDisplayName: voiceDisplay,
+                audioFile: item.path,
+                usesDifferentVoice: !matchesPrimary,
+                reason: reason
+            )
+            allSegments.append(entry)
+            if !matchesPrimary {
+                differentSegments.append(entry)
+            }
+            if let existingIndex = grouped.firstIndex(where: {
+                NarrationVoiceFormatting.voicesMatch(engineA: $0.engine, voiceA: $0.voice, engineB: item.engine, voiceB: item.voice)
+            }) {
+                grouped[existingIndex].numbers.append(item.index)
+            } else {
+                grouped.append((engine: item.engine, voice: item.voice, isDifferent: !matchesPrimary, numbers: [item.index]))
+            }
+        }
+        if !grouped.contains(where: {
+            NarrationVoiceFormatting.voicesMatch(engineA: $0.engine, voiceA: $0.voice, engineB: primaryEngine, voiceB: primaryVoice)
+        }) {
+            grouped.insert((engine: primaryEngine, voice: primaryVoice, isDifferent: false, numbers: []), at: 0)
+        }
+        let summaries = grouped.map { group in
+            NarrationVoiceSummary(
+                id: "\(group.engine)|\(group.voice)",
+                engine: group.engine,
+                engineDisplayName: NarrationVoiceFormatting.engineDisplayName(group.engine),
+                voice: group.voice,
+                voiceDisplayName: NarrationVoiceFormatting.voiceDisplayName(group.voice),
+                count: group.numbers.count,
+                segmentNumbers: group.numbers,
+                isDifferentVoice: group.isDifferent
+            )
+        }
+        let hasDifferent = !differentSegments.isEmpty || summaries.filter { $0.count > 0 }.count > 1
+        let activeVoiceCount = summaries.filter { $0.count > 0 }.count
+        let detail: String
+        if hasDifferent {
+            let breakdown = summaries.map { "\($0.combinedLabel): \($0.count) segment\($0.count == 1 ? "" : "s")" }.joined(separator: "; ")
+            detail = "\(differentSegments.count) of \(allSegments.count) narrated segment\(allSegments.count == 1 ? "" : "s") use a different voice from \(primaryLabel). (\(breakdown))"
+        } else {
+            detail = "All \(allSegments.count) narrated audio description segment\(allSegments.count == 1 ? "" : "s") use \(primaryLabel)."
+        }
+        return NarrationVoiceReport(
+            title: hasDifferent ? "Different narration voices in project" : "Narration voice details",
+            detail: detail,
+            primaryVoiceLabel: primaryLabel,
+            hasDifferentVoices: hasDifferent || activeVoiceCount > 1,
+            voiceSummaries: summaries,
+            differentSegments: differentSegments,
+            allSegments: allSegments
+        )
     }
 
     func present(_ issue: UserFacingIssue, technicalDetails: String? = nil, context: String = "VidiStudio") {
@@ -1372,6 +1647,79 @@ final class StudioModel {
         return alert.runModal() == .alertSecondButtonReturn
     }
 
+    private func confirmNarrationVoiceChange(_ command: String, extra: [String], project: StudioProject) -> Bool {
+        guard command == "synthesize-tts" else { return true }
+        var current = project
+        if let folder = project.folder {
+            do {
+                current = try JSONDecoder().decode(StudioProject.self, from: Data(contentsOf: folder.appendingPathComponent("project.json")))
+                current.folder = folder
+            } catch {
+                present(.projectRead, technicalDetails: error.localizedDescription, context: "Check existing project narration")
+                return false
+            }
+        }
+        let narratedCues = current.cues.filter { cue in
+            if let path = cue.audio, let url = current.url(path), FileManager.default.fileExists(atPath: url.path) {
+                return true
+            }
+            return cue.audio != nil || cue.resolvedAudioVoice != nil
+        }
+        guard !narratedCues.isEmpty else {
+            pendingVoiceMismatchReview = false
+            return true
+        }
+        let targetSegmentID: String? = {
+            guard let idx = extra.firstIndex(of: "--segment"), extra.indices.contains(idx + 1) else { return nil }
+            return extra[idx + 1]
+        }()
+        let targetSegment = targetSegmentID.flatMap { id in current.cues.first(where: { $0.id == id }) }
+        let selectedEngine = settings.currentNarrationEngine
+        let selectedVoice = settings.currentNarrationVoice
+        var existingLabels: [String] = []
+        var hasDifferentVoice = false
+        for cue in narratedCues {
+            let cueEngine = cue.resolvedAudioEngine ?? current.narrationEngine ?? "system"
+            let cueVoice = cue.resolvedAudioVoice ?? current.narrationVoice ?? "System default"
+            let label = NarrationVoiceFormatting.combinedLabel(voice: cueVoice, engine: cueEngine)
+            if !existingLabels.contains(label) {
+                existingLabels.append(label)
+            }
+            if !NarrationVoiceFormatting.voicesMatch(engineA: cueEngine, voiceA: cueVoice, engineB: selectedEngine, voiceB: selectedVoice) {
+                hasDifferentVoice = true
+            }
+        }
+        if let pEngine = current.narrationEngine, let pVoice = current.narrationVoice,
+           !pEngine.isEmpty, !pVoice.isEmpty,
+           !NarrationVoiceFormatting.voicesMatch(engineA: pEngine, voiceA: pVoice, engineB: selectedEngine, voiceB: selectedVoice) {
+            hasDifferentVoice = true
+            let label = NarrationVoiceFormatting.combinedLabel(voice: pVoice, engine: pEngine)
+            if !existingLabels.contains(label) {
+                existingLabels.insert(label, at: 0)
+            }
+        }
+        guard hasDifferentVoice else {
+            pendingVoiceMismatchReview = false
+            return true
+        }
+        let alert = NSAlert()
+        if let targetSegment {
+            alert.messageText = targetSegment.audio == nil
+                ? "Generate segment narration with a different voice in “\(current.name)”?"
+                : "Regenerate segment narration with a different voice in “\(current.name)”?"
+            alert.informativeText = "This project already contains narration generated using \(existingLabels.joined(separator: ", ")). You have selected \(settings.currentNarrationSummary). Proceeding will generate narration for this AD segment with the new voice, so the voices in the project will differ and be detailed in AD Overview. Do you want to proceed?"
+        } else {
+            alert.messageText = "Generate narration with a different voice in “\(current.name)”?"
+            alert.informativeText = "This project already contains narration generated using \(existingLabels.joined(separator: ", ")). You have selected \(settings.currentNarrationSummary). Proceeding will result in different narration voices across the project, which will be detailed in AD Overview. Do you want to proceed with generating narration?"
+        }
+        alert.alertStyle = .warning
+        alert.addButton(withTitle: "Cancel")
+        alert.addButton(withTitle: "Proceed")
+        let confirmed = alert.runModal() == .alertSecondButtonReturn
+        pendingVoiceMismatchReview = confirmed
+        return confirmed
+    }
+
     private func requireCompleteNarrationForExport(project: StudioProject) -> Bool {
         var current = project
         do {
@@ -1421,6 +1769,7 @@ final class StudioModel {
             return
         }
         if let target, !confirmAnalysisReplacement(command, project: target) { return }
+        if let target, !confirmNarrationVoiceChange(command, extra: extra, project: target) { return }
         let webPlaybackNeedsNarration = command == "export-hls"
             && (extra.contains("closed-description") || extra.contains("open-description"))
         if (["export-final-video", "export-selectable-video", "export-closed-audio-description-video", "export-open-audio-description-video", "export-described-audio", "export-youtube-described-audio", "export-audio"].contains(command) || webPlaybackNeedsNarration), let target {
@@ -1637,6 +1986,17 @@ final class StudioModel {
             }
             let completedProject = completedProjectPath.flatMap { path in
                 projects.first(where: { $0.folder?.path == path })
+            } ?? (target.flatMap { t in projects.first(where: { $0.id == t.id }) })
+            if command == "synthesize-tts" {
+                let shouldShowVoiceReport = pendingVoiceMismatchReview
+                pendingVoiceMismatchReview = false
+                if shouldShowVoiceReport, task.terminationStatus == 0, !operationWasCancelled,
+                   narrationFailureReport == nil, let completedProject {
+                    let report = narrationVoiceUsageReport(for: completedProject)
+                    if report.hasDifferentVoices {
+                        narrationVoiceReport = report
+                    }
+                }
             }
             completion?(task.terminationStatus == 0 ? completedProject : nil)
         }

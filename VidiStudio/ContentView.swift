@@ -1664,7 +1664,8 @@ struct ProjectEditor: View {
                                         status: .resolve(
                                             cue: cue,
                                             project: project
-                                        )
+                                        ),
+                                        detail: cue.narrationVoiceSummary
                                     )
                                 }
                                 Text(cue.text).textSelection(.enabled)
@@ -1703,7 +1704,11 @@ struct ProjectEditor: View {
                                         .init(title: "Rewrite to Fit", systemImage: "sparkles", enabled: studio.hasValidApiKey) {
                                             studio.execute("rewrite-cue", extra: ["--segment", cue.id])
                                         },
-                                        .init(title: "Synthesize This Segment", systemImage: "waveform", enabled: studio.settings.ttsMode != "gemini" || studio.hasValidApiKey) {
+                                        .init(
+                                            title: cue.audio == nil ? "Synthesize This Segment" : "Regenerate Segment Narration",
+                                            systemImage: "waveform",
+                                            enabled: studio.settings.ttsMode != "gemini" || studio.hasValidApiKey
+                                        ) {
                                             studio.execute("synthesize-tts", extra: ["--segment", cue.id])
                                         },
                                         .init(title: "Delete Segment Audio…", systemImage: "speaker.slash", enabled: cue.audio != nil) {
@@ -1767,11 +1772,40 @@ struct ProjectEditor: View {
                                 .accessibilityLabel("Skip to \(row.kind.lowercased()) at \(timecode(cue.start)) and pause")
 
                                 if row.isDescription {
+                                    Button(
+                                        cue.audio == nil ? "Synthesize This Segment" : "Regenerate Segment Narration",
+                                        systemImage: "waveform"
+                                    ) {
+                                        studio.execute("synthesize-tts", extra: ["--segment", cue.id])
+                                    }
+                                    .disabled(studio.busy || (studio.settings.ttsMode == "gemini" && !studio.hasValidApiKey))
+                                    .help(studio.settings.ttsMode == "gemini" && !studio.hasApiKey
+                                        ? "Enter your Gemini API key in Settings → Gemini API to synthesize narration with Gemini TTS"
+                                        : studio.settings.ttsMode == "gemini" && studio.isApiKeyInvalid
+                                            ? "Gemini API key is invalid — enter a valid key in Settings → Gemini API to synthesize narration with Gemini TTS"
+                                            : cue.audio == nil
+                                                ? "Generate narration audio for this Audio Description segment"
+                                                : "Regenerate narration audio for this Audio Description segment")
+                                    .accessibilityLabel(
+                                        "\(cue.audio == nil ? "Synthesize" : "Regenerate") narration audio for segment starting at \(timecode(cue.start))"
+                                    )
+
                                     Button("Rewrite to Fit", systemImage: "sparkles") {
                                         studio.execute("rewrite-cue", extra: ["--segment", cue.id])
                                     }
                                     .disabled(studio.busy || !studio.hasValidApiKey)
                                     .help(!studio.hasApiKey ? "Enter your Gemini API key in Settings → Gemini API to rewrite description text" : studio.isApiKeyInvalid ? "Gemini API key is invalid — enter a valid key in Settings → Gemini API to rewrite description text" : "Rewrite this description to fit into the silent pause")
+
+                                    if cue.audio != nil {
+                                        Button("Delete Segment Audio…", systemImage: "speaker.slash", role: .destructive) {
+                                            studio.confirmDeleteSegmentAudio(project, cue: cue) {
+                                                stopNarrationPreview()
+                                                playback.stopNarrationPlayback()
+                                            }
+                                        }
+                                        .disabled(studio.busy)
+                                        .help("Delete only the generated narration audio for this segment")
+                                    }
                                 } else {
                                     Button("Re-Analyze This Segment…", systemImage: "sparkles") {
                                         studio.reanalyzeSegment(cue, hint: "", isDescription: false)
@@ -2120,6 +2154,9 @@ struct ProjectEditor: View {
         }
         .sheet(item: $studio.narrationFailureReport) { report in
             NarrationFailuresView(report: report)
+        }
+        .sheet(item: $studio.narrationVoiceReport) { report in
+            NarrationVoicesView(report: report)
         }
     }
 

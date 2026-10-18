@@ -173,6 +173,20 @@ def remove_empty_directory(path):
         pass
 
 
+def parse_narration_settings(cue):
+    """Extract the narration engine and specific voice from a cue or legacy audioSettings."""
+    engine_name = str(cue.get('audioEngine') or '').strip()
+    voice_name = str(cue.get('audioVoice') or '').strip()
+    settings = str(cue.get('audioSettings') or '').strip()
+    parts = settings.split('|') if settings else []
+    if not engine_name and parts:
+        engine_name = parts[0].strip()
+    if not voice_name and len(parts) > 1:
+        raw_voice = parts[1].strip()
+        voice_name = 'System default' if raw_voice.startswith('default:') else raw_voice
+    return engine_name, voice_name
+
+
 def migrate_project_schema(root, project):
     """Make project.json the single source of truth for editable project data."""
     if 'transcriptGenerated' not in project:
@@ -181,6 +195,16 @@ def migrate_project_schema(root, project):
         project['summaryGenerated'] = bool(str(project.get('summary', '')).strip()) or (root/'metadata/summary.json').is_file()
     if 'descriptionsGenerated' not in project:
         project['descriptionsGenerated'] = bool(project.get('cues')) or (root/'audio-description/cues.json').is_file()
+    for cue in project.get('cues', []):
+        if isinstance(cue, dict) and cue.get('audio') and (cue.get('audioSettings') or cue.get('audioEngine') or cue.get('audioVoice')):
+            engine_name, voice_name = parse_narration_settings(cue)
+            if engine_name and not cue.get('audioEngine'):
+                cue['audioEngine'] = engine_name
+            if voice_name and not cue.get('audioVoice'):
+                cue['audioVoice'] = voice_name
+            if engine_name and voice_name and not project.get('narrationVoice'):
+                project['narrationEngine'] = engine_name
+                project['narrationVoice'] = voice_name
     valid_exports = set(project.get('exports', []))
     project['exportMediaInfo'] = {
         path: value for path, value in (project.get('exportMediaInfo') or {}).items()
@@ -382,6 +406,12 @@ def save_segments(p, transcript, cues):
             for key, field in (('audioStart', 'start'), ('audioEnd', 'end')):
                 if cue.get(key) is None:
                     cue[key] = previous.get(key) if previous.get(key) is not None else previous[field]
+            for key in ('audioEngine', 'audioVoice', 'audioSettings', 'audioText', 'audioDuration'):
+                if cue.get(key) is None and previous.get(key) is not None:
+                    cue[key] = previous[key]
+    if not any(cue.get('audio') for cue in cues):
+        p.pop('narrationEngine', None)
+        p.pop('narrationVoice', None)
     if cues != p.get('cues', []):
         parity.remember(p)
     if transcript != p.get('transcript', []):
@@ -567,9 +597,12 @@ def delete_description_narration(root, project):
     if folder.is_symlink():
         raise ValueError('Cannot delete narration from a symbolic-link folder.')
     resolved = local(root, 'audio-description')
+    narration_keys = ('audio', 'audioText', 'audioDuration', 'audioSettings', 'audioEngine', 'audioVoice', 'audioStart', 'audioEnd', 'audioError')
+    project.pop('narrationEngine', None)
+    project.pop('narrationVoice', None)
     if not resolved.exists():
         for cue in project.get('cues', []):
-            for key in ('audio', 'audioText', 'audioDuration', 'audioSettings', 'audioStart', 'audioEnd', 'audioError'):
+            for key in narration_keys:
                 cue.pop(key, None)
         return False
     removed = False
@@ -582,7 +615,7 @@ def delete_description_narration(root, project):
         else:
             path.unlink()
     for cue in project.get('cues', []):
-        for key in ('audio', 'audioText', 'audioDuration', 'audioSettings', 'audioStart', 'audioEnd', 'audioError'):
+        for key in narration_keys:
             removed = cue.pop(key, None) is not None or removed
     try:
         resolved.rmdir()
@@ -951,7 +984,9 @@ def ai_video(root, p, stage, max_attempts=AI_MAX_ATTEMPTS):
 def gemini_speech(output, text, project):
     from google.genai import types
     cfg = config()
+    output = Path(output)
     client, model = client_and_model('tts')
+    raw_wav = None
     try:
         # Gemini 3.8 TTS treats input as a verbatim transcript. Older TTS models
         # still use the configurable prompt that accompanied their raw PCM output.
@@ -962,16 +997,27 @@ def gemini_speech(output, text, project):
         data = audio.data if audio else None
         if not data: raise ValueError('Gemini returned no audio. Check the TTS model and selected voice in Settings.')
         mime = str(getattr(audio, 'mime_type', '') or '').lower()
+        target = output
+        if output.suffix.lower() == '.mp3':
+            if mime in ('audio/mp3', 'audio/mpeg') or data[:3] == b'ID3':
+                output.write_bytes(data)
+                return
+            raw_wav = output.with_name(output.stem + '-raw.wav')
+            target = raw_wav
         if data[:4] == b'RIFF' and data[8:12] == b'WAVE':
-            output.write_bytes(data)
+            target.write_bytes(data)
         elif mime in ('audio/wav', 'audio/x-wav') or data[:4] == b'RIFF':
             raise ValueError('Gemini returned an invalid WAV narration file.')
         elif not mime or mime.startswith(('audio/l16', 'audio/pcm')):
-            with wave.open(str(output), 'wb') as f:
+            with wave.open(str(target), 'wb') as f:
                 f.setnchannels(1); f.setsampwidth(2); f.setframerate(24000); f.writeframes(data)
         else:
             raise ValueError('Gemini returned an unsupported narration audio format.')
+        if raw_wav is not None:
+            run([tool('ffmpeg'), '-y', '-v', 'error', '-i', raw_wav, *audio_encoding_args('mp3'), output])
     finally:
+        if raw_wav is not None:
+            raw_wav.unlink(missing_ok=True)
         client.close()
 
 
@@ -1073,6 +1119,25 @@ def system_voice_signature(cfg):
     return 'default:' + (spoken_content_voice_id() or 'automatic')
 
 
+def narration_engine(cfg):
+    mode = str(cfg.get('ttsMode', 'system') or 'system').strip() or 'system'
+    if mode == 'gemini':
+        return 'gemini'
+    if os.name == 'nt' and mode == 'system':
+        return 'windows-core'
+    return mode
+
+
+def narration_voice(cfg):
+    if narration_engine(cfg) == 'gemini':
+        return str(cfg.get('geminiVoice', 'Kore') or 'Kore').strip() or 'Kore'
+    selected = str(cfg.get('systemVoice', '') or '').strip()
+    if selected:
+        return selected
+    resolved = effective_system_voice(cfg)
+    return f'System default ({resolved})' if resolved else 'System default'
+
+
 def narration_signature(cfg):
     if cfg.get('ttsMode', 'system') == 'gemini':
         return f"gemini|{cfg.get('geminiVoice', 'Kore')}|{cfg.get('models', {}).get('tts_audio', '')}"
@@ -1091,6 +1156,8 @@ def finish_system_speech(raw, output, cfg):
         filters.append(f'volume={volume:.4f}')
     args = [tool('ffmpeg'), '-y', '-v', 'error', '-i', raw]
     if filters: args += ['-af', ','.join(filters)]
+    if str(output).lower().endswith('.mp3'):
+        args += audio_encoding_args('mp3')
     run([*args, output])
 
 
@@ -1103,16 +1170,33 @@ def synthesize(root,p,segment=None,changed=False):
     if not cues: raise ValueError('Create audio description segments first.')
     cfg = config()
     signature = narration_signature(cfg)
+    engine_name = narration_engine(cfg)
+    voice_name = narration_voice(cfg)
     (root/'audio-description').mkdir(parents=True, exist_ok=True)
+    had_prior_narration = any(bool(c.get('audio') and local(root, c['audio']).is_file()) for c in cues)
+    if not had_prior_narration and not p.get('narrationVoice'):
+        p['narrationEngine'] = engine_name
+        p['narrationVoice'] = voice_name
+    elif had_prior_narration and not p.get('narrationVoice'):
+        for existing_cue in cues:
+            if existing_cue.get('audio') and local(root, existing_cue['audio']).is_file():
+                existing_engine, existing_voice = parse_narration_settings(existing_cue)
+                if existing_engine and existing_voice:
+                    p['narrationEngine'] = existing_engine
+                    p['narrationVoice'] = existing_voice
+                    break
+    has_usable = any(narration_audio_is_usable(root, c) for c in cues)
+    has_unusable = any(not narration_audio_is_usable(root, c) for c in cues)
+    preserve_existing_usable = changed or (segment is None and has_usable and has_unusable)
     failures = []
     generated = 0
     attempted = 0
     for i,c in enumerate(cues):
         if segment and c['id']!=segment: continue
-        if changed and not narration_audio_needs_regeneration(c) and c.get('audioSettings')==signature and c.get('audio') and local(root,c['audio']).is_file(): continue
+        if preserve_existing_usable and narration_audio_is_usable(root, c): continue
         attempted += 1
         emit(f'Creating narration for description {i+1} of {len(cues)}', progress=(attempted-1)/max(1,len(cues)))
-        name = 'audio-description/' + str(uuid.uuid4()) + '.wav'
+        name = 'audio-description/' + str(uuid.uuid4()) + '.mp3'
         output = root/name
         previous_audio = c.get('audio')
         raw = None
@@ -1144,7 +1228,11 @@ def synthesize(root,p,segment=None,changed=False):
                 raise ValueError('System speech produced no audio. Choose an installed voice in Settings and check macOS speech availability.')
             if actual > c['end']-c['start']:
                 raise ValueError(narration_fit_error_message(i+1, actual, c['end']-c['start']))
+            if not p.get('narrationVoice'):
+                p['narrationEngine'] = engine_name
+                p['narrationVoice'] = voice_name
             c['audio'] = name; c['audioText'] = c['text']; c['audioDuration'] = actual; c['audioSettings'] = signature
+            c['audioEngine'] = engine_name; c['audioVoice'] = voice_name
             c['audioStart'] = c['start']; c['audioEnd'] = c['end']; c.pop('audioError', None)
             p['cues'] = cues; save(root,p)
             generated += 1
@@ -2427,6 +2515,8 @@ def clear_generated(root, p):
     p['summaryGenerated'] = False
     p['descriptionsGenerated'] = False
     p['hasProcessed'] = False
+    p.pop('narrationEngine', None)
+    p.pop('narrationVoice', None)
     p.pop('error', None)
 
 def reset_generated_directory(root, p, relative):
@@ -2465,6 +2555,8 @@ def delete_generated_components(root, p, components):
         p['descriptionsGenerated'] = False
         p['undoStack'] = []
         p['redoStack'] = []
+        p.pop('narrationEngine', None)
+        p.pop('narrationVoice', None)
     elif 'narration' in selected:
         delete_description_narration(root, p)
     if 'thumbnails' in selected:
@@ -2502,8 +2594,11 @@ def delete_segment_audio(root, p, segment_id):
         if audio_path.is_dir() and not audio_path.is_symlink():
             raise ValueError('The segment audio path is not an audio file.')
         audio_path.unlink(missing_ok=True)
-    for key in ('audio', 'audioText', 'audioDuration', 'audioSettings', 'audioStart', 'audioEnd', 'audioError'):
+    for key in ('audio', 'audioText', 'audioDuration', 'audioSettings', 'audioEngine', 'audioVoice', 'audioStart', 'audioEnd', 'audioError'):
         cue.pop(key, None)
+    if not any(candidate.get('audio') for candidate in p.get('cues', [])):
+        p.pop('narrationEngine', None)
+        p.pop('narrationVoice', None)
     remove_empty_directory(audio_root)
 
 def validate_analysis_prerequisites(command, root, project):
