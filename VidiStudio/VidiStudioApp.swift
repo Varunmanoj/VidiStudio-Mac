@@ -9,7 +9,10 @@ final class VidiStudioAppDelegate: NSObject, NSApplicationDelegate {
         for name in [NSMenu.didAddItemNotification, NSMenu.didChangeItemNotification] {
             menuObservers.append(NotificationCenter.default.addObserver(
                 forName: name, object: nil, queue: .main
-            ) { [weak self] _ in
+            ) { [weak self] notification in
+                if let menu = notification.object as? NSMenu, menu !== NSApp.mainMenu {
+                    NativeMenuIcons.apply(to: menu, isMenuBar: false)
+                }
                 self?.scheduleMenuRefresh()
             })
         }
@@ -18,6 +21,9 @@ final class VidiStudioAppDelegate: NSObject, NSApplicationDelegate {
         ) { notification in
             guard let menu = notification.object as? NSMenu else { return }
             NativeMenuIcons.apply(to: menu, isMenuBar: menu === NSApp.mainMenu)
+            DispatchQueue.main.async {
+                NativeMenuIcons.apply(to: menu, isMenuBar: menu === NSApp.mainMenu)
+            }
         })
         scheduleMenuRefresh()
     }

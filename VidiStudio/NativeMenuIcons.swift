@@ -57,6 +57,42 @@ enum NativeMenuIcons {
         case "Segments": return "timeline.selection"
         case "Analysis": return "sparkles"
         case "Narration": return "speaker.wave.2"
+        case "Edit Audio description Segment…", "Edit Audio Description Segment…", "Edit Transcript Segment…", "Edit Segment…", "Rename":
+            return "pencil"
+        case "Play from Audio description", "Play from Audio Description", "Play from Transcript":
+            return "play.fill"
+        case "Skip to Audio description", "Skip to Audio Description", "Skip to Transcript":
+            return "forward.end.fill"
+        case "Synthesize This Segment", "Regenerate Segment Narration", "Synthesize Changed Segments":
+            return "waveform"
+        case "Synthesize Narration":
+            return "speaker.wave.2"
+        case "Rewrite to Fit", "Re-Analyze This Segment…", "Analyze Video…", "Generate Audio Descriptions", "Regenerate Audio Descriptions…":
+            return "sparkles"
+        case "Delete Segment Audio…", "Delete All Narration Audio…":
+            return "speaker.slash"
+        case "Delete Segment…", "Delete Selected Segments…", "Delete Project…", "Delete Transcript…", "Delete Summary…", "Delete Descriptions…", "Delete Current Page…":
+            return "trash"
+        case "Open Project":
+            return "macwindow.badge.plus"
+        case "Open in Project Folder", "Show Project in Finder", "Open Project Folder…":
+            return "folder"
+        case "Export…", "Export":
+            return "square.and.arrow.up"
+        case "Choose Content to Delete…":
+            return "eraser"
+        case "Generate Video Details & Timeline Pictures", "Regenerate Video Details & Timeline Pictures…":
+            return "photo.on.rectangle.angled"
+        case "Generate Transcript", "Regenerate Transcript…":
+            return "text.bubble"
+        case "Generate Summary", "Regenerate Summary…":
+            return "text.alignleft"
+        case "Read from Start", "Read Summary from Start":
+            return "forward.end"
+        case "Read from Selection", "Read Summary from Selection":
+            return "text.cursor"
+        case "Read Selected Text Only", "Read Selected Summary Text":
+            return "quote.bubble"
         case "Bring All to Front": return "macwindow.on.rectangle"
         case "Move & Resize": return "arrow.up.left.and.arrow.down.right"
         case "Center": return "dot.scope"
