@@ -1187,6 +1187,15 @@ def synthesize(root,p,segment=None,changed=False,regenerate_all=False):
                     p['narrationEngine'] = existing_engine
                     p['narrationVoice'] = existing_voice
                     break
+    if regenerate_all:
+        # The selected voice becomes the baseline for this whole regeneration,
+        # even if a later segment fails or the user cancels the run.
+        p['narrationEngine'] = engine_name
+        p['narrationVoice'] = voice_name
+        p['cues'] = cues
+        save(root,p)
+        emit('Updated primary narration voice for full regeneration',
+             narrationPrimaryVoiceUpdated=True, project=str(root))
     has_usable = any(narration_audio_is_usable(root, c) for c in cues)
     has_unusable = any(not narration_audio_is_usable(root, c) for c in cues)
     preserve_existing_usable = not regenerate_all and (changed or (segment is None and has_usable and has_unusable))
@@ -1284,10 +1293,6 @@ def synthesize(root,p,segment=None,changed=False,regenerate_all=False):
         finally:
             textfile.unlink(missing_ok=True)
             if raw is not None: raw.unlink(missing_ok=True)
-    if regenerate_all and not failures:
-        p['narrationEngine'] = engine_name
-        p['narrationVoice'] = voice_name
-        save(root,p)
     if failures:
         emit(f'Narration finished. {len(failures)} of {attempted} description(s) need attention.',
              narrationFailures=failures, narrationGenerated=generated)

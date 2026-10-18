@@ -1709,7 +1709,7 @@ final class StudioModel {
         if extra.contains("--regenerate-all") {
             let alert = NSAlert()
             alert.messageText = "Regenerate all narration in “\(project.name)”?"
-            alert.informativeText = "All generated narration audio will be replaced by newly generated audio for every Audio Description segment using the currently selected voice: \(settings.currentNarrationSummary). Description text and timing will be kept. Existing audio is replaced only after each segment is generated successfully; if generation fails or is canceled, some old audio may remain. Do you want to continue?"
+            alert.informativeText = "All generated narration audio will be replaced by newly generated audio for every Audio Description segment using the currently selected voice: \(settings.currentNarrationSummary). This becomes the project's primary narration voice as soon as regeneration starts. Description text and timing will be kept. Existing audio is replaced only after each segment is generated successfully; if generation fails or is canceled, some old audio may remain. Do you want to continue?"
             alert.alertStyle = .warning
             alert.addButton(withTitle: "Cancel")
             alert.addButton(withTitle: "Regenerate All Narration")

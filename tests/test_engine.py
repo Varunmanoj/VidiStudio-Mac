@@ -430,6 +430,9 @@ class Validation(unittest.TestCase):
             ]}
             def speech(output, text, p):
                 if text == 'Existing.':
+                    started = json.loads((root/'project.json').read_text())
+                    self.assertEqual(started['narrationVoice'], 'Puck')
+                    self.assertEqual(started['narrationEngine'], 'gemini')
                     raise ValueError('Speech unavailable')
                 output.write_bytes(b'new audio')
             with patch.object(engine, 'config', return_value={'ttsMode': 'gemini', 'geminiVoice': 'Puck'}), \
@@ -439,7 +442,75 @@ class Validation(unittest.TestCase):
             self.assertEqual(old.read_bytes(), b'old audio')
             self.assertEqual(project['cues'][0]['audio'], 'old.mp3')
             self.assertEqual(project['cues'][1]['audioVoice'], 'Puck')
-            self.assertEqual(project['narrationVoice'], 'Kore')
+            self.assertEqual(project['cues'][0]['audioVoice'], 'Kore')
+            self.assertEqual(project['narrationVoice'], 'Puck')
+            self.assertEqual(json.loads((root/'project.json').read_text())['narrationVoice'], 'Puck')
+
+    def test_regenerate_all_primary_voice_survives_duration_failure(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            project = {'duration': 20, 'transcript': [], 'narrationEngine': 'system', 'narrationVoice': 'Old voice', 'cues': [
+                {'id': 'a', 'start': 1, 'end': 4, 'text': 'Fits.'},
+                {'id': 'b', 'start': 5, 'end': 8, 'text': 'Too long.'},
+            ]}
+            with patch.object(engine, 'config', return_value={'ttsMode': 'gemini', 'geminiVoice': 'Puck'}), \
+                 patch.object(engine, 'gemini_speech', side_effect=lambda output, text, p: output.write_bytes(b'audio')), \
+                 patch.object(engine, 'probe', side_effect=[{'format': {'duration': 1}}, {'format': {'duration': 4}}]), \
+                 patch.object(engine, 'emit') as emit:
+                engine.synthesize(root, project, regenerate_all=True)
+            reopened = json.loads((root/'project.json').read_text())
+            self.assertEqual((reopened['narrationEngine'], reopened['narrationVoice']), ('gemini', 'Puck'))
+            self.assertEqual(reopened['cues'][0]['audioVoice'], reopened['narrationVoice'])
+            self.assertNotIn('audio', reopened['cues'][1])
+            self.assertIn('AD segment 2 takes 4.0s but has 3.0s', reopened['cues'][1]['audioError'])
+            report = next(c.kwargs for c in emit.call_args_list if 'narrationFailures' in c.kwargs)
+            self.assertEqual(report['narrationGenerated'], 1)
+            self.assertEqual([f['index'] for f in report['narrationFailures']], [2])
+
+    def test_regenerate_all_primary_voice_is_saved_before_audio_and_survives_cancel(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            project = {'duration': 20, 'transcript': [], 'narrationEngine': 'system', 'narrationVoice': 'Old voice', 'cues': [
+                {'id': 'a', 'start': 1, 'end': 4, 'text': 'Description.'},
+            ]}
+            def speech(output, text, p):
+                started = json.loads((root/'project.json').read_text())
+                self.assertEqual((started['narrationEngine'], started['narrationVoice']), ('gemini', 'Puck'))
+                self.assertTrue(emit.call_args_list[0].kwargs['narrationPrimaryVoiceUpdated'])
+                self.assertEqual(emit.call_args_list[0].kwargs['project'], str(root))
+                raise engine.ProcessingCancelled()
+            with patch.object(engine, 'config', return_value={'ttsMode': 'gemini', 'geminiVoice': 'Puck'}), \
+                 patch.object(engine, 'gemini_speech', side_effect=speech), patch.object(engine, 'emit') as emit:
+                with self.assertRaises(engine.ProcessingCancelled):
+                    engine.synthesize(root, project, regenerate_all=True)
+            self.assertEqual(json.loads((root/'project.json').read_text())['narrationVoice'], 'Puck')
+            self.assertFalse(list((root/'audio-description').iterdir()))
+
+    @unittest.skipUnless(sys.platform == 'darwin', 'Requires macOS system speech.')
+    def test_regenerate_all_cli_keeps_new_primary_voice_when_audio_does_not_fit(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            settings = root/'settings.json'
+            settings.write_text(json.dumps({'ttsMode': 'system'}))
+            project = {'duration': 20, 'transcript': [], 'narrationEngine': 'gemini', 'narrationVoice': 'Old voice', 'cues': [
+                {'id': 'a', 'start': 1, 'end': 8, 'text': 'A short description.'},
+                {'id': 'b', 'start': 9, 'end': 9.01, 'text': 'This description cannot fit in one hundredth of a second.'},
+            ]}
+            engine.save(root, project)
+            prefix = [os.environ['VIDISTUDIO_TEST_ENGINE']] if os.environ.get('VIDISTUDIO_TEST_ENGINE') else [sys.executable, str(ENGINE)]
+            result = subprocess.run([*prefix, 'synthesize-tts', '--project', str(root), '--regenerate-all'],
+                                    capture_output=True, text=True, env=os.environ | {'VIDISTUDIO_CONFIG': str(settings)})
+            self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+            reopened = json.loads((root/'project.json').read_text())
+            self.assertEqual(reopened['narrationEngine'], 'system')
+            self.assertEqual(reopened['narrationVoice'], reopened['cues'][0]['audioVoice'])
+            self.assertTrue((root/reopened['cues'][0]['audio']).is_file())
+            self.assertNotIn('audio', reopened['cues'][1])
+            self.assertIn('but has 0.0s', reopened['cues'][1]['audioError'])
+            events = [json.loads(line) for line in result.stdout.splitlines() if line.startswith('{')]
+            self.assertTrue(events[0]['narrationPrimaryVoiceUpdated'])
+            report = next(e for e in events if 'narrationFailures' in e)
+            self.assertEqual([f['index'] for f in report['narrationFailures']], [2])
 
     def test_regenerate_all_narration_rejects_partial_generation_flags(self):
         for extra in ({'segment': 'a'}, {'changed': True}):
