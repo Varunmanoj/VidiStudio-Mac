@@ -20,7 +20,7 @@ struct ADOverviewView: View {
         return voiceReport.primaryVoiceLabel ?? selectedVoice
     }
     private var narrationControlsDisabled: Bool {
-        studio.busy || project.cues.isEmpty || (studio.settings.ttsMode == "gemini" && !studio.hasApiKey)
+        studio.busy || project.cues.isEmpty || (studio.settings.ttsMode == "gemini" && (!studio.hasApiKey || studio.isApiKeyInvalid))
     }
     private var selectedVoice: String {
         if studio.settings.ttsMode == "gemini" { return studio.settings.geminiVoice }
@@ -134,16 +134,16 @@ struct ADOverviewView: View {
                             .accessibilityElement(children: .combine)
                         }
                         HStack {
-                            Button("Generate All AD Audio") { studio.execute("synthesize-tts") }
+                            Button(project.allADAudioTitle) { studio.execute("synthesize-tts") }
                                 .help(studio.settings.ttsMode == "gemini" && !studio.hasApiKey
                                     ? "Enter your Gemini API key in Settings → Gemini API to synthesize narration with Gemini TTS"
                                     : "Create narration audio for all Audio Description segments")
                                 .disabled(narrationControlsDisabled)
-                            Button("Generate Missing or Changed Audio") { studio.execute("synthesize-tts", extra: ["--changed"]) }
+                            Button("Generate Missing or Changed AD Audio") { studio.execute("synthesize-tts", extra: ["--changed"]) }
                                 .help(studio.settings.ttsMode == "gemini" && !studio.hasApiKey
                                     ? "Enter your Gemini API key in Settings → Gemini API to synthesize narration with Gemini TTS"
                                     : "Generate missing narration and regenerate descriptions with text, timing, or generation issues")
-                                .disabled(narrationControlsDisabled || stale + missing == 0)
+                                .disabled(narrationControlsDisabled || !project.canGenerateMissingOrChangedAudio)
                         }
                         HStack {
                             Button("Review Narration Issues") {

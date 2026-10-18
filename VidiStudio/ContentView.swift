@@ -667,7 +667,7 @@ struct ProcessingInspector: View {
                                         Button(
                                             studio.isSynthesizingNarration
                                                 ? (studio.narratingSegmentIndex.map { "Synthesizing AD \($0)…" } ?? "Synthesizing…")
-                                                : "Synthesize Narration",
+                                                : p.allADAudioTitle,
                                             systemImage: studio.isSynthesizingNarration ? "rays" : "speaker.wave.2"
                                         ) {
                                             editorActions.run("synthesize-tts")
@@ -692,7 +692,7 @@ struct ProcessingInspector: View {
                                             .disabled(studio.busy)
                                         }
                                     }
-                                    Button("Synthesize Changed Segments", systemImage: "waveform") {
+                                    Button("Generate Missing or Changed AD Audio", systemImage: "waveform") {
                                         editorActions.run("synthesize-changed")
                                     }
                                     .disabled(!editorActions.canRun("synthesize-changed"))
@@ -700,12 +700,7 @@ struct ProcessingInspector: View {
                                         ? "Enter your Gemini API key in Settings → Gemini API to synthesize changed segments"
                                         : studio.settings.ttsMode == "gemini" && studio.isApiKeyInvalid
                                             ? "Gemini API key is invalid — enter a valid key in Settings → Gemini API to synthesize changed segments"
-                                            : "Recreate narration only for descriptions whose text changed")
-                                    Button("Regenerate All Narration…", systemImage: "arrow.clockwise") {
-                                        editorActions.run("regenerate-all-narration")
-                                    }
-                                    .disabled(!editorActions.canRun("regenerate-all-narration"))
-                                    .help("Replace narration audio for every segment using the currently selected voice")
+                                            : "Generate missing audio and replace audio with text, timing, or generation issues; keep current audio")
                                 }
                             }
                         }
@@ -2020,7 +2015,6 @@ struct ProjectEditor: View {
         case "undo": studio.execute(tab == "transcript" ? "undo-transcript" : "undo-cues")
         case "redo": studio.execute(tab == "transcript" ? "redo-transcript" : "redo-cues")
         case "synthesize-tts": studio.execute(action)
-        case "regenerate-all-narration": studio.execute("synthesize-tts", extra: ["--regenerate-all"])
         case "synthesize-changed": studio.execute("synthesize-tts", extra: ["--changed"])
         case "review-narration-issues": studio.narrationFailureReport = studio.narrationIssueReport(for: project)
         case "review-narration-voices": studio.narrationVoiceReport = studio.narrationVoiceUsageReport(for: project)
@@ -2092,9 +2086,7 @@ struct ProjectEditor: View {
         shortcutActions.hasNarrationAudio = GeneratedContentComponent.narration.hasContent(in: project)
         shortcutActions.hasDescriptions = GeneratedContentComponent.descriptions.hasContent(in: project)
         shortcutActions.descriptionCount = project.cues.count
-        shortcutActions.hasChangedNarration = project.cues.contains {
-            SynchronizedAudioStatus.resolve(cue: $0, project: project) == .needsRegeneration
-        }
+        shortcutActions.hasChangedNarration = project.canGenerateMissingOrChangedAudio
         shortcutActions.hasGeneratedTranscript = GeneratedContentComponent.transcript.hasContent(in: project)
         shortcutActions.hasGeneratedSummary = GeneratedContentComponent.summary.hasContent(in: project)
         shortcutActions.hasApiKey = studio.hasApiKey

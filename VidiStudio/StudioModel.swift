@@ -497,6 +497,12 @@ struct StudioProject: Codable, Identifiable {
     var hasGeneratedTranscript: Bool {
         transcriptGenerated == true || !transcript.isEmpty
     }
+    var hasNarrationAudio: Bool { cues.contains { $0.audio != nil } }
+    var allADAudioTitle: String { hasNarrationAudio ? "Regenerate All AD Audio…" : "Generate All AD Audio" }
+    var canGenerateMissingOrChangedAudio: Bool {
+        hasNarrationAudio && cues.contains { SynchronizedAudioStatus.resolve(cue: $0, project: self) != .generated }
+    }
+
     var canGenerateDescriptions: Bool {
         hasGeneratedTranscript && !summary.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
     }
@@ -1706,17 +1712,6 @@ final class StudioModel {
 
     private func confirmNarrationVoiceChange(_ command: String, extra: [String], project: StudioProject) -> Bool {
         guard command == "synthesize-tts" else { return true }
-        if extra.contains("--regenerate-all") {
-            let alert = NSAlert()
-            alert.messageText = "Regenerate all narration in “\(project.name)”?"
-            alert.informativeText = "All generated narration audio will be replaced by newly generated audio for every Audio Description segment using the currently selected voice: \(settings.currentNarrationSummary). This becomes the project's primary narration voice as soon as regeneration starts. Description text and timing will be kept. Existing audio is replaced only after each segment is generated successfully; if generation fails or is canceled, some old audio may remain. Do you want to continue?"
-            alert.alertStyle = .warning
-            alert.addButton(withTitle: "Cancel")
-            alert.addButton(withTitle: "Regenerate All Narration")
-            let confirmed = alert.runModal() == .alertSecondButtonReturn
-            pendingVoiceMismatchReview = confirmed
-            return confirmed
-        }
         var current = project
         if let folder = project.folder {
             do {
@@ -1726,6 +1721,17 @@ final class StudioModel {
                 present(.projectRead, technicalDetails: error.localizedDescription, context: "Check existing project narration")
                 return false
             }
+        }
+        if extra.contains("--regenerate-all") {
+            pendingVoiceMismatchReview = false
+            guard current.hasNarrationAudio else { return true }
+            let alert = NSAlert()
+            alert.messageText = "Regenerate all AD audio in “\(current.name)”?"
+            alert.informativeText = "All generated narration audio will be replaced by newly generated audio for every Audio Description segment using the currently selected voice: \(settings.currentNarrationSummary). This becomes the project's primary narration voice as soon as generation starts. Description text and timing will be kept. Existing audio is replaced only after each segment is generated successfully; if generation fails or is canceled, some old audio may remain. Do you want to continue?"
+            alert.alertStyle = .warning
+            alert.addButton(withTitle: "Cancel")
+            alert.addButton(withTitle: "Regenerate All AD Audio")
+            return alert.runModal() == .alertSecondButtonReturn
         }
         let narratedCues = current.cues.filter { cue in
             if let path = cue.audio, let url = current.url(path), FileManager.default.fileExists(atPath: url.path) {
@@ -1815,6 +1821,8 @@ final class StudioModel {
         completion: ((StudioProject?) -> Void)? = nil
     ) {
         guard !busy else { return }
+        let extra = command == "synthesize-tts" && !extra.contains("--segment") && !extra.contains("--changed") && !extra.contains("--regenerate-all")
+            ? extra + ["--regenerate-all"] : extra
         errorTitle = StudioModel.defaultErrorTitle
         if command == "doctor" {
             error = nil
@@ -1880,9 +1888,7 @@ final class StudioModel {
                 narratingSegmentIndex = target.cues.firstIndex(where: { $0.id == segID }).map { $0 + 1 }
             } else {
                 let changedOnly = extra.contains("--changed")
-                let hasUsable = target.cues.contains { SynchronizedAudioStatus.resolve(cue: $0, project: target) == .generated }
-                let hasUnusable = target.cues.contains { SynchronizedAudioStatus.resolve(cue: $0, project: target) != .generated }
-                let preserveUsable = !extra.contains("--regenerate-all") && (changedOnly || (hasUsable && hasUnusable))
+                let preserveUsable = changedOnly
                 let queued = target.cues.enumerated().filter { _, cue in
                     !preserveUsable || SynchronizedAudioStatus.resolve(cue: cue, project: target) != .generated
                 }

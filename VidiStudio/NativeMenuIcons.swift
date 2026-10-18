@@ -63,13 +63,13 @@ enum NativeMenuIcons {
             return "play.fill"
         case "Skip to Audio description", "Skip to Audio Description", "Skip to Transcript":
             return "forward.end.fill"
-        case "Synthesize This Segment", "Regenerate Segment Narration", "Synthesize Changed Segments":
+        case "Synthesize This Segment", "Regenerate Segment Narration", "Generate Missing or Changed AD Audio":
             return "waveform"
-        case "Regenerate All Narration…":
+        case "Regenerate All AD Audio…":
             return "arrow.clockwise"
         case "Review Narration Voices…":
             return "person.wave.2"
-        case "Synthesize Narration":
+        case "Generate All AD Audio":
             return "speaker.wave.2"
         case "Rewrite to Fit", "Re-Analyze This Segment…", "Analyze Video…", "Generate Audio Descriptions", "Regenerate Audio Descriptions…":
             return "sparkles"

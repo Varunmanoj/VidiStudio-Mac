@@ -1168,6 +1168,9 @@ def narration_fit_error_message(index, actual, available):
 def synthesize(root,p,segment=None,changed=False,regenerate_all=False):
     if regenerate_all and (segment or changed):
         raise ValueError('Regenerate all narration cannot be combined with segment or changed-only generation.')
+    # Every whole-project generation is a full run, regardless of its UI entry
+    # point. Only --changed and --segment may preserve unrelated usable audio.
+    regenerate_all = not segment and not changed
     cues = validate_cues(p['cues'],p['duration'],p['transcript'])
     if not cues: raise ValueError('Create audio description segments first.')
     cfg = config()
@@ -1196,9 +1199,7 @@ def synthesize(root,p,segment=None,changed=False,regenerate_all=False):
         save(root,p)
         emit('Updated primary narration voice for full regeneration',
              narrationPrimaryVoiceUpdated=True, project=str(root))
-    has_usable = any(narration_audio_is_usable(root, c) for c in cues)
-    has_unusable = any(not narration_audio_is_usable(root, c) for c in cues)
-    preserve_existing_usable = not regenerate_all and (changed or (segment is None and has_usable and has_unusable))
+    preserve_existing_usable = changed
     queued_ids = [
         c['id'] for c in cues
         if (not segment or c['id'] == segment)

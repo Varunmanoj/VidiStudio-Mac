@@ -383,7 +383,7 @@ class Validation(unittest.TestCase):
                  patch.object(engine, 'config', return_value={'ttsMode': 'gemini', 'geminiVoice': 'Puck'}), \
                  patch.object(engine, 'gemini_speech', lambda output, text, proj: output.write_bytes(b'ID3-mp3-data-2')), \
                  patch.object(engine, 'probe', return_value={'format': {'duration': 1.5}}):
-                engine.synthesize(root, saved)
+                engine.synthesize(root, saved, changed=True)
             reopened = json.loads((root/'project.json').read_text())
             self.assertEqual(reopened.get('narrationEngine'), 'gemini')
             self.assertEqual(reopened.get('narrationVoice'), 'Kore')
@@ -408,7 +408,7 @@ class Validation(unittest.TestCase):
             with patch.object(engine, 'config', return_value={'ttsMode': 'gemini', 'geminiVoice': 'Puck'}), \
                  patch.object(engine, 'gemini_speech', side_effect=lambda output, text, p: output.write_bytes(b'new audio')) as speech, \
                  patch.object(engine, 'probe', return_value={'format': {'duration': 1}}), patch.object(engine, 'emit') as emit:
-                engine.synthesize(root, project, regenerate_all=True)
+                engine.synthesize(root, project)
             self.assertEqual(speech.call_count, 2)
             self.assertFalse(old.exists())
             reopened = json.loads((root/'project.json').read_text())
@@ -498,7 +498,7 @@ class Validation(unittest.TestCase):
             ]}
             engine.save(root, project)
             prefix = [os.environ['VIDISTUDIO_TEST_ENGINE']] if os.environ.get('VIDISTUDIO_TEST_ENGINE') else [sys.executable, str(ENGINE)]
-            result = subprocess.run([*prefix, 'synthesize-tts', '--project', str(root), '--regenerate-all'],
+            result = subprocess.run([*prefix, 'synthesize-tts', '--project', str(root)],
                                     capture_output=True, text=True, env=os.environ | {'VIDISTUDIO_CONFIG': str(settings)})
             self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
             reopened = json.loads((root/'project.json').read_text())

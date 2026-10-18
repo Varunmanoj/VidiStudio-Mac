@@ -24,7 +24,7 @@ final class EditorShortcutActions {
     var hasNarrationAudio = false
     var hasDescriptions = false
     var descriptionCount = 0
-    /// True when at least one description changed after its narration was generated.
+    /// True when previously narrated projects have missing, changed, or failed audio to repair.
     var hasChangedNarration = false
     var hasGeneratedTranscript = false
     var hasGeneratedSummary = false
@@ -46,7 +46,7 @@ final class EditorShortcutActions {
             }
             return "Synthesizing Narration…"
         }
-        return "Synthesize Narration"
+        return hasNarrationAudio ? "Regenerate All AD Audio…" : "Generate All AD Audio"
     }
     var summaryReadable = false
     var summaryIsReading = false
@@ -134,12 +134,12 @@ final class EditorShortcutActions {
         case "prepare-video": return true
         case "analyze", "transcribe", "generate-summary": return hasValidApiKey
         case "generate-ad-cues": return hasValidApiKey && canGenerateDescriptions
-        case "synthesize-tts", "regenerate-all-narration":
+        case "synthesize-tts":
             if ttsUsesGemini && !hasValidApiKey { return false }
             return descriptionCount > 0
         case "synthesize-changed":
             if ttsUsesGemini && !hasValidApiKey { return false }
-            return hasChangedNarration
+            return hasNarrationAudio && hasChangedNarration
         case "review-narration-issues", "review-narration-voices": return true
         case "delete-transcript": return hasGeneratedTranscript
         case "delete-summary": return hasGeneratedSummary
@@ -385,12 +385,10 @@ struct StudioCommands: Commands {
                         .disabled(editor?.canRun("delete-descriptions") != true)
                 }
                 Menu("Narration Audio", systemImage: "speaker.wave.2") {
-                    Button(editor?.synthesizeNarrationTitle ?? "Synthesize Narration", systemImage: editor?.isSynthesizingNarration == true ? "rays" : "speaker.wave.2") { editor?.run("synthesize-tts") }
+                    Button(editor?.synthesizeNarrationTitle ?? "Generate All AD Audio", systemImage: editor?.isSynthesizingNarration == true ? "rays" : "speaker.wave.2") { editor?.run("synthesize-tts") }
                         .disabled(editor?.canRun("synthesize-tts") != true)
-                    Button("Synthesize Changed Segments", systemImage: "waveform") { editor?.run("synthesize-changed") }
+                    Button("Generate Missing or Changed AD Audio", systemImage: "waveform") { editor?.run("synthesize-changed") }
                         .disabled(editor?.canRun("synthesize-changed") != true)
-                    Button("Regenerate All Narration…", systemImage: "arrow.clockwise") { editor?.run("regenerate-all-narration") }
-                        .disabled(editor?.canRun("regenerate-all-narration") != true)
                     Button("Review Narration Issues…", systemImage: "list.bullet.clipboard") { editor?.run("review-narration-issues") }
                         .disabled(editor?.canRun("review-narration-issues") != true)
                     Button("Review Narration Voices…", systemImage: "person.wave.2") { editor?.run("review-narration-voices") }

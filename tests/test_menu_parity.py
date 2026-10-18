@@ -26,11 +26,15 @@ class DesktopMenuParity(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, 'hierarchy/order'):
             self.checker.compare_sources(self.mac, self.app, changed)
 
-    def test_regenerate_all_narration_entry_and_guard(self):
-        self.assertIn('Button("Regenerate All Narration…"', self.mac)
-        self.assertIn('case "synthesize-tts", "regenerate-all-narration":', self.mac)
-        self.assertIn('case "synthesize-tts": case "regenerate-all-narration":', self.windows)
-        changed = self.windows.replace('Command("regenerate-all-narration"), ', '', 1)
+    def test_unified_all_audio_entry_and_guard(self):
+        self.assertNotIn('regenerate-all-narration', self.mac)
+        self.assertNotIn('regenerate-all-narration', self.windows)
+        self.assertIn('return hasNarrationAudio ? "Regenerate All AD Audio…" : "Generate All AD Audio"', self.mac)
+        self.assertIn('case "synthesize-tts":', self.mac)
+        self.assertIn('case "synthesize-tts": return tts && p.Cues.Count > 0;', self.windows)
+        self.assertIn('hasNarrationAudio && hasChangedNarration', self.mac)
+        self.assertIn('p.CanGenerateMissingOrChangedAudio', self.windows)
+        changed = self.windows.replace('Command("synthesize-tts"), ', '', 1)
         with self.assertRaisesRegex(ValueError, 'hierarchy/order'):
             self.checker.compare_sources(self.mac, self.app, changed)
 
@@ -59,7 +63,7 @@ class DesktopMenuParity(unittest.TestCase):
         groups = self.checker.swift_group(self.mac, 'Menu("Narration",', rows)
         self.assertEqual(groups, [
             ('AD Segment Generation', ['generate-ad-cues', '-', 'delete-descriptions']),
-            ('Narration Audio', ['synthesize-tts', 'synthesize-changed', 'regenerate-all-narration',
+            ('Narration Audio', ['synthesize-tts', 'synthesize-changed',
                                  'review-narration-issues', 'review-narration-voices', '-', 'delete-narration']),
         ])
         changed = self.windows.replace('Submenu("Narration Audio",', 'Submenu("Audio",', 1)

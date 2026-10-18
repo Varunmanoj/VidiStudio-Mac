@@ -21,7 +21,7 @@ class InspectorGroups(unittest.TestCase):
         self.assertIn('editorActions.run(action)', generation)
         self.assertIn('Button("Undo Segment Edit"', generation)
         self.assertNotIn('editorActions.run("synthesize-tts")', generation)
-        for command in ('synthesize-tts', 'synthesize-changed', 'regenerate-all-narration'):
+        for command in ('synthesize-tts', 'synthesize-changed'):
             self.assertIn(f'editorActions.run("{command}")', narration)
         self.assertNotIn('Button("Undo Segment Edit"', narration)
 
@@ -35,11 +35,12 @@ class InspectorGroups(unittest.TestCase):
         self.assertIs(parents[generation], parents[narration])
         self.assertIn(names['InspectorGenerate'], list(generation.iter()))
         self.assertIn(names['InspectorRewriteButton'], list(generation.iter()))
-        for name in ('InspectorSynthesizeNarrationButton', 'InspectorSynthesizeChangedButton',
-                     'InspectorRegenerateAllNarrationButton', 'InspectorNarrateSelectedButton'):
+        for name in ('InspectorSynthesizeNarrationButton', 'InspectorSynthesizeChangedButton'):
             self.assertIn(names[name], list(narration.iter()))
             self.assertNotIn(names[name], list(generation.iter()))
         self.assertTrue(any(e.get('Text') == 'Narration Audio' for e in narration.iter()))
+        self.assertNotIn('InspectorRegenerateAllNarrationButton', names)
+        self.assertNotIn('InspectorNarrateSelectedButton', names)
 
 
 if __name__ == '__main__':
