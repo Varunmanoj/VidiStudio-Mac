@@ -765,8 +765,16 @@ struct StudioSettings: Codable, Equatable {
         !apiKey.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
     }
     var theme = "system"
-    var ttsMode = "system"
-    var narrationPlayback = "generated"
+    var ttsMode = "system" {
+        didSet { normalizeNarrationPlaybackEngine() }
+    }
+    var narrationPlayback = "generated" {
+        didSet { normalizeNarrationPlaybackEngine() }
+    }
+    var allowsGeminiNarration: Bool { narrationPlayback != "device" }
+    mutating func normalizeNarrationPlaybackEngine() {
+        if !allowsGeminiNarration && ttsMode != "system" { ttsMode = "system" }
+    }
     var soundWhenNarrationOff = true
     var soundWhenNarrationMissing = true
     var systemVoice = ""
@@ -1217,7 +1225,12 @@ final class StudioModel {
             }
             for (key, value) in saved where key != "models" && key != "prompts" { merged[key] = value }
         }
-        if let data = try? JSONSerialization.data(withJSONObject: merged), let decoded = try? JSONDecoder().decode(StudioSettings.self, from: data) { settings = decoded }
+        var normalizedNarration = false
+        if let data = try? JSONSerialization.data(withJSONObject: merged), var decoded = try? JSONDecoder().decode(StudioSettings.self, from: data) {
+            normalizedNarration = !decoded.allowsGeminiNarration && decoded.ttsMode != "system"
+            decoded.normalizeNarrationPlaybackEngine()
+            settings = decoded
+        }
         var migratedLibrary = false
         var seededCaptionDisplayMode = false
         if settings.libraryPath == StudioSettings.legacyDefaultLibraryURL.path {
@@ -1229,12 +1242,14 @@ final class StudioModel {
             seededCaptionDisplayMode = true
         }
         settingsPersistenceEnabled = true
-        if migratedLibrary || seededCaptionDisplayMode { persistSettings(reloadProjects: false) }
+        if migratedLibrary || seededCaptionDisplayMode || normalizedNarration { persistSettings(reloadProjects: false) }
         reload()
         selectedID = UserDefaults.standard.string(forKey: "lastProjectID")
     }
 
     func applyExternalSettings(_ updated: StudioSettings) {
+        var updated = updated
+        updated.normalizeNarrationPlaybackEngine()
         let libraryChanged = settings.libraryPath != updated.libraryPath
         applyingExternalSettings = true
         settings = updated

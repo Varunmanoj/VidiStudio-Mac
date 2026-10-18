@@ -51,6 +51,22 @@ struct NarrationControlsHarness {
         actions.ttsUsesGemini = false
         actions.available = false
         precondition(!actions.canRun("synthesize-tts") && !actions.canRun("synthesize-changed"))
-        print("PASS: unified narration labels, initial/partial/current/edited states, API guards, and busy state")
+        var playback = NarrationPlaybackSettings()
+        playback.ttsMode = "gemini"
+        precondition(playback.allowsGeminiNarration && playback.ttsMode == "gemini")
+        playback.narrationPlayback = "device"
+        precondition(!playback.allowsGeminiNarration && playback.ttsMode == "system")
+        playback.ttsMode = "gemini"
+        precondition(playback.ttsMode == "system", "Preview must reject Gemini even when set outside the picker")
+        playback.narrationPlayback = "generated"
+        playback.ttsMode = "gemini"
+        precondition(playback.ttsMode == "gemini", "Saved-audio playback must allow Gemini again")
+        let invalid = Data("{\"ttsMode\":\"gemini\",\"narrationPlayback\":\"device\"}".utf8)
+        var restored = try JSONDecoder().decode(NarrationPlaybackSettings.self, from: invalid)
+        restored.normalizeNarrationPlaybackEngine()
+        precondition(restored.ttsMode == "system")
+        let roundTrip = try JSONDecoder().decode(NarrationPlaybackSettings.self, from: JSONEncoder().encode(restored))
+        precondition(roundTrip.ttsMode == "system" && roundTrip.narrationPlayback == "device")
+        print("PASS: narration control states, API/busy guards, preview-only local engines, and saved-settings normalization")
     }
 }

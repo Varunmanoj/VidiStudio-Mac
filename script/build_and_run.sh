@@ -5,6 +5,7 @@ export DEVELOPER_DIR="${DEVELOPER_DIR:-/Applications/Xcode.app/Contents/Develope
 MODE="${1:-run}"
 CONFIGURATION="${VIDISTUDIO_CONFIGURATION:-Debug}"
 mkdir -p build
+touch build/.metadata_never_index
 pkill -x VidiStudio >/dev/null 2>&1 || true
 python3 script/sync_version.py --sync
 python3 script/check_menu_parity.py --allow-missing

@@ -23,6 +23,11 @@ types = [declaration(model, marker) for marker in (
     'struct ExportMediaInformation:', 'struct AnalysisVideoAvailability:', 'struct StudioProject:',
 )]
 types.append('@MainActor\n' + declaration(shortcuts, 'final class EditorShortcutActions'))
+playback = [declaration(model, marker) for marker in (
+    'var ttsMode = "system"', 'var narrationPlayback = "generated"',
+    'var allowsGeminiNarration:', 'mutating func normalizeNarrationPlaybackEngine()',
+)]
+types.append('struct NarrationPlaybackSettings: Codable {\n' + '\n'.join(playback) + '\n}')
 build = ROOT/'build/narration-controls-test'
 build.mkdir(parents=True, exist_ok=True)
 production = build/'ProductionNarrationControls.swift'

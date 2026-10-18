@@ -200,22 +200,25 @@ struct SettingsView: View {
             if section == "Gemini API" { GeminiAPISettingsView(studio: studio) }
             if section == "Narration" { Section("Narration") {
                 Picker("Speech engine", selection: $studio.settings.ttsMode) {
-                    Label("Apple on-device voices · offline", systemImage: "speaker.wave.2").tag("system"); Label("Gemini TTS", systemImage: "sparkles").tag("gemini")
+                    Label("Apple on-device voices · offline", systemImage: "speaker.wave.2").tag("system")
+                    if studio.settings.allowsGeminiNarration {
+                        Label("Gemini TTS", systemImage: "sparkles").tag("gemini")
+                    }
                 }
                 Picker("Narration during playback", selection: $studio.settings.narrationPlayback) {
                     Label("Play synthesized narration", systemImage: "play.circle").tag("generated")
                     Label("Preview segment text with Apple Speech", systemImage: "text.bubble").tag("device")
                 }
-                Text("Play synthesized narration to hear each saved file with the voice it was created with; changing the current voice does not replace it. Apple Speech previews segment text immediately with the latest voice settings and does not create audio files. Seeking or resuming restarts the active segment. Your playback choice is saved automatically.").font(.caption).foregroundStyle(.secondary)
+                Text("Play synthesized narration to hear each saved file with the voice it was created with; changing the current voice does not replace it. Preview mode only allows Apple on-device voices and does not create audio files. Select Play synthesized narration to enable Gemini TTS. Seeking or resuming restarts the active segment. Your playback choice is saved automatically.").font(.caption).foregroundStyle(.secondary)
                 Toggle("Sound when narration is off", isOn: $studio.settings.soundWhenNarrationOff)
                 Text("Play a player sound once when entering an AD segment while Narration is off.").font(.caption).foregroundStyle(.secondary)
                 Toggle("Sound when synthesized audio is unavailable", isOn: $studio.settings.soundWhenNarrationMissing)
                 Text("Play a player sound when Narration is on and synthesized playback is selected, but the segment's saved audio is missing or outdated. No extra sound accompanies live Apple Speech. Turn both options off for no AD indication sounds.").font(.caption).foregroundStyle(.secondary)
-                if studio.settings.ttsMode == "gemini" {
+                if studio.settings.allowsGeminiNarration && studio.settings.ttsMode == "gemini" {
                     GeminiVoiceBrowser(studio: studio)
                 }
                 if studio.settings.ttsMode != "gemini" || studio.settings.narrationPlayback == "device" {
-                    Text("Live Apple Speech uses the Apple voice, speech rate, pitch, and volume below, including when Gemini is selected for generating saved narration. System default follows the voice selected for the current language in macOS Accessibility → Read & Speak.")
+                    Text("Apple Speech uses the Apple voice, speech rate, pitch, and volume below. System default follows the voice selected for the current language in macOS Accessibility → Read & Speak.")
                         .font(.caption).foregroundStyle(.secondary)
                     GroupBox("Voice controls") {
                         VStack(alignment: .leading, spacing: 14) {

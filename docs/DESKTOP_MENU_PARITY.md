@@ -40,6 +40,8 @@ The Narration menu mirrors the Inspector's separate AD generation and narration 
 
 Windows row/header More action buttons in Transcript, Descriptions, and AD Transcript are visible only in segment Edit mode, matching Mac's edit-only action controls. View-mode right-click/context menus and narration preview remain available. This changes the button entry point, not the underlying commands or shared menu hierarchy.
 
+Narration preview mode restricts speech-engine selection to native local voices: Apple Speech on Mac; Windows OneCore and SAPI 5 on Windows. Gemini is offered only for synthesized/saved narration playback. Switching to preview switches a selected Gemini engine to the native default without clearing the saved Gemini voice preference. Settings loading/saving also normalizes invalid preview+Gemini combinations. Mac's AD Overview engine picker follows the same rule as Narration settings. Returning to saved narration playback makes Gemini selectable again; existing project audio is not regenerated or relabeled by this settings change.
+
 ## Keeping parity
 
 For any menu change, update both implementations, behavior/availability, shortcuts, native smoke expectations, and the checker as necessary. Run `python3 script/check_menu_parity.py` from the combined workspace or either desktop, then each desktop's `tests.test_menu_parity`. The checker compares actual hierarchy/order/separators, common labels, handler coverage, and translated editor shortcuts and rejects collisions. Mutation tests demonstrate that missing/moved actions, wrong labels, unwired commands, and conflicts fail.
