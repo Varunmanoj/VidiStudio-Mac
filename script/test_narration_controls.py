@@ -16,6 +16,13 @@ def declaration(source, marker):
     return source[start:end]
 
 
+def declaration_line(source, marker):
+    for line in source.splitlines():
+        if marker in line:
+            return line.strip()
+    raise AssertionError(f'{marker} not found')
+
+
 model = (ROOT/'VidiStudio/StudioModel.swift').read_text()
 shortcuts = (ROOT/'VidiStudio/KeyboardShortcuts.swift').read_text()
 types = [declaration(model, marker) for marker in (
@@ -23,9 +30,8 @@ types = [declaration(model, marker) for marker in (
     'struct ExportMediaInformation:', 'struct AnalysisVideoAvailability:', 'struct StudioProject:',
 )]
 types.append('@MainActor\n' + declaration(shortcuts, 'final class EditorShortcutActions'))
-playback = [declaration(model, marker) for marker in (
+playback = [declaration_line(model, marker) for marker in (
     'var ttsMode = "system"', 'var narrationPlayback = "generated"',
-    'var allowsGeminiNarration:', 'mutating func normalizeNarrationPlaybackEngine()',
 )]
 types.append('struct NarrationPlaybackSettings: Codable {\n' + '\n'.join(playback) + '\n}')
 build = ROOT/'build/narration-controls-test'

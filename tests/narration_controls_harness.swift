@@ -53,20 +53,19 @@ struct NarrationControlsHarness {
         precondition(!actions.canRun("synthesize-tts") && !actions.canRun("synthesize-changed"))
         var playback = NarrationPlaybackSettings()
         playback.ttsMode = "gemini"
-        precondition(playback.allowsGeminiNarration && playback.ttsMode == "gemini")
+        precondition(playback.ttsMode == "gemini")
         playback.narrationPlayback = "device"
-        precondition(!playback.allowsGeminiNarration && playback.ttsMode == "system")
-        playback.ttsMode = "gemini"
-        precondition(playback.ttsMode == "system", "Preview must reject Gemini even when set outside the picker")
+        precondition(playback.narrationPlayback == "device" && playback.ttsMode == "gemini", "Preview playback must keep the selected generation engine")
+        playback.ttsMode = "system"
+        precondition(playback.ttsMode == "system")
         playback.narrationPlayback = "generated"
         playback.ttsMode = "gemini"
-        precondition(playback.ttsMode == "gemini", "Saved-audio playback must allow Gemini again")
-        let invalid = Data("{\"ttsMode\":\"gemini\",\"narrationPlayback\":\"device\"}".utf8)
-        var restored = try JSONDecoder().decode(NarrationPlaybackSettings.self, from: invalid)
-        restored.normalizeNarrationPlaybackEngine()
-        precondition(restored.ttsMode == "system")
+        precondition(playback.ttsMode == "gemini", "Saved-audio playback must keep Gemini selected")
+        let saved = Data("{\"ttsMode\":\"gemini\",\"narrationPlayback\":\"device\"}".utf8)
+        let restored = try JSONDecoder().decode(NarrationPlaybackSettings.self, from: saved)
+        precondition(restored.ttsMode == "gemini" && restored.narrationPlayback == "device", "Preview plus Gemini settings must persist for generation")
         let roundTrip = try JSONDecoder().decode(NarrationPlaybackSettings.self, from: JSONEncoder().encode(restored))
-        precondition(roundTrip.ttsMode == "system" && roundTrip.narrationPlayback == "device")
-        print("PASS: narration control states, API/busy guards, preview-only local engines, and saved-settings normalization")
+        precondition(roundTrip.ttsMode == "gemini" && roundTrip.narrationPlayback == "device")
+        print("PASS: narration control states, API/busy guards, and engine selection independent of playback mode")
     }
 }

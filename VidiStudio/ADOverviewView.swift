@@ -85,10 +85,8 @@ struct ADOverviewView: View {
                 GroupBox("Create narration audio") {
                     VStack(alignment: .leading, spacing: 10) {
                         Picker("Speech engine", selection: $studio.settings.ttsMode) {
-                            Text("Apple on-device voices · offline").tag("system")
-                            if studio.settings.allowsGeminiNarration {
-                                Text("Gemini TTS").tag("gemini")
-                            }
+                            Text("Apple Voices").tag("system")
+                            Text("Gemini Voices").tag("gemini")
                         }
                         statistic("Selected voice", value: studio.settings.currentNarrationSummary)
                         if studio.isSynthesizingNarration {
