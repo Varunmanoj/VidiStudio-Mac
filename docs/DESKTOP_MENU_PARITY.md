@@ -38,6 +38,8 @@ There are exactly two bulk audio commands in AD Overview, Inspector, and the men
 
 The Narration menu mirrors the Inspector's separate AD generation and narration audio groups using native nested submenus. Audio Description generation moved from Analysis into AD Segment Generation; its Command+Option+Shift+D / Ctrl+Alt+Shift+D shortcut and prerequisites are unchanged. Description deletion targets descriptions regardless of the active editor section and uses the existing confirmation. Review Narration Voices remains directly after Review Narration Issues inside Narration Audio.
 
+Windows row/header More action buttons in Transcript, Descriptions, and AD Transcript are visible only in segment Edit mode, matching Mac's edit-only action controls. View-mode right-click/context menus and narration preview remain available. This changes the button entry point, not the underlying commands or shared menu hierarchy.
+
 ## Keeping parity
 
 For any menu change, update both implementations, behavior/availability, shortcuts, native smoke expectations, and the checker as necessary. Run `python3 script/check_menu_parity.py` from the combined workspace or either desktop, then each desktop's `tests.test_menu_parity`. The checker compares actual hierarchy/order/separators, common labels, handler coverage, and translated editor shortcuts and rejects collisions. Mutation tests demonstrate that missing/moved actions, wrong labels, unwired commands, and conflicts fail.
