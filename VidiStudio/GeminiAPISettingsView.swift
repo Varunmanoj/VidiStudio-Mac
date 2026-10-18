@@ -66,7 +66,7 @@ struct GeminiAPISettingsView: View {
                     VStack(alignment: .leading, spacing: 3) {
                         Text("API Key Required")
                             .font(.subheadline.bold())
-                        Text("All AI features (transcription, summaries, audio descriptions, description rewrites, frame text OCR, and Gemini narration) are disabled across VidiStudio until an API key is entered.")
+                        Text("Enter an API key to enable AI features.")
                             .font(.caption)
                             .foregroundStyle(.secondary)
                     }
@@ -101,9 +101,6 @@ struct GeminiAPISettingsView: View {
                 openURL(apiKeyPage)
             }
             .accessibilityHint("Opens the Google AI Studio API Keys page in your web browser.")
-            Text("Your key lets VidiStudio create transcripts, summaries, descriptions, and online narration.")
-                .font(.caption)
-                .foregroundStyle(.secondary)
 
             HStack(spacing: 8) {
                 Button(studio.geminiModelsLoaded ? "Check API Key & Reload Models" : "Check API Key & Plan", systemImage: "arrow.clockwise") {
@@ -146,20 +143,16 @@ struct GeminiAPISettingsView: View {
                             Text("API Key Check Failed (Invalid Key)")
                                 .font(.subheadline.bold())
                                 .foregroundStyle(.red)
-                            Text(studio.apiKeyVerificationMessage ?? "The engine could not connect to Gemini with this key. Check the key and your network connection.")
+                            Text(studio.apiKeyVerificationMessage ?? "The engine could not connect to Gemini with this key.")
                                 .font(.caption)
                                 .foregroundStyle(.secondary)
-                            Text("All AI features remain disabled across VidiStudio until a valid Gemini API key is entered.")
-                                .font(.caption2.bold())
-                                .foregroundStyle(.red.opacity(0.85))
-                                .padding(.top, 2)
                         }
                     }
                     .padding(10)
                     .background(Color.red.opacity(0.12), in: RoundedRectangle(cornerRadius: 8))
                 }
             } else if studio.hasApiKey {
-                Text("Click Check API Key & Plan to verify your key and load compatible models.")
+                Text("Check your key to load compatible models.")
                     .font(.caption)
                     .foregroundStyle(.secondary)
             }
@@ -213,8 +206,8 @@ struct GeminiAPISettingsView: View {
                         .foregroundStyle(.secondary)
                 } else {
                     Text(studio.settings.geminiPlan == "paid"
-                        ? "Detected Paid Plan: Higher rate limits and enterprise data privacy."
-                        : "Detected Free Plan: Standard rate limits and quotas.")
+                        ? "Paid plan: higher limits and enterprise data privacy."
+                        : "Free plan: standard limits and quota.")
                         .font(.caption)
                         .foregroundStyle(.secondary)
                 }
@@ -227,8 +220,6 @@ struct GeminiAPISettingsView: View {
             }
         } header: {
             Text("Local video")
-        } footer: {
-            Text("Summary, description, rewrite, and narration selections are also used for YouTube projects.")
         }
 
         Section {
@@ -238,7 +229,7 @@ struct GeminiAPISettingsView: View {
         } header: {
             Text("YouTube video")
         } footer: {
-            Text("YouTube transcription has its own model because it processes the online video source differently.")
+            Text("YouTube transcription uses its own model.")
         }
     }
 

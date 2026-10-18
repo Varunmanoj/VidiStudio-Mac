@@ -81,10 +81,6 @@ struct GeminiVoiceBrowser: View {
     @State private var preview = GeminiVoicePreview()
     @State private var sample = "Hello. This is a sample of audio description narration in VidiStudio."
     private let voices = ["Aoede", "Callirrhoe", "Charon", "Fenrir", "Kore", "Leda", "Orus", "Puck", "Zephyr"]
-    private var isGemini38TTS: Bool {
-        guard let model = studio.settings.models["tts_audio"] else { return false }
-        return ["gemini-3.8-flash-tts", "gemini-3.8-flash-lite-tts"].contains(model)
-    }
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
             Picker("Gemini voice", selection: $studio.settings.geminiVoice) {
@@ -104,14 +100,12 @@ struct GeminiVoiceBrowser: View {
                 HStack(spacing: 8) {
                     Image(systemName: "key.slash.fill")
                         .foregroundStyle(.orange)
-                    Text("Enter your Gemini API key in Settings → Gemini API to preview Gemini voices.")
+                    Text("Add a Gemini API key to preview voices.")
                         .font(.caption)
                         .foregroundStyle(.secondary)
                 }
             }
-            Text(isGemini38TTS
-                 ? "Uses the current Gemini key, TTS model, and voice to read the sample text verbatim. Samples are cached for this settings session; changing the voice or sample creates a new preview. Gemini usage charges may apply."
-                 : "Uses the current Gemini key, TTS model, voice and prompt. Samples are cached for this settings session; changing the voice or sample creates a new preview. Gemini usage charges may apply.")
+            Text("Uses your Gemini key, model, and voice. Gemini usage charges may apply.")
                 .font(.caption).foregroundStyle(.secondary)
             if let error = preview.error { Text(error).foregroundStyle(.red).accessibilityLabel("Voice preview error: \(error)") }
         }

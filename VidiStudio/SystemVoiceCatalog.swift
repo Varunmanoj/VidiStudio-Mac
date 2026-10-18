@@ -253,7 +253,7 @@ struct SystemVoiceBrowser: View {
                     NSWorkspace.shared.open(URL(string: "x-apple.systempreferences:com.apple.preference.universalaccess")!)
                 }
             }
-            Text("Lists voices available to apps on this Mac, grouped by language and dialect. Siri voice variants are not exposed individually by macOS; choose Use system default voice to follow a Siri voice selected in System Settings. Download additional languages and enhanced voices in Accessibility → Read & Speak, then refresh.")
+            Text("Voices available on this Mac. Download more in Accessibility → Read & Speak, then refresh.")
                 .font(.caption)
                 .foregroundStyle(.secondary)
             if let error = catalog.error { Text(error).foregroundStyle(.red) }

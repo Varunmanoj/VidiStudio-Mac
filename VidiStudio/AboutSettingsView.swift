@@ -35,7 +35,7 @@ struct AboutSettingsView: View {
                 Text("Bundled FFmpeg license details are unavailable.")
                     .foregroundStyle(.secondary)
             }
-            Text("This software uses libraries from the FFmpeg project. The bundled build enables GPL components, including x264 and x265.")
+            Text("Uses FFmpeg libraries (GPL build with x264/x265).")
                 .font(.caption)
                 .foregroundStyle(.secondary)
             Button("Open FFmpeg License", systemImage: "doc.text") {
@@ -46,7 +46,7 @@ struct AboutSettingsView: View {
         }
 
         Section("Third-party notices") {
-            Text("View license files for the bundled media libraries, Python engine packages, and Material Symbols font.")
+            Text("License files for bundled libraries, engine packages, and fonts.")
                 .font(.caption)
                 .foregroundStyle(.secondary)
             Button("Open Third-Party License Index", systemImage: "list.bullet.rectangle") {

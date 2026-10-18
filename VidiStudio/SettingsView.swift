@@ -122,7 +122,7 @@ struct SettingsView: View {
                     Text("AD Transcript").tag("ad-transcript")
                 }
                 .accessibilityHint("Choose whether video previews show no app transcript, spoken dialogue, or dialogue and audio descriptions")
-                Text("When VidiStudio has no saved choice, macOS Accessibility → Captions → Prefer closed captions and SDH turns the Transcript overlay on automatically. You can change this choice here at any time. The overlay uses the transcript saved in this VidiStudio project. For YouTube projects, YouTube's own captions, transcript, and keyboard shortcuts remain unchanged; turn one display off if both would be shown.")
+                Text("Uses this project's transcript. macOS Captions preference can turn it on automatically.")
                     .font(.caption)
                     .foregroundStyle(.secondary)
                 GroupBox("Caption appearance") {
@@ -207,17 +207,12 @@ struct SettingsView: View {
                     Label("Play synthesized narration", systemImage: "play.circle").tag("generated")
                     Label("Preview segment text with Apple Speech", systemImage: "text.bubble").tag("device")
                 }
-                Text("The speech engine selects the voice used when generating saved narration audio; Gemini Voices stays selected in either playback mode. Play synthesized narration to hear each saved file with the voice it was created with; changing the current voice does not replace it. Preview mode speaks segment text live with Apple Speech and does not create audio files. Seeking or resuming restarts the active segment. Your playback choice is saved automatically.").font(.caption).foregroundStyle(.secondary)
                 Toggle("Sound when narration is off", isOn: $studio.settings.soundWhenNarrationOff)
-                Text("Play a player sound once when entering an AD segment while Narration is off.").font(.caption).foregroundStyle(.secondary)
                 Toggle("Sound when synthesized audio is unavailable", isOn: $studio.settings.soundWhenNarrationMissing)
-                Text("Play a player sound when Narration is on and synthesized playback is selected, but the segment's saved audio is missing or outdated. No extra sound accompanies live Apple Speech. Turn both options off for no AD indication sounds.").font(.caption).foregroundStyle(.secondary)
                 if studio.settings.ttsMode == "gemini" {
                     GeminiVoiceBrowser(studio: studio)
                 }
                 if studio.settings.ttsMode != "gemini" {
-                    Text("Apple Voices uses the Apple voice, speech rate, pitch, and volume below. System default follows the voice selected for the current language in macOS Accessibility → Read & Speak.")
-                        .font(.caption).foregroundStyle(.secondary)
                     GroupBox("Voice controls") {
                         VStack(alignment: .leading, spacing: 14) {
                             speechSlider("Speech rate", value: $studio.settings.systemSpeechRate, range: 0.5...2.0)
@@ -234,7 +229,7 @@ struct SettingsView: View {
                 }
                 GroupBox("Summary readback") {
                     VStack(alignment: .leading, spacing: 10) {
-                        Text("The Summary tab reads sentences aloud with the Apple voice above and highlights the active sentence and spoken word. The summary scrolls automatically to the sentence being read.")
+                        Text("Reads the summary aloud and highlights the active sentence and word.")
                             .font(.caption).foregroundStyle(.secondary)
                         ColorPicker("Sentence highlight", selection: summaryColorBinding(\.summarySentenceHighlight))
                             .accessibilityLabel("Sentence highlight background color")
@@ -252,27 +247,11 @@ struct SettingsView: View {
             }
             }
             if section == "Developer prompts" { Section("Developer prompts") {
-                Text("Existing task prompts remain unchanged. Multilingual Media adds shared guidance to local and YouTube video understanding while preserving each task’s own instructions.")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
                 ForEach(orderedPromptStages, id: \.self) { stage in
                     DisclosureGroup(
                         promptTitle(stage),
                         isExpanded: promptExpanded(stage)
                     ) {
-                        if stage == "multilingual_media" {
-                            Text("Applied automatically to transcripts, summaries, Audio Descriptions, and screen-text reading for local videos and YouTube. Gemini 3.5 Transcribe uses automatic language detection and code-switching rather than these text fields.")
-                                .font(.caption)
-                                .foregroundStyle(.secondary)
-                        } else if stage == "transcript" {
-                            Text("Used when the selected transcription model accepts video prompts. Gemini 3.5 Transcribe instead uses its automatic multilingual speech setting.")
-                                .font(.caption)
-                                .foregroundStyle(.secondary)
-                        } else if stage == "tts_audio" {
-                            Text("Gemini 3.8 Flash TTS and Flash-Lite TTS speak the description text verbatim. This older narration prompt applies only to earlier TTS models.")
-                                .font(.caption)
-                                .foregroundStyle(.secondary)
-                        }
                         Text("System instruction").font(.caption)
                         TextEditor(text: prompt(stage, "system_instruction")).frame(minHeight: 90).accessibilityLabel("\(stage) system instruction")
                         Text("User prompt").font(.caption)
@@ -293,7 +272,7 @@ struct SettingsView: View {
                         .disabled(studio.busy)
                     }
                 }
-                Text("New projects are created here. The project list scans this folder and any project folders you open directly.")
+                Text("New projects are created here and added to the project list.")
                     .font(.caption)
                     .foregroundStyle(.secondary)
                 LabeledContent("FFmpeg") {
