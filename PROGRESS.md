@@ -1547,3 +1547,15 @@ Validation: root and both desktop menu checkers passed; Mac menu/parity/Inspecto
 Added a "Voices are platform-specific" introduction to `docs/help/welcome.html` (Apple Voices on Mac; Windows OneCore and SAPI 5 on Windows; Gemini voices on both; saved narration keeps its creating voice across platforms) plus one-line platform notes in `docs/help/narration.html` and `docs/help/settings.html`. Mirrored the statement in the Windows in-app Help blurb (`SettingsDialog.Information.cs`) and in website `/docs` chapter 1 with follow-on notes in chapters 7 and 9. No menu, shortcut, or engine changes.
 
 Validation: `python3 script/build_help.py --no-index` validated all 13 Help pages and internal links; website `npm run lint` and `npm run build` passed. Versions synchronized at 1.0.101 / Mac build 101 / Windows package 1.0.101.0. Native Windows compilation was not run on this macOS host.
+
+## 2026-10-19 — Bold Mac/Windows shortcuts throughout Help and website docs — version 1.0.102 (build 102)
+
+Every command mention in the Help book now shows its shortcut in bold for both platforms (Mac combination first, Windows equivalent beside it), including New Project, Export, Add Segment, Re-Analyze, Analyze Video and the individual AI stages, Summary Reading, transport, Settings, and rename. The generated keyboard topic gained a Windows-shortcut column with native substitutions (F1, Ctrl-Alt-Backspace, Ctrl-Alt-Enter, Ctrl-Alt-Shift-0/1/2, double-click to open), bold shortcuts in prose, italic example availability values, and a corrected Deselect All shortcut (Command-Option-Shift-U, previously misstated as Command-Option-Shift-A which is Analyze Video). The website `/docs` mirrors all of this, gains the missing "10.4 Edit text and segments" section (later sections renumbered to 10.5–10.8), and drops iOS/Android mentions since this is a desktop application. No menu, shortcut-assignment, or engine changes.
+
+Validation: `python3 script/build_help.py --no-index` validated all 13 Help pages and internal links with the 3-column shortcut table; website `npm run lint` and `npm run build` passed. Versions synchronized at 1.0.102 / Mac build 102 / Windows package 1.0.102.0. Native Windows compilation was not run on this macOS host.
+
+## 2026-10-19 — Removed mobile platform mentions from docs — version 1.0.103 (build 103)
+
+Removed Android/iOS/iPhone boarding language from user-facing documentation: the website export matrix no longer lists iPhone/Android playback devices, and the Dolby Vision note now reads "phone-recorded" in both the website `/docs` and the Help book (`docs/help/exports.html`). Detection code still maps handheld visitors to the closest desktop shortcut set, but only Windows and Mac are named anywhere. No menu, shortcut-assignment, or engine changes.
+
+Validation: `python3 script/build_help.py --no-index` validated all 13 Help pages and internal links; website `npm run lint` and `npm run build` passed. Versions synchronized at 1.0.103 / Mac build 103 / Windows package 1.0.103.0. Native Windows compilation was not run on this macOS host.
