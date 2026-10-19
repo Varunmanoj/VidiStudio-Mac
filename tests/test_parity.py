@@ -98,6 +98,15 @@ class Parity(unittest.TestCase):
         self.assertIn('VIDISTUDIO_API_KEY', model)
         self.assertIn('VIDISTUDIO_API_KEY', (root / 'engine' / 'vidistudio_engine.py').read_text(encoding='utf-8'))
 
+    def test_new_project_requires_api_key(self):
+        root = Path(__file__).resolve().parents[1]
+        browser = (root / 'VidiStudio' / 'ProjectBrowserPage.swift').read_text(encoding='utf-8')
+        self.assertGreaterEqual(browser.count('busy || !hasApiKey'), 2,
+                                'Both New Project entry points must be disabled without a key')
+        model = (root / 'VidiStudio' / 'StudioModel.swift').read_text(encoding='utf-8')
+        self.assertIn('func beginNewProject()', model)
+        self.assertIn('requestGeminiSettings = true', model)
+
     def test_app_version_parity(self):
         script = Path(__file__).resolve().parents[1] / 'script' / 'sync_version.py'
         if script.exists():

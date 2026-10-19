@@ -240,6 +240,13 @@ struct ContentView: View {
             studio.error = "Wait for the current operation to finish, then share the video again."
             return
         }
+        guard studio.hasApiKey else {
+            studio.errorTitle = "Gemini API Key Required"
+            studio.error = "Enter your Gemini API key in Settings → Gemini API to create projects."
+            studio.requestGeminiSettings = true
+            NSApp.activate(ignoringOtherApps: true)
+            return
+        }
 
         studio.dismissError()
         NSApp.activate(ignoringOtherApps: true)
@@ -281,7 +288,7 @@ struct ContentView: View {
                 SettingsSectionRequest.request("Gemini API")
                 openSettings()
             },
-            newProject: { studio.isCreatingProject = true },
+            newProject: { studio.beginNewProject() },
             openProjectFolder: {
                 studio.openProject()
                 if let project = studio.selected { openEditor(project) }
@@ -335,6 +342,13 @@ struct ContentView: View {
                   source !== studio,
                   let settings = notification.userInfo?["settings"] as? StudioSettings else { return }
             studio.applyExternalSettings(settings)
+        }
+        .onChange(of: studio.requestGeminiSettings) { _, requested in
+            guard requested else { return }
+            studio.requestGeminiSettings = false
+            studio.settingsSection = "Gemini API"
+            SettingsSectionRequest.request("Gemini API")
+            openSettings()
         }
         .onOpenURL(perform: handleSharedURL)
         .onAppear {

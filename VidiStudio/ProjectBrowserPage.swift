@@ -164,6 +164,8 @@ struct ProjectBrowserPage: View {
                         }
                     } else {
                         Button("New Project…", systemImage: "plus", action: newProject)
+                            .disabled(busy || !hasApiKey)
+                            .help(hasApiKey ? "Create a new project" : "Enter your Gemini API key in Settings → Gemini API to create projects")
                     }
                 }
             } else if grid {
@@ -270,7 +272,8 @@ struct ProjectBrowserPage: View {
                     .disabled(busy)
                 Button("New Project", systemImage: "plus", action: newProject)
                     .buttonStyle(.glassProminent)
-                    .disabled(busy)
+                    .disabled(busy || !hasApiKey)
+                    .help(hasApiKey ? "Create a new project" : "Enter your Gemini API key in Settings → Gemini API to create projects")
             }
         }
         .safeAreaInset(edge: .bottom) {

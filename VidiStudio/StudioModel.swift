@@ -1009,6 +1009,14 @@ final class StudioModel {
     var screenTimestamp = 0.0
     var process: Process?
     var isCreatingProject = false
+    /// Set when a New Project command is invoked without a Gemini API key so the shell can
+    /// open Settings → Gemini API instead, matching the Windows app.
+    var requestGeminiSettings = false
+    /// Opens the New Project dialog only when a Gemini API key is configured; otherwise it
+    /// requests Settings → Gemini API, matching the Windows New Project behavior.
+    func beginNewProject() {
+        if hasApiKey { isCreatingProject = true } else { requestGeminiSettings = true }
+    }
     var availableGeminiModels: [GeminiModelOption] = []
     var geminiModelsLoaded = false
     var apiKeyVerified: Bool? = nil
