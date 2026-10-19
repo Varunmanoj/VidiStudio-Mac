@@ -81,11 +81,16 @@ enum KeychainStore {
         let data = Data(value.utf8)
         let attributes: [String: Any] = [
             kSecValueData as String: data,
+            kSecAttrLabel as String: "VidiStudio Gemini API Key",
             kSecAttrAccessible as String: kSecAttrAccessibleAfterFirstUnlock,
         ]
         let updateStatus = SecItemUpdate(baseQuery() as CFDictionary, attributes as CFDictionary)
         if updateStatus == errSecSuccess { return true }
-        guard updateStatus == errSecItemNotFound else { return false }
+        if updateStatus != errSecItemNotFound {
+            // The stored item can belong to a different code signature — an earlier build or an
+            // external tool. Replace it so this build owns it and macOS stops prompting on access.
+            SecItemDelete(baseQuery() as CFDictionary)
+        }
         var add = baseQuery()
         add[kSecValueData as String] = data
         add[kSecAttrAccessible as String] = kSecAttrAccessibleAfterFirstUnlock
