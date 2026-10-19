@@ -1625,7 +1625,11 @@ final class StudioModel {
         let configuration = directory.appendingPathComponent("config.json")
         do {
             try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true, attributes: [.posixPermissions: 0o700])
-            try JSONEncoder().encode(settings).write(to: configuration, options: .atomic)
+            var executionDict = (try? JSONSerialization.jsonObject(with: JSONEncoder().encode(settings))) as? [String: Any] ?? [:]
+            let apiKey = settings.apiKey.trimmingCharacters(in: .whitespacesAndNewlines)
+            if !apiKey.isEmpty { executionDict["apiKey"] = apiKey }
+            let configData = try JSONSerialization.data(withJSONObject: executionDict)
+            try configData.write(to: configuration, options: .atomic)
             try FileManager.default.setAttributes([.posixPermissions: 0o600], ofItemAtPath: configuration.path)
             availableGeminiModels = []
             geminiModelsLoaded = false
@@ -1923,12 +1927,28 @@ final class StudioModel {
         var completedProjectPath: String?
         progress = 0
         message = UserFacingProgress.message(for: command)
+        var temporaryExecutionDirectory: URL?
+        var effectiveConfigurationURL = configurationURL
+        let apiKey = settings.apiKey.trimmingCharacters(in: .whitespacesAndNewlines)
+        if effectiveConfigurationURL == nil && !apiKey.isEmpty {
+            let tempDir = FileManager.default.temporaryDirectory.appendingPathComponent("vidistudio-run-\(UUID().uuidString)")
+            let tempConfig = tempDir.appendingPathComponent("config.json")
+            do {
+                try FileManager.default.createDirectory(at: tempDir, withIntermediateDirectories: true, attributes: [.posixPermissions: 0o700])
+                var executionDict = (try? JSONSerialization.jsonObject(with: JSONEncoder().encode(settings))) as? [String: Any] ?? [:]
+                executionDict["apiKey"] = apiKey
+                let data = try JSONSerialization.data(withJSONObject: executionDict)
+                try data.write(to: tempConfig, options: .atomic)
+                try FileManager.default.setAttributes([.posixPermissions: 0o600], ofItemAtPath: tempConfig.path)
+                effectiveConfigurationURL = tempConfig
+                temporaryExecutionDirectory = tempDir
+            } catch {
+                effectiveConfigurationURL = StudioSettings.url
+            }
+        }
         let task = Process(); task.executableURL = engine
         task.arguments = [command] + (target?.folder.map { ["--project", $0.path] } ?? []) + extra
-        var environment = ProcessInfo.processInfo.environment.merging(["VIDISTUDIO_CONFIG": (configurationURL ?? StudioSettings.url).path]) { _, new in new }
-        // The Gemini key comes from the Keychain and is handed to the engine per process; it is
-        // never written to the config file on disk.
-        let apiKey = settings.apiKey.trimmingCharacters(in: .whitespacesAndNewlines)
+        var environment = ProcessInfo.processInfo.environment.merging(["VIDISTUDIO_CONFIG": (effectiveConfigurationURL ?? StudioSettings.url).path]) { _, new in new }
         if !apiKey.isEmpty { environment["VIDISTUDIO_API_KEY"] = apiKey }
         task.environment = environment
         let output = Pipe(); task.standardOutput = output
@@ -1939,6 +1959,7 @@ final class StudioModel {
         do { try task.run() } catch {
             stderr.fileHandleForReading.readabilityHandler = nil
             if let cleanupURL { try? FileManager.default.removeItem(at: cleanupURL) }
+            if let temporaryExecutionDirectory { try? FileManager.default.removeItem(at: temporaryExecutionDirectory) }
             let detail = error.localizedDescription
             let issue = UserFacingIssue.forEngine(command: command, technicalDetails: detail)
             if command == "doctor" { engineCheckStatus = .failed(issue.message) }
@@ -2088,6 +2109,7 @@ final class StudioModel {
             task.waitUntilExit()
             stderr.fileHandleForReading.readabilityHandler = nil
             if let cleanupURL { try? FileManager.default.removeItem(at: cleanupURL) }
+            if let temporaryExecutionDirectory { try? FileManager.default.removeItem(at: temporaryExecutionDirectory) }
             reload()
             if task.terminationStatus == 0, Self.isExportCommand(command), let folder = target?.folder,
                let path = completedExportPath, URL(fileURLWithPath: path).pathExtension.lowercased() == "mov" {

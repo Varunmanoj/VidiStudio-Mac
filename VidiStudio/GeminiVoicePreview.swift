@@ -30,14 +30,16 @@ import Combine
         do {
             try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true, attributes: [.posixPermissions: 0o700])
             directories.append(directory)
-            try JSONEncoder().encode(settings).write(to: config, options: .atomic)
+            var previewDict = (try? JSONSerialization.jsonObject(with: JSONEncoder().encode(settings))) as? [String: Any] ?? [:]
+            let apiKey = settings.apiKey.trimmingCharacters(in: .whitespacesAndNewlines)
+            if !apiKey.isEmpty { previewDict["apiKey"] = apiKey }
+            let configData = try JSONSerialization.data(withJSONObject: previewDict)
+            try configData.write(to: config, options: .atomic)
             try FileManager.default.setAttributes([.posixPermissions: 0o600], ofItemAtPath: config.path)
             let task = Process(), pipe = Pipe()
             task.executableURL = engine
             task.arguments = ["preview-tts", "--output", file.path, "--text", text]
             var environment = ProcessInfo.processInfo.environment.merging(["VIDISTUDIO_CONFIG": config.path]) { _, new in new }
-            // Hand the Keychain-held key to the engine in the environment, never on disk.
-            let apiKey = settings.apiKey.trimmingCharacters(in: .whitespacesAndNewlines)
             if !apiKey.isEmpty { environment["VIDISTUDIO_API_KEY"] = apiKey }
             task.environment = environment
             task.standardOutput = pipe; task.standardError = FileHandle.nullDevice
