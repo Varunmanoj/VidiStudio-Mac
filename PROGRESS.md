@@ -1,3 +1,9 @@
+## 2026-10-19 — File > New Project disabled without a Gemini API key — version 1.0.100 (build 100)
+
+The macOS File > New Project… command is now disabled when no Gemini API key is stored, matching the toolbar and empty-state New Project buttons and the Windows menu. `VidiStudioApp.swift` adds `!studio.hasApiKey` to the command's `.disabled(...)`, so the File menu item and its Command-N shortcut are unavailable until a key is present (the toolbar/empty-state buttons and the share-to-create path already enforce the same rule). `beginNewProject()` still redirects to Settings → Gemini API if it is ever invoked without a key. A regression assertion was added in `tests/test_parity.py`.
+
+Validation: macOS packaged build passed (`script/build_and_run.sh --build-only`); menu parity checker passed; macOS `test_parity` (7) passed; version synchronized at 1.0.100 (Mac build 100 / Windows package 1.0.100.0). Menu enablement was not exercised in an interactive GUI session on this host.
+
 ## 2026-10-19 — macOS blocks New Project without a Gemini API key — version 1.0.99 (build 99)
 
 macOS now matches Windows: a Gemini API key is required before a project can be created. `StudioModel.beginNewProject()` opens the New Project dialog only when a key is stored; without one it sets `requestGeminiSettings`, and `ContentView` responds by opening Settings → Gemini API. The "New Project" toolbar button and the empty-state "New Project…" button are disabled whenever `hasApiKey` is false (with an explanatory tooltip), and the File > New Project… command redirects to Settings, matching Windows' `ShowNewProjectDialogAsync`. The share-to-create path (`handleSharedURL`) is also gated so a shared video or YouTube link cannot create a project without a key. Windows already enforced this, so no Windows UI change was required. The menu parity checker's Mac action mapping was updated for the renamed handler (`beginNewProject()` → `new-project`) rather than weakening the check.

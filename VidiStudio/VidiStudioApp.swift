@@ -76,7 +76,7 @@ struct VidiStudioApp: App {
         .windowToolbarStyle(.automatic)
         .commands {
             CommandGroup(replacing: .newItem) {
-                Button("New Project…", systemImage: "plus") { studio.beginNewProject() }.keyboardShortcut("n").disabled(studio.busy)
+                Button("New Project…", systemImage: "plus") { studio.beginNewProject() }.keyboardShortcut("n").disabled(studio.busy || !studio.hasApiKey)
                 Button("Open Project Folder…", systemImage: "folder") { studio.openProject() }.keyboardShortcut("o", modifiers: [.command, .shift]).disabled(studio.busy)
             }
         }

@@ -106,6 +106,9 @@ class Parity(unittest.TestCase):
         model = (root / 'VidiStudio' / 'StudioModel.swift').read_text(encoding='utf-8')
         self.assertIn('func beginNewProject()', model)
         self.assertIn('requestGeminiSettings = true', model)
+        app = (root / 'VidiStudio' / 'VidiStudioApp.swift').read_text(encoding='utf-8')
+        self.assertIn('disabled(studio.busy || !studio.hasApiKey)', app,
+                      'File > New Project… must be disabled without a key')
 
     def test_app_version_parity(self):
         script = Path(__file__).resolve().parents[1] / 'script' / 'sync_version.py'
