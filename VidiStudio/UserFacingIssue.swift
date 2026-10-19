@@ -149,7 +149,7 @@ struct UserFacingIssue: Equatable {
         case "import-youtube", "prepare-youtube":
             return UserFacingIssue(
                 title: "YouTube Video Couldn’t Be Added",
-                message: "Use a publicly available YouTube video with visibility set to Public. Private, Unlisted, and other visibility settings cannot be analyzed by Gemini. Check the link, your Gemini API settings, and your internet connection, then try again."
+                message: "Use a YouTube video with visibility set to Public or Unlisted. Private and other restricted visibility settings cannot be analyzed by Gemini. Check the link, your Gemini API settings, and your internet connection, then try again."
             )
         case "prepare-video", "probe-video", "generate-thumbnails":
             return UserFacingIssue(

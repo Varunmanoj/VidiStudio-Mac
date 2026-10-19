@@ -38,7 +38,7 @@ class Validation(unittest.TestCase):
             'gemini-youtube',
             'https://www.youtube.com/watch?v=abcdefghijk',
             None,
-            'Confirm that this public YouTube video is available for video understanding. Return only READY.',
+            'Confirm that this public or unlisted YouTube video is available for video understanding. Return only READY.',
         )
         client.close.assert_called_once()
 
@@ -46,7 +46,7 @@ class Validation(unittest.TestCase):
         client = Mock()
         with patch.object(engine, 'client_and_model', return_value=(client, 'gemini-youtube')), \
              patch.object(engine.gemini_adapter, 'video_interaction', side_effect=RuntimeError('video unavailable')):
-            with self.assertRaisesRegex(ValueError, 'Private, Unlisted, and other visibility settings are not supported'):
+            with self.assertRaisesRegex(ValueError, 'Private and other restricted visibility settings are not supported'):
                 engine.validate_youtube_for_gemini('https://www.youtube.com/watch?v=abcdefghijk')
         client.close.assert_called_once()
 

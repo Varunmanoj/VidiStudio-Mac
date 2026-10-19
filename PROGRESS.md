@@ -1559,3 +1559,9 @@ Validation: `python3 script/build_help.py --no-index` validated all 13 Help page
 Removed Android/iOS/iPhone boarding language from user-facing documentation: the website export matrix no longer lists iPhone/Android playback devices, and the Dolby Vision note now reads "phone-recorded" in both the website `/docs` and the Help book (`docs/help/exports.html`). Detection code still maps handheld visitors to the closest desktop shortcut set, but only Windows and Mac are named anywhere. No menu, shortcut-assignment, or engine changes.
 
 Validation: `python3 script/build_help.py --no-index` validated all 13 Help pages and internal links; website `npm run lint` and `npm run build` passed. Versions synchronized at 1.0.103 / Mac build 103 / Windows package 1.0.103.0. Native Windows compilation was not run on this macOS host.
+
+## 2026-10-19 — YouTube validation accepts Unlisted, rejects Private — version 1.0.104 (build 104)
+
+Mirrored on both desktops: `validate_youtube_for_gemini` now prompts Gemini with "public or unlisted" and its failure message reads "visibility set to Public or Unlisted; Private and other restricted visibility settings are not supported." Updated the Mac user-facing analysis error (`UserFacingIssue.swift`), both `tests/test_engine.py` suites, and the Mac Help book (`first-project.html`, `projects.html`) to match the website wording. No menu, shortcut, or export changes.
+
+Validation: the two YouTube-validation engine tests pass on the Mac checkout via the repo venv; the same two mirrored tests pass against the Windows engine checkout (run with the Mac venv for dependencies; native Windows execution was not run on this macOS host). `python3 script/build_help.py --no-index` validated all 13 Help pages and internal links. Versions synchronized at 1.0.104 / Mac build 104 / Windows package 1.0.104.0.

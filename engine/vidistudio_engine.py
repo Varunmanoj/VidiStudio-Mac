@@ -515,13 +515,13 @@ def validate_youtube_for_gemini(url):
     try:
         gemini_adapter.video_interaction(
             client,model,url,None,
-            'Confirm that this public YouTube video is available for video understanding. Return only READY.'
+            'Confirm that this public or unlisted YouTube video is available for video understanding. Return only READY.'
         )
     except Exception as exc:
         raise ValueError(
             'This YouTube video is not available for Gemini analysis. '
-            'Use a publicly available video with visibility set to Public; '
-            'Private, Unlisted, and other visibility settings are not supported.'
+            'Use a video with visibility set to Public or Unlisted; '
+            'Private and other restricted visibility settings are not supported.'
         ) from exc
     finally:
         client.close()
