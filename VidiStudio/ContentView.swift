@@ -131,18 +131,11 @@ private struct NewProjectView: View {
                             }
                             .padding(10)
                             .background(.quaternary, in: RoundedRectangle(cornerRadius: 10))
-                            Text("Review these details before creating the project.")
-                                .font(.caption)
-                                .foregroundStyle(.secondary)
                         }
                     }
                 }
             } header: {
                 Text(source.title)
-            } footer: {
-                Text(source == .videoFile
-                     ? "VidiStudio copies the selected video into a new local project folder."
-                     : "Fetch and review the video details first. The video must be Public, not Private or Unlisted. Before creating the project, VidiStudio asks Gemini to confirm that the video is available for analysis.")
             }
 
             Section {
@@ -159,7 +152,7 @@ private struct NewProjectView: View {
             }
             .formStyle(.grouped)
         }
-        .frame(width: 600, height: source == .youtube ? 570 : 410)
+        .frame(width: 600, height: source == .youtube ? 480 : 360)
         .onChange(of: youtubeURL) {
             youtubePreview = nil
             youtubeFetchError = nil
