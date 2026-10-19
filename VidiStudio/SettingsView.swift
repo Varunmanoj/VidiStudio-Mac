@@ -319,7 +319,7 @@ struct SettingsView: View {
             }
             }
             if section == "Gemini API" {
-                Text("Your Gemini key stays on this Mac and is never saved inside a project.").font(.caption).foregroundStyle(.secondary)
+                Text("Your Gemini key is stored securely in your macOS Keychain and is never saved inside a project.").font(.caption).foregroundStyle(.secondary)
             }
         }
         .lineLimit(nil)

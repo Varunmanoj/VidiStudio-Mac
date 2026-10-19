@@ -42,7 +42,13 @@ def config():
     defaults['models'].update(saved.get('models',{}) or {})
     for stage,overrides in (saved.get('prompts',{}) or {}).items():
         defaults['prompts'].setdefault(stage,{}).update(overrides or {})
-    return defaults | {k:v for k,v in saved.items() if k not in ('models','prompts')}
+    resolved = defaults | {k:v for k,v in saved.items() if k not in ('models','prompts')}
+    # The Gemini API key lives in the OS credential store and is injected per process in the
+    # environment. Never read it from the on-disk config, so it is not stored in plaintext.
+    env_key = (os.environ.get('VIDISTUDIO_API_KEY') or '').strip()
+    if env_key:
+        resolved['apiKey'] = env_key
+    return resolved
 
 
 def safe_error(exc):

@@ -40,7 +40,7 @@ User-facing errors and warnings use plain language, explain what remains safe, a
 
 Choose Content to Delete explains every generated component before removal. Selecting AD Descriptions automatically includes Narration Audio and disables that dependent choice because removing all description segments also removes their synthesized narration; deselect AD Descriptions to manage narration independently.
 
-Gemini analysis sends a processing copy through the Files API, polls for ACTIVE with a deadline, saves results locally, and deletes the temporary remote file in a finally block. API keys never enter project folders or process command lines. Settings are saved to `~/Library/Application Support/VidiStudio/config.json` with owner-only permissions. This is a local plaintext config, not an encrypted credential vault.
+Gemini analysis sends a processing copy through the Files API, polls for ACTIVE with a deadline, saves results locally, and deletes the temporary remote file in a finally block. API keys never enter project folders or process command lines; the engine receives the key through the `VIDISTUDIO_API_KEY` environment variable. General settings are saved to `~/Library/Application Support/VidiStudio/config.json` with owner-only permissions, while the Gemini API key is stored in the macOS Keychain (service `com.vidistudio.gemini-api`). Because it lives in the Keychain rather than the app bundle or config file, it survives app updates and reinstalls and is never written to disk in plaintext.
 
 ## Project format
 

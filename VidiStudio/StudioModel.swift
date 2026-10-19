@@ -754,7 +754,13 @@ struct StudioSettings: Codable, Equatable {
         .appendingPathComponent("Documents/VidiStudio Projects")
     static let legacyDefaultLibraryURL = FileManager.default.homeDirectoryForCurrentUser
         .appendingPathComponent("Movies/VidiStudio Projects")
-    var apiKey = ""
+    /// The Gemini API key is owned by the macOS Keychain, not this struct or the config
+    /// file. It is intentionally a computed property so it is excluded from `Codable`
+    /// (never written to `config.json`) and survives app updates and reinstalls.
+    var apiKey: String {
+        get { KeychainStore.read() ?? "" }
+        set { KeychainStore.write(newValue) }
+    }
     var geminiPlan = "free"
     var models: [String: String] = [:]
     var prompts: [String: [String: String]] = [:]
@@ -1194,12 +1200,14 @@ final class StudioModel {
     init() {
         var merged = (try? JSONSerialization.jsonObject(with: JSONEncoder().encode(settings))) as? [String: Any] ?? [:]
         var hasSavedCaptionDisplayMode = false
+        var legacyApiKey: String?
         if let url = Bundle.main.resourceURL?.appendingPathComponent("Engine/_internal/ai-defaults.json"),
            let data = try? Data(contentsOf: url), let defaults = try? JSONSerialization.jsonObject(with: data) as? [String: Any] {
             for key in ["models", "prompts", "apiVersion", "videoProcessing"] { merged[key] = defaults[key] }
         }
         if let data = try? Data(contentsOf: StudioSettings.url), let saved = try? JSONSerialization.jsonObject(with: data) as? [String: Any] {
             hasSavedCaptionDisplayMode = saved["captionDisplayMode"] is String
+            legacyApiKey = saved["apiKey"] as? String
             if let savedModels = saved["models"] as? [String: Any] {
                 var models = merged["models"] as? [String: Any] ?? [:]
                 for (key, value) in savedModels { models[key] = value }
@@ -1231,7 +1239,13 @@ final class StudioModel {
             seededCaptionDisplayMode = true
         }
         settingsPersistenceEnabled = true
-        if migratedLibrary || seededCaptionDisplayMode { persistSettings(reloadProjects: false) }
+        // One-time migration: move any plaintext key left in config.json into the Keychain,
+        // then re-save so the on-disk file no longer contains it.
+        var migratedApiKey = false
+        if let legacyApiKey, !legacyApiKey.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            if KeychainStore.containsValue() || KeychainStore.write(legacyApiKey) { migratedApiKey = true }
+        }
+        if migratedLibrary || seededCaptionDisplayMode || migratedApiKey { persistSettings(reloadProjects: false) }
         reload()
         selectedID = UserDefaults.standard.string(forKey: "lastProjectID")
     }
@@ -1911,7 +1925,12 @@ final class StudioModel {
         message = UserFacingProgress.message(for: command)
         let task = Process(); task.executableURL = engine
         task.arguments = [command] + (target?.folder.map { ["--project", $0.path] } ?? []) + extra
-        task.environment = ProcessInfo.processInfo.environment.merging(["VIDISTUDIO_CONFIG": (configurationURL ?? StudioSettings.url).path]) { _, new in new }
+        var environment = ProcessInfo.processInfo.environment.merging(["VIDISTUDIO_CONFIG": (configurationURL ?? StudioSettings.url).path]) { _, new in new }
+        // The Gemini key comes from the Keychain and is handed to the engine per process; it is
+        // never written to the config file on disk.
+        let apiKey = settings.apiKey.trimmingCharacters(in: .whitespacesAndNewlines)
+        if !apiKey.isEmpty { environment["VIDISTUDIO_API_KEY"] = apiKey }
+        task.environment = environment
         let output = Pipe(); task.standardOutput = output
         let stderr = Pipe(); task.standardError = stderr
         // Drain stderr independently so verbose native libraries cannot block the engine.

@@ -70,6 +70,34 @@ class Parity(unittest.TestCase):
             self.assertFalse((root/deleted).exists())
             self.assertFalse((root/'metadata/trash').exists())
 
+    def test_api_key_reads_from_environment_not_disk(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            cfg = Path(tmp) / 'config.json'
+            cfg.write_text(json.dumps({'apiKey': 'plaintext-in-file'}), encoding='utf-8')
+            old_cfg = engine.os.environ.get('VIDISTUDIO_CONFIG')
+            old_key = engine.os.environ.get('VIDISTUDIO_API_KEY')
+            engine.os.environ['VIDISTUDIO_CONFIG'] = str(cfg)
+            engine.os.environ['VIDISTUDIO_API_KEY'] = 'from-credential-store'
+            try:
+                self.assertEqual(engine.config().get('apiKey'), 'from-credential-store')
+            finally:
+                if old_cfg is None: engine.os.environ.pop('VIDISTUDIO_CONFIG', None)
+                else: engine.os.environ['VIDISTUDIO_CONFIG'] = old_cfg
+                if old_key is None: engine.os.environ.pop('VIDISTUDIO_API_KEY', None)
+                else: engine.os.environ['VIDISTUDIO_API_KEY'] = old_key
+
+    def test_api_key_is_stored_in_keychain_not_config(self):
+        root = Path(__file__).resolve().parents[1]
+        keychain = root / 'VidiStudio' / 'KeychainStore.swift'
+        self.assertTrue(keychain.is_file(), 'macOS must store the Gemini key in the Keychain')
+        source = keychain.read_text(encoding='utf-8')
+        for token in ('kSecClassGenericPassword', 'SecItemAdd', 'SecItemCopyMatching', 'SecItemUpdate', 'SecItemDelete'):
+            self.assertIn(token, source)
+        model = (root / 'VidiStudio' / 'StudioModel.swift').read_text(encoding='utf-8')
+        self.assertIn('KeychainStore.read()', model)
+        self.assertIn('VIDISTUDIO_API_KEY', model)
+        self.assertIn('VIDISTUDIO_API_KEY', (root / 'engine' / 'vidistudio_engine.py').read_text(encoding='utf-8'))
+
     def test_app_version_parity(self):
         script = Path(__file__).resolve().parents[1] / 'script' / 'sync_version.py'
         if script.exists():
