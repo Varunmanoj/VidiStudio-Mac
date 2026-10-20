@@ -1655,6 +1655,17 @@ final class StudioModel {
     func checkGeminiApiKey() {
         loadGeminiModels()
     }
+    func deleteGeminiApiKey() {
+        settings.apiKey = ""
+        KeychainStore.delete()
+        apiKeyVerified = nil
+        apiKeyVerificationMessage = nil
+        availableGeminiModels = []
+        geminiModelsLoaded = false
+        settings.geminiPlan = "free"
+        chooseAvailableGeminiModels()
+        persistSettings(reloadProjects: false)
+    }
     func geminiModels(for stage: String) -> [GeminiModelOption] {
         guard geminiModelsLoaded else {
             return settings.models[stage].map { [GeminiModelOption(name: $0)] } ?? []

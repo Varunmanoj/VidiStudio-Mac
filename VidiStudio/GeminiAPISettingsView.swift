@@ -40,6 +40,7 @@ struct GeminiAPISettingsView: View {
     @Bindable var studio: StudioModel
     @Environment(\.openURL) private var openURL
     @State private var keyDebounceTask: Task<Void, Never>?
+    @State private var showingDeleteConfirmation = false
 
     private let apiKeyPage = URL(string: "https://aistudio.google.com/api-keys")!
 
@@ -74,29 +75,51 @@ struct GeminiAPISettingsView: View {
                 .padding(10)
                 .background(Color.orange.opacity(0.12), in: RoundedRectangle(cornerRadius: 8))
             }
-            SecureField("API key", text: $studio.settings.apiKey)
-                .accessibilityHint("Enter the key from your Google AI Studio account.")
-                .onSubmit {
-                    keyDebounceTask?.cancel()
-                    if studio.hasApiKey {
-                        studio.checkGeminiApiKey()
-                    }
-                }
-                .onChange(of: studio.settings.apiKey) { _, newValue in
-                    keyDebounceTask?.cancel()
-                    let trimmed = newValue.trimmingCharacters(in: .whitespacesAndNewlines)
-                    guard !trimmed.isEmpty else {
-                        studio.apiKeyVerified = nil
-                        studio.apiKeyVerificationMessage = nil
-                        return
-                    }
-                    keyDebounceTask = Task {
-                        try? await Task.sleep(nanoseconds: 700_000_000)
-                        if !Task.isCancelled {
+            HStack(spacing: 8) {
+                SecureField("API key", text: $studio.settings.apiKey)
+                    .accessibilityHint("Enter the key from your Google AI Studio account.")
+                    .onSubmit {
+                        keyDebounceTask?.cancel()
+                        if studio.hasApiKey {
                             studio.checkGeminiApiKey()
                         }
                     }
+                    .onChange(of: studio.settings.apiKey) { _, newValue in
+                        keyDebounceTask?.cancel()
+                        let trimmed = newValue.trimmingCharacters(in: .whitespacesAndNewlines)
+                        guard !trimmed.isEmpty else {
+                            studio.apiKeyVerified = nil
+                            studio.apiKeyVerificationMessage = nil
+                            return
+                        }
+                        keyDebounceTask = Task {
+                            try? await Task.sleep(nanoseconds: 700_000_000)
+                            if !Task.isCancelled {
+                                studio.checkGeminiApiKey()
+                            }
+                        }
+                    }
+
+                Button(role: .destructive) {
+                    showingDeleteConfirmation = true
+                } label: {
+                    Image(systemName: "trash")
+                        .foregroundStyle(studio.hasApiKey ? Color.red : Color.secondary)
                 }
+                .buttonStyle(.borderless)
+                .disabled(!studio.hasApiKey || studio.busy)
+                .help("Delete API key from Keychain")
+                .accessibilityLabel("Delete Gemini API key")
+            }
+            .alert("Delete Gemini API Key?", isPresented: $showingDeleteConfirmation) {
+                Button("Delete API Key", role: .destructive) {
+                    keyDebounceTask?.cancel()
+                    studio.deleteGeminiApiKey()
+                }
+                Button("Cancel", role: .cancel) {}
+            } message: {
+                Text("Are you sure you want to delete your Gemini API key from macOS Keychain? You will need to enter a new key to use AI features.")
+            }
             Button("Open API Keys in Google AI Studio", systemImage: "arrow.up.right.square") {
                 openURL(apiKeyPage)
             }

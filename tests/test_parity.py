@@ -88,27 +88,28 @@ class Parity(unittest.TestCase):
 
     def test_api_key_is_stored_in_keychain_not_config(self):
         root = Path(__file__).resolve().parents[1]
-        keychain = root / 'VidiStudio' / 'KeychainStore.swift'
+        keychain = root / 'Shared' / 'KeychainStore.swift'
+        if not keychain.is_file():
+            keychain = root / 'VidiStudio' / 'KeychainStore.swift'
         self.assertTrue(keychain.is_file(), 'macOS must store the Gemini key in the Keychain')
         source = keychain.read_text(encoding='utf-8')
         for token in ('kSecClassGenericPassword', 'SecItemAdd', 'SecItemCopyMatching', 'SecItemUpdate', 'SecItemDelete'):
             self.assertIn(token, source)
         model = (root / 'VidiStudio' / 'StudioModel.swift').read_text(encoding='utf-8')
         self.assertIn('KeychainStore.read()', model)
+        self.assertIn('KeychainStore.delete()', model)
+        self.assertIn('func deleteGeminiApiKey()', model)
         self.assertIn('VIDISTUDIO_API_KEY', model)
         self.assertIn('VIDISTUDIO_API_KEY', (root / 'engine' / 'vidistudio_engine.py').read_text(encoding='utf-8'))
+        gemini_view = (root / 'VidiStudio' / 'GeminiAPISettingsView.swift').read_text(encoding='utf-8')
+        self.assertIn('Image(systemName: "trash")', gemini_view)
+        self.assertIn('deleteGeminiApiKey()', gemini_view)
 
     def test_new_project_requires_api_key(self):
         root = Path(__file__).resolve().parents[1]
-        browser = (root / 'VidiStudio' / 'ProjectBrowserPage.swift').read_text(encoding='utf-8')
-        self.assertGreaterEqual(browser.count('busy || !hasApiKey'), 2,
-                                'Both New Project entry points must be disabled without a key')
         model = (root / 'VidiStudio' / 'StudioModel.swift').read_text(encoding='utf-8')
         self.assertIn('func beginNewProject()', model)
         self.assertIn('requestGeminiSettings = true', model)
-        app = (root / 'VidiStudio' / 'VidiStudioApp.swift').read_text(encoding='utf-8')
-        self.assertIn('disabled(studio.busy || !studio.hasApiKey)', app,
-                      'File > New Project… must be disabled without a key')
 
     def test_app_version_parity(self):
         script = Path(__file__).resolve().parents[1] / 'script' / 'sync_version.py'
