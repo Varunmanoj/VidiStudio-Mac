@@ -73,28 +73,9 @@ private struct NewProjectView: View {
                             Button("Fetch Details") {
                                 Task { await fetchYouTubeDetails() }
                             }
-                            .disabled(trimmedYouTubeURL.isEmpty || fetchingYouTube || !studio.hasValidApiKey)
-                            .help(!studio.hasApiKey ? "Enter your Gemini API key in Settings → Gemini API to analyze YouTube videos" : studio.isApiKeyInvalid ? "Gemini API key is invalid — enter a valid key in Settings → Gemini API to analyze YouTube videos" : "Fetch the video's project name and thumbnail for review.")
+                            .disabled(trimmedYouTubeURL.isEmpty || fetchingYouTube)
+                            .help("Fetch the video's project name and thumbnail for review.")
                             .accessibilityHint("Fetch the video's project name and thumbnail for review.")
-                        }
-                        if !studio.hasApiKey {
-                            HStack(spacing: 6) {
-                                Image(systemName: "key.slash.fill")
-                                    .foregroundStyle(.orange)
-                                    .font(.caption)
-                                Text("Gemini API key required. Enter your API key in Settings → Gemini API to analyze YouTube videos.")
-                                    .font(.caption)
-                                    .foregroundStyle(.secondary)
-                            }
-                        } else if studio.isApiKeyInvalid {
-                            HStack(spacing: 6) {
-                                Image(systemName: "exclamationmark.octagon.fill")
-                                    .foregroundStyle(.red)
-                                    .font(.caption)
-                                Text("Gemini API key is invalid — enter a valid key in Settings → Gemini API to analyze YouTube videos.")
-                                    .font(.caption)
-                                    .foregroundStyle(.secondary)
-                            }
                         }
                         if fetchingYouTube {
                             ProgressView("Fetching video details…")
@@ -238,13 +219,6 @@ struct ContentView: View {
         guard !studio.busy else {
             studio.errorTitle = "VidiStudio Is Busy"
             studio.error = "Wait for the current operation to finish, then share the video again."
-            return
-        }
-        guard studio.hasApiKey else {
-            studio.errorTitle = "Gemini API Key Required"
-            studio.error = "Enter your Gemini API key in Settings → Gemini API to create projects."
-            studio.requestGeminiSettings = true
-            NSApp.activate(ignoringOtherApps: true)
             return
         }
 
