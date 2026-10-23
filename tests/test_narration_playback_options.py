@@ -65,27 +65,49 @@ class NarrationPlaybackOptions(unittest.TestCase):
         self.assertIn('"Speech engine: " + EngineTitle(Model.Settings.Get("ttsMode", "windows-core"))', presentation)
         self.assertIn('finally { openSettings = null; ApplyTheme(); Model.Reload(); UpdateApiKeyUi(); UpdateSectionPresentation(); }', window)
 
-    def test_natural_voices_group_downloaded_and_online_voices_on_windows(self):
+    def test_azure_voices_is_its_own_engine_and_natural_voices_lists_only_downloads_on_windows(self):
         dialog = (ROOT/'Vidi-Studio-Windows/Vidi Studio Windows/Views/SettingsDialog.cs').read_text()
         voices = (ROOT/'Vidi-Studio-Windows/Vidi Studio Windows/Views/SettingsDialog.Voices.cs').read_text()
         store = (ROOT/'Vidi-Studio-Windows/Vidi Studio Windows/Services/SettingsStore.cs').read_text()
         self.assertIn('new("windows-natural", "Natural Voices")', dialog)
-        self.assertNotIn('new("azure"', dialog)
+        self.assertIn('new("azure", "Azure Voices")', dialog)
         self.assertIn('Heading("downloaded", "Downloaded to this PC")', voices)
-        self.assertIn('Heading("online", "Online with your Azure key")', voices)
-        self.assertIn('if (DraftAzureKey.Length == 0) onlineStatus = ', voices)
+        self.assertNotIn('Heading("online"', voices)
+        self.assertIn('azureControls.Visibility = provider == "azure" ? Visibility.Visible : Visibility.Collapsed;', voices)
+        self.assertIn('.Where(v => v.Group != VoiceGroups.BridgeOnline)', voices)
         self.assertIn('container.IsEnabled = voice?.Available != false;', voices)
         self.assertIn('Data.Remove(AzureSpeechKey);', store)
 
-    def test_mac_offers_azure_only_with_a_saved_key(self):
+    def test_mac_lists_azure_voices_and_shows_its_key_only_when_selected(self):
         settings = (ROOT/'VidiStudio Mac/VidiStudio/SettingsView.swift').read_text()
         overview = (ROOT/'VidiStudio Mac/VidiStudio/ADOverviewView.swift').read_text()
         model = (ROOT/'VidiStudio Mac/VidiStudio/StudioModel.swift').read_text()
-        self.assertIn('if studio.settings.hasAzureSpeechKey {\n                        Label("Azure Online Voices", systemImage: "cloud").tag("azure")', settings)
-        self.assertIn('if studio.settings.hasAzureSpeechKey {\n                                Text("Azure Online Voices").tag("azure")', overview)
-        self.assertIn('AzureSpeechKeySettings(studio: studio)', settings)
-        self.assertIn('if settings.ttsMode == "azure" && !settings.hasAzureSpeechKey { settings.ttsMode = "system" }', model)
+        self.assertIn('Label("Azure Voices", systemImage: "cloud").tag("azure")', settings)
+        self.assertNotIn('if studio.settings.hasAzureSpeechKey {\n                        Label("Azure Voices"', settings)
+        self.assertIn('Text("Azure Voices").tag("azure")', overview)
+        self.assertIn('if studio.settings.ttsMode == "azure" {\n                    AzureSpeechKeySettings(studio: studio)', settings)
+        self.assertEqual(settings.count('AzureSpeechKeySettings(studio: studio)'), 1)
+        self.assertIn('case "azure": return "Azure Voices"', model)
         self.assertIn('get { KeychainStore.azureSpeech.read() ?? "" }', model)
+
+    def test_summary_read_aloud_offers_azure_but_live_preview_never_does(self):
+        mac_settings = (ROOT/'VidiStudio Mac/VidiStudio/SettingsView.swift').read_text()
+        mac_reader = (ROOT/'VidiStudio Mac/VidiStudio/SummaryReadback.swift').read_text()
+        mac_model = (ROOT/'VidiStudio Mac/VidiStudio/StudioModel.swift').read_text()
+        win_voices = (ROOT/'Vidi-Studio-Windows/Vidi Studio Windows/Views/SettingsDialog.Voices.cs').read_text()
+        win_reader = (ROOT/'Vidi-Studio-Windows/Vidi Studio Windows/Services/SummaryReadback.cs').read_text()
+        win_live = (ROOT/'Vidi-Studio-Windows/Vidi Studio Windows/Services/OnDeviceNarrator.cs').read_text()
+        self.assertIn('Picker("Read aloud with", selection: $studio.settings.summaryReadbackVoice)', mac_settings)
+        self.assertIn('if studio.settings.hasAzureSpeechKey {\n                                Text("Azure online voice").tag("azure")', mac_settings)
+        self.assertIn('var usesAzureSummaryVoice: Bool { summaryReadbackVoice == "azure" && hasAzureSpeechKey }', mac_model)
+        self.assertIn('private var usesAzure: Bool { settings.usesAzureSummaryVoice }', mac_reader)
+        self.assertIn('if (DraftAzureKey.Length > 0) options.Add(new("azure", "Azure online voice"));', win_voices)
+        self.assertIn('var useAzure = settings.Get("summaryReadbackVoice", "narration") == "azure" && settings.HasAzureSpeechKey;', win_reader)
+        # Live on-device speech uses local voices only: the bridge for downloaded voices, never Azure.
+        self.assertIn('if (mode is "sapi5" or "windows-natural")', win_live)
+        self.assertIn('var voiceId = mode is "windows-core" or "system" ? settings.Get("systemVoice") : "";', win_live)
+        self.assertNotIn('preview-tts', win_live)
+        self.assertNotIn('engine.RunAsync', win_live)
 
 
 if __name__ == '__main__':

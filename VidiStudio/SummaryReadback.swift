@@ -168,10 +168,10 @@ enum SummarySpeechParser {
     }
 }
 
-// MARK: - Readback model (Apple Text to Speech)
+// MARK: - Readback model (Apple Text to Speech or Azure online voice)
 
 @MainActor @Observable
-final class SummaryReadbackModel: NSObject, AVSpeechSynthesizerDelegate {
+final class SummaryReadbackModel: NSObject, AVSpeechSynthesizerDelegate, AVAudioPlayerDelegate {
     var sentences: [SummarySentence] = []
     var currentIndex: Int?
     /// Word highlight in display-text (UTF-16) coordinates. See `cachedLineRanges`.
@@ -181,7 +181,15 @@ final class SummaryReadbackModel: NSObject, AVSpeechSynthesizerDelegate {
     var error: String?
     /// Current text selection in display-text coordinates, reported by the text view.
     var selectedRange: NSRange?
+    /// True while an Azure online voice is creating the next sentence.
+    var isPreparingOnlineSpeech = false
     @ObservationIgnored private let synthesizer = AVSpeechSynthesizer()
+    @ObservationIgnored private let azureRenderer = AzureSpeechRenderer()
+    @ObservationIgnored private var azurePlayer: AVAudioPlayer?
+    @ObservationIgnored private var azureGeneration = 0
+    @ObservationIgnored private var azureTimer: Timer?
+    /// Word ranges of the text being spoken online, used to estimate the spoken word.
+    @ObservationIgnored private var azureWords: [NSRange] = []
     @ObservationIgnored private var settings = StudioSettings()
     @ObservationIgnored private var speakingIndex: Int?
     @ObservationIgnored private var suppressAdvance = false
@@ -211,8 +219,12 @@ final class SummaryReadbackModel: NSObject, AVSpeechSynthesizerDelegate {
     var progressLabel: String {
         guard !sentences.isEmpty else { return "No summary to read" }
         if isPaused { return "Paused" }
+        if isPreparingOnlineSpeech { return "Preparing online voice" }
         return isReading ? "Reading summary" : "Ready to read"
     }
+
+    /// Summary read-aloud uses the Azure online voice only while it is chosen and a key is saved.
+    private var usesAzure: Bool { settings.usesAzureSummaryVoice }
 
     /// A selection anchored inside a known sentence, usable as a read-from point.
     var hasReadableSelection: Bool {
@@ -229,6 +241,7 @@ final class SummaryReadbackModel: NSObject, AVSpeechSynthesizerDelegate {
         self.settings = settings
         guard markdown != markdownSignature else { return }
         stop()
+        azureRenderer.reset()
         markdownSignature = markdown
         sentences = SummarySpeechParser.sentences(from: markdown)
         rebuildDisplayCache()
@@ -245,8 +258,8 @@ final class SummaryReadbackModel: NSObject, AVSpeechSynthesizerDelegate {
         error = nil
         guard !sentences.isEmpty else { return }
         if isPaused {
-            synthesizer.continueSpeaking()
             isPaused = false
+            if let azurePlayer { azurePlayer.play() } else { synthesizer.continueSpeaking() }
             return
         }
         if isReading { return }
@@ -255,7 +268,8 @@ final class SummaryReadbackModel: NSObject, AVSpeechSynthesizerDelegate {
 
     func pause() {
         guard isReading, !isPaused else { return }
-        synthesizer.pauseSpeaking(at: .word)
+        // While an online sentence is still being prepared, isPaused keeps it from starting.
+        if let azurePlayer { azurePlayer.pause() } else if !usesAzure { synthesizer.pauseSpeaking(at: .word) }
         isPaused = true
     }
 
@@ -281,7 +295,7 @@ final class SummaryReadbackModel: NSObject, AVSpeechSynthesizerDelegate {
 
     func stop() {
         suppressAdvance = true
-        synthesizer.stopSpeaking(at: .immediate)
+        haltSpeech()
         speakingUtterance = nil
         speakingIndex = nil
         currentIndex = nil
@@ -340,9 +354,8 @@ final class SummaryReadbackModel: NSObject, AVSpeechSynthesizerDelegate {
         guard !text.isEmpty else { return }
         clearTextSelection?()
         do {
-            let utterance = try SystemSpeechUtterance.make(text: text, settings: settings)
             suppressAdvance = true
-            synthesizer.stopSpeaking(at: .immediate)
+            haltSpeech()
             suppressAdvance = false
             oneShotActive = true
             speakingIndex = nil
@@ -352,8 +365,7 @@ final class SummaryReadbackModel: NSObject, AVSpeechSynthesizerDelegate {
             isReading = true
             isPaused = false
             error = nil
-            speakingUtterance = utterance
-            synthesizer.speak(utterance)
+            try startSpeech(text, prefetch: nil)
         } catch {
             self.error = UserFacingIssueReporter.message(
                 for: error,
@@ -493,7 +505,7 @@ final class SummaryReadbackModel: NSObject, AVSpeechSynthesizerDelegate {
 
     private func restart(at index: Int) {
         suppressAdvance = true
-        synthesizer.stopSpeaking(at: .immediate)
+        haltSpeech()
         suppressAdvance = false
         speak(at: index, userInitiated: true)
     }
@@ -508,7 +520,6 @@ final class SummaryReadbackModel: NSObject, AVSpeechSynthesizerDelegate {
         }
         if userInitiated { clearTextSelection?() }
         do {
-            let utterance = try SystemSpeechUtterance.make(text: sentences[index].text, settings: settings)
             speakingIndex = index
             partialOffset = 0
             oneShotActive = false
@@ -517,8 +528,7 @@ final class SummaryReadbackModel: NSObject, AVSpeechSynthesizerDelegate {
             isReading = true
             isPaused = false
             error = nil
-            speakingUtterance = utterance
-            synthesizer.speak(utterance)
+            try startSpeech(sentences[index].text, prefetch: sentences.indices.contains(index + 1) ? sentences[index + 1].text : nil)
         } catch {
             self.error = UserFacingIssueReporter.message(
                 for: error,
@@ -548,9 +558,8 @@ final class SummaryReadbackModel: NSObject, AVSpeechSynthesizerDelegate {
         }
         clearTextSelection?()
         do {
-            let utterance = try SystemSpeechUtterance.make(text: partial, settings: settings)
             suppressAdvance = true
-            synthesizer.stopSpeaking(at: .immediate)
+            haltSpeech()
             suppressAdvance = false
             speakingIndex = index
             partialOffset = utf16Offset
@@ -560,8 +569,7 @@ final class SummaryReadbackModel: NSObject, AVSpeechSynthesizerDelegate {
             isReading = true
             isPaused = false
             error = nil
-            speakingUtterance = utterance
-            synthesizer.speak(utterance)
+            try startSpeech(partial, prefetch: sentences.indices.contains(index + 1) ? sentences[index + 1].text : nil)
         } catch {
             self.error = UserFacingIssueReporter.message(
                 for: error,
@@ -583,10 +591,7 @@ final class SummaryReadbackModel: NSObject, AVSpeechSynthesizerDelegate {
         let identifier = ObjectIdentifier(utterance)
         Task { @MainActor [weak self] in
             guard let self, self.isCurrentUtterance(identifier) else { return }
-            if self.oneShotActive { return }
-            guard let speakingIndex = self.speakingIndex else { return }
-            self.currentIndex = speakingIndex
-            self.wordRange = nil
+            self.handleSpeechStarted()
         }
     }
 
@@ -598,16 +603,7 @@ final class SummaryReadbackModel: NSObject, AVSpeechSynthesizerDelegate {
         let identifier = ObjectIdentifier(utterance)
         Task { @MainActor [weak self] in
             guard let self, self.isCurrentUtterance(identifier) else { return }
-            if self.oneShotActive { return }
-            guard let speakingIndex = self.speakingIndex,
-                  self.cachedLineRanges.indices.contains(speakingIndex) else { return }
-            self.currentIndex = speakingIndex
-            let prefixLength = (self.cachedLines[speakingIndex].prefix as NSString).length
-            let displayLocation = self.cachedLineRanges[speakingIndex].location
-                + prefixLength
-                + self.partialOffset
-                + characterRange.location
-            self.wordRange = NSRange(location: displayLocation, length: characterRange.length)
+            self.handleSpokenRange(characterRange)
         }
     }
 
@@ -618,30 +614,7 @@ final class SummaryReadbackModel: NSObject, AVSpeechSynthesizerDelegate {
         let identifier = ObjectIdentifier(utterance)
         Task { @MainActor [weak self] in
             guard let self, self.isCurrentUtterance(identifier) else { return }
-            guard !self.suppressAdvance, self.isReading, !self.isPaused else { return }
-            if self.oneShotActive {
-                self.oneShotActive = false
-                self.speakingUtterance = nil
-                self.speakingIndex = nil
-                self.currentIndex = nil
-                self.wordRange = nil
-                self.isReading = false
-                self.isPaused = false
-                return
-            }
-            guard let finished = self.speakingIndex else { return }
-            let next = finished + 1
-            if self.sentences.indices.contains(next) {
-                self.speak(at: next)
-            } else {
-                self.speakingUtterance = nil
-                self.speakingIndex = nil
-                self.currentIndex = nil
-                self.wordRange = nil
-                self.isReading = false
-                self.isPaused = false
-                self.partialOffset = 0
-            }
+            self.handleSpeechFinished()
         }
     }
 
@@ -651,6 +624,134 @@ final class SummaryReadbackModel: NSObject, AVSpeechSynthesizerDelegate {
     ) {
         // Intentional stops set suppressAdvance; natural cancellation needs no recovery
         // because the model state was already reset by stop() or replaced by restart().
+    }
+
+    nonisolated func audioPlayerDidFinishPlaying(_ player: AVAudioPlayer, successfully flag: Bool) {
+        let identifier = ObjectIdentifier(player)
+        Task { @MainActor [weak self] in
+            guard let self, let current = self.azurePlayer, ObjectIdentifier(current) == identifier else { return }
+            self.azureTimer?.invalidate(); self.azureTimer = nil
+            self.azurePlayer = nil
+            self.handleSpeechFinished()
+        }
+    }
+
+    // MARK: Shared speech events
+
+    private func handleSpeechStarted() {
+        if oneShotActive { return }
+        guard let speakingIndex else { return }
+        currentIndex = speakingIndex
+        wordRange = nil
+    }
+
+    /// `characterRange` is relative to the text handed to the speech engine.
+    private func handleSpokenRange(_ characterRange: NSRange) {
+        if oneShotActive { return }
+        guard let speakingIndex, cachedLineRanges.indices.contains(speakingIndex) else { return }
+        currentIndex = speakingIndex
+        let prefixLength = (cachedLines[speakingIndex].prefix as NSString).length
+        let displayLocation = cachedLineRanges[speakingIndex].location + prefixLength + partialOffset + characterRange.location
+        wordRange = NSRange(location: displayLocation, length: characterRange.length)
+    }
+
+    private func handleSpeechFinished() {
+        guard !suppressAdvance, isReading, !isPaused else { return }
+        if oneShotActive {
+            oneShotActive = false
+            speakingUtterance = nil
+            speakingIndex = nil
+            currentIndex = nil
+            wordRange = nil
+            isReading = false
+            isPaused = false
+            return
+        }
+        guard let finished = speakingIndex else { return }
+        let next = finished + 1
+        if sentences.indices.contains(next) {
+            speak(at: next)
+        } else {
+            speakingUtterance = nil
+            speakingIndex = nil
+            currentIndex = nil
+            wordRange = nil
+            isReading = false
+            isPaused = false
+            partialOffset = 0
+        }
+    }
+
+    // MARK: Speech backends
+
+    /// Starts speaking `text` with the chosen summary voice. For the Azure online voice,
+    /// `prefetch` is prepared in the background so the next sentence starts promptly.
+    private func startSpeech(_ text: String, prefetch: String?) throws {
+        guard usesAzure else {
+            let utterance = try SystemSpeechUtterance.make(text: text, settings: settings)
+            speakingUtterance = utterance
+            synthesizer.speak(utterance)
+            return
+        }
+        speakingUtterance = nil
+        azureGeneration += 1
+        let generation = azureGeneration
+        let request = azureRenderer.audio(for: text, settings: settings)
+        if let prefetch, !prefetch.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            _ = azureRenderer.audio(for: prefetch, settings: settings)
+        }
+        azureWords = Self.wordRanges(in: text)
+        isPreparingOnlineSpeech = true
+        Task { @MainActor [weak self] in
+            do {
+                let file = try await request.value
+                guard let self, generation == self.azureGeneration else { return }
+                let player = try AVAudioPlayer(contentsOf: file)
+                player.delegate = self
+                self.azurePlayer = player
+                self.isPreparingOnlineSpeech = false
+                self.handleSpeechStarted()
+                if !self.isPaused { player.play() }
+                self.azureTimer = Timer.scheduledTimer(withTimeInterval: 0.08, repeats: true) { [weak self] _ in
+                    MainActor.assumeIsolated { self?.tickAzureWord() }
+                }
+            } catch is CancellationError {
+            } catch {
+                guard let self, generation == self.azureGeneration else { return }
+                self.isPreparingOnlineSpeech = false
+                let message = (error as? LocalizedError)?.errorDescription ?? "Online speech could not be created."
+                UserFacingIssueReporter.record(message, context: "Read summary with Azure online voice")
+                self.stop()
+                self.error = message
+            }
+        }
+    }
+
+    /// Azure audio has no word timing, so the spoken word is estimated from playback progress.
+    private func tickAzureWord() {
+        guard let player = azurePlayer, player.duration > 0, let last = azureWords.last else { return }
+        let offset = Int(Double(NSMaxRange(last)) * min(1, player.currentTime / player.duration))
+        if let word = azureWords.last(where: { $0.location <= offset }) ?? azureWords.first {
+            handleSpokenRange(word)
+        }
+    }
+
+    private static func wordRanges(in text: String) -> [NSRange] {
+        let storage = text as NSString
+        var ranges: [NSRange] = []
+        storage.enumerateSubstrings(in: NSRange(location: 0, length: storage.length), options: .byWords) { _, range, _, _ in
+            ranges.append(range)
+        }
+        return ranges
+    }
+
+    /// Stops Apple speech and any online sentence that is being prepared or played.
+    private func haltSpeech() {
+        synthesizer.stopSpeaking(at: .immediate)
+        azureGeneration += 1
+        azureTimer?.invalidate(); azureTimer = nil
+        azurePlayer?.stop(); azurePlayer = nil
+        isPreparingOnlineSpeech = false
     }
 }
 
@@ -971,6 +1072,10 @@ struct SummaryReaderView: View {
         .onChange(of: settings.systemSpeechRate) { _, _ in model.updateSettings(settings) }
         .onChange(of: settings.systemSpeechPitch) { _, _ in model.updateSettings(settings) }
         .onChange(of: settings.systemSpeechVolume) { _, _ in model.updateSettings(settings) }
+        .onChange(of: settings.summaryReadbackVoice) { _, _ in model.stop(); model.updateSettings(settings) }
+        .onChange(of: settings.azureVoice) { _, _ in model.updateSettings(settings) }
+        .onChange(of: settings.azureSpeechRegion) { _, _ in model.updateSettings(settings) }
+        .onChange(of: settings.hasAzureSpeechKey) { _, _ in model.updateSettings(settings) }
         // Closing the summary review mid-sentence must not leave speech running.
         .onDisappear { model.stop() }
     }

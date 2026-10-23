@@ -18,7 +18,7 @@ struct AzureVoiceOption: Identifiable, Hashable {
     }
 }
 
-/// Loads Azure Online Voices and plays samples through the engine. The Azure Speech key is
+/// Loads Azure Voices and plays samples through the engine. The Azure Speech key is
 /// passed only in the process environment; the temporary config never contains it.
 @MainActor @Observable final class AzureVoiceEngine {
     var voices: [AzureVoiceOption] = []
@@ -34,40 +34,9 @@ struct AzureVoiceOption: Identifiable, Hashable {
     private var directories: [URL] = []
 
     private func launch(_ arguments: [String], settings: StudioSettings) throws -> (Process, Pipe, URL) {
-        guard let engine = Bundle.main.resourceURL?.appendingPathComponent("Engine/vidistudio-engine") else {
-            throw CocoaError(.fileNoSuchFile)
-        }
-        let directory = FileManager.default.temporaryDirectory.appendingPathComponent("vidistudio-azure-\(UUID().uuidString)")
-        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true, attributes: [.posixPermissions: 0o700])
-        directories.append(directory)
-        let config = directory.appendingPathComponent("config.json")
-        try JSONEncoder().encode(settings).write(to: config, options: .atomic)
-        try FileManager.default.setAttributes([.posixPermissions: 0o600], ofItemAtPath: config.path)
-        let task = Process(), pipe = Pipe()
-        task.executableURL = engine
-        task.arguments = arguments
-        var environment = ProcessInfo.processInfo.environment
-        environment["VIDISTUDIO_CONFIG"] = config.path
-        environment["VIDISTUDIO_AZURE_SPEECH_KEY"] = settings.azureSpeechKey.trimmingCharacters(in: .whitespacesAndNewlines)
-        task.environment = environment
-        task.standardOutput = pipe
-        task.standardError = FileHandle.nullDevice
-        try task.run()
-        return (task, pipe, directory)
-    }
-
-    private static func events(from pipe: Pipe) async -> (events: [[String: Any]], failure: String?) {
-        var events: [[String: Any]] = []
-        var failure: String?
-        do {
-            for try await line in pipe.fileHandleForReading.bytes.lines {
-                guard let data = line.data(using: .utf8),
-                      let event = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else { continue }
-                if event["error"] as? Bool == true { failure = event["message"] as? String ?? "The online voice request failed." }
-                events.append(event)
-            }
-        } catch { failure = "Could not read the online voice result." }
-        return (events, failure)
+        let launched = try AzureEngineProcess.launch(arguments, settings: settings)
+        directories.append(launched.2)
+        return launched
     }
 
     func loadVoices(settings: StudioSettings) {
@@ -78,13 +47,13 @@ struct AzureVoiceOption: Identifiable, Hashable {
             let (task, pipe, directory) = try launch(["list-azure-voices"], settings: settings)
             voiceProcess = task; loadingVoices = true; error = nil
             Task {
-                let result = await Self.events(from: pipe)
+                let result = await AzureEngineProcess.events(from: pipe)
                 try? FileManager.default.removeItem(at: directory)
                 guard voiceRequestID == id else { return }
                 loadingVoices = false; voiceProcess = nil
                 if let failure = result.failure {
                     error = failure
-                    UserFacingIssueReporter.record(failure, context: "Load Azure Online Voices")
+                    UserFacingIssueReporter.record(failure, context: "Load Azure Voices")
                     return
                 }
                 let items = result.events.compactMap { $0["voices"] as? [[String: Any]] }.last ?? []
@@ -110,7 +79,7 @@ struct AzureVoiceOption: Identifiable, Hashable {
             let (task, pipe, directory) = try launch(["preview-tts", "--output", file.path, "--text", text], settings: sampleSettings)
             sampleProcess = task; loadingSample = true
             Task {
-                let result = await Self.events(from: pipe)
+                let result = await AzureEngineProcess.events(from: pipe)
                 try? FileManager.default.removeItem(at: directory.appendingPathComponent("config.json"))
                 guard sampleRequestID == id else { try? FileManager.default.removeItem(at: file); return }
                 loadingSample = false; sampleProcess = nil
@@ -152,16 +121,15 @@ struct AzureVoiceOption: Identifiable, Hashable {
     }
 }
 
-/// Lets people add the optional Azure Speech key. Azure Online Voices appears in the speech
-/// engine menu only once a key is saved.
+/// The Azure Speech key and region, shown while Azure Voices is the speech engine.
 struct AzureSpeechKeySettings: View {
     @Bindable var studio: StudioModel
     private let keyPage = URL(string: "https://portal.azure.com/#create/Microsoft.CognitiveServicesSpeechServices")!
 
     var body: some View {
-        GroupBox("Azure online voices") {
+        GroupBox("Azure Speech key") {
             VStack(alignment: .leading, spacing: 10) {
-                Text("Add an Azure Speech key to use Microsoft's natural online voices, such as Ava, Andrew, Jenny and Ryan, in every language. Once a key is added, Azure Online Voices appears in the Speech engine menu.")
+                Text("Azure Voices are Microsoft's natural online voices, such as Ava, Andrew, Jenny and Ryan, in every language. Paste your Azure Speech key and its region to use them.")
                     .font(.caption).foregroundStyle(.secondary)
                 SecureField("Azure Speech key", text: $studio.settings.azureSpeechKey)
                     .textContentType(.password)
@@ -183,7 +151,7 @@ struct AzureSpeechKeySettings: View {
             .padding(.vertical, 4)
         }
         .onChange(of: studio.settings.hasAzureSpeechKey) { _, hasKey in
-            if !hasKey && studio.settings.ttsMode == "azure" { studio.settings.ttsMode = "system" }
+            if !hasKey && studio.settings.summaryReadbackVoice == "azure" { studio.settings.summaryReadbackVoice = "device" }
         }
     }
 }
@@ -214,11 +182,11 @@ struct AzureVoiceBrowser: View {
                     ForEach(languages, id: \.self) { Text($0).tag($0) }
                 }
                 Button("Refresh Voices", systemImage: "arrow.clockwise") { engine.loadVoices(settings: studio.settings) }
-                    .disabled(engine.loadingVoices)
+                    .disabled(engine.loadingVoices || !studio.settings.hasAzureSpeechKey)
                     .accessibilityHint("Reloads the online voices available with your Azure key")
             }
             TextField("Search voices", text: $search)
-            Picker("Online voice", selection: $studio.settings.azureVoice) {
+            Picker("Azure voice", selection: $studio.settings.azureVoice) {
                 ForEach(filtered) { Text($0.label(showingLanguage: language.isEmpty)).tag($0.id) }
                 if !filtered.contains(where: { $0.id == studio.settings.azureVoice }) {
                     Text(NarrationVoiceFormatting.voiceDisplayName(studio.settings.resolvedAzureVoice)).tag(studio.settings.azureVoice)
@@ -235,17 +203,25 @@ struct AzureVoiceBrowser: View {
                 Button(engine.loadingSample ? "Generating Sample…" : "Play Voice Sample", systemImage: "play.circle") {
                     engine.play(settings: studio.settings, text: sample)
                 }
-                .disabled(engine.loadingSample || sample.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || sample.count > 500)
+                .disabled(engine.loadingSample || sample.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || sample.count > 500 || !studio.settings.hasAzureSpeechKey)
                 .accessibilityLabel("Play sample of online voice \(NarrationVoiceFormatting.voiceDisplayName(studio.settings.resolvedAzureVoice))")
                 Button(engine.loadingSample ? "Cancel Generation" : "Stop Sample", systemImage: "stop.circle") { engine.stop() }
                     .disabled(!engine.loadingSample && !engine.playing)
                 if engine.loadingSample { ProgressView().controlSize(.small).accessibilityLabel("Generating voice sample") }
+            }
+            if !studio.settings.hasAzureSpeechKey {
+                HStack(spacing: 8) {
+                    Image(systemName: "key.slash.fill").foregroundStyle(.orange)
+                    Text("Enter your Azure Speech key to load voices and play samples.")
+                        .font(.caption).foregroundStyle(.secondary)
+                }
             }
             if let error = engine.error {
                 Text(error).foregroundStyle(.red).accessibilityLabel("Online voice error: \(error)")
             }
         }
         .onAppear { engine.loadVoices(settings: studio.settings) }
+        .onChange(of: studio.settings.hasAzureSpeechKey) { _, _ in engine.loadVoices(settings: studio.settings) }
         .onChange(of: studio.settings.azureVoice) { _, _ in engine.stop() }
         .onChange(of: sample) { _, _ in engine.stop() }
         .onReceive(Timer.publish(every: 0.3, on: .main, in: .common).autoconnect()) { _ in engine.updatePlayback() }

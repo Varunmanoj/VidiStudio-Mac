@@ -88,9 +88,7 @@ struct ADOverviewView: View {
                         Picker("Speech engine", selection: $studio.settings.ttsMode) {
                             Text("Apple Voices").tag("system")
                             Text("Gemini Voices").tag("gemini")
-                            if studio.settings.hasAzureSpeechKey {
-                                Text("Azure Online Voices").tag("azure")
-                            }
+                            Text("Azure Voices").tag("azure")
                         }
                         statistic("Selected voice", value: studio.settings.currentNarrationSummary)
                         if studio.isSynthesizingNarration {
@@ -160,6 +158,15 @@ struct ADOverviewView: View {
                             }
                             .help("Review how many segments use each voice, which segments use a different voice, and segment timing details")
                             .disabled(studio.busy)
+                        }
+                        if studio.settings.ttsMode == "azure" && !studio.settings.hasAzureSpeechKey {
+                            HStack(spacing: 8) {
+                                Image(systemName: "key.slash.fill")
+                                    .foregroundStyle(.orange)
+                                Text("Enter your Azure Speech key in Settings → Narration to use Azure Voices.")
+                                    .font(.caption)
+                                    .foregroundStyle(.secondary)
+                            }
                         }
                         if studio.settings.ttsMode == "gemini" && !studio.hasApiKey {
                             HStack(spacing: 8) {

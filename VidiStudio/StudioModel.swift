@@ -331,7 +331,7 @@ enum NarrationVoiceFormatting {
         case "windows-core": return "Windows OneCore"
         case "sapi5": return "Windows SAPI 5"
         case "windows-natural": return "Downloaded Natural Voices"
-        case "azure": return "Azure Online Voices"
+        case "azure": return "Azure Voices"
         default: return "Apple Voices"
         }
     }
@@ -799,6 +799,9 @@ struct StudioSettings: Codable, Equatable {
     static let defaultAzureVoice = "en-US-AvaMultilingualNeural"
     var azureVoice = StudioSettings.defaultAzureVoice
     var azureSpeechRegion = "eastus"
+    /// Summary read-aloud voice: "device" (Apple speech) or "azure" (the Azure online voice).
+    var summaryReadbackVoice = "device"
+    var usesAzureSummaryVoice: Bool { summaryReadbackVoice == "azure" && hasAzureSpeechKey }
     var theme = "system"
     var ttsMode = "system"
     var narrationPlayback = "generated"
@@ -1291,8 +1294,8 @@ final class StudioModel {
             settings.captionDisplayMode = "transcript"
             seededCaptionDisplayMode = true
         }
-        // Azure Online Voices is offered only while an Azure Speech key is saved.
-        if settings.ttsMode == "azure" && !settings.hasAzureSpeechKey { settings.ttsMode = "system" }
+        // The Azure summary voice is offered only while an Azure Speech key is saved.
+        if settings.summaryReadbackVoice == "azure" && !settings.hasAzureSpeechKey { settings.summaryReadbackVoice = "device" }
         settingsPersistenceEnabled = true
         // One-time migration: move any plaintext key left in config.json into the Keychain,
         // then re-save so the on-disk file no longer contains it.
