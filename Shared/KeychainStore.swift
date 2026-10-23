@@ -13,12 +13,41 @@ enum KeychainStore {
     static let service = "com.vidistudio.gemini-api"
     static let account = "gemini-api-key"
 
-    private static let lock = NSLock()
-    /// `nil` means "not read yet"; `.some(nil)` means "known to be absent".
-    private nonisolated(unsafe) static var cache: String??
+    private static let gemini = KeychainCredential(service: service, account: account, label: "VidiStudio Gemini API Key")
+    /// The Azure AI Speech key for Azure Online Voices, handed to the engine in
+    /// `VIDISTUDIO_AZURE_SPEECH_KEY`.
+    static let azureSpeech = KeychainCredential(service: "com.vidistudio.azure-speech", account: "azure-speech-key", label: "VidiStudio Azure Speech Key")
 
     /// Returns the stored API key, or `nil` when none is present.
-    static func read() -> String? {
+    static func read() -> String? { gemini.read() }
+
+    /// Returns true when a non-empty key is available without requiring the key itself.
+    static func containsValue() -> Bool { gemini.containsValue() }
+
+    /// Stores (or clears, for an empty value) the API key. Returns true on success.
+    @discardableResult
+    static func write(_ value: String) -> Bool { gemini.write(value) }
+
+    /// Removes the stored API key from the Keychain.
+    static func delete() { gemini.delete() }
+}
+
+/// One generic-password Keychain item with an in-memory cache.
+final class KeychainCredential: @unchecked Sendable {
+    let service: String
+    let account: String
+    let label: String
+    private let lock = NSLock()
+    /// `nil` means "not read yet"; `.some(nil)` means "known to be absent".
+    private var cache: String??
+
+    init(service: String, account: String, label: String) {
+        self.service = service
+        self.account = account
+        self.label = label
+    }
+
+    func read() -> String? {
         lock.lock()
         defer { lock.unlock() }
         if let cache { return cache }
@@ -27,15 +56,13 @@ enum KeychainStore {
         return value
     }
 
-    /// Returns true when a non-empty key is available without requiring the key itself.
-    static func containsValue() -> Bool {
+    func containsValue() -> Bool {
         guard let value = read() else { return false }
         return !value.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
     }
 
-    /// Stores (or clears, for an empty value) the API key. Returns true on success.
     @discardableResult
-    static func write(_ value: String) -> Bool {
+    func write(_ value: String) -> Bool {
         let normalized = value.trimmingCharacters(in: .whitespacesAndNewlines)
         let desired: String? = normalized.isEmpty ? nil : normalized
         lock.lock()
@@ -50,15 +77,14 @@ enum KeychainStore {
         return true
     }
 
-    /// Removes the stored API key from the Keychain.
-    static func delete() {
+    func delete() {
         lock.lock()
         defer { lock.unlock() }
         _ = removeFromKeychain()
         cache = .some(nil)
     }
 
-    private static func baseQuery() -> [String: Any] {
+    private func baseQuery() -> [String: Any] {
         [
             kSecClass as String: kSecClassGenericPassword,
             kSecAttrService as String: service,
@@ -66,7 +92,7 @@ enum KeychainStore {
         ]
     }
 
-    private static func loadFromKeychain() -> String? {
+    private func loadFromKeychain() -> String? {
         var query = baseQuery()
         query[kSecReturnData as String] = true
         query[kSecMatchLimit as String] = kSecMatchLimitOne
@@ -77,11 +103,11 @@ enum KeychainStore {
         return value
     }
 
-    private static func saveToKeychain(_ value: String) -> Bool {
+    private func saveToKeychain(_ value: String) -> Bool {
         let data = Data(value.utf8)
         let attributes: [String: Any] = [
             kSecValueData as String: data,
-            kSecAttrLabel as String: "VidiStudio Gemini API Key",
+            kSecAttrLabel as String: label,
             kSecAttrAccessible as String: kSecAttrAccessibleAfterFirstUnlock,
         ]
         let updateStatus = SecItemUpdate(baseQuery() as CFDictionary, attributes as CFDictionary)
@@ -94,11 +120,11 @@ enum KeychainStore {
         var add = baseQuery()
         add[kSecValueData as String] = data
         add[kSecAttrAccessible as String] = kSecAttrAccessibleAfterFirstUnlock
-        add[kSecAttrLabel as String] = "VidiStudio Gemini API Key"
+        add[kSecAttrLabel as String] = label
         return SecItemAdd(add as CFDictionary, nil) == errSecSuccess
     }
 
-    private static func removeFromKeychain() -> Bool {
+    private func removeFromKeychain() -> Bool {
         let status = SecItemDelete(baseQuery() as CFDictionary)
         return status == errSecSuccess || status == errSecItemNotFound
     }

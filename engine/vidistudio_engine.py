@@ -5,6 +5,7 @@ import signal
 import queue
 import threading
 import gemini_adapter
+import azure_speech
 import parity
 import youtube_audio
 from types import SimpleNamespace
@@ -65,7 +66,7 @@ def safe_error(exc):
         key = config().get('apiKey')
         if key: message = message.replace(key, '[redacted]')
     except Exception: pass
-    return message
+    return azure_speech.redact(message)
 
 
 def tool(name):
@@ -1030,10 +1031,26 @@ def gemini_speech(output, text, project):
 def preview_tts(output, text):
     if not output: raise ValueError('Voice preview requires --output.')
     if not text or len(text) > 500: raise ValueError('Use a sample between 1 and 500 characters.')
-    if config().get('ttsMode') != 'gemini': raise ValueError('Choose Gemini TTS for a cloud voice preview.')
+    cfg = config()
+    if cfg.get('ttsMode') not in ('gemini', 'azure'): raise ValueError('Choose Gemini or Azure voices for a cloud voice preview.')
     output.parent.mkdir(parents=True, exist_ok=True)
-    gemini_speech(output, text, {})
+    if cfg.get('ttsMode') == 'azure': azure_preview(output, text, cfg)
+    else: gemini_speech(output, text, {})
     emit('Voice sample ready', audio=str(output))
+
+
+def list_azure_voices():
+    voices = azure_speech.list_voices(config())
+    emit(f'{len(voices)} Azure neural voices available', voices=voices)
+
+
+def azure_preview(output, text, cfg):
+    raw = output.with_name(output.stem + '-raw.wav')
+    try:
+        azure_speech.synthesize(cfg, text, raw, speech_controls(cfg)[0])
+        finish_system_speech(raw, output, cfg)
+    finally:
+        raw.unlink(missing_ok=True)
 
 
 def speech_controls(cfg):
@@ -1127,8 +1144,8 @@ def system_voice_signature(cfg):
 
 def narration_engine(cfg):
     mode = str(cfg.get('ttsMode', 'system') or 'system').strip() or 'system'
-    if mode == 'gemini':
-        return 'gemini'
+    if mode in ('gemini', 'azure'):
+        return mode
     if os.name == 'nt' and mode == 'system':
         return 'windows-core'
     return mode
@@ -1137,6 +1154,8 @@ def narration_engine(cfg):
 def narration_voice(cfg):
     if narration_engine(cfg) == 'gemini':
         return str(cfg.get('geminiVoice', 'Kore') or 'Kore').strip() or 'Kore'
+    if narration_engine(cfg) == 'azure':
+        return azure_speech.voice(cfg)
     selected = str(cfg.get('systemVoice', '') or '').strip()
     if selected:
         return selected
@@ -1148,6 +1167,8 @@ def narration_signature(cfg):
     if cfg.get('ttsMode', 'system') == 'gemini':
         return f"gemini|{cfg.get('geminiVoice', 'Kore')}|{cfg.get('models', {}).get('tts_audio', '')}"
     rate, pitch, volume = speech_controls(cfg)
+    if cfg.get('ttsMode') == 'azure':
+        return f"azure|{azure_speech.voice(cfg)}|{rate:.3f}|{pitch:.3f}|{volume:.3f}"
     return f"system|{system_voice_signature(cfg)}|{rate:.3f}|{pitch:.3f}|{volume:.3f}"
 
 
@@ -1237,6 +1258,10 @@ def synthesize(root,p,segment=None,changed=False,regenerate_all=False):
         try:
             if cfg.get('ttsMode','system') == 'gemini':
                 gemini_speech(output, c['text'], p)
+            elif cfg.get('ttsMode') == 'azure':
+                raw = output.with_name(output.stem + '-raw.wav')
+                azure_speech.synthesize(cfg, c['text'], raw, speech_controls(cfg)[0])
+                finish_system_speech(raw, output, cfg)
             elif sys.platform == 'darwin':
                 raw = output.with_suffix('.aiff')
                 args = ['/usr/bin/say', '-f', textfile, '-o', raw]
@@ -2657,7 +2682,7 @@ def validate_analysis_prerequisites(command, root, project):
 
 def main():
     parser=argparse.ArgumentParser(description=__doc__)
-    parser.add_argument('command',choices=['check-api-key','reanalyze-transcript-segment','undo-transcript','redo-transcript','reanalyze-segment','prepare-analysis-video','check-video-availability','cleanup-project','clear-generated','delete-generated','delete-segment-audio','list-models','preview-tts','import-video','probe-video','generate-thumbnails','transcribe','generate-summary','generate-ad-cues','synthesize-tts','export-final-video','export-selectable-video','export-closed-audio-description-video','export-open-audio-description-video','export-closed-caption-video','export-dual-closed-caption-video','export-open-caption-video','export-original-audio','export-described-audio','export-youtube-described-audio','export-youtube-original-audio','download-youtube-audio','export-hls','save-cues','save-segments','save-summary','doctor',*parity.COMMANDS])
+    parser.add_argument('command',choices=['check-api-key','reanalyze-transcript-segment','undo-transcript','redo-transcript','reanalyze-segment','prepare-analysis-video','check-video-availability','cleanup-project','clear-generated','delete-generated','delete-segment-audio','list-models','list-azure-voices','preview-tts','import-video','probe-video','generate-thumbnails','transcribe','generate-summary','generate-ad-cues','synthesize-tts','export-final-video','export-selectable-video','export-closed-audio-description-video','export-open-audio-description-video','export-closed-caption-video','export-dual-closed-caption-video','export-open-caption-video','export-original-audio','export-described-audio','export-youtube-described-audio','export-youtube-original-audio','download-youtube-audio','export-hls','save-cues','save-segments','save-summary','doctor',*parity.COMMANDS])
     parser.add_argument('--project',type=Path); parser.add_argument('--video',type=Path); parser.add_argument('--library',type=Path); parser.add_argument('--input',type=Path)
     parser.add_argument('--media-format', choices=VIDEO_EXPORT_FORMATS + AUDIO_EXPORT_FORMATS)
     parser.add_argument('--content',choices=['transcript','summary','descriptions','combined'],default='descriptions'); parser.add_argument('--url'); parser.add_argument('--name'); parser.add_argument('--timestamp',type=float,default=0); parser.add_argument('--duration',type=float); parser.add_argument('--segment'); parser.add_argument('--format',choices=['srt','vtt','txt','json','md'],default='srt'); parser.add_argument('--changed',action='store_true'); parser.add_argument('--start-stage',default='transcribe')
@@ -2675,6 +2700,8 @@ def main():
         youtube_audio.download(args.url, args.output, emit, ffmpeg_path=tool('ffmpeg')); return
     if args.command == 'preview-tts':
         preview_tts(args.output, args.text); return
+    if args.command == 'list-azure-voices':
+        list_azure_voices(); return
     if args.command in ('list-models', 'check-api-key'):
         list_models(); return
     core=SimpleNamespace(**globals())

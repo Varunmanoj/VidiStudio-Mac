@@ -202,6 +202,9 @@ struct SettingsView: View {
                 Picker("Speech engine", selection: $studio.settings.ttsMode) {
                     Label("Apple Voices", systemImage: "speaker.wave.2").tag("system")
                     Label("Gemini Voices", systemImage: "sparkles").tag("gemini")
+                    if studio.settings.hasAzureSpeechKey {
+                        Label("Azure Online Voices", systemImage: "cloud").tag("azure")
+                    }
                 }
                 Picker("Narration during playback", selection: $studio.settings.narrationPlayback) {
                     Label("Play synthesized narration", systemImage: "play.circle").tag("generated")
@@ -225,8 +228,13 @@ struct SettingsView: View {
                         }
                         .padding(.vertical, 4)
                     }
-                    SystemVoiceBrowser(settings: $studio.settings)
+                    if studio.settings.ttsMode == "azure" {
+                        AzureVoiceBrowser(studio: studio)
+                    } else {
+                        SystemVoiceBrowser(settings: $studio.settings)
+                    }
                 }
+                AzureSpeechKeySettings(studio: studio)
                 GroupBox("Summary readback") {
                     VStack(alignment: .leading, spacing: 10) {
                         Text("Reads the summary aloud and highlights the active sentence and word.")

@@ -24,6 +24,7 @@ struct ADOverviewView: View {
     }
     private var selectedVoice: String {
         if studio.settings.ttsMode == "gemini" { return studio.settings.geminiVoice }
+        if studio.settings.ttsMode == "azure" { return NarrationVoiceFormatting.voiceDisplayName(studio.settings.resolvedAzureVoice) }
         if !studio.settings.systemVoice.isEmpty { return studio.settings.systemVoice }
         if let voice = SystemSpeechVoiceResolver.defaultVoiceDisplayName {
             return "System default (\(voice))"
@@ -87,6 +88,9 @@ struct ADOverviewView: View {
                         Picker("Speech engine", selection: $studio.settings.ttsMode) {
                             Text("Apple Voices").tag("system")
                             Text("Gemini Voices").tag("gemini")
+                            if studio.settings.hasAzureSpeechKey {
+                                Text("Azure Online Voices").tag("azure")
+                            }
                         }
                         statistic("Selected voice", value: studio.settings.currentNarrationSummary)
                         if studio.isSynthesizingNarration {

@@ -330,6 +330,8 @@ enum NarrationVoiceFormatting {
         case "system": return "Apple Voices"
         case "windows-core": return "Windows OneCore"
         case "sapi5": return "Windows SAPI 5"
+        case "windows-natural": return "Downloaded Natural Voices"
+        case "azure": return "Azure Online Voices"
         default: return "Apple Voices"
         }
     }
@@ -338,6 +340,22 @@ enum NarrationVoiceFormatting {
         let trimmed = (voice ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
         if trimmed.isEmpty || trimmed.lowercased().hasPrefix("default:") {
             return "System default"
+        }
+        // Windows Narrator voices are identified by their voice package name.
+        if let match = trimmed.firstMatch(of: /MicrosoftWindows\.Voice\.(?<locale>[A-Za-z]{2,3}-[A-Za-z0-9]{2,8})\.(?<speaker>[A-Za-z]+)/) {
+            var speaker = String(match.speaker)
+            let hd = speaker.count > 2 && speaker.hasSuffix("HD")
+            if hd { speaker.removeLast(2) }
+            return "Microsoft \(speaker) (Natural\(hd ? " HD" : "")) - \(match.locale)"
+        }
+        // Azure voices are stored by short name, for example en-US-AvaMultilingualNeural.
+        if let match = trimmed.wholeMatch(of: /(?<locale>[a-z]{2,3}-[A-Za-z0-9]{2,8}(?:-[A-Za-z0-9]+)?)-(?<name>[A-Z][A-Za-z]+?)Neural/) {
+            var name = ""
+            for character in match.name {
+                if character.isUppercase, let last = name.last, last.isLowercase { name.append(" ") }
+                name.append(character)
+            }
+            return "Microsoft \(name) - \(match.locale)"
         }
         if trimmed.contains("\\"), let last = trimmed.split(separator: "\\").last {
             return String(last)
@@ -770,6 +788,17 @@ struct StudioSettings: Codable, Equatable {
     var hasApiKey: Bool {
         !apiKey.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
     }
+    /// The Azure Speech key is also owned by the Keychain and never written to `config.json`.
+    var azureSpeechKey: String {
+        get { KeychainStore.azureSpeech.read() ?? "" }
+        set { KeychainStore.azureSpeech.write(newValue) }
+    }
+    var hasAzureSpeechKey: Bool {
+        !azureSpeechKey.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+    }
+    static let defaultAzureVoice = "en-US-AvaMultilingualNeural"
+    var azureVoice = StudioSettings.defaultAzureVoice
+    var azureSpeechRegion = "eastus"
     var theme = "system"
     var ttsMode = "system"
     var narrationPlayback = "generated"
@@ -799,11 +828,26 @@ struct StudioSettings: Codable, Equatable {
         if ttsMode == "gemini" {
             return "gemini|\(geminiVoice)|\(models["tts_audio"] ?? "")"
         }
+        if ttsMode == "azure" {
+            return String(
+                format: "azure|%@|%.3f|%.3f|%.3f",
+                locale: Locale(identifier: "en_US_POSIX"),
+                resolvedAzureVoice,
+                systemSpeechRate,
+                systemSpeechPitch,
+                systemSpeechVolume
+            )
+        }
         return systemSpeechSignature
     }
 
+    var resolvedAzureVoice: String {
+        let trimmed = azureVoice.trimmingCharacters(in: .whitespacesAndNewlines)
+        return trimmed.isEmpty ? StudioSettings.defaultAzureVoice : trimmed
+    }
+
     var currentNarrationEngine: String {
-        ttsMode == "gemini" ? "gemini" : "system"
+        ttsMode == "gemini" || ttsMode == "azure" ? ttsMode : "system"
     }
 
     var currentNarrationVoice: String {
@@ -811,6 +855,7 @@ struct StudioSettings: Codable, Equatable {
             let trimmed = geminiVoice.trimmingCharacters(in: .whitespacesAndNewlines)
             return trimmed.isEmpty ? "Kore" : trimmed
         }
+        if ttsMode == "azure" { return resolvedAzureVoice }
         let selected = systemVoice.trimmingCharacters(in: .whitespacesAndNewlines)
         if !selected.isEmpty { return selected }
         if let voice = SystemSpeechVoiceResolver.defaultVoiceDisplayName {
@@ -1246,6 +1291,8 @@ final class StudioModel {
             settings.captionDisplayMode = "transcript"
             seededCaptionDisplayMode = true
         }
+        // Azure Online Voices is offered only while an Azure Speech key is saved.
+        if settings.ttsMode == "azure" && !settings.hasAzureSpeechKey { settings.ttsMode = "system" }
         settingsPersistenceEnabled = true
         // One-time migration: move any plaintext key left in config.json into the Keychain,
         // then re-save so the on-disk file no longer contains it.
@@ -1969,6 +2016,8 @@ final class StudioModel {
         task.arguments = [command] + (target?.folder.map { ["--project", $0.path] } ?? []) + extra
         var environment = ProcessInfo.processInfo.environment.merging(["VIDISTUDIO_CONFIG": (effectiveConfigurationURL ?? StudioSettings.url).path]) { _, new in new }
         if !apiKey.isEmpty { environment["VIDISTUDIO_API_KEY"] = apiKey }
+        let azureSpeechKey = settings.azureSpeechKey.trimmingCharacters(in: .whitespacesAndNewlines)
+        if !azureSpeechKey.isEmpty { environment["VIDISTUDIO_AZURE_SPEECH_KEY"] = azureSpeechKey }
         task.environment = environment
         let output = Pipe(); task.standardOutput = output
         let stderr = Pipe(); task.standardError = stderr

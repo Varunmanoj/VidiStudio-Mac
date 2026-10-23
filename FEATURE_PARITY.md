@@ -16,7 +16,7 @@ Reference: the authenticated accessivideo.pages.dev application and its React/Py
 | AD transcript and overview | Timed AD text, segment/audio counts, narration generation; Command+4/5 |
 | Description editing | Add, edit, delete, rewrite to fit, undo and redo |
 | Screen-text OCR | Current timestamp for YouTube, captured image for local source; review and add as cue |
-| Narration | Offline system voices, optional Gemini TTS; one cue, all, or changed cues; optional live on-device playback without files |
+| Narration | Offline system voices, optional Gemini TTS, optional Azure Online Voices (shown only with a saved Azure Speech key; Windows also lists downloaded Narrator natural voices); one cue, all, or changed cues; optional live on-device playback without files |
 | Narration preview | Individual audio preview and synchronized description playback |
 | Exports | SRT, VTT, text, JSON; Video Format picker: MKV (default), MP4, MOV, M4V; Audio Format picker: WAV (default), MP3, M4A for original, narration-only, and described audio |
 | YouTube audio exports | Original YouTube audio, narration-only audio, then combined YouTube audio/narration, each with WAV (default), MP3, and M4A; bundled yt-dlp/Deno retrieval and temporary cleanup; complete mix for manual YouTube Studio upload |
