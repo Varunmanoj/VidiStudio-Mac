@@ -2170,7 +2170,15 @@ struct ProjectEditor: View {
         .onChange(of: studio.isSynthesizingNarration) { _, _ in refreshEditorShortcutActions() }
         .onChange(of: studio.narratingSegmentID) { _, _ in refreshEditorShortcutActions() }
         .onChange(of: studio.narratingSegmentIndex) { _, _ in refreshEditorShortcutActions() }
-        .onChange(of: project.updatedAt) { _, _ in refreshEditorShortcutActions(updateHandler: true) }
+        .onChange(of: project.updatedAt) { _, _ in
+            // Any saved project change ends summary playback so the reader never
+            // narrates text that is about to be replaced.
+            summaryReader.stop()
+            refreshEditorShortcutActions(updateHandler: true)
+        }
+        .onChange(of: playback.playing) { _, playing in
+            if playing { summaryReader.stop() }
+        }
         .onChange(of: studio.settings.captionDisplayMode) { _, _ in refreshEditorShortcutActions() }
         .onChange(of: studio.hasApiKey) { _, _ in refreshEditorShortcutActions() }
         .onChange(of: studio.apiKeyVerified) { _, _ in refreshEditorShortcutActions() }

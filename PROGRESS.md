@@ -1,3 +1,9 @@
+## 2026-10-24 — Summary playback stops on project or video changes — version 1.0.118 (build 118)
+
+Summary read-aloud now stops automatically instead of continuing to speak stale text. On macOS the reader stops when the saved project changes (`project.updatedAt`) — which covers imported or regenerated transcripts, edited Audio Descriptions, summary edits, analysis, and narration writes — and whenever video playback starts (`playback.playing` becomes true). On Windows `Model.ProjectReloaded` stops the reader before the refreshed project is shown, and the playback timer stops it on the transition into playing (including YouTube playback). Manual Play, Pause, and Stop behavior is unchanged.
+
+Validation: `script/build_and_run.sh --verify` built, signed, and launched 1.0.118 with 13 Help pages verified and menu parity passing; the macOS suite passed 150 tests; the Windows suite passed 198 tests (1 Windows-only skip). Not run on this host: native Windows build and interactive listening checks.
+
 ## 2026-10-24 — Aligned Piper voice row actions — version 1.0.117 (build 117)
 
 Voice rows sized each button to its own label, so the Play Sample column shifted whenever a row switched between Download and Delete, or between Play Sample and Stop Sample. Every row now uses fixed-width labels: Play Sample is 112 points and the download/delete action is 142 points in the catalog, with 112-point actions in the delete-voices dialog. Windows uses matching fixed widths (`Width = 120` for samples and `Width = 150` or `110` for actions) rather than minimum widths, so the columns line up for every state. Icons, red delete styling, and accessible names are unchanged.
