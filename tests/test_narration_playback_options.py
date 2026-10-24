@@ -65,18 +65,26 @@ class NarrationPlaybackOptions(unittest.TestCase):
         self.assertIn('"Speech engine: " + EngineTitle(Model.Settings.Get("ttsMode", "windows-core"))', presentation)
         self.assertIn('finally { openSettings = null; ApplyTheme(); Model.Reload(); UpdateApiKeyUi(); UpdateSectionPresentation(); }', window)
 
-    def test_azure_voices_is_its_own_engine_and_natural_voices_lists_only_downloads_on_windows(self):
+    def test_natural_voices_live_in_sapi5_with_plain_groups_on_windows(self):
         dialog = (ROOT/'Vidi-Studio-Windows/Vidi Studio Windows/Views/SettingsDialog.cs').read_text()
         voices = (ROOT/'Vidi-Studio-Windows/Vidi Studio Windows/Views/SettingsDialog.Voices.cs').read_text()
         store = (ROOT/'Vidi-Studio-Windows/Vidi Studio Windows/Services/SettingsStore.cs').read_text()
-        self.assertIn('new("windows-natural", "Natural Voices")', dialog)
+        host = (ROOT/'Vidi-Studio-Windows/SpeechHost/Program.cs').read_text()
+        self.assertNotIn('new("windows-natural"', dialog)
         self.assertIn('new("azure", "Azure Voices")', dialog)
-        self.assertIn('Heading("downloaded", "Downloaded to this PC")', voices)
-        self.assertNotIn('Heading("online"', voices)
+        self.assertIn('Add("bridge-offline", "Natural voices — work offline", offline);', voices)
+        self.assertIn('Add("bridge-online", "Online natural voices — need the internet", online);', voices)
+        self.assertIn('Add("standard", "Standard voices", standard);', voices)
+        self.assertIn('sapiHelp.Visibility = provider == "sapi5" ? Visibility.Visible : Visibility.Collapsed;', voices)
         self.assertIn('azureControls.Visibility = provider == "azure" ? Visibility.Visible : Visibility.Collapsed;', voices)
-        self.assertIn('.Where(v => v.Group != VoiceGroups.BridgeOnline)', voices)
         self.assertIn('container.IsEnabled = voice?.Available != false;', voices)
+        self.assertIn('if (Get("ttsMode") != "windows-natural") return false;', store)
         self.assertIn('Data.Remove(AzureSpeechKey);', store)
+        # A stalled or silent voice must fail clearly instead of hanging or producing empty narration.
+        self.assertIn('speech.Speak(r.Text, 1 | 16);', host)
+        self.assertIn('speech.WaitUntilDone(SpeakTimeoutMs)', host)
+        self.assertIn('The selected voice produced no audio.', host)
+        self.assertNotIn('PackageManager', host)
 
     def test_mac_lists_azure_voices_and_shows_its_key_only_when_selected(self):
         settings = (ROOT/'VidiStudio Mac/VidiStudio/SettingsView.swift').read_text()
@@ -104,7 +112,7 @@ class NarrationPlaybackOptions(unittest.TestCase):
         self.assertIn('if (DraftAzureKey.Length > 0) options.Add(new("azure", "Azure online voice"));', win_voices)
         self.assertIn('var useAzure = settings.Get("summaryReadbackVoice", "narration") == "azure" && settings.HasAzureSpeechKey;', win_reader)
         # Live on-device speech uses local voices only: the bridge for downloaded voices, never Azure.
-        self.assertIn('if (mode is "sapi5" or "windows-natural")', win_live)
+        self.assertIn('if (mode == "sapi5")', win_live)
         self.assertIn('var voiceId = mode is "windows-core" or "system" ? settings.Get("systemVoice") : "";', win_live)
         self.assertNotIn('preview-tts', win_live)
         self.assertNotIn('engine.RunAsync', win_live)
