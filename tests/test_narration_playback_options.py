@@ -151,6 +151,15 @@ class NarrationPlaybackOptions(unittest.TestCase):
         self.assertIn('Text("Delete Piper Voices")', catalog)
         self.assertIn('PiperVoiceQuery.sortOptions', catalog)
         self.assertIn('.onExitCommand { dismiss() }', catalog)
+        # Buttons carry SF Symbols in the settings page and both dialogs.
+        self.assertIn('Button("Download or Remove Voices…", systemImage: "arrow.down.circle")', catalog)
+        self.assertIn('Button("Delete Voices…", systemImage: "trash")', catalog)
+        self.assertIn('systemImage: downloaded || deleting ? "trash" : "arrow.down.circle"', catalog)
+        self.assertIn('.foregroundStyle(downloaded || deleting ? Color.red : Color.primary)', catalog)
+        self.assertIn('Label(deleting ? "Deleting…" : "Delete", systemImage: "trash")', catalog)
+        # Fixed label widths keep the Play Sample column aligned for every row state.
+        self.assertIn('.frame(width: 112)', catalog)
+        self.assertIn('.frame(width: 142)', catalog)
         self.assertNotIn('Piper Voices are free neural voices that run entirely on this Mac', catalog)
         self.assertNotIn('open-source project by Rhasspy', catalog)
         # The frozen engine must find espeak-ng data from its own folder, not the bundle.

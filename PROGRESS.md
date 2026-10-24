@@ -1,3 +1,21 @@
+## 2026-10-24 — Aligned Piper voice row actions — version 1.0.117 (build 117)
+
+Voice rows sized each button to its own label, so the Play Sample column shifted whenever a row switched between Download and Delete, or between Play Sample and Stop Sample. Every row now uses fixed-width labels: Play Sample is 112 points and the download/delete action is 142 points in the catalog, with 112-point actions in the delete-voices dialog. Windows uses matching fixed widths (`Width = 120` for samples and `Width = 150` or `110` for actions) rather than minimum widths, so the columns line up for every state. Icons, red delete styling, and accessible names are unchanged.
+
+Validation: `script/build_and_run.sh --verify` built, signed, and launched 1.0.117 with 13 Help pages verified and menu parity passing; the macOS suite passed 150 tests; the Windows suite passed 198 tests (1 Windows-only skip). Not run on this host: native Windows build and visual confirmation of the aligned columns.
+
+## 2026-10-24 — Red delete action in the Piper download catalog — version 1.0.116 (build 116)
+
+The download-or-remove catalog now colors its Delete action red, matching the delete-voices dialog instead of only tinting the button. On macOS the row action uses `.foregroundStyle(downloaded || deleting ? Color.red : Color.primary)` alongside the existing red tint, so the trash icon and label stay red until the voice is removed. On Windows a shared `IconButtonContent.SetDestructive` helper applies the app's high-contrast red (`#E52B32`) to the action's icon and label while it shows Delete or Deleting…, and restores the normal color for Download; the delete dialog uses the same helper.
+
+Validation: `script/build_and_run.sh --verify` built, signed, and launched 1.0.116 with 13 Help pages verified and menu parity passing; the macOS suite passed 150 tests; the Windows suite passed 198 tests (1 Windows-only skip). Not run on this host: native Windows build and visual inspection of the red action.
+
+## 2026-10-24 — Piper voice action icons — version 1.0.115 (build 115)
+
+Every Piper voice action now shows an icon. In Settings → Narration, **Download or Remove Voices…** uses `arrow.down.circle` and **Delete Voices…** uses `trash`. Inside the download catalog each row's action follows its state — `arrow.down.circle` for Download, `trash` for Delete, and `trash` while deleting — and the delete-voices dialog uses `trash` for its Delete and Deleting… states. Windows mirrors the same actions with Fluent `SymbolIcon`s (`Symbol.Download`, `Symbol.Delete`) through a shared `IconButtonContent` helper on the two settings buttons and both dialogs' row actions. VoiceOver and UI Automation names are unchanged, so the label still describes the action while the icon is decorative.
+
+Validation: `script/build_and_run.sh --verify` built, signed, and launched 1.0.115 with 13 Help pages verified and menu parity passing; the macOS suite passed 150 tests; the Windows suite passed 198 tests (1 Windows-only skip). Not run on this host: native Windows build and visual inspection of the new Windows icons.
+
 ## 2026-10-24 — Piper summaries, live timing, and voice management — version 1.0.114 (build 114)
 
 **Summary read-aloud no longer fails on symbol-only lines.** A summary line such as a horizontal rule or bullet produced zero audio samples; Piper never set a WAV channel count, `wave` closed with `# channels not specified`, and the reader showed that raw error. The reader now skips fragments with no letters or digits (whole sentences, read-from-here partials, and one-off selections), and `piper_speech` writes a default WAV header before synthesis and then reports "This text has no words to read aloud." instead of a low-level error. `finish_system_speech` also reports a clean message when no audio stream was produced.

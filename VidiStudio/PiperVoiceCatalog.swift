@@ -834,15 +834,18 @@ struct PiperVoiceBrowser: View {
                     .controlSize(.small)
                     .accessibilityLabel("Removing \(voice.displayName)")
             }
-            Button(sampleButtonTitle(voice)) {
+            Button {
                 sample.toggle(voice, manager: manager)
+            } label: {
+                Text(sampleButtonTitle(voice))
+                    .frame(width: 112)
             }
             .disabled(sample.loadingID != nil || busy)
             .accessibilityLabel(
                 (sample.playingID == voice.id ? "Stop sample for " : "Play sample for ") + voice.displayName
             )
             .help("Plays a short sample published with this voice. The preview needs the internet; a downloaded voice itself works offline.")
-            Button(deleting ? "Deleting…" : downloading ? "Downloading…" : downloaded ? "Delete" : "Download") {
+            Button {
                 Task {
                     if downloaded {
                         await delete(voice)
@@ -850,8 +853,15 @@ struct PiperVoiceBrowser: View {
                         await download(voice)
                     }
                 }
+            } label: {
+                Label(
+                    deleting ? "Deleting…" : downloading ? "Downloading…" : downloaded ? "Delete" : "Download",
+                    systemImage: downloaded || deleting ? "trash" : "arrow.down.circle"
+                )
+                .frame(width: 142)
             }
             .disabled(busy || downloading || deleting)
+            .foregroundStyle(downloaded || deleting ? Color.red : Color.primary)
             .tint(downloaded || deleting ? .red : nil)
             .help(downloaded ? "Removes this voice, its settings file, and its cached sample" : "Downloads this voice and its settings file")
             .accessibilityLabel(
@@ -1101,18 +1111,25 @@ struct PiperDeleteVoicesView: View {
                     .controlSize(.small)
                     .accessibilityLabel("Removing \(voice.displayName)")
             }
-            Button(sampleButtonTitle(voice)) {
+            Button {
                 sample.toggle(voice, manager: manager)
+            } label: {
+                Text(sampleButtonTitle(voice))
+                    .frame(width: 112)
             }
             .disabled(sample.loadingID != nil || busy)
             .accessibilityLabel(
                 (sample.playingID == voice.id ? "Stop sample for " : "Play sample for ") + voice.displayName
             )
             .help("Plays a short sample published with this voice. The preview needs the internet; a downloaded voice itself works offline.")
-            Button(deleting ? "Deleting…" : "Delete") {
+            Button {
                 Task { await delete(voice) }
+            } label: {
+                Label(deleting ? "Deleting…" : "Delete", systemImage: "trash")
+                    .frame(width: 112)
             }
             .disabled(busy || deleting)
+            .foregroundStyle(Color.red)
             .tint(.red)
             .help("Removes this voice, its settings file, and its cached sample")
             .accessibilityLabel(deleting ? "Deleting \(voice.displayName)" : "Delete " + voice.displayName)
