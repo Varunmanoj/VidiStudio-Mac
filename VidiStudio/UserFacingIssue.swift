@@ -35,7 +35,7 @@ struct UserFacingIssue: Equatable {
     )
     static let speech = UserFacingIssue(
         title: "Speech Isn’t Available",
-        message: "Choose an installed Apple voice in Settings → Narration, then try again."
+        message: "Choose an installed Apple or Piper voice in Settings → Narration, then try again."
     )
     static let voicePreview = UserFacingIssue(
         title: "Voice Sample Couldn’t Be Created",
@@ -227,6 +227,15 @@ enum UserFacingIssueReporter {
     static func message(for error: Error, issue: UserFacingIssue, context: String) -> String {
         record(error.localizedDescription, context: context)
         return issue.message
+    }
+
+    /// Piper failures already explain what to download or choose, so they are shown as written.
+    static func speechMessage(for error: Error, issue: UserFacingIssue, context: String) -> String {
+        if let piper = error as? PiperSpeechError, case .message(let text) = piper {
+            record(text, context: context)
+            return text
+        }
+        return message(for: error, issue: issue, context: context)
     }
 }
 

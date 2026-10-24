@@ -1,5 +1,6 @@
 import io
 import json
+import os
 import tempfile
 import unittest
 import wave
@@ -118,12 +119,83 @@ class VoicePreview(unittest.TestCase):
                 engine.gemini_speech(Path('/tmp/not-created-preview.wav'), 'Test', {})
         client.close.assert_called_once()
 
-    def test_preview_requires_bounded_text_and_gemini(self):
+    def test_preview_requires_bounded_text_and_a_cloud_or_piper_voice(self):
         for value in ['', 'x'*501]:
             with self.assertRaises(ValueError): engine.preview_tts(Path('/tmp/not-created-preview.wav'), value)
         with patch.object(engine, 'config', return_value={'ttsMode':'system'}):
-            with self.assertRaisesRegex(ValueError, 'Choose Gemini'):
+            with self.assertRaisesRegex(ValueError, 'Choose Gemini Voices or Piper Voices'):
                 engine.preview_tts(Path('/tmp/not-created-preview.wav'), 'Hello')
+
+    def test_piper_preview_and_speech_use_the_selected_voice(self):
+        with tempfile.TemporaryDirectory() as directory:
+            output = Path(directory) / 'sample.wav'
+            raw = output.with_name(output.stem + '-raw.wav')
+            cfg = {'ttsMode':'piper', 'piperVoice':'en_US-amy-low', 'systemSpeechRate':1.2}
+
+            def fake_piper(raw_path, text, config):
+                self.assertEqual(text, 'Sample narration')
+                self.assertEqual(config['piperVoice'], 'en_US-amy-low')
+                raw_path.write_bytes(b'RIFFraw')
+
+            def fake_finish(raw_path, output_path, config):
+                self.assertTrue(raw_path.exists())
+                output_path.write_bytes(b'RIFFencoded')
+
+            with patch.object(engine, 'config', return_value=cfg), \
+                 patch.object(engine, 'piper_speech', side_effect=fake_piper), \
+                 patch.object(engine, 'finish_system_speech', side_effect=fake_finish), \
+                 patch.object(engine, 'gemini_speech') as gemini:
+                engine.preview_tts(output, 'Sample narration')
+                gemini.assert_not_called()
+            self.assertEqual(output.read_bytes(), b'RIFFencoded')
+            self.assertFalse(raw.exists())
+            self.assertFalse((Path(directory)/'project.json').exists())
+
+    def test_synthesize_speech_supports_piper_and_rejects_other_engines(self):
+        with tempfile.TemporaryDirectory() as directory:
+            output = Path(directory) / 'speech.wav'
+            cfg = {'ttsMode':'piper', 'piperVoice':'en_US-amy-low'}
+            with patch.object(engine, 'config', return_value=cfg), \
+                 patch.object(engine, 'piper_speech') as piper, \
+                 patch.object(engine, 'finish_system_speech') as finish:
+                finish.side_effect = lambda raw, target, config: target.write_bytes(b'RIFFencoded')
+                engine.synthesize_speech(output, 'Read the whole summary aloud.')
+            piper.assert_called_once()
+            self.assertEqual(piper.call_args.args[1], 'Read the whole summary aloud.')
+            self.assertEqual(output.read_bytes(), b'RIFFencoded')
+            with patch.object(engine, 'config', return_value={'ttsMode':'system'}):
+                with self.assertRaisesRegex(ValueError, 'Piper'):
+                    engine.synthesize_speech(output, 'Hello')
+            with self.assertRaisesRegex(ValueError, 'requires --output'):
+                engine.synthesize_speech(None, 'Hello')
+            with patch.object(engine, 'config', return_value=cfg):
+                with self.assertRaisesRegex(ValueError, 'requires text'):
+                    engine.synthesize_speech(output, '   ')
+
+    def test_piper_espeak_data_relocates_deep_bundle_paths(self):
+        # espeak-ng reads its data path through a 160-byte buffer, so the app
+        # bundle path is mirrored to a short application support folder.
+        with tempfile.TemporaryDirectory() as directory:
+            source = Path(directory) / ('deep-' + 'x' * 160) / 'espeak-ng-data'
+            source.mkdir(parents=True)
+            (source / 'phontab').write_text('tab')
+            target = Path(directory) / 'short' / 'espeak-ng-data'
+            with patch.dict(os.environ, {'VIDISTUDIO_ESPEAK_DATA': str(source)}), \
+                 patch.object(engine, 'espeak_data_home', return_value=target):
+                engine._ESPEAK_DATA_COPY = None
+                try:
+                    resolved = engine.piper_espeak_data()
+                    self.assertEqual(resolved, target)
+                    self.assertTrue((target / 'phontab').is_file())
+                    # A later call reuses the copy instead of copying it again.
+                    (target / 'reused').write_text('once')
+                    engine._ESPEAK_DATA_COPY = None
+                    self.assertEqual(engine.piper_espeak_data(), target)
+                    self.assertTrue((target / 'reused').is_file())
+                finally:
+                    engine._ESPEAK_DATA_COPY = None
+        # Normal installs keep using the data folder directly.
+        self.assertLess(len(str(engine.piper_espeak_data())), 150)
 
     def test_safe_error_formats_invalid_api_key_cleanly(self):
         exc = Exception("400 INVALID_ARGUMENT. {'error': {'code': 400, 'message': 'API key not valid. Please pass a valid API key.', 'status': 'INVALID_ARGUMENT', 'details': [{'reason': 'API_KEY_INVALID'}]}}")

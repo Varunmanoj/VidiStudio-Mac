@@ -1031,10 +1031,37 @@ def preview_tts(output, text):
     if not output: raise ValueError('Voice preview requires --output.')
     if not text or len(text) > 500: raise ValueError('Use a sample between 1 and 500 characters.')
     cfg = config()
-    if cfg.get('ttsMode') != 'gemini': raise ValueError('Choose Gemini Voices for a cloud voice preview.')
+    mode = cfg.get('ttsMode')
+    if mode not in ('gemini', 'piper'):
+        raise ValueError('Choose Gemini Voices or Piper Voices for a voice preview.')
     output.parent.mkdir(parents=True, exist_ok=True)
-    gemini_speech(output, text, {})
+    if mode == 'piper':
+        raw = output.with_name(output.stem + '-raw.wav')
+        try:
+            piper_speech(raw, text, cfg)
+            finish_system_speech(raw, output, cfg)
+        finally:
+            raw.unlink(missing_ok=True)
+    else:
+        gemini_speech(output, text, {})
     emit('Voice sample ready', audio=str(output))
+
+
+def synthesize_speech(output, text):
+    """Synthesizes arbitrary-length local speech, used for live preview and summary read-aloud."""
+    if not output: raise ValueError('Speech requires --output.')
+    if not text or not text.strip(): raise ValueError('Speech requires text.')
+    cfg = config()
+    if cfg.get('ttsMode') != 'piper':
+        raise ValueError('This speech command supports Piper Voices.')
+    output.parent.mkdir(parents=True, exist_ok=True)
+    raw = output.with_name(output.stem + '-raw.wav')
+    try:
+        piper_speech(raw, text, cfg)
+        finish_system_speech(raw, output, cfg)
+    finally:
+        raw.unlink(missing_ok=True)
+    emit('Speech ready', audio=str(output))
 
 
 def speech_controls(cfg):
@@ -1128,9 +1155,10 @@ def system_voice_signature(cfg):
 
 def narration_engine(cfg):
     mode = str(cfg.get('ttsMode', 'system') or 'system').strip() or 'system'
-    # Azure Voices and Piper generation were removed from the Mac app; legacy choices
-    # fall back to Apple Voices while their saved labels stay readable in reports.
-    if mode not in ('gemini', 'system'):
+    # Azure Voices was removed from the Mac app; its legacy choice falls back to
+    # Apple Voices while saved labels stay readable in reports. Piper now runs
+    # in-process with the bundled Python engine.
+    if mode not in ('gemini', 'system', 'piper'):
         mode = 'system'
     if os.name == 'nt' and mode == 'system':
         return 'windows-core'
@@ -1140,6 +1168,9 @@ def narration_engine(cfg):
 def narration_voice(cfg):
     if narration_engine(cfg) == 'gemini':
         return str(cfg.get('geminiVoice', 'Kore') or 'Kore').strip() or 'Kore'
+    if narration_engine(cfg) == 'piper':
+        selected = str(cfg.get('piperVoice') or cfg.get('systemVoice') or '').strip()
+        return selected or 'Piper voice'
     selected = str(cfg.get('systemVoice', '') or '').strip()
     if selected:
         return selected
@@ -1151,7 +1182,125 @@ def narration_signature(cfg):
     if cfg.get('ttsMode', 'system') == 'gemini':
         return f"gemini|{cfg.get('geminiVoice', 'Kore')}|{cfg.get('models', {}).get('tts_audio', '')}"
     rate, pitch, volume = speech_controls(cfg)
+    if cfg.get('ttsMode') == 'piper':
+        return f"piper|{narration_voice(cfg)}|{rate:.3f}|{pitch:.3f}|{volume:.3f}"
     return f"system|{system_voice_signature(cfg)}|{rate:.3f}|{pitch:.3f}|{volume:.3f}"
+
+
+_PIPER_VOICES = {}
+
+
+def piper_locations(cfg):
+    """Resolves the downloaded Piper model selected in Settings."""
+    folder = (os.environ.get('VIDISTUDIO_PIPER_VOICES') or '').strip()
+    if not folder:
+        raise ValueError('The Piper voice folder is unavailable. Restart VidiStudio, then try again.')
+    selected = str(cfg.get('piperVoice') or cfg.get('systemVoice') or '').strip()
+    if not selected:
+        raise ValueError('Choose a Piper voice in Settings. Download one first if the list is empty.')
+    if Path(selected).name != selected:
+        raise ValueError('Choose a Piper voice in Settings. Download one first if the list is empty.')
+    model = Path(folder) / (selected + '.onnx')
+    settings = Path(folder) / (selected + '.onnx.json')
+    if not model.is_file() or not settings.is_file():
+        raise ValueError('The selected Piper voice is not downloaded. Download it in Settings, then try again.')
+    return selected, model, settings
+
+
+_ESPEAK_PATH_LIMIT = 150
+_ESPEAK_DATA_COPY = None
+
+
+def espeak_data_home():
+    """espeak-ng keeps its data path in a 160-byte buffer, so deep app bundles
+    need the data at a short path. The application support folder is used."""
+    if os.name == 'nt':
+        base = Path(os.environ.get('LOCALAPPDATA') or Path.home() / 'AppData' / 'Local')
+    else:
+        base = Path.home() / 'Library' / 'Application Support' if sys.platform == 'darwin' else Path.home() / '.local' / 'share'
+    return base / 'VidiStudio' / 'piper' / 'espeak-ng-data'
+
+
+def relocate_espeak_data(source):
+    """Copies espeak-ng data once to a short path and reuses it until the bundle changes."""
+    global _ESPEAK_DATA_COPY
+    if _ESPEAK_DATA_COPY is not None:
+        return _ESPEAK_DATA_COPY
+    target = espeak_data_home()
+    marker = target.parent / 'espeak-ng-data.version'
+    try:
+        source_key = f"{source}|{(source / 'phontab').stat().st_mtime_ns}"
+    except OSError:
+        source_key = None
+    if str(target) != str(source) and (source_key is None or not marker.is_file() or marker.read_text().strip() != source_key):
+        shutil.copytree(source, target, dirs_exist_ok=True)
+        marker.parent.mkdir(parents=True, exist_ok=True)
+        marker.write_text(source_key or '')
+        _ESPEAK_DATA_COPY = target
+        return target
+    _ESPEAK_DATA_COPY = target if (target / 'phontab').is_file() else source
+    return _ESPEAK_DATA_COPY
+
+
+def piper_espeak_data():
+    """Finds Piper's espeak-ng data, which sits beside the frozen piper package.
+
+    espeak-ng silently falls back to its build-time data path when the folder
+    path is 160 bytes or longer, which happens inside a signed app bundle, so
+    long paths are mirrored to a short application support folder first.
+    """
+    if _ESPEAK_DATA_COPY is not None:
+        return _ESPEAK_DATA_COPY
+    candidates = []
+    override = (os.environ.get('VIDISTUDIO_ESPEAK_DATA') or '').strip()
+    if override:
+        candidates.append(Path(override))
+    try:
+        import piper
+        candidates.append(Path(piper.__file__).parent / 'espeak-ng-data')
+    except Exception:
+        pass
+    executable_folder = Path(sys.executable).resolve().parent
+    candidates.append(executable_folder / '_internal' / 'piper' / 'espeak-ng-data')
+    candidates.append(executable_folder / 'piper' / 'espeak-ng-data')
+    for base in (executable_folder, executable_folder.parent, executable_folder.parent.parent):
+        try:
+            matches = sorted(base.glob('**/espeak-ng-data/phontab'))
+        except OSError:
+            matches = []
+        candidates.extend(match.parent for match in matches[:1])
+    for candidate in candidates:
+        if not (candidate / 'phontab').is_file():
+            continue
+        if len(str(candidate)) < _ESPEAK_PATH_LIMIT:
+            return candidate
+        return relocate_espeak_data(candidate)
+    raise ValueError('The bundled Piper voice data is missing. Reinstall Vidi Studio, then try again.')
+
+
+def load_piper_voice(model, settings):
+    key = (str(model), str(settings))
+    cached = _PIPER_VOICES.get(key)
+    if cached is not None:
+        return cached
+    try:
+        from piper import PiperVoice
+    except ImportError as exc:
+        raise ValueError('The bundled Piper speech engine is unavailable. Reinstall Vidi Studio, then try again.') from exc
+    voice = PiperVoice.load(str(model), str(settings), espeak_data_dir=piper_espeak_data())
+    _PIPER_VOICES[key] = voice
+    return voice
+
+
+def piper_speech(raw, text, cfg):
+    """Writes a mono WAV with the selected Piper voice; pitch and volume are applied later."""
+    _, model, settings = piper_locations(cfg)
+    from piper import SynthesisConfig
+    voice = load_piper_voice(model, settings)
+    rate = speech_controls(cfg)[0]
+    with wave.open(str(raw), 'wb') as stream:
+        # Piper's length scale is the inverse of speaking rate.
+        voice.synthesize_wav(text, stream, syn_config=SynthesisConfig(length_scale=1.0 / rate))
 
 
 def finish_system_speech(raw, output, cfg):
@@ -1238,7 +1387,11 @@ def synthesize(root,p,segment=None,changed=False,regenerate_all=False):
             text_stream.write(c['text'])
             textfile = Path(text_stream.name)
         try:
-            if cfg.get('ttsMode','system') == 'gemini':
+            if cfg.get('ttsMode','system') == 'piper':
+                raw = output.with_name(output.stem + '-raw.wav')
+                piper_speech(raw, c['text'], cfg)
+                finish_system_speech(raw, output, cfg)
+            elif cfg.get('ttsMode','system') == 'gemini':
                 gemini_speech(output, c['text'], p)
             elif sys.platform == 'darwin':
                 raw = output.with_suffix('.aiff')
@@ -1259,7 +1412,7 @@ def synthesize(root,p,segment=None,changed=False,regenerate_all=False):
             else: raise ValueError('System voices are supported on macOS and Windows.')
             actual = float(probe(output)['format'].get('duration', 0))
             if actual <= 0:
-                raise ValueError('System speech produced no audio. Choose an installed voice in Settings and check macOS speech availability.')
+                raise ValueError('The selected voice produced no audio. Choose an installed Apple or downloaded Piper voice in Settings, then check speech availability.')
             if actual > c['end']-c['start']:
                 raise ValueError(narration_fit_error_message(i+1, actual, c['end']-c['start']))
             if not p.get('narrationVoice'):
@@ -2660,7 +2813,7 @@ def validate_analysis_prerequisites(command, root, project):
 
 def main():
     parser=argparse.ArgumentParser(description=__doc__)
-    parser.add_argument('command',choices=['check-api-key','reanalyze-transcript-segment','undo-transcript','redo-transcript','reanalyze-segment','prepare-analysis-video','check-video-availability','cleanup-project','clear-generated','delete-generated','delete-segment-audio','list-models','list-voices','preview-tts','import-video','probe-video','generate-thumbnails','transcribe','generate-summary','generate-ad-cues','synthesize-tts','export-final-video','export-selectable-video','export-closed-audio-description-video','export-open-audio-description-video','export-closed-caption-video','export-dual-closed-caption-video','export-open-caption-video','export-original-audio','export-described-audio','export-youtube-described-audio','export-youtube-original-audio','download-youtube-audio','export-hls','save-cues','save-segments','save-summary','doctor',*parity.COMMANDS])
+    parser.add_argument('command',choices=['check-api-key','reanalyze-transcript-segment','undo-transcript','redo-transcript','reanalyze-segment','prepare-analysis-video','check-video-availability','cleanup-project','clear-generated','delete-generated','delete-segment-audio','list-models','list-voices','preview-tts','synthesize-speech','import-video','probe-video','generate-thumbnails','transcribe','generate-summary','generate-ad-cues','synthesize-tts','export-final-video','export-selectable-video','export-closed-audio-description-video','export-open-audio-description-video','export-closed-caption-video','export-dual-closed-caption-video','export-open-caption-video','export-original-audio','export-described-audio','export-youtube-described-audio','export-youtube-original-audio','download-youtube-audio','export-hls','save-cues','save-segments','save-summary','doctor',*parity.COMMANDS])
     parser.add_argument('--project',type=Path); parser.add_argument('--video',type=Path); parser.add_argument('--library',type=Path); parser.add_argument('--input',type=Path)
     parser.add_argument('--media-format', choices=VIDEO_EXPORT_FORMATS + AUDIO_EXPORT_FORMATS)
     parser.add_argument('--content',choices=['transcript','summary','descriptions','combined'],default='descriptions'); parser.add_argument('--url'); parser.add_argument('--name'); parser.add_argument('--timestamp',type=float,default=0); parser.add_argument('--duration',type=float); parser.add_argument('--segment'); parser.add_argument('--format',choices=['srt','vtt','txt','json','md'],default='srt'); parser.add_argument('--changed',action='store_true'); parser.add_argument('--start-stage',default='transcribe')
@@ -2678,6 +2831,8 @@ def main():
         youtube_audio.download(args.url, args.output, emit, ffmpeg_path=tool('ffmpeg')); return
     if args.command == 'preview-tts':
         preview_tts(args.output, args.text); return
+    if args.command == 'synthesize-speech':
+        synthesize_speech(args.output, args.text); return
     if args.command in ('list-models', 'check-api-key'):
         list_models(); return
     core=SimpleNamespace(**globals())

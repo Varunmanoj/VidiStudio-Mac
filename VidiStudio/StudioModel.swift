@@ -794,6 +794,7 @@ struct StudioSettings: Codable, Equatable {
     var soundWhenNarrationOff = true
     var soundWhenNarrationMissing = true
     var systemVoice = ""
+    var piperVoice = ""
     var systemSpeechRate = 1.0
     var systemSpeechPitch = 1.0
     var systemSpeechVolume = 1.0
@@ -817,11 +818,35 @@ struct StudioSettings: Codable, Equatable {
         if ttsMode == "gemini" {
             return "gemini|\(geminiVoice)|\(models["tts_audio"] ?? "")"
         }
+        if ttsMode == "piper" {
+            return piperSpeechSignature
+        }
         return systemSpeechSignature
     }
 
+    var piperSpeechSignature: String {
+        String(
+            format: "piper|%@|%.3f|%.3f|%.3f",
+            locale: Locale(identifier: "en_US_POSIX"),
+            piperVoiceSignature,
+            systemSpeechRate,
+            systemSpeechPitch,
+            systemSpeechVolume
+        )
+    }
+
+    /// Piper falls back to a legacy Piper id that older builds stored in `systemVoice`.
+    var piperVoiceSignature: String {
+        let selected = piperVoice.trimmingCharacters(in: .whitespacesAndNewlines)
+        if !selected.isEmpty { return selected }
+        let legacy = systemVoice.trimmingCharacters(in: .whitespacesAndNewlines)
+        return legacy.isEmpty ? "Piper voice" : legacy
+    }
+
     var currentNarrationEngine: String {
-        ttsMode == "gemini" ? "gemini" : "system"
+        if ttsMode == "gemini" { return "gemini" }
+        if ttsMode == "piper" { return "piper" }
+        return "system"
     }
 
     var currentNarrationVoice: String {
@@ -829,6 +854,7 @@ struct StudioSettings: Codable, Equatable {
             let trimmed = geminiVoice.trimmingCharacters(in: .whitespacesAndNewlines)
             return trimmed.isEmpty ? "Kore" : trimmed
         }
+        if ttsMode == "piper" { return piperVoiceSignature }
         let selected = systemVoice.trimmingCharacters(in: .whitespacesAndNewlines)
         if !selected.isEmpty { return selected }
         if let voice = SystemSpeechVoiceResolver.defaultVoiceDisplayName {
@@ -854,6 +880,13 @@ struct StudioSettings: Codable, Equatable {
             systemSpeechPitch,
             systemSpeechVolume
         )
+    }
+
+    /// Recognizes catalog ids such as `en_US-amy-low` without treating Apple voice names as Piper.
+    static func looksLikePiperVoiceIdentifier(_ value: String) -> Bool {
+        let parts = value.split(separator: "-", omittingEmptySubsequences: false)
+        guard parts.count == 3, parts[0].contains("_") else { return false }
+        return ["x_low", "low", "medium", "high"].contains(parts[2].lowercased())
     }
 
     mutating func restoreSystemSpeechDefaults() {
@@ -1264,14 +1297,21 @@ final class StudioModel {
             settings.captionDisplayMode = "transcript"
             seededCaptionDisplayMode = true
         }
-        // Azure Voices and Piper generation were removed; moved projects fall back to Apple
-        // Voices, and legacy Piper voice labels remain readable in narration reports.
+        // Azure Voices was removed; its legacy choice falls back to Apple Voices.
+        // Older Mac builds also stored Piper voice ids in `systemVoice`, so move
+        // those into the Piper selection now that Piper speech is available again.
         var migratedSpeechEngine = false
-        if settings.ttsMode == "azure" || settings.ttsMode == "piper" {
-            // Piper voice ids such as en_US-amy-low are not Apple voice names.
-            if settings.ttsMode == "piper" { settings.systemVoice = "" }
+        if settings.ttsMode == "azure" {
             settings.ttsMode = "system"
             migratedSpeechEngine = true
+        }
+        if settings.piperVoice.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            let legacyVoice = settings.systemVoice.trimmingCharacters(in: .whitespacesAndNewlines)
+            if StudioSettings.looksLikePiperVoiceIdentifier(legacyVoice) {
+                settings.piperVoice = legacyVoice
+                settings.systemVoice = ""
+                migratedSpeechEngine = true
+            }
         }
         settingsPersistenceEnabled = true
         // One-time migration: move any plaintext key left in config.json into the Keychain,
@@ -1994,7 +2034,10 @@ final class StudioModel {
         }
         let task = Process(); task.executableURL = engine
         task.arguments = [command] + (target?.folder.map { ["--project", $0.path] } ?? []) + extra
-        var environment = ProcessInfo.processInfo.environment.merging(["VIDISTUDIO_CONFIG": (effectiveConfigurationURL ?? StudioSettings.url).path]) { _, new in new }
+        var environment = ProcessInfo.processInfo.environment.merging([
+            "VIDISTUDIO_CONFIG": (effectiveConfigurationURL ?? StudioSettings.url).path,
+            "VIDISTUDIO_PIPER_VOICES": PiperStorage.voicesDirectory.path,
+        ]) { _, new in new }
         if !apiKey.isEmpty { environment["VIDISTUDIO_API_KEY"] = apiKey }
         task.environment = environment
         let output = Pipe(); task.standardOutput = output

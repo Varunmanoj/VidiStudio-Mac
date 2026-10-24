@@ -171,7 +171,7 @@ enum SummarySpeechParser {
 // MARK: - Readback model (Apple Text to Speech)
 
 @MainActor @Observable
-final class SummaryReadbackModel: NSObject, AVSpeechSynthesizerDelegate {
+final class SummaryReadbackModel: NSObject, AVSpeechSynthesizerDelegate, AVAudioPlayerDelegate {
     var sentences: [SummarySentence] = []
     var currentIndex: Int?
     /// Word highlight in display-text (UTF-16) coordinates. See `cachedLineRanges`.
@@ -200,6 +200,11 @@ final class SummaryReadbackModel: NSObject, AVSpeechSynthesizerDelegate {
     /// speech starts, so sentence/word highlighting is visible. Wired by the view;
     /// chained sentence advances never clear, so selecting text mid-reading works.
     @ObservationIgnored var clearTextSelection: (@MainActor () -> Void)?
+    /// Piper reads temporary audio rather than speaking through AVSpeechSynthesizer.
+    @ObservationIgnored private var piperPlayer: AVAudioPlayer?
+    @ObservationIgnored private var piperTask: Task<Void, Never>?
+    @ObservationIgnored private var piperTick: Timer?
+    @ObservationIgnored private var piperGeneration = 0
 
     override init() {
         super.init()
@@ -246,7 +251,11 @@ final class SummaryReadbackModel: NSObject, AVSpeechSynthesizerDelegate {
         guard !sentences.isEmpty else { return }
         if isPaused {
             isPaused = false
-            synthesizer.continueSpeaking()
+            if let piperPlayer {
+                piperPlayer.play()
+            } else if piperTask == nil {
+                synthesizer.continueSpeaking()
+            }
             return
         }
         if isReading { return }
@@ -255,7 +264,11 @@ final class SummaryReadbackModel: NSObject, AVSpeechSynthesizerDelegate {
 
     func pause() {
         guard isReading, !isPaused else { return }
-        synthesizer.pauseSpeaking(at: .word)
+        if let piperPlayer {
+            piperPlayer.pause()
+        } else if piperTask == nil {
+            synthesizer.pauseSpeaking(at: .word)
+        }
         isPaused = true
     }
 
@@ -660,16 +673,113 @@ final class SummaryReadbackModel: NSObject, AVSpeechSynthesizerDelegate {
 
     // MARK: Speech backends
 
-    /// Starts speaking `text` with the selected Apple voice.
+    /// Starts speaking `text` with the selected Apple or Piper voice.
     private func startSpeech(_ text: String) throws {
+        if settings.ttsMode == "piper" {
+            startPiperSpeech(text)
+            return
+        }
         let utterance = try SystemSpeechUtterance.make(text: text, settings: settings)
         speakingUtterance = utterance
         synthesizer.speak(utterance)
     }
 
-    /// Stops Apple speech.
+    /// Stops Apple speech and any Piper playback.
     private func haltSpeech() {
         synthesizer.stopSpeaking(at: .immediate)
+        stopPiperPlayback()
+    }
+
+    private func startPiperSpeech(_ text: String) {
+        stopPiperPlayback()
+        speakingUtterance = nil
+        let generation = piperGeneration
+        let request = PiperSpeech.request(text: text, settings: settings)
+        piperTask = Task { [weak self] in
+            do {
+                let url = try await PiperSpeech.shared.synthesize(request)
+                guard let self, self.piperGeneration == generation else { return }
+                let player = try AVAudioPlayer(contentsOf: url)
+                player.delegate = self
+                self.piperPlayer = player
+                self.piperTask = nil
+                player.prepareToPlay()
+                if self.isPaused {
+                    // Paused while the temporary audio was being prepared.
+                } else {
+                    player.play()
+                }
+                self.handleSpeechStarted()
+                self.startPiperWordTimer()
+            } catch is CancellationError {
+            } catch {
+                guard let self, self.piperGeneration == generation else { return }
+                self.piperTask = nil
+                self.error = UserFacingIssueReporter.speechMessage(
+                    for: error,
+                    issue: .speech,
+                    context: "Read summary"
+                )
+                self.isReading = false
+                self.isPaused = false
+                self.currentIndex = nil
+                self.wordRange = nil
+                self.speakingIndex = nil
+            }
+        }
+    }
+
+    private func stopPiperPlayback() {
+        piperGeneration += 1
+        piperTask?.cancel()
+        piperTask = nil
+        piperTick?.invalidate()
+        piperTick = nil
+        piperPlayer?.stop()
+        piperPlayer = nil
+    }
+
+    private func startPiperWordTimer() {
+        piperTick?.invalidate()
+        piperTick = Timer.scheduledTimer(withTimeInterval: 0.08, repeats: true) { [weak self] _ in
+            Task { @MainActor in self?.updatePiperWord() }
+        }
+    }
+
+    /// Piper has no word-boundary callbacks, so highlights follow audio progress.
+    private func updatePiperWord() {
+        guard !oneShotActive,
+              let index = speakingIndex,
+              cachedLineRanges.indices.contains(index),
+              let player = piperPlayer,
+              player.duration > 0 else { return }
+        let sentence = sentences[index].text as NSString
+        guard partialOffset < sentence.length else { return }
+        let remaining = sentence.substring(from: partialOffset)
+        var words: [NSRange] = []
+        (remaining as NSString).enumerateSubstrings(
+            in: NSRange(location: 0, length: (remaining as NSString).length),
+            options: [.byWords, .substringNotRequired]
+        ) { _, range, _, _ in
+            words.append(range)
+        }
+        guard !words.isEmpty else { return }
+        let fraction = min(max(player.currentTime / player.duration, 0), 0.999)
+        let word = words[min(words.count - 1, Int(fraction * Double(words.count)))]
+        let prefixLength = (cachedLines[index].prefix as NSString).length
+        let location = cachedLineRanges[index].location + prefixLength + partialOffset + word.location
+        let highlight = NSRange(location: location, length: word.length)
+        if wordRange != highlight { wordRange = highlight }
+    }
+
+    nonisolated func audioPlayerDidFinishPlaying(_ player: AVAudioPlayer, successfully flag: Bool) {
+        Task { @MainActor [weak self] in
+            guard let self, self.piperPlayer === player else { return }
+            self.piperPlayer = nil
+            self.piperTick?.invalidate()
+            self.piperTick = nil
+            self.handleSpeechFinished()
+        }
     }
 }
 
@@ -963,6 +1073,17 @@ struct SummaryReaderView: View {
     var hasSummary: Bool = true
     var onEdit: (() -> Void)? = nil
 
+    /// Names the engine actually used for summary reading.
+    private var speechEngineLabel: String {
+        settings.ttsMode == "piper" ? "Piper Speech" : "Apple Speech"
+    }
+
+    private var speechEngineHelp: String {
+        settings.ttsMode == "piper"
+            ? "Summary reading uses the Piper voice selected in Settings → Narration"
+            : "Summary reading uses the Apple on-device voice selected in Settings → Narration"
+    }
+
     var body: some View {
         VStack(spacing: 0) {
             readbackControls
@@ -986,6 +1107,9 @@ struct SummaryReaderView: View {
         }
         .onAppear { model.configure(markdown: markdown, settings: settings) }
         .onChange(of: markdown) { _, newValue in model.configure(markdown: newValue, settings: settings) }
+        .onChange(of: settings.ttsMode) { _, _ in model.updateSettings(settings) }
+        .onChange(of: settings.piperVoice) { _, _ in model.updateSettings(settings) }
+        .onChange(of: settings.geminiVoice) { _, _ in model.updateSettings(settings) }
         .onChange(of: settings.systemVoice) { _, _ in model.updateSettings(settings) }
         .onChange(of: settings.systemSpeechRate) { _, _ in model.updateSettings(settings) }
         .onChange(of: settings.systemSpeechPitch) { _, _ in model.updateSettings(settings) }
@@ -1033,11 +1157,11 @@ struct SummaryReaderView: View {
                 .accessibilityLabel("Edit summary directly")
             }
 
-            Text("Apple Speech")
+            Text(speechEngineLabel)
                 .font(.caption)
                 .foregroundStyle(.secondary)
-                .help("Summary reading uses the Apple on-device voice selected in Settings → Narration")
-                .accessibilityLabel("Summary reading uses the Apple on-device voice")
+                .help(speechEngineHelp)
+                .accessibilityLabel(speechEngineHelp)
         }
         .controlSize(.small)
         .padding(.horizontal, 16)

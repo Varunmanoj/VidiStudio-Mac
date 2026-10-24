@@ -1,3 +1,4 @@
+import json
 from pathlib import Path
 import unittest
 
@@ -16,11 +17,15 @@ class NarrationPlaybackOptions(unittest.TestCase):
         for source in (settings, overview):
             self.assertNotIn('allowsGeminiNarration', source)
         self.assertIn('Label("Apple Voices", systemImage: "speaker.wave.2").tag("system")', settings)
+        self.assertIn('Label("Piper Voices", systemImage: "waveform.circle").tag("piper")', settings)
         self.assertIn('Label("Gemini Voices", systemImage: "sparkles").tag("gemini")', settings)
         self.assertIn('Text("Apple Voices").tag("system")', overview)
+        self.assertIn('Text("Piper Voices").tag("piper")', overview)
         self.assertIn('Text("Gemini Voices").tag("gemini")', overview)
         self.assertIn('if studio.settings.ttsMode == "gemini" {\n                    GeminiVoiceBrowser(studio: studio)', settings)
-        self.assertIn('if studio.settings.ttsMode != "gemini" {', settings)
+        self.assertIn('if studio.settings.ttsMode == "piper" {', settings)
+        self.assertIn('PiperVoiceSettingsView(settings: $studio.settings)', settings)
+        self.assertIn('if studio.settings.ttsMode == "system" {', settings)
         self.assertNotIn('studio.settings.ttsMode != "gemini" || studio.settings.narrationPlayback == "device"', settings)
 
     def test_mac_no_longer_resets_the_engine_for_preview_playback(self):
@@ -103,19 +108,46 @@ class NarrationPlaybackOptions(unittest.TestCase):
         self.assertIn('ContinueOnError="WarnAndContinue"', app)
         self.assertIn('the copy in runtime\\speech\\$(Platform) is used', app)
 
-    def test_mac_no_longer_offers_azure_or_piper_generation(self):
+    def test_mac_offers_piper_and_removes_azure(self):
         settings = (ROOT/'VidiStudio Mac/VidiStudio/SettingsView.swift').read_text()
         overview = (ROOT/'VidiStudio Mac/VidiStudio/ADOverviewView.swift').read_text()
         model = (ROOT/'VidiStudio Mac/VidiStudio/StudioModel.swift').read_text()
+        catalog = (ROOT/'VidiStudio Mac/VidiStudio/PiperVoiceCatalog.swift').read_text()
         self.assertNotIn('Azure Voices', settings)
         self.assertNotIn('Azure Voices', overview)
         self.assertNotIn('AzureSpeechKeySettings', settings)
         self.assertNotIn('azureSpeechKey', model)
         self.assertNotIn('KeychainStore.azureSpeech', model)
         self.assertIn('case "piper": return "Piper Voices"', model)
-        self.assertIn('if settings.ttsMode == "azure" || settings.ttsMode == "piper" {', model)
-        self.assertIn('if settings.ttsMode == "piper" { settings.systemVoice = "" }', model)
-        self.assertIn('settings.ttsMode = "system"', model)
+        self.assertIn('var piperVoice = ""', model)
+        self.assertIn('return piperSpeechSignature', model)
+        self.assertIn('if settings.ttsMode == "azure" {', model)
+        self.assertNotIn('if settings.ttsMode == "azure" || settings.ttsMode == "piper" {', model)
+        self.assertIn('looksLikePiperVoiceIdentifier', model)
+        self.assertIn('settings.piperVoice = legacyVoice', model)
+        # The macOS catalog mirrors Windows: filters, sorting, hosted samples,
+        # per-row download progress, removal progress, and checksum verification.
+        self.assertIn('PiperVoiceBrowser', catalog)
+        self.assertIn('PiperVoiceManager', catalog)
+        self.assertIn('Picker("Language", selection: $language)', catalog)
+        self.assertIn('Picker("Quality", selection: $quality)', catalog)
+        self.assertIn('Picker("Sort by", selection: $sort)', catalog)
+        self.assertIn('"Language (A–Z)"', catalog)
+        self.assertIn('"Voice name (A–Z)"', catalog)
+        self.assertIn('"Quality (high to low)"', catalog)
+        self.assertIn('"Size (smallest first)"', catalog)
+        self.assertIn('Play Sample', catalog)
+        self.assertIn('deletingIDs', catalog)
+        self.assertIn('progress[voice.id]', catalog)
+        self.assertIn('Insecure.MD5', catalog)
+        self.assertIn('huggingface.co/rhasspy/piper-voices', catalog)
+        self.assertIn('piper-voices.json', (ROOT/'VidiStudio Mac/script/xcode_bundle_engine.sh').read_text())
+        self.assertIn('piper-tts==1.8.0', (ROOT/'VidiStudio Mac/engine/requirements-build.lock').read_text())
+        self.assertIn('--collect-all piper', (ROOT/'VidiStudio Mac/script/prepare_engine.sh').read_text())
+        # The frozen engine must find espeak-ng data from its own folder, not the bundle.
+        engine = (ROOT/'VidiStudio Mac/engine/vidistudio_engine.py').read_text()
+        self.assertIn('def piper_espeak_data():', engine)
+        self.assertIn('espeak_data_dir=piper_espeak_data()', engine)
 
     def test_summary_read_aloud_uses_the_narration_voice_only(self):
         mac_settings = (ROOT/'VidiStudio Mac/VidiStudio/SettingsView.swift').read_text()
@@ -125,6 +157,16 @@ class NarrationPlaybackOptions(unittest.TestCase):
         self.assertNotIn('Read aloud with', mac_settings)
         self.assertNotIn('usesAzure', mac_reader)
         self.assertIn('private func startSpeech(_ text: String) throws', mac_reader)
+        self.assertIn('if settings.ttsMode == "piper" {', mac_reader)
+        self.assertIn('PiperSpeech.request(text: text, settings: settings)', mac_reader)
+        self.assertIn('audioPlayerDidFinishPlaying', mac_reader)
+        self.assertIn('.onChange(of: settings.ttsMode) { _, _ in model.updateSettings(settings) }', mac_reader)
+        self.assertIn('.onChange(of: settings.piperVoice) { _, _ in model.updateSettings(settings) }', mac_reader)
+        # The reader names the engine it actually uses, and Piper errors stay readable.
+        self.assertIn('speechEngineLabel', mac_reader)
+        self.assertIn('settings.ttsMode == "piper" ? "Piper Speech" : "Apple Speech"', mac_reader)
+        self.assertNotIn('Text("Apple Speech")', mac_reader)
+        self.assertIn('UserFacingIssueReporter.speechMessage(', mac_reader)
         self.assertIn('var mode = settings.Get("ttsMode", "windows-core");', win_reader)
         self.assertNotIn('azure', win_reader.lower())
         # Live on-device speech includes Piper and never creates project files.
@@ -132,6 +174,20 @@ class NarrationPlaybackOptions(unittest.TestCase):
         self.assertIn('mode == "piper" ? settings.Get("piperVoice", settings.Get("systemVoice"))', win_live)
         self.assertNotIn('preview-tts', win_live)
         self.assertNotIn('engine.RunAsync', win_live)
+
+    def test_piper_catalog_is_shared_and_has_published_samples(self):
+        mac = json.loads((ROOT/'VidiStudio Mac/VidiStudio/Assets/piper-voices.json').read_text())
+        windows = json.loads((ROOT/'Vidi-Studio-Windows/Vidi Studio Windows/Assets/piper-voices.json').read_text())
+        self.assertEqual(mac, windows)
+        self.assertEqual(len(mac), 178)
+        for voice_id, voice in mac.items():
+            self.assertEqual(voice['key'], voice_id)
+            self.assertIn(voice['quality'], ('x_low', 'low', 'medium', 'high'))
+            model = next(path for path in voice['files'] if path.endswith('.onnx'))
+            config = next(path for path in voice['files'] if path.endswith('.onnx.json'))
+            self.assertEqual(model.rsplit('/', 1)[0], config.rsplit('/', 1)[0])
+            self.assertTrue(voice['files'][model]['md5_digest'])
+            self.assertTrue(voice['files'][config]['md5_digest'])
 
 
 if __name__ == '__main__':

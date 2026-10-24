@@ -147,6 +147,9 @@ final class PlaybackModel {
     private let deviceSpeech = AVSpeechSynthesizer()
     private var deviceCue: String?
     private var deviceTime = 0.0
+    private var piperPlayer: AVAudioPlayer?
+    private var piperTask: Task<Void, Never>?
+    private var piperToken = UUID()
     private var unduckedVolume: Float?
     private var appliedDuckedVolume: Float?
     private var webVolumeDucked = false
@@ -200,6 +203,15 @@ final class PlaybackModel {
     }
     private func stopDeviceSpeech() {
         deviceSpeech.stopSpeaking(at: .immediate); deviceCue = nil
+        stopPiperSpeech()
+    }
+
+    private func stopPiperSpeech() {
+        piperToken = UUID()
+        piperTask?.cancel()
+        piperTask = nil
+        piperPlayer?.stop()
+        piperPlayer = nil
     }
     var webView: WKWebView?
     var isScrubbing = false
@@ -226,6 +238,12 @@ final class PlaybackModel {
         if settings.narrationPlayback == "device" {
             narration?.stop(); narrationID = nil
             guard narrationEnabled, playing, let cue = project.cues.first(where: { time >= $0.start && time < $0.end }) else { stopDeviceSpeech(); setNarrationDucking(false); return }
+            if settings.ttsMode == "piper" {
+                syncPiperNarration(cue: cue, settings: settings)
+                deviceTime = time
+                setNarrationDucking(piperPlayer?.isPlaying == true)
+                return
+            }
             let identity = cue.id + cue.text + settings.systemSpeechSignature
             if deviceCue != identity || abs(time - deviceTime) > 0.8 {
                 stopDeviceSpeech()
@@ -262,6 +280,40 @@ final class PlaybackModel {
             narration.currentTime = offset; narration.play()
         }
         setNarrationDucking(narration?.isPlaying == true)
+    }
+
+    /// Live preview with Piper synthesizes a temporary audio file and plays it
+    /// in sync with the cue, then never writes anything into the project.
+    private func syncPiperNarration(cue: Segment, settings: StudioSettings) {
+        let identity = cue.id + cue.text + settings.piperSpeechSignature
+        if deviceCue != identity || abs(time - deviceTime) > 0.8 {
+            stopPiperSpeech()
+            deviceCue = identity
+            let token = piperToken
+            let request = PiperSpeech.request(text: cue.text, settings: settings)
+            piperTask = Task { [weak self] in
+                do {
+                    let url = try await PiperSpeech.shared.synthesize(request)
+                    guard let self, self.piperToken == token else { return }
+                    let player = try AVAudioPlayer(contentsOf: url)
+                    let offset = max(0, self.time - cue.start)
+                    player.currentTime = min(offset, max(0, player.duration - 0.05))
+                    player.play()
+                    self.piperPlayer = player
+                    self.speechError = nil
+                    self.setNarrationDucking(player.isPlaying)
+                } catch is CancellationError {
+                } catch {
+                    guard let self, self.piperToken == token else { return }
+                    self.speechError = UserFacingIssueReporter.speechMessage(
+                        for: error,
+                        issue: .speech,
+                        context: "Play live narration"
+                    )
+                    self.setNarrationDucking(false)
+                }
+            }
+        }
     }
     func stop() {
         cancelPendingPlayback()

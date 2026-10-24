@@ -201,18 +201,34 @@ struct SettingsView: View {
             if section == "Narration" { Section("Narration") {
                 Picker("Speech engine", selection: $studio.settings.ttsMode) {
                     Label("Apple Voices", systemImage: "speaker.wave.2").tag("system")
+                    Label("Piper Voices", systemImage: "waveform.circle").tag("piper")
                     Label("Gemini Voices", systemImage: "sparkles").tag("gemini")
                 }
                 Picker("Narration during playback", selection: $studio.settings.narrationPlayback) {
                     Label("Play synthesized narration", systemImage: "play.circle").tag("generated")
-                    Label("Preview segment text with Apple Speech", systemImage: "text.bubble").tag("device")
+                    Label("Preview segment text with the selected voice", systemImage: "text.bubble").tag("device")
                 }
                 Toggle("Sound when narration is off", isOn: $studio.settings.soundWhenNarrationOff)
                 Toggle("Sound when synthesized audio is unavailable", isOn: $studio.settings.soundWhenNarrationMissing)
                 if studio.settings.ttsMode == "gemini" {
                     GeminiVoiceBrowser(studio: studio)
                 }
-                if studio.settings.ttsMode != "gemini" {
+                if studio.settings.ttsMode == "piper" {
+                    GroupBox("Voice controls") {
+                        VStack(alignment: .leading, spacing: 14) {
+                            speechSlider("Speech rate", value: $studio.settings.systemSpeechRate, range: 0.5...2.0)
+                            speechSlider("Pitch", value: $studio.settings.systemSpeechPitch, range: 0.5...2.0)
+                            speechSlider("Speech volume", value: $studio.settings.systemSpeechVolume, range: 0...1.0)
+                            Button("Restore Defaults", systemImage: "arrow.counterclockwise") {
+                                studio.settings.restoreSystemSpeechDefaults()
+                            }
+                            .accessibilityHint("Restores speech rate, pitch, and volume to their original values")
+                        }
+                        .padding(.vertical, 4)
+                    }
+                    PiperVoiceSettingsView(settings: $studio.settings)
+                }
+                if studio.settings.ttsMode == "system" {
                     GroupBox("Voice controls") {
                         VStack(alignment: .leading, spacing: 14) {
                             speechSlider("Speech rate", value: $studio.settings.systemSpeechRate, range: 0.5...2.0)
@@ -231,7 +247,7 @@ struct SettingsView: View {
                     VStack(alignment: .leading, spacing: 10) {
                         Text("Reads the summary aloud and highlights the active sentence and word.")
                             .font(.caption).foregroundStyle(.secondary)
-                        Text("Uses the Apple voice and speech controls chosen above.")
+                        Text("Uses the selected Apple or Piper voice and the speech controls above.")
                             .font(.caption).foregroundStyle(.secondary)
                         ColorPicker("Sentence highlight", selection: summaryColorBinding(\.summarySentenceHighlight))
                             .accessibilityLabel("Sentence highlight background color")
@@ -334,6 +350,16 @@ struct SettingsView: View {
         .smoothPresentation()
         .onChange(of: studio.settings.ffmpegPath) { _, _ in studio.engineCheckStatus = .unchecked }
         .onChange(of: studio.settings.ffprobePath) { _, _ in studio.engineCheckStatus = .unchecked }
+        .onChange(of: studio.settings.ttsMode) { _, mode in
+            guard mode == "piper" else { return }
+            let manager = PiperVoiceManager.shared
+            manager.refresh()
+            if studio.settings.piperVoice.isEmpty,
+               !manager.downloadedVoices.isEmpty,
+               let first = manager.downloadedVoices.first {
+                studio.settings.piperVoice = first.id
+            }
+        }
         .onAppear {
             if let section = SettingsSectionRequest.consume(), sections.contains(section) {
                 studio.settingsSection = section

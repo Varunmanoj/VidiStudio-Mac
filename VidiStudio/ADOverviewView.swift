@@ -24,6 +24,9 @@ struct ADOverviewView: View {
     }
     private var selectedVoice: String {
         if studio.settings.ttsMode == "gemini" { return studio.settings.geminiVoice }
+        if studio.settings.ttsMode == "piper" {
+            return NarrationVoiceFormatting.voiceDisplayName(studio.settings.piperVoiceSignature)
+        }
         if !studio.settings.systemVoice.isEmpty { return studio.settings.systemVoice }
         if let voice = SystemSpeechVoiceResolver.defaultVoiceDisplayName {
             return "System default (\(voice))"
@@ -86,6 +89,7 @@ struct ADOverviewView: View {
                     VStack(alignment: .leading, spacing: 10) {
                         Picker("Speech engine", selection: $studio.settings.ttsMode) {
                             Text("Apple Voices").tag("system")
+                            Text("Piper Voices").tag("piper")
                             Text("Gemini Voices").tag("gemini")
                         }
                         statistic("Selected voice", value: studio.settings.currentNarrationSummary)
