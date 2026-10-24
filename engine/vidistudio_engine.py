@@ -1299,13 +1299,30 @@ def piper_speech(raw, text, cfg):
     voice = load_piper_voice(model, settings)
     rate = speech_controls(cfg)[0]
     with wave.open(str(raw), 'wb') as stream:
+        # Piper only writes the WAV format when the first audio chunk arrives;
+        # punctuation-only text has none, so a default header keeps wave from
+        # raising "# channels not specified" before the friendly error below.
+        stream.setnchannels(1)
+        stream.setsampwidth(2)
+        stream.setframerate(int(getattr(voice.config, 'sample_rate', 22050) or 22050))
         # Piper's length scale is the inverse of speaking rate.
         voice.synthesize_wav(text, stream, syn_config=SynthesisConfig(length_scale=1.0 / rate))
+    try:
+        with wave.open(str(raw), 'rb') as stream:
+            frames = stream.getnframes()
+    except (OSError, EOFError, wave.Error):
+        frames = 0
+    if frames <= 0:
+        # Punctuation-only text (for example a horizontal rule) yields an empty
+        # stream that ffmpeg cannot finish, so report it as readable guidance.
+        raise ValueError('This text has no words to read aloud.')
 
 
 def finish_system_speech(raw, output, cfg):
     _, pitch, volume = speech_controls(cfg)
     stream = next((item for item in probe(raw).get('streams', []) if item.get('codec_type') == 'audio'), {})
+    if not stream:
+        raise ValueError('The selected voice produced no audio for this text.')
     sample_rate = int(stream.get('sample_rate') or 24000)
     filters = []
     if abs(pitch - 1.0) > .0001:

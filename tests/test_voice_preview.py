@@ -197,6 +197,19 @@ class VoicePreview(unittest.TestCase):
         # Normal installs keep using the data folder directly.
         self.assertLess(len(str(engine.piper_espeak_data())), 150)
 
+    def test_piper_speech_rejects_punctuation_only_text(self):
+        # A horizontal rule yields zero samples, which ffmpeg cannot finish.
+        with tempfile.TemporaryDirectory() as directory:
+            raw = Path(directory) / 'empty.wav'
+
+            with patch.object(engine, 'piper_locations', return_value=('voice', Path('/models/voice.onnx'), Path('/models/voice.onnx.json'))), \
+                 patch.object(engine, 'load_piper_voice') as voice:
+                voice.return_value.config.sample_rate = 22050
+                # Piper emits no audio chunks for punctuation-only text.
+                voice.return_value.synthesize_wav.return_value = None
+                with self.assertRaisesRegex(ValueError, 'no words to read aloud'):
+                    engine.piper_speech(raw, '⸻', {'piperVoice': 'voice'})
+
     def test_safe_error_formats_invalid_api_key_cleanly(self):
         exc = Exception("400 INVALID_ARGUMENT. {'error': {'code': 400, 'message': 'API key not valid. Please pass a valid API key.', 'status': 'INVALID_ARGUMENT', 'details': [{'reason': 'API_KEY_INVALID'}]}}")
         msg = engine.safe_error(exc)

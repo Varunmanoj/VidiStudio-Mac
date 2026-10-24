@@ -595,13 +595,10 @@ struct PiperVoiceSettingsView: View {
     @Binding var settings: StudioSettings
     @State private var manager = PiperVoiceManager.shared
     @State private var showingCatalog = false
+    @State private var showingDelete = false
 
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
-            Text("Piper Voices are free neural voices that run entirely on this Mac. The Piper speech engine is included with VidiStudio; download the voices you want to use. Voices work offline and your narration text never leaves this Mac.")
-                .font(.caption)
-                .foregroundStyle(.secondary)
-                .fixedSize(horizontal: false, vertical: true)
             if manager.downloadedVoices.isEmpty {
                 Text("No Piper voices are downloaded yet. Choose Download or Remove Voices to add one.")
                     .font(.callout)
@@ -618,17 +615,24 @@ struct PiperVoiceSettingsView: View {
                 }
                 .accessibilityHint("Chooses the downloaded Piper voice used for narration, live preview, and summary read-aloud")
             }
-            Button("Download or Remove Voices…", systemImage: "arrow.down.circle") {
-                showingCatalog = true
+            HStack(spacing: 12) {
+                Button("Download or Remove Voices…", systemImage: "arrow.down.circle") {
+                    showingCatalog = true
+                }
+                .accessibilityLabel("Download or remove Piper voices")
+                Button("Delete Voices…", systemImage: "trash") {
+                    showingDelete = true
+                }
+                .disabled(manager.downloadedVoices.isEmpty)
+                .accessibilityLabel("Delete downloaded Piper voices")
+                .accessibilityHint("Lists downloaded Piper voices so you can listen to a sample and remove the ones you no longer need")
             }
-            .accessibilityLabel("Download or remove Piper voices")
-            Text("Voices are downloaded from the public Piper voice collection on Hugging Face and checked against their published size and checksum. Piper is an open-source project by Rhasspy.")
-                .font(.caption2)
-                .foregroundStyle(.secondary)
-                .fixedSize(horizontal: false, vertical: true)
         }
         .sheet(isPresented: $showingCatalog) {
             PiperVoiceBrowser(settings: $settings)
+        }
+        .sheet(isPresented: $showingDelete) {
+            PiperDeleteVoicesView(settings: $settings)
         }
         .task { manager.refresh() }
         .onChange(of: manager.downloadedIDs) { _, ids in
@@ -737,7 +741,6 @@ struct PiperVoiceBrowser: View {
             TextField("Search voices", text: $search, prompt: Text("Name, language, dialect, or quality"))
                 .textFieldStyle(.roundedBorder)
                 .accessibilityLabel("Search voices")
-                .onExitCommand { search = "" }
 
             HStack(spacing: 12) {
                 Picker("Language", selection: $language) {
@@ -793,6 +796,7 @@ struct PiperVoiceBrowser: View {
         }
         .padding(20)
         .frame(minWidth: 760, idealWidth: 800, minHeight: 620)
+        .onExitCommand { dismiss() }
         .task { manager.refresh() }
         .onDisappear { sample.stop() }
     }
@@ -882,6 +886,243 @@ struct PiperVoiceBrowser: View {
         } catch {
             status = "The voice could not be downloaded. \(error.localizedDescription)"
         }
+    }
+
+    private func delete(_ voice: PiperVoice) async {
+        if sample.playingID == voice.id { sample.stop() }
+        status = "Removing \(voice.displayName) and its cached sample…"
+        do {
+            try await manager.delete(voice)
+            if settings.piperVoice == voice.id {
+                settings.piperVoice = manager.downloadedVoices.first?.id ?? ""
+            }
+            status = "\(voice.displayName) was removed."
+        } catch {
+            status = "The voice could not be removed. \(error.localizedDescription)"
+        }
+    }
+}
+
+// MARK: - Delete downloaded voices
+
+/// Filtering and sorting shared by the Piper catalog and the delete-voices list.
+private enum PiperVoiceQuery {
+    static let sortOptions = [
+        PiperFilterOption(id: "language", label: "Language (A–Z)"),
+        PiperFilterOption(id: "name", label: "Voice name (A–Z)"),
+        PiperFilterOption(id: "quality", label: "Quality (high to low)"),
+        PiperFilterOption(id: "size", label: "Size (smallest first)"),
+    ]
+
+    static func languageOptions(for voices: [PiperVoice]) -> [PiperFilterOption] {
+        let grouped = Dictionary(grouping: voices, by: \.languageFamily)
+        let options = grouped.map { family, familyVoices in
+            PiperFilterOption(id: family, label: familyVoices.first?.languageName ?? family)
+        }.sorted { $0.label.localizedStandardCompare($1.label) == .orderedAscending }
+        return [PiperFilterOption(id: "", label: "All languages")] + options
+    }
+
+    static func qualityOptions(for voices: [PiperVoice]) -> [PiperFilterOption] {
+        let qualities = Set(voices.map(\.quality).filter { !$0.isEmpty })
+        let options = qualities.sorted {
+            PiperVoice.qualityRank($0) > PiperVoice.qualityRank($1)
+        }.map { PiperFilterOption(id: $0, label: PiperVoice.qualityLabel($0)) }
+        return [PiperFilterOption(id: "", label: "All qualities")] + options
+    }
+
+    static func matches(_ voice: PiperVoice, _ filter: String) -> Bool {
+        voice.displayName.localizedStandardContains(filter)
+            || voice.language.localizedStandardContains(filter)
+            || voice.country.localizedStandardContains(filter)
+            || voice.quality.localizedStandardContains(filter)
+            || voice.qualityLabel.localizedStandardContains(filter)
+    }
+
+    static func visible(
+        _ voices: [PiperVoice],
+        search: String,
+        language: String,
+        quality: String,
+        sort: String
+    ) -> [PiperVoice] {
+        let filter = search.trimmingCharacters(in: .whitespacesAndNewlines)
+        let query = voices.filter { voice in
+            (language.isEmpty || voice.languageFamily.caseInsensitiveCompare(language) == .orderedSame)
+                && (quality.isEmpty || voice.quality.caseInsensitiveCompare(quality) == .orderedSame)
+                && (filter.isEmpty || matches(voice, filter))
+        }
+        return query.sorted { left, right in
+            switch sort {
+            case "name":
+                let name = left.name.localizedStandardCompare(right.name)
+                if name != .orderedSame { return name == .orderedAscending }
+                return left.languageLabel.localizedStandardCompare(right.languageLabel) == .orderedAscending
+            case "quality":
+                if PiperVoice.qualityRank(left.quality) != PiperVoice.qualityRank(right.quality) {
+                    return PiperVoice.qualityRank(left.quality) > PiperVoice.qualityRank(right.quality)
+                }
+                return left.languageLabel.localizedStandardCompare(right.languageLabel) == .orderedAscending
+            case "size":
+                if left.modelSize != right.modelSize { return left.modelSize < right.modelSize }
+                return left.languageLabel.localizedStandardCompare(right.languageLabel) == .orderedAscending
+            default:
+                let lang = left.languageLabel.localizedStandardCompare(right.languageLabel)
+                if lang != .orderedSame { return lang == .orderedAscending }
+                let name = left.name.localizedStandardCompare(right.name)
+                if name != .orderedSame { return name == .orderedAscending }
+                return PiperVoice.qualityRank(left.quality) > PiperVoice.qualityRank(right.quality)
+            }
+        }
+    }
+}
+
+/// Lists only downloaded Piper voices so they can be sampled and removed.
+struct PiperDeleteVoicesView: View {
+    @Binding var settings: StudioSettings
+    @Environment(\.dismiss) private var dismiss
+    @State private var manager = PiperVoiceManager.shared
+    @State private var sample = PiperSamplePreview()
+    @State private var search = ""
+    @State private var language = ""
+    @State private var quality = ""
+    @State private var sort = "language"
+    @State private var status: String?
+
+    private var busy: Bool { !manager.progress.isEmpty || !manager.deletingIDs.isEmpty }
+    private var downloaded: [PiperVoice] { manager.downloadedVoices }
+    private var languageOptions: [PiperFilterOption] { PiperVoiceQuery.languageOptions(for: downloaded) }
+    private var qualityOptions: [PiperFilterOption] { PiperVoiceQuery.qualityOptions(for: downloaded) }
+    private var visibleVoices: [PiperVoice] {
+        PiperVoiceQuery.visible(downloaded, search: search, language: language, quality: quality, sort: sort)
+    }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            VStack(alignment: .leading, spacing: 2) {
+                Text("Delete Piper Voices")
+                    .font(.title2.weight(.semibold))
+                    .accessibilityAddTraits(.isHeader)
+                Text("Downloaded voices only. Play a sample to check a voice, then delete the ones you no longer need.")
+                    .font(.callout)
+                    .foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+
+            if downloaded.isEmpty {
+                Text("No Piper voices are downloaded, so there is nothing to delete.")
+                    .font(.callout)
+                    .foregroundStyle(.secondary)
+                    .frame(maxWidth: .infinity, minHeight: 200, alignment: .center)
+            } else {
+                TextField("Search voices", text: $search, prompt: Text("Name, language, dialect, or quality"))
+                    .textFieldStyle(.roundedBorder)
+                    .accessibilityLabel("Search downloaded voices")
+
+                HStack(spacing: 12) {
+                    Picker("Language", selection: $language) {
+                        ForEach(languageOptions) { option in
+                            Text(option.label).tag(option.id)
+                        }
+                    }
+                    Picker("Quality", selection: $quality) {
+                        ForEach(qualityOptions) { option in
+                            Text(option.label).tag(option.id)
+                        }
+                    }
+                    Picker("Sort by", selection: $sort) {
+                        ForEach(PiperVoiceQuery.sortOptions) { option in
+                            Text(option.label).tag(option.id)
+                        }
+                    }
+                }
+                .disabled(busy)
+
+                ScrollView {
+                    LazyVStack(alignment: .leading, spacing: 4) {
+                        ForEach(visibleVoices) { voice in
+                            row(voice)
+                            Divider()
+                        }
+                    }
+                    .padding(.horizontal, 4)
+                }
+                .frame(minHeight: 300)
+                .accessibilityLabel("Downloaded Piper voices")
+
+                Text(summary)
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
+            if let status {
+                Text(status)
+                    .font(.callout)
+                    .foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+            if let error = sample.error {
+                Text(error)
+                    .font(.callout)
+                    .foregroundStyle(.red)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+            HStack {
+                Spacer()
+                Button("Close") { dismiss() }
+                    .keyboardShortcut(.cancelAction)
+            }
+        }
+        .padding(20)
+        .frame(minWidth: 720, idealWidth: 780, minHeight: 560)
+        .onExitCommand { dismiss() }
+        .task { manager.refresh() }
+        .onDisappear { sample.stop() }
+    }
+
+    private var summary: String {
+        visibleVoices.count == downloaded.count
+            ? "\(downloaded.count) downloaded voice\(downloaded.count == 1 ? "" : "s")."
+            : "\(visibleVoices.count) of \(downloaded.count) downloaded voices shown."
+    }
+
+    @ViewBuilder
+    private func row(_ voice: PiperVoice) -> some View {
+        let deleting = manager.deletingIDs.contains(voice.id)
+        HStack(alignment: .top, spacing: 12) {
+            VStack(alignment: .leading, spacing: 3) {
+                Text(voice.displayName)
+                    .font(.body.weight(.semibold))
+                Text(voice.note)
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
+            Spacer(minLength: 8)
+            if deleting {
+                ProgressView()
+                    .controlSize(.small)
+                    .accessibilityLabel("Removing \(voice.displayName)")
+            }
+            Button(sampleButtonTitle(voice)) {
+                sample.toggle(voice, manager: manager)
+            }
+            .disabled(sample.loadingID != nil || busy)
+            .accessibilityLabel(
+                (sample.playingID == voice.id ? "Stop sample for " : "Play sample for ") + voice.displayName
+            )
+            .help("Plays a short sample published with this voice. The preview needs the internet; a downloaded voice itself works offline.")
+            Button(deleting ? "Deleting…" : "Delete") {
+                Task { await delete(voice) }
+            }
+            .disabled(busy || deleting)
+            .tint(.red)
+            .help("Removes this voice, its settings file, and its cached sample")
+            .accessibilityLabel(deleting ? "Deleting \(voice.displayName)" : "Delete " + voice.displayName)
+        }
+        .padding(.vertical, 6)
+    }
+
+    private func sampleButtonTitle(_ voice: PiperVoice) -> String {
+        if sample.loadingID == voice.id { return "Loading…" }
+        return sample.playingID == voice.id ? "Stop Sample" : "Play Sample"
     }
 
     private func delete(_ voice: PiperVoice) async {

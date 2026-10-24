@@ -144,6 +144,15 @@ class NarrationPlaybackOptions(unittest.TestCase):
         self.assertIn('piper-voices.json', (ROOT/'VidiStudio Mac/script/xcode_bundle_engine.sh').read_text())
         self.assertIn('piper-tts==1.8.0', (ROOT/'VidiStudio Mac/engine/requirements-build.lock').read_text())
         self.assertIn('--collect-all piper', (ROOT/'VidiStudio Mac/script/prepare_engine.sh').read_text())
+        # A dedicated delete list offers the same filters, sorting, and samples.
+        self.assertIn('struct PiperDeleteVoicesView: View', catalog)
+        self.assertIn('Button("Delete Voices…", systemImage: "trash")', catalog)
+        self.assertIn('PiperVoiceManager.shared', catalog)
+        self.assertIn('Text("Delete Piper Voices")', catalog)
+        self.assertIn('PiperVoiceQuery.sortOptions', catalog)
+        self.assertIn('.onExitCommand { dismiss() }', catalog)
+        self.assertNotIn('Piper Voices are free neural voices that run entirely on this Mac', catalog)
+        self.assertNotIn('open-source project by Rhasspy', catalog)
         # The frozen engine must find espeak-ng data from its own folder, not the bundle.
         engine = (ROOT/'VidiStudio Mac/engine/vidistudio_engine.py').read_text()
         self.assertIn('def piper_espeak_data():', engine)
@@ -152,8 +161,10 @@ class NarrationPlaybackOptions(unittest.TestCase):
     def test_summary_read_aloud_uses_the_narration_voice_only(self):
         mac_settings = (ROOT/'VidiStudio Mac/VidiStudio/SettingsView.swift').read_text()
         mac_reader = (ROOT/'VidiStudio Mac/VidiStudio/SummaryReadback.swift').read_text()
+        mac_preview = (ROOT/'VidiStudio Mac/VidiStudio/PlaybackModel.swift').read_text()
         win_reader = (ROOT/'Vidi-Studio-Windows/Vidi Studio Windows/Services/SummaryReadback.cs').read_text()
         win_live = (ROOT/'Vidi-Studio-Windows/Vidi Studio Windows/Services/OnDeviceNarrator.cs').read_text()
+        main_window = (ROOT/'Vidi-Studio-Windows/Vidi Studio Windows/MainWindow.xaml.cs').read_text()
         self.assertNotIn('Read aloud with', mac_settings)
         self.assertNotIn('usesAzure', mac_reader)
         self.assertIn('private func startSpeech(_ text: String) throws', mac_reader)
@@ -167,10 +178,22 @@ class NarrationPlaybackOptions(unittest.TestCase):
         self.assertIn('settings.ttsMode == "piper" ? "Piper Speech" : "Apple Speech"', mac_reader)
         self.assertNotIn('Text("Apple Speech")', mac_reader)
         self.assertIn('UserFacingIssueReporter.speechMessage(', mac_reader)
+        # Punctuation-only lines are skipped so Piper never renders empty audio.
+        self.assertIn('static func isSpeakable(_ text: String) -> Bool', mac_reader)
+        self.assertIn('guard SummarySpeechParser.isSpeakable(sentences[index].text) else {', mac_reader)
+        self.assertIn('guard !text.isEmpty, SummarySpeechParser.isSpeakable(text) else { return }', mac_reader)
+        # Live preview renders upcoming Piper cues and starts new cues at the first word.
+        self.assertIn('prefetchPiperNarration(cues: project.cues, settings: settings)', mac_preview)
+        self.assertIn('let offset = elapsed > 1.5 ? elapsed : 0', mac_preview)
         self.assertIn('var mode = settings.Get("ttsMode", "windows-core");', win_reader)
         self.assertNotIn('azure', win_reader.lower())
+        # Summary playback speaks Piper and SAPI through the speech host, not a second engine process.
+        self.assertIn('await SpeechService.SynthesizeAsync(host, mode, voice, sentence, path, settings.Number("systemSpeechRate"), token);', win_reader)
+        self.assertIn('remaining.Any(char.IsLetterOrDigit)', win_reader)
         # Live on-device speech includes Piper and never creates project files.
         self.assertIn('if (mode is "sapi5" or "piper")', win_live)
+        self.assertIn('public void Prepare(string text)', win_live)
+        self.assertIn('onDeviceNarrator.Prepare(nextCue.Text)', main_window)
         self.assertIn('mode == "piper" ? settings.Get("piperVoice", settings.Get("systemVoice"))', win_live)
         self.assertNotIn('preview-tts', win_live)
         self.assertNotIn('engine.RunAsync', win_live)

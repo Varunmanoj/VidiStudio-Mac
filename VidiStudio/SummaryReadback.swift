@@ -71,6 +71,15 @@ struct SummarySentence: Identifiable, Hashable {
 }
 
 enum SummarySpeechParser {
+    /// True when text contains letters or numbers a speech engine can voice.
+    /// Punctuation-only fragments such as a horizontal rule are skipped so Piper
+    /// never receives text that produces an empty audio stream.
+    static func isSpeakable(_ text: String) -> Bool {
+        text.unicodeScalars.contains {
+            CharacterSet.letters.contains($0) || CharacterSet.decimalDigits.contains($0)
+        }
+    }
+
     static func sentences(from markdown: String) -> [SummarySentence] {
         let trimmed = markdown.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty else { return [] }
@@ -350,7 +359,7 @@ final class SummaryReadbackModel: NSObject, AVSpeechSynthesizerDelegate, AVAudio
         let plain = cachedPlain as NSString
         guard NSMaxRange(selection) <= plain.length else { return }
         let text = plain.substring(with: selection).trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !text.isEmpty else { return }
+        guard !text.isEmpty, SummarySpeechParser.isSpeakable(text) else { return }
         clearTextSelection?()
         do {
             suppressAdvance = true
@@ -517,6 +526,12 @@ final class SummaryReadbackModel: NSObject, AVSpeechSynthesizerDelegate, AVAudio
             stop()
             return
         }
+        // Punctuation-only lines (horizontal rules, bullets) have nothing to say.
+        guard SummarySpeechParser.isSpeakable(sentences[index].text) else {
+            let next = index + 1
+            if sentences.indices.contains(next) { speak(at: next, userInitiated: userInitiated) } else { stop() }
+            return
+        }
         if userInitiated { clearTextSelection?() }
         do {
             speakingIndex = index
@@ -550,7 +565,8 @@ final class SummaryReadbackModel: NSObject, AVSpeechSynthesizerDelegate, AVAudio
             return
         }
         let partial = storage.substring(from: utf16Offset)
-        guard !partial.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
+        guard !partial.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
+              SummarySpeechParser.isSpeakable(partial) else {
             let next = index + 1
             if sentences.indices.contains(next) { restart(at: next) } else { stop() }
             return

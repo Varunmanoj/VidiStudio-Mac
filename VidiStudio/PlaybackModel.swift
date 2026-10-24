@@ -150,6 +150,8 @@ final class PlaybackModel {
     private var piperPlayer: AVAudioPlayer?
     private var piperTask: Task<Void, Never>?
     private var piperToken = UUID()
+    private var piperPrefetch: Set<PiperSpeech.Request> = []
+    private var piperPrefetchTask: Task<Void, Never>?
     private var unduckedVolume: Float?
     private var appliedDuckedVolume: Float?
     private var webVolumeDucked = false
@@ -195,6 +197,9 @@ final class PlaybackModel {
         indicationSound?.stop()
         setIndicationDucking(false)
         stopDeviceSpeech()
+        piperPrefetchTask?.cancel()
+        piperPrefetchTask = nil
+        piperPrefetch.removeAll()
         narration?.stop(); narrationID = nil
         setNarrationDucking(false)
     }
@@ -239,6 +244,7 @@ final class PlaybackModel {
             narration?.stop(); narrationID = nil
             guard narrationEnabled, playing, let cue = project.cues.first(where: { time >= $0.start && time < $0.end }) else { stopDeviceSpeech(); setNarrationDucking(false); return }
             if settings.ttsMode == "piper" {
+                prefetchPiperNarration(cues: project.cues, settings: settings)
                 syncPiperNarration(cue: cue, settings: settings)
                 deviceTime = time
                 setNarrationDucking(piperPlayer?.isPlaying == true)
@@ -282,6 +288,32 @@ final class PlaybackModel {
         setNarrationDucking(narration?.isPlaying == true)
     }
 
+    /// Renders upcoming Piper cues before they start so live preview begins on
+    /// time. Renders run one after another to keep a single Piper model in memory.
+    private func prefetchPiperNarration(cues: [Segment], settings: StudioSettings) {
+        let upcoming = cues
+            .filter { $0.end > time && $0.start < time + 20 }
+            .sorted { $0.start < $1.start }
+            .prefix(3)
+        let pending = upcoming
+            .map { PiperSpeech.request(text: $0.text, settings: settings) }
+            .filter { SummarySpeechParser.isSpeakable($0.text) && !piperPrefetch.contains($0) }
+        guard !pending.isEmpty else { return }
+        for request in pending { piperPrefetch.insert(request) }
+        let previous = piperPrefetchTask
+        piperPrefetchTask = Task { [weak self] in
+            await previous?.value
+            for request in pending {
+                guard let self, !Task.isCancelled else { return }
+                do {
+                    _ = try await PiperSpeech.shared.synthesize(request)
+                } catch {
+                    self.piperPrefetch.remove(request)
+                }
+            }
+        }
+    }
+
     /// Live preview with Piper synthesizes a temporary audio file and plays it
     /// in sync with the cue, then never writes anything into the project.
     private func syncPiperNarration(cue: Segment, settings: StudioSettings) {
@@ -296,7 +328,10 @@ final class PlaybackModel {
                     let url = try await PiperSpeech.shared.synthesize(request)
                     guard let self, self.piperToken == token else { return }
                     let player = try AVAudioPlayer(contentsOf: url)
-                    let offset = max(0, self.time - cue.start)
+                    // Newly started cues play from the first word even when Piper
+                    // finished rendering a moment late; only a mid-cue jump seeks.
+                    let elapsed = max(0, self.time - cue.start)
+                    let offset = elapsed > 1.5 ? elapsed : 0
                     player.currentTime = min(offset, max(0, player.duration - 0.05))
                     player.play()
                     self.piperPlayer = player
