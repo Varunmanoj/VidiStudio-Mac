@@ -85,6 +85,13 @@ class NarrationPlaybackOptions(unittest.TestCase):
         self.assertIn('speech.WaitUntilDone(SpeakTimeoutMs)', host)
         self.assertIn('The selected voice produced no audio.', host)
         self.assertNotIn('PackageManager', host)
+        # Intermittent online-voice failures are retried; retry notes never displace the explanation.
+        self.assertIn('private const int SapiAttempts = 3;', host)
+        self.assertIn('RetryNotes.Add(', host)
+        # Visual Studio builds republish a stale speech helper instead of packaging it.
+        app = (ROOT/'Vidi-Studio-Windows/Vidi Studio Windows/Vidi Studio Windows.csproj').read_text()
+        self.assertIn('<Target Name="PublishSpeechHost" BeforeTargets="PrepareForBuild"', app)
+        self.assertIn('Inputs="@(SpeechHostSource)" Outputs="$(SpeechHostPublishDir)\\VidiStudio.SpeechHost.exe"', app)
 
     def test_mac_lists_azure_voices_and_shows_its_key_only_when_selected(self):
         settings = (ROOT/'VidiStudio Mac/VidiStudio/SettingsView.swift').read_text()

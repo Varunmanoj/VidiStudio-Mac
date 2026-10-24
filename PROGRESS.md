@@ -1581,3 +1581,7 @@ Validation: `script/build_and_run.sh --verify` built, signed and launched the ap
 ## 2026-10-24 — Docs for Windows natural voices in SAPI 5 — version 1.0.107 (build 107)
 
 Windows removed its separate Natural Voices engine; natural voices from the voice bridge add-on now appear in Windows SAPI 5 under plain headings. The Mac Help book (narration, settings, welcome), FEATURE_PARITY, DESKTOP_MENU_PARITY and the shared playback-option tests were updated to match. No Mac code or menu changes.
+
+## 2026-10-24 — Version sync for Windows speech helper fixes — version 1.0.108 (build 108)
+
+Version advanced with the Windows speech helper fixes (automatic helper republishing, SAPI retries, clearer crash messages). Shared playback-option source checks updated. No Mac code or menu changes.
