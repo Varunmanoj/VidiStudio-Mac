@@ -92,6 +92,13 @@ class NarrationPlaybackOptions(unittest.TestCase):
         app = (ROOT/'Vidi-Studio-Windows/Vidi Studio Windows/Vidi Studio Windows.csproj').read_text()
         self.assertIn('<Target Name="PublishSpeechHost" BeforeTargets="PrepareForBuild"', app)
         self.assertIn('Inputs="@(SpeechHostSource)" Outputs="$(SpeechHostPublishDir)\\VidiStudio.SpeechHost.exe"', app)
+        # A helper that cannot be rebuilt must warn and keep the existing copy, never stop the
+        # app from building or running.
+        self.assertIn('and \'$(DesignTimeBuild)\' != \'true\'', app)
+        self.assertIn('ContinueOnError="WarnAndContinue"', app)
+        self.assertIn('the copy in runtime\\speech\\$(Platform) is used', app)
+        self.assertNotIn('MSBuildSDKsPath=', app)
+        self.assertNotIn('<MSBuild Projects="$(SpeechHostProject)"', app)
 
     def test_mac_lists_azure_voices_and_shows_its_key_only_when_selected(self):
         settings = (ROOT/'VidiStudio Mac/VidiStudio/SettingsView.swift').read_text()
