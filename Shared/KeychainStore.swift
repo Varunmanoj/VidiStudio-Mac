@@ -14,9 +14,6 @@ enum KeychainStore {
     static let account = "gemini-api-key"
 
     private static let gemini = KeychainCredential(service: service, account: account, label: "VidiStudio Gemini API Key")
-    /// The Azure AI Speech key for Azure Online Voices, handed to the engine in
-    /// `VIDISTUDIO_AZURE_SPEECH_KEY`.
-    static let azureSpeech = KeychainCredential(service: "com.vidistudio.azure-speech", account: "azure-speech-key", label: "VidiStudio Azure Speech Key")
 
     /// Returns the stored API key, or `nil` when none is present.
     static func read() -> String? { gemini.read() }

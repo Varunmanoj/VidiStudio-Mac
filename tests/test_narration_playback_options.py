@@ -36,6 +36,7 @@ class NarrationPlaybackOptions(unittest.TestCase):
         self.assertNotIn('LocalNarrationPreview', source)
         self.assertIn('new("windows-core", "Windows OneCore")', source)
         self.assertIn('new("sapi5", "Windows SAPI 5")', source)
+        self.assertIn('new("piper", "Piper Voices")', source)
         self.assertIn('new("gemini", "Gemini Voices")', source)
         self.assertIn('draft["ttsMode"] = selected.Id;', source)
 
@@ -49,11 +50,13 @@ class NarrationPlaybackOptions(unittest.TestCase):
         self.assertIn('localSpeechControls.Visibility = provider == "gemini" ? Visibility.Collapsed : Visibility.Visible;', dialog)
         self.assertIn('samplePlayButton.IsEnabled = sampleState != SampleState.Generating && (provider != "gemini" || HasDraftApiKey);', dialog)
 
-    def test_windows_never_resets_the_saved_engine(self):
+    def test_windows_migrates_legacy_engines_without_resetting_preview_choice(self):
         source = (ROOT/'Vidi-Studio-Windows/Vidi Studio Windows/Services/SettingsStore.cs').read_text()
-        self.assertNotIn('Data["ttsMode"] = "windows-core"', source)
         self.assertNotIn('NormalizeNarrationPlaybackEngine', source)
         self.assertIn('if (key == "narrationPlayback") NormalizeNarrationPlayback();', source)
+        self.assertIn('if (Get("ttsMode") == "windows-natural")', source)
+        self.assertIn('if (Get("ttsMode") == "azure")', source)
+        self.assertIn('Data["ttsMode"] = "windows-core";', source)
 
     def test_windows_overview_refreshes_after_settings_close(self):
         presentation = (ROOT/'Vidi-Studio-Windows/Vidi Studio Windows/MainWindow.Presentation.cs').read_text()
@@ -61,73 +64,72 @@ class NarrationPlaybackOptions(unittest.TestCase):
         self.assertIn('private static string EngineTitle(string mode)', presentation)
         self.assertIn('"gemini" => "Gemini Voices"', presentation)
         self.assertIn('"sapi5" => "Windows SAPI 5"', presentation)
+        self.assertIn('"piper" => "Piper Voices"', presentation)
         self.assertIn('_ => "Windows OneCore"', presentation)
         self.assertIn('"Speech engine: " + EngineTitle(Model.Settings.Get("ttsMode", "windows-core"))', presentation)
         self.assertIn('finally { openSettings = null; ApplyTheme(); Model.Reload(); UpdateApiKeyUi(); UpdateSectionPresentation(); }', window)
 
-    def test_natural_voices_live_in_sapi5_with_plain_groups_on_windows(self):
+    def test_windows_bundles_piper_and_removes_the_natural_voice_bridge_promotion(self):
         dialog = (ROOT/'Vidi-Studio-Windows/Vidi Studio Windows/Views/SettingsDialog.cs').read_text()
         voices = (ROOT/'Vidi-Studio-Windows/Vidi Studio Windows/Views/SettingsDialog.Voices.cs').read_text()
-        store = (ROOT/'Vidi-Studio-Windows/Vidi Studio Windows/Services/SettingsStore.cs').read_text()
         host = (ROOT/'Vidi-Studio-Windows/SpeechHost/Program.cs').read_text()
+        app = (ROOT/'Vidi-Studio-Windows/Vidi Studio Windows/Vidi Studio Windows.csproj').read_text()
         self.assertNotIn('new("windows-natural"', dialog)
-        self.assertIn('new("azure", "Azure Voices")', dialog)
-        self.assertIn('Add("bridge-offline", "Natural voices — work offline", offline);', voices)
-        self.assertIn('Add("bridge-online", "Online natural voices — need the internet", online);', voices)
-        self.assertIn('Add("standard", "Standard voices", standard);', voices)
-        self.assertIn('sapiHelp.Visibility = provider == "sapi5" ? Visibility.Visible : Visibility.Collapsed;', voices)
-        self.assertIn('azureControls.Visibility = provider == "azure" ? Visibility.Visible : Visibility.Collapsed;', voices)
+        self.assertNotIn('new("azure", "Azure Voices")', dialog)
+        self.assertIn('new("piper", "Piper Voices")', dialog)
+        self.assertIn('piperControls.Visibility = provider == "piper" ? Visibility.Visible : Visibility.Collapsed;', voices)
+        self.assertIn('new PiperVoicesDialog()', voices)
+        self.assertNotIn('sapiHelp', voices)
+        self.assertNotIn('GroupSapiVoices', voices)
+        self.assertNotIn('NaturalVoiceSAPIAdapter', voices)
+        self.assertNotIn('AzureSpeechKey', voices)
         self.assertIn('container.IsEnabled = voice?.Available != false;', voices)
-        self.assertIn('if (Get("ttsMode") != "windows-natural") return false;', store)
-        self.assertIn('Data.Remove(AzureSpeechKey);', store)
         # A stalled or silent voice must fail clearly instead of hanging or producing empty narration.
         self.assertIn('speech.Speak(r.Text, 1 | 16);', host)
         self.assertIn('speech.WaitUntilDone(SpeakTimeoutMs)', host)
         self.assertIn('The selected voice produced no audio.', host)
+        self.assertIn('request.Engine is not ("windows-core" or "sapi5" or "piper")', host)
+        self.assertIn('private static void PiperSpeech(Request r)', host)
+        self.assertIn('"--length_scale"', host)
         self.assertNotIn('PackageManager', host)
-        # Intermittent online-voice failures are retried; retry notes never displace the explanation.
-        self.assertIn('private const int SapiAttempts = 3;', host)
-        self.assertIn('RetryNotes.Add(', host)
+        # The runtime ships with the app and is fetched once, with a checksum, at build time.
+        self.assertIn('Content Include="..\\runtime\\piper\\**\\*" Link="piper\\%(RecursiveDir)%(Filename)%(Extension)"', app)
+        self.assertIn('Content Include="Assets\\piper-voices.json"', app)
+        self.assertIn('<Target Name="FetchPiperRuntime" BeforeTargets="PrepareForBuild"', app)
+        self.assertIn('fetch-piper.ps1', app)
         # Visual Studio builds republish a stale speech helper instead of packaging it.
-        app = (ROOT/'Vidi-Studio-Windows/Vidi Studio Windows/Vidi Studio Windows.csproj').read_text()
         self.assertIn('<Target Name="PublishSpeechHost" BeforeTargets="PrepareForBuild"', app)
         self.assertIn('Inputs="@(SpeechHostSource)" Outputs="$(SpeechHostPublishDir)\\VidiStudio.SpeechHost.exe"', app)
-        # A helper that cannot be rebuilt must warn and keep the existing copy, never stop the
-        # app from building or running.
-        self.assertIn('and \'$(DesignTimeBuild)\' != \'true\'', app)
         self.assertIn('ContinueOnError="WarnAndContinue"', app)
         self.assertIn('the copy in runtime\\speech\\$(Platform) is used', app)
-        self.assertNotIn('MSBuildSDKsPath=', app)
-        self.assertNotIn('<MSBuild Projects="$(SpeechHostProject)"', app)
 
-    def test_mac_lists_azure_voices_and_shows_its_key_only_when_selected(self):
+    def test_mac_no_longer_offers_azure_or_piper_generation(self):
         settings = (ROOT/'VidiStudio Mac/VidiStudio/SettingsView.swift').read_text()
         overview = (ROOT/'VidiStudio Mac/VidiStudio/ADOverviewView.swift').read_text()
         model = (ROOT/'VidiStudio Mac/VidiStudio/StudioModel.swift').read_text()
-        self.assertIn('Label("Azure Voices", systemImage: "cloud").tag("azure")', settings)
-        self.assertNotIn('if studio.settings.hasAzureSpeechKey {\n                        Label("Azure Voices"', settings)
-        self.assertIn('Text("Azure Voices").tag("azure")', overview)
-        self.assertIn('if studio.settings.ttsMode == "azure" {\n                    AzureSpeechKeySettings(studio: studio)', settings)
-        self.assertEqual(settings.count('AzureSpeechKeySettings(studio: studio)'), 1)
-        self.assertIn('case "azure": return "Azure Voices"', model)
-        self.assertIn('get { KeychainStore.azureSpeech.read() ?? "" }', model)
+        self.assertNotIn('Azure Voices', settings)
+        self.assertNotIn('Azure Voices', overview)
+        self.assertNotIn('AzureSpeechKeySettings', settings)
+        self.assertNotIn('azureSpeechKey', model)
+        self.assertNotIn('KeychainStore.azureSpeech', model)
+        self.assertIn('case "piper": return "Piper Voices"', model)
+        self.assertIn('if settings.ttsMode == "azure" || settings.ttsMode == "piper" {', model)
+        self.assertIn('if settings.ttsMode == "piper" { settings.systemVoice = "" }', model)
+        self.assertIn('settings.ttsMode = "system"', model)
 
-    def test_summary_read_aloud_offers_azure_but_live_preview_never_does(self):
+    def test_summary_read_aloud_uses_the_narration_voice_only(self):
         mac_settings = (ROOT/'VidiStudio Mac/VidiStudio/SettingsView.swift').read_text()
         mac_reader = (ROOT/'VidiStudio Mac/VidiStudio/SummaryReadback.swift').read_text()
-        mac_model = (ROOT/'VidiStudio Mac/VidiStudio/StudioModel.swift').read_text()
-        win_voices = (ROOT/'Vidi-Studio-Windows/Vidi Studio Windows/Views/SettingsDialog.Voices.cs').read_text()
         win_reader = (ROOT/'Vidi-Studio-Windows/Vidi Studio Windows/Services/SummaryReadback.cs').read_text()
         win_live = (ROOT/'Vidi-Studio-Windows/Vidi Studio Windows/Services/OnDeviceNarrator.cs').read_text()
-        self.assertIn('Picker("Read aloud with", selection: $studio.settings.summaryReadbackVoice)', mac_settings)
-        self.assertIn('if studio.settings.hasAzureSpeechKey {\n                                Text("Azure online voice").tag("azure")', mac_settings)
-        self.assertIn('var usesAzureSummaryVoice: Bool { summaryReadbackVoice == "azure" && hasAzureSpeechKey }', mac_model)
-        self.assertIn('private var usesAzure: Bool { settings.usesAzureSummaryVoice }', mac_reader)
-        self.assertIn('if (DraftAzureKey.Length > 0) options.Add(new("azure", "Azure online voice"));', win_voices)
-        self.assertIn('var useAzure = settings.Get("summaryReadbackVoice", "narration") == "azure" && settings.HasAzureSpeechKey;', win_reader)
-        # Live on-device speech uses local voices only: the bridge for downloaded voices, never Azure.
-        self.assertIn('if (mode == "sapi5")', win_live)
-        self.assertIn('var voiceId = mode is "windows-core" or "system" ? settings.Get("systemVoice") : "";', win_live)
+        self.assertNotIn('Read aloud with', mac_settings)
+        self.assertNotIn('usesAzure', mac_reader)
+        self.assertIn('private func startSpeech(_ text: String) throws', mac_reader)
+        self.assertIn('var mode = settings.Get("ttsMode", "windows-core");', win_reader)
+        self.assertNotIn('azure', win_reader.lower())
+        # Live on-device speech includes Piper and never creates project files.
+        self.assertIn('if (mode is "sapi5" or "piper")', win_live)
+        self.assertIn('mode == "piper" ? settings.Get("piperVoice", settings.Get("systemVoice"))', win_live)
         self.assertNotIn('preview-tts', win_live)
         self.assertNotIn('engine.RunAsync', win_live)
 

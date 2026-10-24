@@ -16,7 +16,7 @@ Reference: the authenticated accessivideo.pages.dev application and its React/Py
 | AD transcript and overview | Timed AD text, segment/audio counts, narration generation; Command+4/5 |
 | Description editing | Add, edit, delete, rewrite to fit, undo and redo |
 | Screen-text OCR | Current timestamp for YouTube, captured image for local source; review and add as cue |
-| Narration | Offline system voices, optional Gemini TTS, optional Azure Voices (key fields shown only when selected; Windows also lists natural voices from the voice bridge add-on under SAPI 5); one cue, all, or changed cues; optional live on-device playback without files |
+| Narration | Offline Apple system voices and optional Gemini TTS; one cue, all, or changed cues; optional live on-device playback without files. Windows adds Windows OneCore, SAPI 5, and bundled Piper Voices with on-demand voice downloads; Piper generation is Windows-only. Azure Voices and the natural-voice bridge were removed; legacy engine settings migrate to Apple Voices on Mac and Windows OneCore/SAPI 5 on Windows. |
 | Narration preview | Individual audio preview and synchronized description playback |
 | Exports | SRT, VTT, text, JSON; Video Format picker: MKV (default), MP4, MOV, M4V; Audio Format picker: WAV (default), MP3, M4A for original, narration-only, and described audio |
 | YouTube audio exports | Original YouTube audio, narration-only audio, then combined YouTube audio/narration, each with WAV (default), MP3, and M4A; bundled yt-dlp/Deno retrieval and temporary cleanup; complete mix for manual YouTube Studio upload |
@@ -28,4 +28,4 @@ Reference: the authenticated accessivideo.pages.dev application and its React/Py
 
 ## Verification limits
 
-Local media import, metadata, thumbnails, system speech, open and closed Audio Description rendering, URL validation, captions, and edit history have automated coverage. Native editor and settings have been inspected through the macOS accessibility tree. Live Gemini processing requires a configured personal key in desktop Settings. Windows uses the same engine and a packaging script, but Windows runtime validation and a Windows native UI are not completed on this Mac. Public macOS distribution still requires Developer ID signing and notarization.
+Local media import, metadata, thumbnails, system speech, open and closed Audio Description rendering, URL validation, captions, and edit history have automated coverage. Native editor and settings have been inspected through the macOS accessibility tree. Live Gemini processing requires a configured personal key in desktop Settings. Windows uses the same engine and a native WinUI app; its build, package, and runtime evidence is recorded in the Windows checkout's `PROGRESS.md` and is not repeated here. Public macOS distribution still requires Developer ID signing and notarization.

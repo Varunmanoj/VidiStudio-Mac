@@ -202,7 +202,6 @@ struct SettingsView: View {
                 Picker("Speech engine", selection: $studio.settings.ttsMode) {
                     Label("Apple Voices", systemImage: "speaker.wave.2").tag("system")
                     Label("Gemini Voices", systemImage: "sparkles").tag("gemini")
-                    Label("Azure Voices", systemImage: "cloud").tag("azure")
                 }
                 Picker("Narration during playback", selection: $studio.settings.narrationPlayback) {
                     Label("Play synthesized narration", systemImage: "play.circle").tag("generated")
@@ -212,9 +211,6 @@ struct SettingsView: View {
                 Toggle("Sound when synthesized audio is unavailable", isOn: $studio.settings.soundWhenNarrationMissing)
                 if studio.settings.ttsMode == "gemini" {
                     GeminiVoiceBrowser(studio: studio)
-                }
-                if studio.settings.ttsMode == "azure" {
-                    AzureSpeechKeySettings(studio: studio)
                 }
                 if studio.settings.ttsMode != "gemini" {
                     GroupBox("Voice controls") {
@@ -229,36 +225,14 @@ struct SettingsView: View {
                         }
                         .padding(.vertical, 4)
                     }
-                    if studio.settings.ttsMode == "azure" {
-                        AzureVoiceBrowser(studio: studio)
-                    } else {
-                        SystemVoiceBrowser(settings: $studio.settings)
-                    }
+                    SystemVoiceBrowser(settings: $studio.settings)
                 }
                 GroupBox("Summary readback") {
                     VStack(alignment: .leading, spacing: 10) {
                         Text("Reads the summary aloud and highlights the active sentence and word.")
                             .font(.caption).foregroundStyle(.secondary)
-                        Picker("Read aloud with", selection: $studio.settings.summaryReadbackVoice) {
-                            Text("Apple voice").tag("device")
-                            if studio.settings.hasAzureSpeechKey {
-                                Text("Azure online voice").tag("azure")
-                            }
-                        }
-                        .accessibilityHint("Chooses the voice that reads the summary aloud")
-                        if studio.settings.usesAzureSummaryVoice {
-                            Text("Each sentence is created online with your Azure key, so reading needs the internet and may start after a short pause. The spoken word is highlighted approximately.")
-                                .font(.caption).foregroundStyle(.secondary)
-                            if studio.settings.ttsMode == "azure" {
-                                Text("Uses the Azure voice chosen above: \(NarrationVoiceFormatting.voiceDisplayName(studio.settings.resolvedAzureVoice)).")
-                                    .font(.caption).foregroundStyle(.secondary)
-                            } else {
-                                AzureVoiceBrowser(studio: studio)
-                            }
-                        } else if !studio.settings.hasAzureSpeechKey {
-                            Text("To read the summary with an online voice, choose Azure Voices as the speech engine and add your Azure Speech key.")
-                                .font(.caption).foregroundStyle(.secondary)
-                        }
+                        Text("Uses the Apple voice and speech controls chosen above.")
+                            .font(.caption).foregroundStyle(.secondary)
                         ColorPicker("Sentence highlight", selection: summaryColorBinding(\.summarySentenceHighlight))
                             .accessibilityLabel("Sentence highlight background color")
                             .accessibilityHint("Background color used for the summary text being read")

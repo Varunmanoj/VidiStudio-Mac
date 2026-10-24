@@ -24,7 +24,6 @@ struct ADOverviewView: View {
     }
     private var selectedVoice: String {
         if studio.settings.ttsMode == "gemini" { return studio.settings.geminiVoice }
-        if studio.settings.ttsMode == "azure" { return NarrationVoiceFormatting.voiceDisplayName(studio.settings.resolvedAzureVoice) }
         if !studio.settings.systemVoice.isEmpty { return studio.settings.systemVoice }
         if let voice = SystemSpeechVoiceResolver.defaultVoiceDisplayName {
             return "System default (\(voice))"
@@ -88,7 +87,6 @@ struct ADOverviewView: View {
                         Picker("Speech engine", selection: $studio.settings.ttsMode) {
                             Text("Apple Voices").tag("system")
                             Text("Gemini Voices").tag("gemini")
-                            Text("Azure Voices").tag("azure")
                         }
                         statistic("Selected voice", value: studio.settings.currentNarrationSummary)
                         if studio.isSynthesizingNarration {
@@ -158,15 +156,6 @@ struct ADOverviewView: View {
                             }
                             .help("Review how many segments use each voice, which segments use a different voice, and segment timing details")
                             .disabled(studio.busy)
-                        }
-                        if studio.settings.ttsMode == "azure" && !studio.settings.hasAzureSpeechKey {
-                            HStack(spacing: 8) {
-                                Image(systemName: "key.slash.fill")
-                                    .foregroundStyle(.orange)
-                                Text("Enter your Azure Speech key in Settings → Narration to use Azure Voices.")
-                                    .font(.caption)
-                                    .foregroundStyle(.secondary)
-                            }
                         }
                         if studio.settings.ttsMode == "gemini" && !studio.hasApiKey {
                             HStack(spacing: 8) {
