@@ -222,6 +222,56 @@ final class SummaryReadbackModel: NSObject, AVSpeechSynthesizerDelegate, AVAudio
 
     var hasContent: Bool { !sentences.isEmpty }
 
+    /// The sentence used as the starting point for previous/next navigation.
+    /// Prefers the sentence being spoken or paused, then the sentence at the
+    /// current text selection. Nil means navigation starts at the first sentence.
+    private var navigationAnchor: Int? {
+        if let currentIndex, sentences.indices.contains(currentIndex) { return currentIndex }
+        if let location = selectedRange?.location, location != NSNotFound,
+           let index = sentenceIndex(at: location) {
+            return index
+        }
+        return nil
+    }
+
+    func paragraphRange(containing index: Int) -> ClosedRange<Int>? {
+        guard sentences.indices.contains(index) else { return nil }
+        let blockID = sentences[index].blockID
+        var start = index
+        var end = index
+        while start > 0, sentences[start - 1].blockID == blockID { start -= 1 }
+        while end + 1 < sentences.count, sentences[end + 1].blockID == blockID { end += 1 }
+        return start...end
+    }
+
+    var canGoToPreviousSentence: Bool {
+        guard !sentences.isEmpty else { return false }
+        guard let anchor = navigationAnchor else { return true }
+        return anchor > 0
+    }
+
+    var canGoToNextSentence: Bool {
+        guard !sentences.isEmpty else { return false }
+        guard let anchor = navigationAnchor else { return true }
+        return anchor + 1 < sentences.count
+    }
+
+    var canGoToPreviousParagraph: Bool {
+        guard !sentences.isEmpty else { return false }
+        guard let anchor = navigationAnchor, let range = paragraphRange(containing: anchor) else {
+            return true
+        }
+        return anchor > range.lowerBound || range.lowerBound > 0
+    }
+
+    var canGoToNextParagraph: Bool {
+        guard !sentences.isEmpty else { return false }
+        guard let anchor = navigationAnchor, let range = paragraphRange(containing: anchor) else {
+            return true
+        }
+        return range.upperBound + 1 < sentences.count
+    }
+
     var progressLabel: String {
         guard !sentences.isEmpty else { return "No summary to read" }
         if isPaused { return "Paused" }
@@ -349,6 +399,49 @@ final class SummaryReadbackModel: NSObject, AVSpeechSynthesizerDelegate, AVAudio
             return
         }
         playFrom(location: location)
+    }
+
+    // MARK: Sentence and paragraph navigation
+
+    /// Jump to and read the next sentence. With no active position, reading
+    /// starts at the first sentence.
+    func playNextSentence() {
+        guard !sentences.isEmpty else { return }
+        let target = navigationAnchor.map { min($0 + 1, sentences.count - 1) } ?? 0
+        restart(at: target)
+    }
+
+    /// Jump to and read the previous sentence. From the first sentence (or
+    /// before reading starts) this begins at the first sentence.
+    func playPreviousSentence() {
+        guard !sentences.isEmpty else { return }
+        let target = max((navigationAnchor ?? 0) - 1, 0)
+        restart(at: target)
+    }
+
+    /// Jump to and read the first sentence of the next paragraph.
+    func playNextParagraph() {
+        guard !sentences.isEmpty else { return }
+        let target: Int
+        if let anchor = navigationAnchor, let range = paragraphRange(containing: anchor) {
+            target = min(range.upperBound + 1, sentences.count - 1)
+        } else {
+            target = 0
+        }
+        restart(at: target)
+    }
+
+    /// Jump to and read the previous paragraph. When already inside a
+    /// paragraph, this returns to that paragraph's first sentence.
+    func playPreviousParagraph() {
+        guard !sentences.isEmpty else { return }
+        let target: Int
+        if let anchor = navigationAnchor, let range = paragraphRange(containing: anchor) {
+            target = anchor > range.lowerBound ? range.lowerBound : max(range.lowerBound - 1, 0)
+        } else {
+            target = 0
+        }
+        restart(at: target)
     }
 
     /// Read exactly the selected text once, without continuing or disturbing sentence order.
@@ -1137,47 +1230,96 @@ struct SummaryReaderView: View {
     // MARK: Controls
 
     private var readbackControls: some View {
-        HStack(spacing: 10) {
-            Button(model.isReading && !model.isPaused ? "Pause" : "Play", systemImage: model.isReading && !model.isPaused ? "pause.fill" : "play.fill") {
-                model.togglePlayPause()
-            }
-            .buttonStyle(.borderedProminent)
-            .disabled(!hasSummary || model.sentences.isEmpty)
-            .help(model.isReading && !model.isPaused
-                ? "Pause summary reading (right-click for more options)"
-                : "Read the summary aloud from the selected text, or from the start when nothing is selected (right-click for more options)")
-            .accessibilityLabel(model.isReading && !model.isPaused ? "Pause summary reading" : "Play summary reading")
-            .accessibilityHint("Reads the selected summary text aloud, or the whole summary from the start, with synchronized word highlighting. Right-click for read-from options.")
-            .contextMenu { summaryOptionsMenu }
-
-            Button("Stop", systemImage: "stop.fill") { model.stop() }
-                .buttonStyle(.bordered)
-                .disabled(!model.isReading && model.currentIndex == nil)
-                .help("Stop summary reading and clear highlighting")
-                .accessibilityLabel("Stop summary reading")
-
+        HStack(spacing: 12) {
             Text(model.progressLabel)
                 .font(.callout)
                 .foregroundStyle(.secondary)
                 .lineLimit(1)
+                .frame(maxWidth: .infinity, alignment: .leading)
                 .accessibilityLabel("Summary reading status: \(model.progressLabel)")
 
-            Spacer(minLength: 8)
-
-            if let onEdit {
-                Button("Edit Summary", systemImage: "pencil") {
-                    onEdit()
+            HStack(spacing: 8) {
+                Button {
+                    model.playPreviousParagraph()
+                } label: {
+                    Image(systemName: "chevron.up.2")
                 }
                 .buttonStyle(.bordered)
-                .help("Edit the summary directly right inside like a notepad")
-                .accessibilityLabel("Edit summary directly")
-            }
+                .disabled(!hasSummary || !model.canGoToPreviousParagraph)
+                .help("Previous paragraph (Command + Option + [)")
+                .accessibilityLabel("Previous summary paragraph")
+                .accessibilityHint("Jumps to the first sentence of the previous paragraph and reads it aloud.")
 
-            Text(speechEngineLabel)
-                .font(.caption)
-                .foregroundStyle(.secondary)
-                .help(speechEngineHelp)
-                .accessibilityLabel(speechEngineHelp)
+                Button {
+                    model.playPreviousSentence()
+                } label: {
+                    Image(systemName: "backward.end.fill")
+                }
+                .buttonStyle(.bordered)
+                .disabled(!hasSummary || !model.canGoToPreviousSentence)
+                .help("Previous sentence (Command + Shift + [)")
+                .accessibilityLabel("Previous summary sentence")
+                .accessibilityHint("Jumps to the previous sentence and reads it aloud.")
+
+                Button(model.isReading && !model.isPaused ? "Pause" : "Play", systemImage: model.isReading && !model.isPaused ? "pause.fill" : "play.fill") {
+                    model.togglePlayPause()
+                }
+                .buttonStyle(.borderedProminent)
+                .disabled(!hasSummary || model.sentences.isEmpty)
+                .help(model.isReading && !model.isPaused
+                    ? "Pause summary reading (right-click for more options)"
+                    : "Read the summary aloud from the selected text, or from the start when nothing is selected (right-click for more options)")
+                .accessibilityLabel(model.isReading && !model.isPaused ? "Pause summary reading" : "Play summary reading")
+                .accessibilityHint("Reads the selected summary text aloud, or the whole summary from the start, with synchronized word highlighting. Right-click for read-from options.")
+                .contextMenu { summaryOptionsMenu }
+
+                Button {
+                    model.playNextSentence()
+                } label: {
+                    Image(systemName: "forward.end.fill")
+                }
+                .buttonStyle(.bordered)
+                .disabled(!hasSummary || !model.canGoToNextSentence)
+                .help("Next sentence (Command + Shift + ])")
+                .accessibilityLabel("Next summary sentence")
+                .accessibilityHint("Jumps to the next sentence and reads it aloud.")
+
+                Button {
+                    model.playNextParagraph()
+                } label: {
+                    Image(systemName: "chevron.down.2")
+                }
+                .buttonStyle(.bordered)
+                .disabled(!hasSummary || !model.canGoToNextParagraph)
+                .help("Next paragraph (Command + Option + ])")
+                .accessibilityLabel("Next summary paragraph")
+                .accessibilityHint("Jumps to the first sentence of the next paragraph and reads it aloud.")
+
+                Button("Stop", systemImage: "stop.fill") { model.stop() }
+                    .buttonStyle(.bordered)
+                    .disabled(!model.isReading && model.currentIndex == nil)
+                    .help("Stop summary reading and clear highlighting")
+                    .accessibilityLabel("Stop summary reading")
+            }
+            .fixedSize()
+
+            HStack(spacing: 10) {
+                if let onEdit {
+                    Button("Edit Summary", systemImage: "pencil") {
+                        onEdit()
+                    }
+                    .buttonStyle(.bordered)
+                    .help("Edit the summary directly right inside like a notepad")
+                    .accessibilityLabel("Edit summary directly")
+                }
+
+                Text(speechEngineLabel)
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .help(speechEngineHelp)
+                    .accessibilityLabel(speechEngineHelp)
+            }
+            .frame(maxWidth: .infinity, alignment: .trailing)
         }
         .controlSize(.small)
         .padding(.horizontal, 16)

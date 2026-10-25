@@ -1984,6 +1984,10 @@ struct ProjectEditor: View {
             else if !summaryReader.isReading { summaryReader.togglePlayPause() }
         case "summary-pause": summaryReader.pause()
         case "summary-stop": summaryReader.stop()
+        case "summary-previous-sentence": summaryReader.playPreviousSentence()
+        case "summary-next-sentence": summaryReader.playNextSentence()
+        case "summary-previous-paragraph": summaryReader.playPreviousParagraph()
+        case "summary-next-paragraph": summaryReader.playNextParagraph()
         case "summary-from-start": summaryReader.playFromStart()
         case "summary-from-selection": summaryReader.playFromSelection()
         case "summary-read-selection": summaryReader.readSelectedText()
@@ -2081,6 +2085,10 @@ struct ProjectEditor: View {
         shortcutActions.summaryReadable = !project.summary.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty && !studio.busy
         shortcutActions.summaryIsReading = summaryReader.isReading
         shortcutActions.summaryIsPaused = summaryReader.isPaused
+        shortcutActions.summaryCanGoToPreviousSentence = summaryReader.canGoToPreviousSentence
+        shortcutActions.summaryCanGoToNextSentence = summaryReader.canGoToNextSentence
+        shortcutActions.summaryCanGoToPreviousParagraph = summaryReader.canGoToPreviousParagraph
+        shortcutActions.summaryCanGoToNextParagraph = summaryReader.canGoToNextParagraph
         shortcutActions.summaryHasSelection = summaryReader.hasReadableSelection
         shortcutActions.summaryHasTextSelection = summaryReader.hasNonEmptySelection
     }
@@ -2155,6 +2163,7 @@ struct ProjectEditor: View {
         .onChange(of: summaryEditMode) { _, _ in refreshEditorShortcutActions() }
         .onChange(of: summaryReader.isReading) { _, _ in refreshEditorShortcutActions() }
         .onChange(of: summaryReader.isPaused) { _, _ in refreshEditorShortcutActions() }
+        .onChange(of: summaryReader.currentIndex) { _, _ in refreshEditorShortcutActions() }
         .onChange(of: summaryReader.selectedRange) { _, _ in refreshEditorShortcutActions() }
         .onChange(of: summaryReader.sentences.count) { _, _ in refreshEditorShortcutActions() }
     }

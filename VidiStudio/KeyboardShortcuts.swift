@@ -51,6 +51,11 @@ final class EditorShortcutActions {
     var summaryReadable = false
     var summaryIsReading = false
     var summaryIsPaused = false
+    /// Sentence and paragraph navigation availability, synced by the editor.
+    var summaryCanGoToPreviousSentence = false
+    var summaryCanGoToNextSentence = false
+    var summaryCanGoToPreviousParagraph = false
+    var summaryCanGoToNextParagraph = false
     /// A text selection anchored inside the summary (read-from point).
     var summaryHasSelection = false
     /// A non-empty summary text selection (read-selection content).
@@ -167,6 +172,14 @@ final class EditorShortcutActions {
             return summaryHasSelection
         case "summary-read-selection":
             return summaryHasTextSelection
+        case "summary-previous-sentence":
+            return summaryCanGoToPreviousSentence
+        case "summary-next-sentence":
+            return summaryCanGoToNextSentence
+        case "summary-previous-paragraph":
+            return summaryCanGoToPreviousParagraph
+        case "summary-next-paragraph":
+            return summaryCanGoToNextParagraph
         case "summary-stop":
             return summaryIsReading
         default:
@@ -216,6 +229,10 @@ struct StudioShortcut: Identifiable {
         case "summary-play": return "play.fill"
         case "summary-pause": return "pause.fill"
         case "summary-stop": return "stop.fill"
+        case "summary-previous-sentence": return "backward.end.fill"
+        case "summary-next-sentence": return "forward.end.fill"
+        case "summary-previous-paragraph": return "chevron.up.2"
+        case "summary-next-paragraph": return "chevron.down.2"
         case "undo": return "arrow.uturn.backward"
         case "redo": return "arrow.uturn.forward"
         case "summary-play-pause": return "playpause"
@@ -257,6 +274,10 @@ struct StudioShortcut: Identifiable {
         .init(id: "summary-play", title: "Play or Resume Summary Reading", key: "p", modifiers: [.command, .shift], spoken: "Command + Shift + P", group: "Summary"),
         .init(id: "summary-pause", title: "Pause Summary Reading", key: "p", modifiers: [.command, .option], spoken: "Command + Option + P", group: "Summary"),
         .init(id: "summary-stop", title: "Stop Summary Reading", key: "s", modifiers: [.command, .shift], spoken: "Command + Shift + S", group: "Summary"),
+        .init(id: "summary-previous-sentence", title: "Previous Summary Sentence", key: "[", modifiers: [.command, .shift], spoken: "Command + Shift + [", group: "Summary"),
+        .init(id: "summary-next-sentence", title: "Next Summary Sentence", key: "]", modifiers: [.command, .shift], spoken: "Command + Shift + ]", group: "Summary"),
+        .init(id: "summary-previous-paragraph", title: "Previous Summary Paragraph", key: "[", modifiers: [.command, .option], spoken: "Command + Option + [", group: "Summary"),
+        .init(id: "summary-next-paragraph", title: "Next Summary Paragraph", key: "]", modifiers: [.command, .option], spoken: "Command + Option + ]", group: "Summary"),
         .init(id: "undo", title: "Undo Segment Edit", key: "z", modifiers: [.command, .option], spoken: "Command + Option + Z", group: "Editor"),
         .init(id: "redo", title: "Redo Segment Edit", key: "z", modifiers: [.command, .option, .shift], spoken: "Command + Option + Shift + Z", group: "Editor"),
         .init(id: "analyze", title: "Analyze Video…", key: "a", modifiers: [.command, .option, .shift], spoken: "Command + Option + Shift + A", group: "Analysis"),
@@ -322,7 +343,14 @@ struct StudioCommands: Commands {
             }
             Divider()
             Menu("Summary Reading", systemImage: "speaker.wave.2") {
-                shortcutEntries(StudioShortcut.editor.filter { $0.group == "Summary" })
+                shortcutEntries(StudioShortcut.editor.filter {
+                    ["summary-play", "summary-pause", "summary-stop"].contains($0.id)
+                })
+                Divider()
+                shortcutEntries(StudioShortcut.editor.filter {
+                    ["summary-previous-sentence", "summary-next-sentence",
+                     "summary-previous-paragraph", "summary-next-paragraph"].contains($0.id)
+                })
                 Divider()
                 Button("Read Summary from Start", systemImage: "forward.end") { editor?.run("summary-from-start") }
                     .disabled(editor?.canRun("summary-from-start") != true)
@@ -459,7 +487,7 @@ struct ShortcutReferenceView: View {
         VStack(alignment: .leading, spacing: 14) {
             Text("Keyboard Shortcuts").font(.title2).accessibilityAddTraits(.isHeader)
             Text("These shortcuts apply to the native macOS app. Editor commands are available with a project open and no editing sheet or processing operation active.")
-            Text("The File menu contains Export with Video, Audio, and Text choices. View can show or hide the preview and the complete timeline. The centered transport row beneath the thumbnails shares the Playback menu shortcuts for a single Play/Pause toggle, Stop Video, and five-second Rewind/Fast Forward on local and YouTube videos. Pause keeps the current position; Stop returns to the beginning and stops narration. Playback also contains Transcript Overlay controls on Transcript, Descriptions, and AD Transcript, plus Summary Reading commands that become available only on Summary. Project > Segments mirrors segment editing, creation, selection, bulk editing, deletion, Follow, Undo, and Redo. Project > Analysis contains Video Details and Timeline Pictures, Analyze Video, and the individual Transcript, Summary, and Audio Description stages. The inspector stays specific to its open section. Existing content is regenerated only after confirmation.")
+            Text("The File menu contains Export with Video, Audio, and Text choices. View can show or hide the preview and the complete timeline. The centered transport row beneath the thumbnails shares the Playback menu shortcuts for a single Play/Pause toggle, Stop Video, and five-second Rewind/Fast Forward on local and YouTube videos. Pause keeps the current position; Stop returns to the beginning and stops narration. Playback also contains Transcript Overlay controls on Transcript, Descriptions, and AD Transcript, plus Summary Reading commands that become available only on Summary. Summary Reading includes Previous and Next Sentence and Paragraph navigation, which jump to the target text and read it aloud from the centered Summary transport. Project > Segments mirrors segment editing, creation, selection, bulk editing, deletion, Follow, Undo, and Redo. Project > Analysis contains Video Details and Timeline Pictures, Analyze Video, and the individual Transcript, Summary, and Audio Description stages. The inspector stays specific to its open section. Existing content is regenerated only after confirmation.")
             shortcutRow("New Project", value: "Command + N")
             shortcutRow("Open Project Folder", value: "Command + Shift + O")
             shortcutRow("Rename Selected Project", value: "Return; All Projects")

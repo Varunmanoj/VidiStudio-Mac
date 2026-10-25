@@ -75,6 +75,17 @@ class DesktopMenuParity(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, 'Conflicting Windows shortcut'):
             self.checker.compare_sources(self.mac, self.app, changed)
 
+    def test_summary_sentence_and_paragraph_navigation_is_present(self):
+        for action in ("summary-previous-sentence", "summary-next-sentence",
+                       "summary-previous-paragraph", "summary-next-paragraph"):
+            self.assertIn(f'.init(id: "{action}"', self.mac)
+            self.assertIn(f'Command("{action}")', self.windows)
+            self.assertIn(f'case "{action}":', self.windows)
+        changed = self.windows.replace('Command("summary-next-sentence"),', '', 1)
+        self.assertNotEqual(changed, self.windows)
+        with self.assertRaisesRegex(ValueError, 'hierarchy/order'):
+            self.checker.compare_sources(self.mac, self.app, changed)
+
     def test_wrong_label_is_detected(self):
         changed = self.windows.replace('"summary-pause" => "Pause Summary Reading"', '"summary-pause" => "Pause Video"', 1)
         with self.assertRaisesRegex(ValueError, 'menu label'):
