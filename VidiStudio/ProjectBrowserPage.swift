@@ -50,6 +50,7 @@ struct ProjectBrowserPage: View {
     @Binding var gridItemSize: Double
     @Binding var selection: String?
     let busy: Bool
+    var integrity: [String: ProjectIntegrityReport] = [:]
     var hasApiKey: Bool = true
     var apiKeyVerified: Bool? = nil
     var apiKeyVerificationMessage: String? = nil
@@ -174,6 +175,7 @@ struct ProjectBrowserPage: View {
                     selection: $selection,
                     busy: busy,
                     itemSize: $gridItemSize,
+                    integrity: integrity,
                     hasApiKey: hasApiKey,
                     apiKeyVerified: apiKeyVerified,
                     open: openEditor,
@@ -199,6 +201,16 @@ struct ProjectBrowserPage: View {
                         .accessibilityLabel("Project name: \(project.name), source: \(project.sourceTitle)")
                     }
                     .width(min: 190, ideal: 280)
+                    TableColumn("Status") { project in
+                        if let report = integrity[project.id], !report.isHealthy {
+                            ProjectIntegrityBadge(report: report)
+                        } else {
+                            Text("Healthy")
+                                .font(.caption)
+                                .foregroundStyle(.secondary)
+                        }
+                    }
+                    .width(min: 92, ideal: 108, max: 140)
                     TableColumn("Duration") { project in
                         Text(timecode(project.duration))
                             .monospacedDigit()
@@ -323,20 +335,23 @@ struct ProjectBrowserPage: View {
         Button("Open Project", systemImage: "macwindow.badge.plus") { openEditor(project) }
         Divider()
         Button("Rename", systemImage: "pencil") { rename(project) }
+            .disabled(project.integrityPlaceholder == true)
         Button("Open in Project Folder", systemImage: "folder") {
             if let folder = project.folder { NSWorkspace.shared.open(folder) }
         }
         ProjectAnalysisMenu(project: project, busy: busy, hasApiKey: hasApiKey, apiKeyVerified: apiKeyVerified) { command in
             process(project, command)
         }
+        .disabled(project.integrityPlaceholder == true)
         ProjectExportButton(project: project, busy: busy) {
             export(project)
         }
+        .disabled(project.integrityPlaceholder == true)
         Divider()
         Button("Choose Content to Delete…", systemImage: "eraser", role: .destructive) {
             clear(project)
         }
-        .disabled(busy || !project.hasGeneratedContent)
+        .disabled(busy || project.integrityPlaceholder == true || !project.hasGeneratedContent)
         Button("Delete Project…", systemImage: "trash", role: .destructive) {
             delete(project)
         }

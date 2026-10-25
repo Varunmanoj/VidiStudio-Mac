@@ -1,4 +1,5 @@
 import SwiftUI
+import AppKit
 import AVKit
 import AVFoundation
 import Combine
@@ -254,6 +255,7 @@ struct ContentView: View {
             gridItemSize: $projectGridItemSize,
             selection: $studio.selectedID,
             busy: studio.busy,
+            integrity: studio.projectIntegrity,
             hasApiKey: studio.hasApiKey,
             apiKeyVerified: studio.apiKeyVerified,
             apiKeyVerificationMessage: studio.apiKeyVerificationMessage,
@@ -325,6 +327,17 @@ struct ContentView: View {
             openSettings()
         }
         .onOpenURL(perform: handleSharedURL)
+        .task {
+            studio.refreshProjectIntegrity()
+            while !Task.isCancelled {
+                try? await Task.sleep(nanoseconds: 10_000_000_000)
+                guard !Task.isCancelled else { break }
+                studio.refreshProjectIntegrity()
+            }
+        }
+        .onReceive(NotificationCenter.default.publisher(for: NSApplication.didBecomeActiveNotification)) { _ in
+            studio.refreshProjectIntegrity()
+        }
         .onAppear {
             if studio.hasApiKey && studio.apiKeyVerified == nil && !studio.busy {
                 studio.checkGeminiApiKey()
@@ -337,6 +350,7 @@ struct ProjectEditorWindow: View {
     let projectID: String
     let openProjects: OpenProjectRegistry
     @Environment(\.openSettings) private var openSettings
+    @Environment(\.dismissWindow) private var dismissWindow
     @State private var studio: StudioModel
     @State private var editorShortcutActions = EditorShortcutActions()
     @State private var showInspector = true
@@ -400,18 +414,54 @@ struct ProjectEditorWindow: View {
                 .background(Color.red.opacity(0.12))
                 .overlay(Rectangle().frame(height: 1).foregroundStyle(Color.red.opacity(0.3)), alignment: .bottom)
             }
+            if let project = studio.selected,
+               let report = studio.projectIntegrity[project.id],
+               !report.isHealthy {
+                ProjectIntegrityBanner(
+                    project: project,
+                    report: report,
+                    busy: studio.busy,
+                    narrationActionEnabled: studio.settings.ttsMode != "gemini" || studio.hasValidApiKey,
+                    showInFinder: {
+                        if let folder = project.folder { NSWorkspace.shared.open(folder) }
+                    },
+                    regenerateNarration: {
+                        studio.execute("synthesize-tts", extra: ["--changed"], project: project)
+                    },
+                    regenerateVideoArtifacts: {
+                        studio.execute("prepare-video", project: project)
+                    },
+                    deleteProject: {
+                        deleteProject(project)
+                    }
+                )
+            }
             Group {
                 if let project = studio.selected {
-                    ProjectEditor(
-                        shortcutsBlocked: studio.error != nil,
-                        studio: studio,
-                        project: project,
-                        shortcutActions: editorShortcutActions,
-                        showExportDialog: { showingExportDialog = true }
-                    )
-                    .id(project.id)
+                    if project.integrityPlaceholder == true || studio.integrityReport(for: project).manifestUnreadable {
+                        DamagedProjectPlaceholderView(
+                            project: project,
+                            report: studio.integrityReport(for: project),
+                            busy: studio.busy,
+                            showInFinder: {
+                                if let folder = project.folder { NSWorkspace.shared.open(folder) }
+                            },
+                            deleteProject: {
+                                deleteProject(project)
+                            }
+                        )
+                    } else {
+                        ProjectEditor(
+                            shortcutsBlocked: studio.error != nil,
+                            studio: studio,
+                            project: project,
+                            shortcutActions: editorShortcutActions,
+                            showExportDialog: { showingExportDialog = true }
+                        )
+                        .id(project.id)
+                    }
                 } else {
-                    ContentUnavailableView("Project Unavailable", systemImage: "film", description: Text("The project may have moved or been deleted."))
+                    ContentUnavailableView("Project Unavailable", systemImage: "film", description: Text("The project may have moved or been deleted. Return to All Projects to reopen it."))
                 }
             }
         }
@@ -465,7 +515,18 @@ struct ProjectEditorWindow: View {
         .onAppear {
             studio.reload()
             studio.selectedID = projectID
+            studio.refreshProjectIntegrity(for: projectID)
             openProjects.open(projectID, name: studio.selected?.name ?? "Project")
+        }
+        .task(id: projectID) {
+            while !Task.isCancelled {
+                try? await Task.sleep(nanoseconds: 4_000_000_000)
+                guard !Task.isCancelled else { break }
+                studio.refreshProjectIntegrity(for: studio.selectedID ?? projectID)
+            }
+        }
+        .onReceive(NotificationCenter.default.publisher(for: NSApplication.didBecomeActiveNotification)) { _ in
+            studio.refreshProjectIntegrity(for: studio.selectedID ?? projectID)
         }
         .onChange(of: studio.selected?.name) { _, name in
             if let name { openProjects.open(projectID, name: name) }
@@ -475,6 +536,13 @@ struct ProjectEditorWindow: View {
             guard let settings = notification.userInfo?["settings"] as? StudioSettings else { return }
             guard let source = notification.object as? StudioModel, source !== studio else { return }
             studio.applyExternalSettings(settings)
+        }
+    }
+
+    private func deleteProject(_ project: StudioProject) {
+        studio.confirmTrashProject(project)
+        if !studio.projects.contains(where: { $0.id == project.id }) {
+            dismissWindow(id: "project-editor", value: projectID)
         }
     }
 }

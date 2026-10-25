@@ -492,6 +492,9 @@ struct StudioProject: Codable, Identifiable {
         sourceType == "youtube"
     }
     var hasProcessed: Bool?
+    /// Set only for an in-memory placeholder representing a project folder
+    /// whose project.json is missing or unreadable. Never written to disk.
+    var integrityPlaceholder: Bool? = nil
     var canReprocess: Bool {
         hasProcessed == true || !transcript.isEmpty || !summary.isEmpty || !cues.isEmpty || !exports.isEmpty
     }
@@ -1018,6 +1021,9 @@ final class OpenProjectRegistry {
 final class StudioModel {
     static let defaultErrorTitle = "VidiStudio Couldn’t Finish"
     var projects: [StudioProject] = []
+    /// Latest integrity audit for every project currently shown, including
+    /// in-memory damaged placeholders whose project.json cannot be decoded.
+    var projectIntegrity: [String: ProjectIntegrityReport] = [:]
     var selectedID: String? { didSet { UserDefaults.standard.set(selectedID, forKey: "lastProjectID") } }
     var settings = StudioSettings() {
         didSet {
@@ -1350,19 +1356,117 @@ final class StudioModel {
         }
     }
     func reload() {
-        let root = URL(fileURLWithPath: settings.libraryPath)
-        let previous = selected?.folder
-        var folders = (try? FileManager.default.contentsOfDirectory(at: root, includingPropertiesForKeys: nil)) ?? []
-        for path in UserDefaults.standard.stringArray(forKey: "recentProjectFolders") ?? [] {
-            let folder = URL(fileURLWithPath: path)
-            if !folders.contains(folder) { folders.append(folder) }
+        let root = URL(fileURLWithPath: settings.libraryPath).standardizedFileURL
+        let previous = selected?.folder?.standardizedFileURL
+        var candidates: [URL: Bool] = [:]
+        let libraryFolders = (try? FileManager.default.contentsOfDirectory(
+            at: root,
+            includingPropertiesForKeys: [.isDirectoryKey],
+            options: [.skipsHiddenFiles]
+        )) ?? []
+        for folder in libraryFolders {
+            candidates[folder.standardizedFileURL] = false
         }
-        if let previous, !folders.contains(previous) { folders.append(previous) }
-        projects = folders.compactMap { folder in
-            guard let data = try? Data(contentsOf: folder.appendingPathComponent("project.json")), var p = try? JSONDecoder().decode(StudioProject.self, from: data) else { return nil }
-            p.folder = folder
-            return p
-        }.sorted { $0.updatedAt > $1.updatedAt }
+        for path in UserDefaults.standard.stringArray(forKey: "recentProjectFolders") ?? [] {
+            candidates[URL(fileURLWithPath: path).standardizedFileURL] = true
+        }
+        if let previous {
+            candidates[previous] = true
+        }
+
+        var loaded: [StudioProject] = []
+        var integrity: [String: ProjectIntegrityReport] = [:]
+        for (folder, referenced) in candidates {
+            var isDirectory: ObjCBool = false
+            let exists = FileManager.default.fileExists(atPath: folder.path, isDirectory: &isDirectory)
+            if exists && !isDirectory.boolValue { continue }
+            let isOpenProject = folder == previous
+
+            if let project = Self.loadProject(at: folder) {
+                loaded.append(project)
+                integrity[project.id] = StudioProjectIntegrity.inspect(project)
+                continue
+            }
+
+            // Keep a damaged entry visible when its manifest is gone and the
+            // folder still exists. A missing folder is only kept for the
+            // project currently open in an editor, so old recent paths do not
+            // turn into permanent ghost entries.
+            guard exists || isOpenProject else { continue }
+            guard !busy || referenced || isOpenProject else { continue }
+            guard (exists ? ProjectIntegrityAuditor.folderLooksLikeProject(folder) : true) else { continue }
+
+            let placeholder = StudioProjectIntegrity.damagedPlaceholder(folder: folder)
+            loaded.append(placeholder)
+            integrity[placeholder.id] = StudioProjectIntegrity.inspect(placeholder)
+        }
+
+        projects = loaded.sorted { $0.updatedAt > $1.updatedAt }
+        projectIntegrity = integrity
+        // If the selected project turned into a damaged placeholder with a
+        // different synthesized ID, keep the editor pointed at the same folder.
+        if let previous,
+           let selectedID,
+           !projects.contains(where: { $0.id == selectedID }),
+           let replacement = projects.first(where: { $0.folder?.standardizedFileURL == previous }) {
+            self.selectedID = replacement.id
+        }
+    }
+
+    private static func loadProject(at folder: URL) -> StudioProject? {
+        let manifest = folder.appendingPathComponent("project.json")
+        guard let data = try? Data(contentsOf: manifest), !data.isEmpty,
+              var project = try? JSONDecoder().decode(StudioProject.self, from: data) else {
+            return nil
+        }
+        project.folder = folder
+        project.integrityPlaceholder = nil
+        return project
+    }
+
+    func integrityReport(for project: StudioProject) -> ProjectIntegrityReport {
+        projectIntegrity[project.id] ?? StudioProjectIntegrity.inspect(project)
+    }
+
+    /// Re-audits all projects, upgrading placeholders when their manifest is
+    /// restored. Called on app activation and by the project browser's timer.
+    func refreshProjectIntegrity() {
+        var reports: [String: ProjectIntegrityReport] = [:]
+        var shouldReload = false
+        for project in projects {
+            let report = StudioProjectIntegrity.inspect(project)
+            if project.integrityPlaceholder == true,
+               !report.manifestUnreadable,
+               !report.folderMissing {
+                shouldReload = true
+            }
+            reports[project.id] = report
+        }
+        projectIntegrity = reports
+        if shouldReload { reload() }
+    }
+
+    /// Re-audits the project shown in one editor window without touching the
+    /// rest of the library.
+    func refreshProjectIntegrity(for projectID: String) {
+        guard let project = projects.first(where: { $0.id == projectID }) else { return }
+        let report = StudioProjectIntegrity.inspect(project)
+        if project.integrityPlaceholder == true,
+           !report.manifestUnreadable,
+           !report.folderMissing {
+            let folder = project.folder
+            reload()
+            if let folder,
+               let restored = projects.first(where: { $0.folder?.standardizedFileURL == folder.standardizedFileURL }) {
+                selectedID = restored.id
+            }
+            return
+        }
+        if projectIntegrity[project.id] != report {
+            var reports = projectIntegrity
+            reports[project.id] = report
+            projectIntegrity = reports
+        }
     }
     func importVideo() {
         guard !busy else { return }
@@ -1521,18 +1625,58 @@ final class StudioModel {
     }
     func trashProject(_ project: StudioProject) {
         guard !busy, let folder = project.folder else { return }
-        do { try FileManager.default.trashItem(at: folder, resultingItemURL: nil); reload() }
-        catch {
+        guard FileManager.default.fileExists(atPath: folder.path) else {
+            forgetProject(project)
+            return
+        }
+        do {
+            try FileManager.default.trashItem(at: folder, resultingItemURL: nil)
+            if selectedID == project.id { selectedID = nil }
+            reload()
+        } catch {
             present(.projectDelete, technicalDetails: error.localizedDescription, context: "Move project to Bin")
         }
     }
+
+    /// Removes a project entry whose folder no longer exists. There is nothing
+    /// to move to the Bin, so this only clears the app's recent/library record.
+    func forgetProject(_ project: StudioProject) {
+        projects.removeAll { $0.id == project.id }
+        var reports = projectIntegrity
+        reports[project.id] = nil
+        projectIntegrity = reports
+        if selectedID == project.id { selectedID = nil }
+        if let path = project.folder?.path {
+            var recent = UserDefaults.standard.stringArray(forKey: "recentProjectFolders") ?? []
+            let previousCount = recent.count
+            recent.removeAll { $0 == path }
+            if recent.count != previousCount {
+                UserDefaults.standard.set(recent, forKey: "recentProjectFolders")
+            }
+        }
+    }
+
     func confirmTrashProject(_ project: StudioProject) {
         guard !busy, project.folder != nil else { return }
-        guard confirmDeletion(
-            title: "Move “\(project.name)” to the Bin?",
-            message: "The complete project folder, including its source video or YouTube link, generated content, narration, and exports, will be moved to the Bin. You can restore it until the Bin is emptied.",
-            actionTitle: "Move to Bin"
-        ) else { return }
+        let folderExists = project.folder.map { FileManager.default.fileExists(atPath: $0.path) } ?? false
+        let damaged = project.integrityPlaceholder == true || integrityReport(for: project).isDamaged
+        let title: String
+        let message: String
+        let actionTitle: String
+        if !folderExists {
+            title = "Remove “\(project.name)” from VidiStudio?"
+            message = "The project folder no longer exists, so there are no files to move to the Bin. This removes the missing project entry from VidiStudio."
+            actionTitle = "Remove Project"
+        } else if damaged {
+            title = "Delete damaged project “\(project.name)”?"
+            message = "This project is marked as damaged. The complete project folder, including any remaining transcript, description, narration, and export files, will be moved to the Bin. You can restore it until the Bin is emptied."
+            actionTitle = "Move to Bin"
+        } else {
+            title = "Move “\(project.name)” to the Bin?"
+            message = "The complete project folder, including its source video or YouTube link, generated content, narration, and exports, will be moved to the Bin. You can restore it until the Bin is emptied."
+            actionTitle = "Move to Bin"
+        }
+        guard confirmDeletion(title: title, message: message, actionTitle: actionTitle) else { return }
         trashProject(project)
     }
     func deleteGeneratedContent(_ project: StudioProject, components: Set<GeneratedContentComponent>) {

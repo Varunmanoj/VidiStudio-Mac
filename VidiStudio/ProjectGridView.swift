@@ -6,6 +6,7 @@ struct ProjectGridView: View {
     @Binding var selection: String?
     let busy: Bool
     @Binding var itemSize: Double
+    var integrity: [String: ProjectIntegrityReport] = [:]
     var hasApiKey: Bool = true
     var apiKeyVerified: Bool? = nil
     let open: (StudioProject) -> Void
@@ -36,13 +37,16 @@ struct ProjectGridView: View {
                                 Text("\(timecode(project.duration)) · \(project.cues.count) descriptions")
                                     .font(.caption).foregroundStyle(.secondary)
                             }
+                            if let report = integrity[project.id], !report.isHealthy {
+                                ProjectIntegrityBadge(report: report)
+                            }
                             ProjectArtifactStatusRow(project: project)
                         }.padding(10).frame(maxWidth: .infinity, alignment: .leading)
                             .background(selection == project.id ? Color.accentColor.opacity(0.18) : Color.clear, in: RoundedRectangle(cornerRadius: 10))
                     }
                     .buttonStyle(.plain)
                     .simultaneousGesture(TapGesture(count: 2).onEnded { open(project) })
-                    .accessibilityLabel("\(project.name), \(project.sourceTitle), duration \(timecode(project.duration)), \(project.projectBrowserAccessibilityLabel)")
+                    .accessibilityLabel("\(project.name), \(project.sourceTitle), duration \(timecode(project.duration)), \(project.projectBrowserAccessibilityLabel)\(integrity[project.id].flatMap { $0.isHealthy ? nil : ", \($0.accessibilityLabel)" } ?? "")")
                     .accessibilityHint("Double-click to open this project in a new window")
                     .accessibilityAction(named: "Open Project") { open(project) }
                     .accessibilityAddTraits(selection == project.id ? [.isSelected] : [])
@@ -50,17 +54,20 @@ struct ProjectGridView: View {
                         Button("Open Project", systemImage: "macwindow.badge.plus") { open(project) }
                         Divider()
                         Button("Rename", systemImage: "pencil") { rename(project) }
+                            .disabled(project.integrityPlaceholder == true)
                         Button("Open in Project Folder", systemImage: "folder") {
                             if let folder = project.folder { NSWorkspace.shared.open(folder) }
                         }
                         ProjectAnalysisMenu(project: project, busy: busy, hasApiKey: hasApiKey, apiKeyVerified: apiKeyVerified) { command in
                             process(project, command)
                         }
+                        .disabled(project.integrityPlaceholder == true)
                         ProjectExportButton(project: project, busy: busy) {
                             export(project)
                         }
+                        .disabled(project.integrityPlaceholder == true)
                         Divider()
-                        Button("Choose Content to Delete…", systemImage: "eraser", role: .destructive) { clear(project) }.disabled(busy || !project.hasGeneratedContent)
+                        Button("Choose Content to Delete…", systemImage: "eraser", role: .destructive) { clear(project) }.disabled(busy || project.integrityPlaceholder == true || !project.hasGeneratedContent)
                         Button("Delete Project…", systemImage: "trash", role: .destructive) { delete(project) }.disabled(busy)
                     }
                 }
