@@ -469,7 +469,8 @@ struct ProjectEditorWindow: View {
             ProcessingInspector(
                 studio: studio,
                 editorActions: editorShortcutActions,
-                showExportDialog: { showingExportDialog = true }
+                showExportDialog: { showingExportDialog = true },
+                deleteProject: { deleteProject($0) }
             )
             .inspectorColumnWidth(min: 250, ideal: 272, max: 340)
         }
@@ -551,6 +552,7 @@ struct ProcessingInspector: View {
     @Bindable var studio: StudioModel
     let editorActions: EditorShortcutActions
     let showExportDialog: () -> Void
+    let deleteProject: (StudioProject) -> Void
 
     private var currentComponent: GeneratedContentComponent? {
         switch editorActions.activeSection {
@@ -582,10 +584,33 @@ struct ProcessingInspector: View {
     var body: some View {
         VStack(spacing: 0) {
             if let project = studio.selected {
-                ProjectVideoInformationView(project: project)
-                    .padding(.horizontal, 20)
-                    .padding(.top, 20)
-                    .padding(.bottom, 12)
+                HStack(alignment: .top, spacing: 8) {
+                    ProjectVideoInformationView(project: project)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                    if let report = studio.projectIntegrity[project.id], report.problems.count > 1 {
+                        ProjectIntegrityDialogButton(
+                            report: report,
+                            busy: studio.busy,
+                            narrationActionEnabled: studio.settings.ttsMode != "gemini" || studio.hasValidApiKey,
+                            showInFinder: {
+                                if let folder = project.folder { NSWorkspace.shared.open(folder) }
+                            },
+                            regenerateNarration: {
+                                studio.execute("synthesize-tts", extra: ["--changed"], project: project)
+                            },
+                            regenerateVideoArtifacts: {
+                                studio.execute("prepare-video", project: project)
+                            },
+                            deleteProject: {
+                                deleteProject(project)
+                            }
+                        )
+                        .padding(.top, 4)
+                    }
+                }
+                .padding(.horizontal, 20)
+                .padding(.top, 20)
+                .padding(.bottom, 12)
                 Divider()
             }
             ScrollView {
