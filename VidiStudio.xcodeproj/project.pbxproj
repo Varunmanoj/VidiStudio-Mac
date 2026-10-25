@@ -8,6 +8,7 @@
 
 /* Begin PBXBuildFile section */
 		7A10000130ABCDEF00112233 /* VidiStudioShareExtension.appex in Embed Foundation Extensions */ = {isa = PBXBuildFile; fileRef = 7A10000230ABCDEF00112233 /* VidiStudioShareExtension.appex */; settings = {ATTRIBUTES = (RemoveHeadersOnCopy, ); }; };
+		7A20000130ABCDEF00112233 /* VidiStudioFinderExtension.appex in Embed Foundation Extensions */ = {isa = PBXBuildFile; fileRef = 7A20000230ABCDEF00112233 /* VidiStudioFinderExtension.appex */; settings = {ATTRIBUTES = (RemoveHeadersOnCopy, ); }; };
 /* End PBXBuildFile section */
 
 /* Begin PBXContainerItemProxy section */
@@ -17,6 +18,13 @@
 			proxyType = 1;
 			remoteGlobalIDString = 7A10000930ABCDEF00112233;
 			remoteInfo = VidiStudioShareExtension;
+		};
+		7A20000A30ABCDEF00112233 /* PBXContainerItemProxy */ = {
+			isa = PBXContainerItemProxy;
+			containerPortal = 606DD785304FDCFF001DA857 /* Project object */;
+			proxyType = 1;
+			remoteGlobalIDString = 7A20000930ABCDEF00112233;
+			remoteInfo = VidiStudioFinderExtension;
 		};
 /* End PBXContainerItemProxy section */
 
@@ -28,6 +36,7 @@
 			dstSubfolderSpec = 13;
 			files = (
 				7A10000130ABCDEF00112233 /* VidiStudioShareExtension.appex in Embed Foundation Extensions */,
+				7A20000130ABCDEF00112233 /* VidiStudioFinderExtension.appex in Embed Foundation Extensions */,
 			);
 			name = "Embed Foundation Extensions";
 			runOnlyForDeploymentPostprocessing = 0;
@@ -37,6 +46,7 @@
 /* Begin PBXFileReference section */
 		606DD78D304FDCFF001DA857 /* VidiStudio.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = VidiStudio.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		7A10000230ABCDEF00112233 /* VidiStudioShareExtension.appex */ = {isa = PBXFileReference; explicitFileType = "wrapper.app-extension"; includeInIndex = 0; path = VidiStudioShareExtension.appex; sourceTree = BUILT_PRODUCTS_DIR; };
+		7A20000230ABCDEF00112233 /* VidiStudioFinderExtension.appex */ = {isa = PBXFileReference; explicitFileType = "wrapper.app-extension"; includeInIndex = 0; path = VidiStudioFinderExtension.appex; sourceTree = BUILT_PRODUCTS_DIR; };
 /* End PBXFileReference section */
 
 /* Begin PBXFileSystemSynchronizedBuildFileExceptionSet section */
@@ -63,6 +73,11 @@
 			path = VidiStudioShareExtension;
 			sourceTree = "<group>";
 		};
+		7A20000330ABCDEF00112233 /* VidiStudioFinderExtension */ = {
+			isa = PBXFileSystemSynchronizedRootGroup;
+			path = VidiStudioFinderExtension;
+			sourceTree = "<group>";
+		};
 		7A10000430ABCDEF00112233 /* Shared */ = {
 			isa = PBXFileSystemSynchronizedRootGroup;
 			path = Shared;
@@ -85,6 +100,13 @@
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
+		7A20000530ABCDEF00112233 /* Frameworks */ = {
+			isa = PBXFrameworksBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
 /* End PBXFrameworksBuildPhase section */
 
 /* Begin PBXGroup section */
@@ -93,6 +115,7 @@
 			children = (
 				606DD78F304FDCFF001DA857 /* VidiStudio */,
 				7A10000330ABCDEF00112233 /* VidiStudioShareExtension */,
+				7A20000330ABCDEF00112233 /* VidiStudioFinderExtension */,
 				7A10000430ABCDEF00112233 /* Shared */,
 				606DD78E304FDCFF001DA857 /* Products */,
 			);
@@ -103,6 +126,7 @@
 			children = (
 				606DD78D304FDCFF001DA857 /* VidiStudio.app */,
 				7A10000230ABCDEF00112233 /* VidiStudioShareExtension.appex */,
+				7A20000230ABCDEF00112233 /* VidiStudioFinderExtension.appex */,
 			);
 			name = Products;
 			sourceTree = "<group>";
@@ -124,6 +148,7 @@
 			);
 			dependencies = (
 				7A10000B30ABCDEF00112233 /* PBXTargetDependency */,
+				7A20000B30ABCDEF00112233 /* PBXTargetDependency */,
 			);
 			fileSystemSynchronizedGroups = (
 				606DD78F304FDCFF001DA857 /* VidiStudio */,
@@ -159,6 +184,29 @@
 			productReference = 7A10000230ABCDEF00112233 /* VidiStudioShareExtension.appex */;
 			productType = "com.apple.product-type.app-extension";
 		};
+		7A20000930ABCDEF00112233 /* VidiStudioFinderExtension */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = 7A20000E30ABCDEF00112233 /* Build configuration list for PBXNativeTarget "VidiStudioFinderExtension" */;
+			buildPhases = (
+				7A20000730ABCDEF00112233 /* Sources */,
+				7A20000530ABCDEF00112233 /* Frameworks */,
+				7A20000630ABCDEF00112233 /* Resources */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+			);
+			fileSystemSynchronizedGroups = (
+				7A20000330ABCDEF00112233 /* VidiStudioFinderExtension */,
+				7A10000430ABCDEF00112233 /* Shared */,
+			);
+			name = VidiStudioFinderExtension;
+			packageProductDependencies = (
+			);
+			productName = VidiStudioFinderExtension;
+			productReference = 7A20000230ABCDEF00112233 /* VidiStudioFinderExtension.appex */;
+			productType = "com.apple.product-type.app-extension";
+		};
 /* End PBXNativeTarget section */
 
 /* Begin PBXProject section */
@@ -173,6 +221,9 @@
 						CreatedOnToolsVersion = 26.6;
 					};
 					7A10000930ABCDEF00112233 = {
+						CreatedOnToolsVersion = 26.6;
+					};
+					7A20000930ABCDEF00112233 = {
 						CreatedOnToolsVersion = 26.6;
 					};
 				};
@@ -193,6 +244,7 @@
 			targets = (
 				606DD78C304FDCFF001DA857 /* VidiStudio */,
 				7A10000930ABCDEF00112233 /* VidiStudioShareExtension */,
+				7A20000930ABCDEF00112233 /* VidiStudioFinderExtension */,
 			);
 		};
 /* End PBXProject section */
@@ -206,6 +258,13 @@
 			runOnlyForDeploymentPostprocessing = 0;
 		};
 		7A10000630ABCDEF00112233 /* Resources */ = {
+			isa = PBXResourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		7A20000630ABCDEF00112233 /* Resources */ = {
 			isa = PBXResourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
@@ -247,6 +306,13 @@
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
+		7A20000730ABCDEF00112233 /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
 /* End PBXSourcesBuildPhase section */
 
 /* Begin PBXTargetDependency section */
@@ -254,6 +320,11 @@
 			isa = PBXTargetDependency;
 			target = 7A10000930ABCDEF00112233 /* VidiStudioShareExtension */;
 			targetProxy = 7A10000A30ABCDEF00112233 /* PBXContainerItemProxy */;
+		};
+		7A20000B30ABCDEF00112233 /* PBXTargetDependency */ = {
+			isa = PBXTargetDependency;
+			target = 7A20000930ABCDEF00112233 /* VidiStudioFinderExtension */;
+			targetProxy = 7A20000A30ABCDEF00112233 /* PBXContainerItemProxy */;
 		};
 /* End PBXTargetDependency section */
 
@@ -389,7 +460,7 @@
 				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
 				CODE_SIGN_STYLE = Automatic;
 				COMBINE_HIDPI_IMAGES = YES;
-				CURRENT_PROJECT_VERSION = 126;
+				CURRENT_PROJECT_VERSION = 128;
 				DEAD_CODE_STRIPPING = YES;
 				DEVELOPMENT_TEAM = LLVWNNUV26;
 				ENABLE_APP_SANDBOX = NO;
@@ -404,7 +475,7 @@
 					"@executable_path/../Frameworks",
 				);
 				MACOSX_DEPLOYMENT_TARGET = 27.0;
-				MARKETING_VERSION = 1.0.126;
+				MARKETING_VERSION = 1.0.128;
 				PRODUCT_BUNDLE_IDENTIFIER = Varunmanojkumar.VidiStudio;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				REGISTER_APP_GROUPS = YES;
@@ -424,7 +495,7 @@
 				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
 				CODE_SIGN_STYLE = Automatic;
 				COMBINE_HIDPI_IMAGES = YES;
-				CURRENT_PROJECT_VERSION = 126;
+				CURRENT_PROJECT_VERSION = 128;
 				DEAD_CODE_STRIPPING = YES;
 				DEVELOPMENT_TEAM = LLVWNNUV26;
 				ENABLE_APP_SANDBOX = NO;
@@ -439,7 +510,7 @@
 					"@executable_path/../Frameworks",
 				);
 				MACOSX_DEPLOYMENT_TARGET = 27.0;
-				MARKETING_VERSION = 1.0.126;
+				MARKETING_VERSION = 1.0.128;
 				PRODUCT_BUNDLE_IDENTIFIER = Varunmanojkumar.VidiStudio;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				REGISTER_APP_GROUPS = YES;
@@ -459,7 +530,7 @@
 				CODE_SIGN_ENTITLEMENTS = Config/VidiStudioShareExtension.entitlements;
 				CODE_SIGN_STYLE = Automatic;
 				COMBINE_HIDPI_IMAGES = YES;
-				CURRENT_PROJECT_VERSION = 126;
+				CURRENT_PROJECT_VERSION = 128;
 				DEAD_CODE_STRIPPING = YES;
 				DEVELOPMENT_TEAM = LLVWNNUV26;
 				ENABLE_APP_SANDBOX = YES;
@@ -473,7 +544,7 @@
 					"@executable_path/../../../../Frameworks",
 				);
 				MACOSX_DEPLOYMENT_TARGET = 27.0;
-				MARKETING_VERSION = 1.0.126;
+				MARKETING_VERSION = 1.0.128;
 				PRODUCT_BUNDLE_IDENTIFIER = Varunmanojkumar.VidiStudio.ShareExtension;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				SKIP_INSTALL = YES;
@@ -493,7 +564,7 @@
 				CODE_SIGN_ENTITLEMENTS = Config/VidiStudioShareExtension.entitlements;
 				CODE_SIGN_STYLE = Automatic;
 				COMBINE_HIDPI_IMAGES = YES;
-				CURRENT_PROJECT_VERSION = 126;
+				CURRENT_PROJECT_VERSION = 128;
 				DEAD_CODE_STRIPPING = YES;
 				DEVELOPMENT_TEAM = LLVWNNUV26;
 				ENABLE_APP_SANDBOX = YES;
@@ -507,8 +578,74 @@
 					"@executable_path/../../../../Frameworks",
 				);
 				MACOSX_DEPLOYMENT_TARGET = 27.0;
-				MARKETING_VERSION = 1.0.126;
+				MARKETING_VERSION = 1.0.128;
 				PRODUCT_BUNDLE_IDENTIFIER = Varunmanojkumar.VidiStudio.ShareExtension;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SKIP_INSTALL = YES;
+				STRING_CATALOG_GENERATE_SYMBOLS = YES;
+				SWIFT_APPROACHABLE_CONCURRENCY = YES;
+				SWIFT_DEFAULT_ACTOR_ISOLATION = nonisolated;
+				SWIFT_EMIT_LOC_STRINGS = YES;
+				SWIFT_UPCOMING_FEATURE_MEMBER_IMPORT_VISIBILITY = YES;
+				SWIFT_VERSION = 5.0;
+			};
+			name = Release;
+		};
+		7A20000C30ABCDEF00112233 /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				APPLICATION_EXTENSION_API_ONLY = YES;
+				CODE_SIGN_ENTITLEMENTS = Config/VidiStudioFinderExtension.entitlements;
+				CODE_SIGN_STYLE = Automatic;
+				COMBINE_HIDPI_IMAGES = YES;
+				CURRENT_PROJECT_VERSION = 128;
+				DEAD_CODE_STRIPPING = YES;
+				DEVELOPMENT_TEAM = LLVWNNUV26;
+				ENABLE_APP_SANDBOX = YES;
+				ENABLE_HARDENED_RUNTIME = YES;
+				GENERATE_INFOPLIST_FILE = NO;
+				INFOPLIST_FILE = "Config/FinderSyncExtension-Info.plist";
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/../Frameworks",
+					"@executable_path/../../../../Frameworks",
+				);
+				MACOSX_DEPLOYMENT_TARGET = 27.0;
+				MARKETING_VERSION = 1.0.128;
+				PRODUCT_BUNDLE_IDENTIFIER = Varunmanojkumar.VidiStudio.FinderExtension;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SKIP_INSTALL = YES;
+				STRING_CATALOG_GENERATE_SYMBOLS = YES;
+				SWIFT_APPROACHABLE_CONCURRENCY = YES;
+				SWIFT_DEFAULT_ACTOR_ISOLATION = nonisolated;
+				SWIFT_EMIT_LOC_STRINGS = YES;
+				SWIFT_UPCOMING_FEATURE_MEMBER_IMPORT_VISIBILITY = YES;
+				SWIFT_VERSION = 5.0;
+			};
+			name = Debug;
+		};
+		7A20000D30ABCDEF00112233 /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				APPLICATION_EXTENSION_API_ONLY = YES;
+				CODE_SIGN_ENTITLEMENTS = Config/VidiStudioFinderExtension.entitlements;
+				CODE_SIGN_STYLE = Automatic;
+				COMBINE_HIDPI_IMAGES = YES;
+				CURRENT_PROJECT_VERSION = 128;
+				DEAD_CODE_STRIPPING = YES;
+				DEVELOPMENT_TEAM = LLVWNNUV26;
+				ENABLE_APP_SANDBOX = YES;
+				ENABLE_HARDENED_RUNTIME = YES;
+				GENERATE_INFOPLIST_FILE = NO;
+				INFOPLIST_FILE = "Config/FinderSyncExtension-Info.plist";
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/../Frameworks",
+					"@executable_path/../../../../Frameworks",
+				);
+				MACOSX_DEPLOYMENT_TARGET = 27.0;
+				MARKETING_VERSION = 1.0.128;
+				PRODUCT_BUNDLE_IDENTIFIER = Varunmanojkumar.VidiStudio.FinderExtension;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				SKIP_INSTALL = YES;
 				STRING_CATALOG_GENERATE_SYMBOLS = YES;
@@ -546,6 +683,15 @@
 			buildConfigurations = (
 				7A10000C30ABCDEF00112233 /* Debug */,
 				7A10000D30ABCDEF00112233 /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Release;
+		};
+		7A20000E30ABCDEF00112233 /* Build configuration list for PBXNativeTarget "VidiStudioFinderExtension" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				7A20000C30ABCDEF00112233 /* Debug */,
+				7A20000D30ABCDEF00112233 /* Release */,
 			);
 			defaultConfigurationIsVisible = 0;
 			defaultConfigurationName = Release;

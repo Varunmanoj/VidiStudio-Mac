@@ -17,8 +17,13 @@ APP="$PWD/build/DerivedData/Build/Products/$CONFIGURATION/VidiStudio.app"
 python3 script/verify_help.py "$APP"
 
 SHARE_EXTENSION="$APP/Contents/PlugIns/VidiStudioShareExtension.appex"
+FINDER_EXTENSION="$APP/Contents/PlugIns/VidiStudioFinderExtension.appex"
 if [[ ! -d "$SHARE_EXTENSION" ]]; then
   echo "Missing embedded VidiStudio Share extension: $SHARE_EXTENSION" >&2
+  exit 1
+fi
+if [[ ! -d "$FINDER_EXTENSION" ]]; then
+  echo "Missing embedded VidiStudio Finder extension: $FINDER_EXTENSION" >&2
   exit 1
 fi
 # TCC ties Documents/Desktop access to the app's signing identity. Ad hoc signing
@@ -35,6 +40,7 @@ if [[ -z "$SIGNING_IDENTITY" ]]; then
 fi
 codesign --force --deep --sign "$SIGNING_IDENTITY" "$APP" > build/codesign.log 2>&1
 codesign --force --sign "$SIGNING_IDENTITY" --entitlements Config/VidiStudioShareExtension.entitlements "$SHARE_EXTENSION" >> build/codesign.log 2>&1
+codesign --force --sign "$SIGNING_IDENTITY" --entitlements Config/VidiStudioFinderExtension.entitlements "$FINDER_EXTENSION" >> build/codesign.log 2>&1
 codesign --force --sign "$SIGNING_IDENTITY" "$APP" >> build/codesign.log 2>&1
 codesign --verify --deep --strict "$APP" >> build/codesign.log 2>&1
 case "$MODE" in

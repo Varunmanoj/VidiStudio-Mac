@@ -1,5 +1,6 @@
 import SwiftUI
 import AppKit
+import FinderSync
 
 private struct ProjectPlaybackPreferenceControls: View {
     let projectID: String
@@ -41,6 +42,7 @@ struct SettingsView: View {
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @State private var shortcutReferenceExpanded = false
     @State private var expandedPromptStages: Set<String> = []
+    @State private var finderExtensionEnabled = FIFinderSyncController.isExtensionEnabled
     private var section: String { studio.settingsSection }
     private var sections: [String] {
         var sections = ["Appearance", "Projects", "Narration", "Gemini API"]
@@ -306,6 +308,20 @@ struct SettingsView: View {
                 Text("New projects are created here and added to the project list.")
                     .font(.caption)
                     .foregroundStyle(.secondary)
+                HStack(spacing: 10) {
+                    Button("Finder Extension Settings", systemImage: "puzzlepiece.extension") {
+                        FIFinderSyncController.showExtensionManagementInterface()
+                    }
+                    .accessibilityHint("Opens macOS Finder extension settings so Describe with Vidi Studio can be enabled in the Finder context menu")
+                    Label(
+                        finderExtensionEnabled ? "Enabled" : "Not enabled",
+                        systemImage: finderExtensionEnabled ? "checkmark.circle.fill" : "exclamationmark.triangle.fill"
+                    )
+                    .foregroundStyle(finderExtensionEnabled ? .green : .orange)
+                }
+                Text("Enable Vidi Studio under Finder Extensions to add Describe with Vidi Studio to the Finder context menu.")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
                 if studio.settings.developerMode {
                     LabeledContent("FFmpeg") {
                         HStack {
@@ -384,6 +400,7 @@ struct SettingsView: View {
             }
         }
         .onAppear {
+            finderExtensionEnabled = FIFinderSyncController.isExtensionEnabled
             if let section = SettingsSectionRequest.consume(), sections.contains(section) {
                 studio.settingsSection = section
             }
@@ -392,6 +409,9 @@ struct SettingsView: View {
             if let section = SettingsSectionRequest.consume(), sections.contains(section) {
                 studio.settingsSection = section
             }
+        }
+        .onReceive(NotificationCenter.default.publisher(for: NSApplication.didBecomeActiveNotification)) { _ in
+            finderExtensionEnabled = FIFinderSyncController.isExtensionEnabled
         }
         .preferredColorScheme(studio.settings.theme == "dark" ? .dark : studio.settings.theme == "light" ? .light : nil)
     }
