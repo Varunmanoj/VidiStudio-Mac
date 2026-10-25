@@ -2329,6 +2329,17 @@ struct TimelineView: View {
 
     private let playheadRed = Color(red: 229 / 255, green: 43 / 255, blue: 50 / 255)
 
+    /// Spoken transcript bars follow the macOS system accent color, matching
+    /// the Windows track's use of that platform's accent color.
+    private let transcriptTrackColor = Color.accentColor
+
+    /// DarkGoldenrod (#B8860B), the same description color used by Windows.
+    private let descriptionTrackColor = Color(
+        red: 184 / 255,
+        green: 134 / 255,
+        blue: 11 / 255
+    )
+
     private func seekSurface(width: CGFloat, accessible: Bool = true) -> some View {
         Rectangle()
             .fill(.clear)
@@ -2456,7 +2467,7 @@ struct TimelineView: View {
                             segmentTrack(
                                 project.transcript,
                                 title: "Transcript",
-                                color: .blue,
+                                color: transcriptTrackColor,
                                 width: timelineWidth
                             )
                         }
@@ -2465,7 +2476,7 @@ struct TimelineView: View {
                             segmentTrack(
                                 project.cues,
                                 title: "Audio description",
-                                color: .accentColor,
+                                color: descriptionTrackColor,
                                 width: timelineWidth
                             )
                         }

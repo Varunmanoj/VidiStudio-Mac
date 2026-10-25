@@ -137,6 +137,11 @@ class NarrationPlaybackOptions(unittest.TestCase):
         self.assertIn('"Quality (high to low)"', catalog)
         self.assertIn('"Size (smallest first)"', catalog)
         self.assertIn('Play Sample', catalog)
+        # Both voice dialogs show a fixed-width loading/playing indicator per row.
+        self.assertIn('PiperSampleStatusIcon(', catalog)
+        self.assertIn('systemName: "waveform"', catalog)
+        self.assertIn('isPlaying: sample.playingID == voice.id', catalog)
+        self.assertIn('isLoading: sample.loadingID == voice.id', catalog)
         self.assertIn('deletingIDs', catalog)
         self.assertIn('progress[voice.id]', catalog)
         self.assertIn('Insecure.MD5', catalog)

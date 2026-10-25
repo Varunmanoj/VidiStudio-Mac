@@ -834,6 +834,11 @@ struct PiperVoiceBrowser: View {
                     .controlSize(.small)
                     .accessibilityLabel("Removing \(voice.displayName)")
             }
+            PiperSampleStatusIcon(
+                isPlaying: sample.playingID == voice.id,
+                isLoading: sample.loadingID == voice.id,
+                voiceName: voice.displayName
+            )
             Button {
                 sample.toggle(voice, manager: manager)
             } label: {
@@ -1111,6 +1116,11 @@ struct PiperDeleteVoicesView: View {
                     .controlSize(.small)
                     .accessibilityLabel("Removing \(voice.displayName)")
             }
+            PiperSampleStatusIcon(
+                isPlaying: sample.playingID == voice.id,
+                isLoading: sample.loadingID == voice.id,
+                voiceName: voice.displayName
+            )
             Button {
                 sample.toggle(voice, manager: manager)
             } label: {
@@ -1154,6 +1164,31 @@ struct PiperDeleteVoicesView: View {
         } catch {
             status = "The voice could not be removed. \(error.localizedDescription)"
         }
+    }
+}
+
+/// Fixed-width row indicator that shows a loading spinner or animated waveform
+/// beside the sample button while that voice's preview is being prepared or played.
+private struct PiperSampleStatusIcon: View {
+    let isPlaying: Bool
+    let isLoading: Bool
+    let voiceName: String
+
+    var body: some View {
+        Group {
+            if isPlaying {
+                Image(systemName: "waveform")
+                    .font(.system(size: 14, weight: .semibold))
+                    .foregroundStyle(.tint)
+                    .symbolEffect(.variableColor.iterative, options: .repeating)
+                    .accessibilityLabel("Playing a sample of \(voiceName)")
+            } else if isLoading {
+                ProgressView()
+                    .controlSize(.small)
+                    .accessibilityLabel("Loading a sample of \(voiceName)")
+            }
+        }
+        .frame(width: 20, height: 20)
     }
 }
 
