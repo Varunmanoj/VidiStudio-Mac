@@ -42,7 +42,12 @@ struct SettingsView: View {
     @State private var shortcutReferenceExpanded = false
     @State private var expandedPromptStages: Set<String> = []
     private var section: String { studio.settingsSection }
-    private let sections = ["Appearance", "Projects", "Narration", "Gemini API", "Developer prompts", "Storage", "Help", "About"]
+    private var sections: [String] {
+        var sections = ["Appearance", "Projects", "Narration", "Gemini API"]
+        if studio.settings.developerMode { sections.append("Developer prompts") }
+        sections += ["Storage", "Help", "About"]
+        return sections
+    }
     private let sectionIcons = ["Appearance": "circle.lefthalf.filled", "Projects": "rectangle.stack", "Narration": "speaker.wave.2", "Gemini API": "sparkles", "Developer prompts": "text.bubble", "Storage": "folder", "Help": "questionmark.circle", "About": "info.circle"]
     private let promptStageOrder = ["multilingual_media", "transcript", "youtube_transcript", "summary", "audio_descriptions", "screen_text", "youtube_screen_text", "text_rewrite", "tts_audio"]
     private func prompt(_ stage: String, _ key: String) -> Binding<String> {
@@ -112,7 +117,8 @@ struct SettingsView: View {
                     .animation(interfaceAnimation, value: shortcutReferenceExpanded)
             }
             }
-            if section == "Appearance" { Section("Appearance and playback") {
+            if section == "Appearance" {
+                Section("Appearance and playback") {
                 Picker("Appearance", selection: $studio.settings.theme) {
                     Label("System", systemImage: "desktopcomputer").tag("system"); Label("Light", systemImage: "sun.max").tag("light"); Label("Dark", systemImage: "moon").tag("dark")
                 }
@@ -183,6 +189,13 @@ struct SettingsView: View {
                     .padding(.vertical, 4)
                 }
             }
+                Section("Advanced") {
+                    Toggle("Developer mode", isOn: $studio.settings.developerMode)
+                        .accessibilityHint("Shows Developer prompts in Settings so advanced users can edit the instructions and output requirements sent to Gemini models")
+                    Text("Shows Developer prompts for editing model instructions and output requirements.")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
             }
             if section == "Projects" {
                 if openProjects.projects.isEmpty {
@@ -350,6 +363,14 @@ struct SettingsView: View {
         .smoothPresentation()
         .onChange(of: studio.settings.ffmpegPath) { _, _ in studio.engineCheckStatus = .unchecked }
         .onChange(of: studio.settings.ffprobePath) { _, _ in studio.engineCheckStatus = .unchecked }
+        .onChange(of: studio.settings.developerMode) { _, enabled in
+            if !enabled, studio.settingsSection == "Developer prompts" {
+                studio.settingsSection = "Appearance"
+            }
+        }
+        .onChange(of: studio.settingsSection) { _, updated in
+            if !sections.contains(updated) { studio.settingsSection = "Appearance" }
+        }
         .onChange(of: studio.settings.ttsMode) { _, mode in
             guard mode == "piper" else { return }
             let manager = PiperVoiceManager.shared

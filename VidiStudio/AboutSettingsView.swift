@@ -45,6 +45,26 @@ struct AboutSettingsView: View {
             Link("FFmpeg licensing and source information", destination: URL(string: "https://ffmpeg.org/legal.html")!)
         }
 
+        Section("Piper voices") {
+            Text("VidiStudio bundles the Piper speech engine (piper-tts 1.8.0) for on-device neural narration.")
+            LabeledContent("License", value: "GNU GPL version 3 or later")
+            Text("Copyright © The Home Assistant Authors. Includes the g2pW component under the Apache License 2.0.")
+                .font(.caption)
+                .foregroundStyle(.secondary)
+            Button("Open Piper License", systemImage: "doc.text") {
+                openLicenseFile("python/piper_tts-1.8.0.dist-info/licenses/COPYING")
+            }
+            .accessibilityHint("Opens the GNU GPL version 3 license included with the bundled Piper speech engine")
+            Button("Open g2pW License", systemImage: "doc.text") {
+                openLicenseFile("python/piper_tts-1.8.0.dist-info/licenses/licenses/LICENSE.g2pW-Apache-2.0")
+            }
+            .accessibilityHint("Opens the Apache License 2.0 text for the bundled g2pW component")
+            Link("Piper source code", destination: URL(string: "https://github.com/OHF-voice/piper1-gpl")!)
+            Text("Piper voices are downloaded on demand. Each voice remains subject to the license and terms published with that voice.")
+                .font(.caption)
+                .foregroundStyle(.secondary)
+        }
+
         Section("Third-party notices") {
             Text("License files for bundled libraries, engine packages, and fonts.")
                 .font(.caption)

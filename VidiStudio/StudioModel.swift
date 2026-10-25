@@ -792,6 +792,8 @@ struct StudioSettings: Codable, Equatable {
         !apiKey.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
     }
     var theme = "system"
+    /// Reveals advanced Settings surfaces such as Developer prompts. Off by default.
+    var developerMode = false
     var ttsMode = "system"
     var narrationPlayback = "generated"
     var soundWhenNarrationOff = true
