@@ -192,7 +192,7 @@ struct SettingsView: View {
                 Section("Advanced") {
                     Toggle("Developer mode", isOn: $studio.settings.developerMode)
                         .accessibilityHint("Shows Developer prompts in Settings so advanced users can edit the instructions and output requirements sent to Gemini models")
-                    Text("Shows Developer prompts for editing model instructions and output requirements.")
+                    Text("Shows Developer prompts and the advanced executable-path overrides in Narration and Storage.")
                         .font(.caption)
                         .foregroundStyle(.secondary)
                 }
@@ -306,25 +306,27 @@ struct SettingsView: View {
                 Text("New projects are created here and added to the project list.")
                     .font(.caption)
                     .foregroundStyle(.secondary)
-                LabeledContent("FFmpeg") {
-                    HStack {
-                        TextField("FFmpeg path", text: $studio.settings.ffmpegPath)
-                            .accessibilityLabel("FFmpeg executable path")
-                        Button("Choose…", systemImage: "folder") { studio.chooseFFmpeg() }
-                            .disabled(studio.busy)
+                if studio.settings.developerMode {
+                    LabeledContent("FFmpeg") {
+                        HStack {
+                            TextField("FFmpeg path", text: $studio.settings.ffmpegPath)
+                                .accessibilityLabel("FFmpeg executable path")
+                            Button("Choose…", systemImage: "folder") { studio.chooseFFmpeg() }
+                                .disabled(studio.busy)
+                        }
                     }
-                }
-                LabeledContent("FFprobe") {
-                    HStack {
-                        TextField("FFprobe path", text: $studio.settings.ffprobePath)
-                            .accessibilityLabel("FFprobe executable path")
-                        Button("Choose…", systemImage: "folder") { studio.chooseFFprobe() }
-                            .disabled(studio.busy)
+                    LabeledContent("FFprobe") {
+                        HStack {
+                            TextField("FFprobe path", text: $studio.settings.ffprobePath)
+                                .accessibilityLabel("FFprobe executable path")
+                            Button("Choose…", systemImage: "folder") { studio.chooseFFprobe() }
+                                .disabled(studio.busy)
+                        }
                     }
+                    Text("Leave these paths empty to use the media tools included with VidiStudio.")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
                 }
-                Text("Leave these paths empty to use the media tools included with VidiStudio.")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
                 HStack(spacing: 10) {
                     Button("Check VidiStudio", systemImage: "checkmark.shield") { studio.checkEngine() }.disabled(studio.busy)
                     switch studio.engineCheckStatus {
