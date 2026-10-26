@@ -51,7 +51,7 @@ class NarrationPlaybackOptions(unittest.TestCase):
         self.assertIn('"Aoede", "Callirrhoe", "Charon", "Fenrir", "Kore", "Leda", "Orus", "Puck", "Zephyr"', gemini)
         self.assertIn('Names.Select(name => new Voice(name, name, "", "")).ToArray()', gemini)
         self.assertNotIn('LoadGeminiVoicesAsync', dialog)
-        self.assertIn('search.Visibility = provider == "gemini" ? Visibility.Collapsed : Visibility.Visible;', dialog)
+        self.assertNotIn('Header = "Filter voices"', dialog)
         self.assertIn('localSpeechControls.Visibility = provider == "gemini" ? Visibility.Collapsed : Visibility.Visible;', dialog)
         self.assertIn('samplePlayButton.IsEnabled = sampleState != SampleState.Generating && (provider != "gemini" || HasDraftApiKey);', dialog)
 

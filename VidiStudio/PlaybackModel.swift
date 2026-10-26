@@ -34,6 +34,7 @@ final class PlaybackModel {
     private var normalAutoresizing: NSView.AutoresizingMask = []
     private var normalTranslatesConstraints = false
     private var fullScreenContainer: NSView?
+    private(set) var isVideoFullScreen = false
     private var originalVideoParent: NSView?
     /// Superview constraints positioning the surface. Removing the surface from
     /// its parent drops these, so they must be saved and re-added on exit or
@@ -59,6 +60,7 @@ final class PlaybackModel {
         }
         fullScreenContainer = nil; originalVideoParent = nil
         normalVideoConstraints = []
+        isVideoFullScreen = false
         if let monitor = fullScreenKeyMonitor { NSEvent.removeMonitor(monitor); fullScreenKeyMonitor = nil }
     }
     func toggleVideoFullScreen() {
@@ -89,6 +91,7 @@ final class PlaybackModel {
         surface.frame = container.bounds
         (surface as? FullScreenVideoSizing)?.fullScreenFrame = container.bounds
         guard container.enterFullScreenMode(screen, withOptions: [.fullScreenModeAllScreens: false]) else { exitVideoFullScreen(); return }
+        isVideoFullScreen = true
         (surface as? FullScreenVideoSizing)?.fullScreenFrame = container.bounds
         surface.frame = container.bounds
         fullScreenKeyMonitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { [weak self] event in

@@ -4,6 +4,8 @@ import AppKit
 @MainActor @Observable
 final class EditorShortcutActions {
     var previewHidden = false
+    var isVideoFullScreen = false
+    var fullScreenTitle: String { isVideoFullScreen ? "Exit Full-Screen Video" : "Full-Screen Video" }
     var timelineVisible = true
     var available = false
     var activeSection = "transcript"
@@ -306,6 +308,10 @@ struct StudioCommands: Commands {
             }
             .keyboardShortcut("v", modifiers: [.command, .shift])
             .disabled(editor?.canRun("preview") != true)
+            Button(editor?.fullScreenTitle ?? "Full-Screen Video", systemImage: "arrow.up.left.and.arrow.down.right") {
+                editor?.run("fullscreen")
+            }
+            .disabled(editor?.canRun("fullscreen") != true)
             Button(editor?.timelineVisible == false ? "Show Timeline" : "Hide Timeline", systemImage: "film") {
                 editor?.run("toggle-timeline")
             }
@@ -433,6 +439,8 @@ struct StudioCommands: Commands {
             Divider()
             Button("Show Project in Finder", systemImage: "folder") { editor?.run("show-in-finder") }
                 .disabled(editor?.canRun("show-in-finder") != true)
+            Button("Open Project Configuration", systemImage: "doc.text") { editor?.run("open-configuration") }
+                .disabled(editor?.canRun("open-configuration") != true)
         }
         CommandGroup(replacing: .help) {
             Button("VidiStudio Help", systemImage: "questionmark.circle") { StudioHelp.open() }.keyboardShortcut("/", modifiers: [.command, .option])

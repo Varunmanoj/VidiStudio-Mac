@@ -3,34 +3,56 @@ import AppKit
 import FinderSync
 
 private struct ProjectPlaybackPreferenceControls: View {
+    let folder: URL?
     let projectID: String
     let projectName: String
-    @AppStorage private var narrationEnabled: Bool
-    @AppStorage private var followEnabled: Bool
+    @State private var narrationEnabled: Bool
+    @State private var followEnabled: Bool
 
-    init(projectID: String, projectName: String) {
+    init(folder: URL?, projectID: String, projectName: String) {
+        self.folder = folder
         self.projectID = projectID
         self.projectName = projectName
-        _narrationEnabled = AppStorage(
-            wrappedValue: false,
-            ProjectPlaybackPreferences.narrationKey(projectID)
-        )
-        _followEnabled = AppStorage(
-            wrappedValue: true,
-            ProjectPlaybackPreferences.followKey(projectID)
-        )
+        _narrationEnabled = State(initialValue: ProjectPlaybackPreferences.narrationEnabled(
+            folder: folder,
+            projectID: projectID
+        ))
+        _followEnabled = State(initialValue: ProjectPlaybackPreferences.followEnabled(
+            folder: folder,
+            projectID: projectID
+        ))
     }
 
     var body: some View {
         Toggle("Narration during playback", isOn: $narrationEnabled)
-            .accessibilityHint("Turns synchronized narration on or off for \(projectName) and remembers the choice for this project")
+            .accessibilityHint("Turns synchronized narration on or off for \(projectName) and saves the choice in this project")
             .onChange(of: narrationEnabled) { _, enabled in
-                ProjectPlaybackPreferences.announceNarrationChange(enabled, projectID: projectID)
+                ProjectPlaybackPreferences.setNarrationEnabled(
+                    enabled,
+                    folder: folder,
+                    projectID: projectID
+                )
+            }
+            .onReceive(NotificationCenter.default.publisher(for: .vidiStudioProjectNarrationDidChange)) { notification in
+                guard notification.userInfo?["projectID"] as? String == projectID,
+                      let enabled = notification.userInfo?["enabled"] as? Bool,
+                      narrationEnabled != enabled else { return }
+                narrationEnabled = enabled
             }
         Toggle("Follow synchronized transcript", isOn: $followEnabled)
             .accessibilityHint("Follows the active transcript or description while \(projectName) plays")
             .onChange(of: followEnabled) { _, enabled in
-                ProjectPlaybackPreferences.announceFollowChange(enabled, projectID: projectID)
+                ProjectPlaybackPreferences.setFollowEnabled(
+                    enabled,
+                    folder: folder,
+                    projectID: projectID
+                )
+            }
+            .onReceive(NotificationCenter.default.publisher(for: .vidiStudioProjectFollowDidChange)) { notification in
+                guard notification.userInfo?["projectID"] as? String == projectID,
+                      let enabled = notification.userInfo?["enabled"] as? Bool,
+                      followEnabled != enabled else { return }
+                followEnabled = enabled
             }
     }
 }
@@ -207,7 +229,12 @@ struct SettingsView: View {
                 } else {
                     ForEach(openProjects.projects) { project in
                         Section(project.name) {
-                            ProjectPlaybackPreferenceControls(projectID: project.id, projectName: project.name)
+                            ProjectPlaybackPreferenceControls(
+                                folder: project.folder,
+                                projectID: project.id,
+                                projectName: project.name
+                            )
+                            .id("\(project.id)-\(project.folder?.path ?? "")")
                         }
                     }
                 }

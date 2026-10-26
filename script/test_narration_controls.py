@@ -27,9 +27,17 @@ model = (ROOT/'VidiStudio/StudioModel.swift').read_text()
 shortcuts = (ROOT/'VidiStudio/KeyboardShortcuts.swift').read_text()
 types = [declaration(model, marker) for marker in (
     'struct Segment:', 'enum DescriptionOrigin:', 'enum SynchronizedAudioStatus:',
-    'struct ExportMediaInformation:', 'struct AnalysisVideoAvailability:', 'struct StudioProject:',
+    'struct ExportMediaInformation:', 'struct AnalysisVideoAvailability:',
+    'struct ProjectPlaybackSettings:', 'struct StudioProject:',
 )]
 types.append('@MainActor\n' + declaration(shortcuts, 'final class EditorShortcutActions'))
+types.append(declaration(model, 'enum ProjectPlaybackPreferences {'))
+types.append(
+    'extension Notification.Name {\n'
+    '    static let vidiStudioProjectNarrationDidChange = Notification.Name("harness-project-narration")\n'
+    '    static let vidiStudioProjectFollowDidChange = Notification.Name("harness-project-follow")\n'
+    '}'
+)
 playback = [declaration_line(model, marker) for marker in (
     'var ttsMode = "system"', 'var narrationPlayback = "generated"',
 )]

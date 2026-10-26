@@ -66,6 +66,53 @@ struct NarrationControlsHarness {
         precondition(restored.ttsMode == "gemini" && restored.narrationPlayback == "device", "Preview plus Gemini settings must persist for generation")
         let roundTrip = try JSONDecoder().decode(NarrationPlaybackSettings.self, from: JSONEncoder().encode(restored))
         precondition(roundTrip.ttsMode == "gemini" && roundTrip.narrationPlayback == "device")
-        print("PASS: narration control states, API/busy guards, and engine selection independent of playback mode")
+
+        // Project playback choices live in the portable project.json, not user defaults.
+        let manifestURL = root.appendingPathComponent("project.json")
+        let projectID = UUID().uuidString
+        func writeManifest(_ json: String) throws {
+            try Data(json.utf8).write(to: manifestURL)
+        }
+        func manifest() throws -> [String: Any] {
+            try JSONSerialization.jsonObject(with: Data(contentsOf: manifestURL)) as! [String: Any]
+        }
+        try writeManifest("""
+        {"schemaVersion":2,"id":"\(projectID)","name":"Round Trip","transcript":[],"summary":""}
+        """)
+        precondition(!ProjectPlaybackPreferences.narrationEnabled(folder: root, projectID: projectID))
+        precondition(ProjectPlaybackPreferences.followEnabled(folder: root, projectID: projectID))
+        ProjectPlaybackPreferences.setNarrationEnabled(true, folder: root, projectID: projectID)
+        ProjectPlaybackPreferences.setFollowEnabled(false, folder: root, projectID: projectID)
+        var config = try manifest()
+        var savedPlayback = config["playback"] as! [String: Any]
+        precondition(savedPlayback["narrationEnabled"] as? Bool == true)
+        precondition(savedPlayback["followTranscript"] as? Bool == false)
+        precondition(config["schemaVersion"] as? Int == 2 && config["name"] as? String == "Round Trip",
+                     "Playback writes must preserve every other project field")
+        precondition(ProjectPlaybackPreferences.narrationEnabled(folder: root, projectID: projectID))
+        precondition(!ProjectPlaybackPreferences.followEnabled(folder: root, projectID: projectID))
+
+        // A choice written by the other desktop app is read straight from the manifest.
+        let otherID = UUID().uuidString
+        try writeManifest("""
+        {"schemaVersion":2,"id":"\(otherID)","name":"Other","playback":{"narrationEnabled":true,"followTranscript":false}}
+        """)
+        precondition(ProjectPlaybackPreferences.narrationEnabled(folder: root, projectID: otherID))
+        precondition(!ProjectPlaybackPreferences.followEnabled(folder: root, projectID: otherID))
+
+        // A choice made before the move is migrated into the project once.
+        let legacyID = UUID().uuidString
+        UserDefaults.standard.set(true, forKey: ProjectPlaybackPreferences.narrationKey(legacyID))
+        defer { UserDefaults.standard.removeObject(forKey: ProjectPlaybackPreferences.narrationKey(legacyID)) }
+        try writeManifest("""
+        {"schemaVersion":2,"id":"\(legacyID)","name":"Legacy","playback":{}}
+        """)
+        precondition(ProjectPlaybackPreferences.narrationEnabled(folder: root, projectID: legacyID),
+                     "A legacy user-defaults choice must migrate into project.json")
+        config = try manifest()
+        savedPlayback = config["playback"] as! [String: Any]
+        precondition(savedPlayback["narrationEnabled"] as? Bool == true)
+
+        print("PASS: narration control states, API/busy guards, engine selection, and project.json playback preferences")
     }
 }

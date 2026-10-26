@@ -5,6 +5,15 @@ import AVFoundation
 import Combine
 import UniformTypeIdentifiers
 
+/// Opens the project's project.json in the default app for JSON files so its
+/// settings can be inspected or edited as text.
+@MainActor
+func openProjectConfiguration(_ project: StudioProject) {
+    guard let url = project.folder?.appendingPathComponent("project.json"),
+          FileManager.default.fileExists(atPath: url.path) else { return }
+    NSWorkspace.shared.open(url)
+}
+
 private enum NewProjectSource: String, CaseIterable, Identifiable {
     case videoFile
     case youtube
@@ -517,7 +526,7 @@ struct ProjectEditorWindow: View {
             studio.reload()
             studio.selectedID = projectID
             studio.refreshProjectIntegrity(for: projectID)
-            openProjects.open(projectID, name: studio.selected?.name ?? "Project")
+            openProjects.open(projectID, name: studio.selected?.name ?? "Project", folder: studio.selected?.folder)
         }
         .task(id: projectID) {
             while !Task.isCancelled {
@@ -530,7 +539,7 @@ struct ProjectEditorWindow: View {
             studio.refreshProjectIntegrity(for: studio.selectedID ?? projectID)
         }
         .onChange(of: studio.selected?.name) { _, name in
-            if let name { openProjects.open(projectID, name: name) }
+            if let name { openProjects.open(projectID, name: name, folder: studio.selected?.folder) }
         }
         .onDisappear { openProjects.close(projectID) }
         .onReceive(NotificationCenter.default.publisher(for: .vidiStudioSettingsDidChange)) { notification in
@@ -807,6 +816,13 @@ struct ProcessingInspector: View {
                     .labelStyle(.iconOnly)
                     .help("Open this project’s folder in Finder")
                     .accessibilityLabel("Show Project in Finder")
+                    .disabled(p.folder == nil)
+                    Button("Open Project Configuration", systemImage: "doc.text") {
+                        openProjectConfiguration(p)
+                    }
+                    .labelStyle(.iconOnly)
+                    .help("Open this project’s project.json in the default editor")
+                    .accessibilityLabel("Open Project Configuration")
                     .disabled(p.folder == nil)
                 }
                 Spacer()
@@ -1539,8 +1555,8 @@ struct ProjectEditor: View {
 
     private func preparePlayback() {
         playback.observe()
-        playback.narrationEnabled = ProjectPlaybackPreferences.narrationEnabled(project.id)
-        followTranscript = ProjectPlaybackPreferences.followEnabled(project.id)
+        playback.narrationEnabled = ProjectPlaybackPreferences.narrationEnabled(folder: project.folder, projectID: project.id)
+        followTranscript = ProjectPlaybackPreferences.followEnabled(folder: project.folder, projectID: project.id)
         guard !project.isYouTubeURLProject,
               !project.source.isEmpty,
               let url = project.url(project.source) else { return }
@@ -2043,7 +2059,10 @@ struct ProjectEditor: View {
         case "toggle-timeline": timelineVisible.toggle()
         case "fullscreen":
             previewHidden = false
-            DispatchQueue.main.async { playback.toggleVideoFullScreen() }
+            DispatchQueue.main.async {
+                playback.toggleVideoFullScreen()
+                refreshEditorShortcutActions()
+            }
         case "play": playback.togglePlayback()
         case "stop": playback.stopPlayback()
         case "back": playback.seekRelative(-5, duration: project.duration)
@@ -2097,6 +2116,7 @@ struct ProjectEditor: View {
         case "review-narration-issues": studio.narrationFailureReport = studio.narrationIssueReport(for: project)
         case "review-narration-voices": studio.narrationVoiceReport = studio.narrationVoiceUsageReport(for: project)
         case "show-in-finder": if let folder = project.folder { NSWorkspace.shared.open(folder) }
+        case "open-configuration": openProjectConfiguration(project)
         case "analyze", "prepare-video", "transcribe", "generate-summary": studio.execute(action)
         case "generate-ad-cues":
             if project.canGenerateDescriptions { studio.execute(action) }
@@ -2134,6 +2154,7 @@ struct ProjectEditor: View {
             shortcutActions.exportHandler = showExportDialog
         }
         shortcutActions.previewHidden = previewHidden
+        shortcutActions.isVideoFullScreen = playback.isVideoFullScreen
         shortcutActions.timelineVisible = timelineVisible
         shortcutActions.available = !shortcutsBlocked && !studio.busy && segmentToEdit == nil && segmentBatchToEdit == nil && studio.screenText == nil
         shortcutActions.activeSection = tab
@@ -2207,7 +2228,7 @@ struct ProjectEditor: View {
         .onChange(of: studio.settings.soundWhenNarrationOff) { _, _ in playback.syncNarration(project, settings: studio.settings) }
         .onChange(of: studio.settings.soundWhenNarrationMissing) { _, _ in playback.syncNarration(project, settings: studio.settings) }
         .onChange(of: playback.narrationEnabled) { _, enabled in
-            ProjectPlaybackPreferences.setNarrationEnabled(enabled, projectID: project.id)
+            ProjectPlaybackPreferences.setNarrationEnabled(enabled, folder: project.folder, projectID: project.id)
             playback.syncNarration(project, settings: studio.settings)
         }
         .onReceive(NotificationCenter.default.publisher(for: .vidiStudioProjectNarrationDidChange)) { notification in
@@ -2217,7 +2238,7 @@ struct ProjectEditor: View {
             playback.narrationEnabled = enabled
         }
         .onChange(of: followTranscript) { _, enabled in
-            ProjectPlaybackPreferences.setFollowEnabled(enabled, projectID: project.id)
+            ProjectPlaybackPreferences.setFollowEnabled(enabled, folder: project.folder, projectID: project.id)
         }
         .onReceive(NotificationCenter.default.publisher(for: .vidiStudioProjectFollowDidChange)) { notification in
             guard notification.userInfo?["projectID"] as? String == project.id,

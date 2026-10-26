@@ -81,6 +81,8 @@ enum NativeMenuIcons {
             return "macwindow.badge.plus"
         case "Open in Project Folder", "Show Project in Finder", "Open Project Folder…":
             return "folder"
+        case "Open Project Configuration":
+            return "doc.text"
         case "Export…", "Export":
             return "square.and.arrow.up"
         case "Choose Content to Delete…":

@@ -483,6 +483,9 @@ struct StudioProject: Codable, Identifiable {
     var descriptionsGenerated: Bool?
     var narrationEngine: String?
     var narrationVoice: String?
+    /// Project-specific playback choices stored in project.json so the same
+    /// choice travels with the project folder between macOS and Windows.
+    var playback: ProjectPlaybackSettings?
     var undoStack: [[Segment]]?
     var redoStack: [[Segment]]?
     var transcriptUndoStack: [[Segment]]?
@@ -947,29 +950,56 @@ enum SettingsSectionRequest {
     }
 }
 
+/// Project-specific playback choices persisted in the project's `project.json`.
+/// Both desktop apps read and write the same `playback` object, so the choices
+/// travel with the project folder instead of staying on one computer.
+struct ProjectPlaybackSettings: Codable, Equatable {
+    var narrationEnabled: Bool?
+    var followTranscript: Bool?
+}
+
 enum ProjectPlaybackPreferences {
+    static let narrationField = "narrationEnabled"
+    static let followField = "followTranscript"
+
+    /// Legacy user-defaults keys used before the choices moved into project.json.
+    /// They are read once to migrate an existing choice and are never written.
     static func narrationKey(_ projectID: String) -> String {
         "projectNarrationEnabled.\(projectID)"
-    }
-
-    static func narrationEnabled(_ projectID: String) -> Bool {
-        UserDefaults.standard.object(forKey: narrationKey(projectID)) as? Bool ?? false
     }
 
     static func followKey(_ projectID: String) -> String {
         "projectFollowTranscript.\(projectID)"
     }
 
-    static func followEnabled(_ projectID: String) -> Bool {
-        UserDefaults.standard.object(forKey: followKey(projectID)) as? Bool ?? true
+    static func narrationEnabled(folder: URL?, projectID: String) -> Bool {
+        value(
+            for: narrationField,
+            folder: folder,
+            projectID: projectID,
+            legacyKey: narrationKey(projectID)
+        ) ?? false
     }
 
-    static func setNarrationEnabled(_ enabled: Bool, projectID: String) {
-        let key = narrationKey(projectID)
-        let previous = UserDefaults.standard.object(forKey: key) as? Bool
-        UserDefaults.standard.set(enabled, forKey: key)
-        guard previous != enabled else { return }
+    static func followEnabled(folder: URL?, projectID: String) -> Bool {
+        value(
+            for: followField,
+            folder: folder,
+            projectID: projectID,
+            legacyKey: followKey(projectID)
+        ) ?? true
+    }
+
+    static func setNarrationEnabled(_ enabled: Bool, folder: URL?, projectID: String) {
+        guard value(for: narrationField, folder: folder, projectID: projectID, legacyKey: nil) != enabled else { return }
+        write(narrationField, enabled, folder: folder, projectID: projectID)
         announceNarrationChange(enabled, projectID: projectID)
+    }
+
+    static func setFollowEnabled(_ enabled: Bool, folder: URL?, projectID: String) {
+        guard value(for: followField, folder: folder, projectID: projectID, legacyKey: nil) != enabled else { return }
+        write(followField, enabled, folder: folder, projectID: projectID)
+        announceFollowChange(enabled, projectID: projectID)
     }
 
     static func announceNarrationChange(_ enabled: Bool, projectID: String) {
@@ -980,14 +1010,6 @@ enum ProjectPlaybackPreferences {
         )
     }
 
-    static func setFollowEnabled(_ enabled: Bool, projectID: String) {
-        let key = followKey(projectID)
-        let previous = UserDefaults.standard.object(forKey: key) as? Bool
-        UserDefaults.standard.set(enabled, forKey: key)
-        guard previous != enabled else { return }
-        announceFollowChange(enabled, projectID: projectID)
-    }
-
     static func announceFollowChange(_ enabled: Bool, projectID: String) {
         NotificationCenter.default.post(
             name: .vidiStudioProjectFollowDidChange,
@@ -995,22 +1017,67 @@ enum ProjectPlaybackPreferences {
             userInfo: ["projectID": projectID, "enabled": enabled]
         )
     }
+
+    /// Reads the saved choice from project.json. A choice made before it moved
+    /// into the project is migrated once from the legacy user-defaults key.
+    private static func value(
+        for field: String,
+        folder: URL?,
+        projectID: String,
+        legacyKey: String?
+    ) -> Bool? {
+        guard !projectID.isEmpty else { return nil }
+        if let saved = manifestPlayback(folder)?[field] as? Bool { return saved }
+        guard let legacyKey,
+              let legacy = UserDefaults.standard.object(forKey: legacyKey) as? Bool else { return nil }
+        write(field, legacy, folder: folder, projectID: projectID)
+        return legacy
+    }
+
+    /// Writes one playback choice into project.json while preserving every
+    /// other project field, including fields this app does not model.
+    private static func write(_ field: String, _ enabled: Bool, folder: URL?, projectID: String) {
+        guard !projectID.isEmpty,
+              let url = manifestURL(folder),
+              let data = try? Data(contentsOf: url),
+              let object = try? JSONSerialization.jsonObject(with: data),
+              var root = object as? [String: Any] else { return }
+        var playback = root["playback"] as? [String: Any] ?? [:]
+        playback[field] = enabled
+        root["playback"] = playback
+        guard let updated = try? JSONSerialization.data(withJSONObject: root, options: [.prettyPrinted]) else { return }
+        try? updated.write(to: url, options: .atomic)
+    }
+
+    private static func manifestPlayback(_ folder: URL?) -> [String: Any]? {
+        guard let url = manifestURL(folder),
+              let data = try? Data(contentsOf: url),
+              let object = try? JSONSerialization.jsonObject(with: data),
+              let root = object as? [String: Any] else { return nil }
+        return root["playback"] as? [String: Any]
+    }
+
+    private static func manifestURL(_ folder: URL?) -> URL? {
+        folder?.appendingPathComponent("project.json")
+    }
 }
 
 struct OpenProjectReference: Identifiable, Equatable {
     let id: String
     var name: String
+    var folder: URL?
 }
 
 @MainActor @Observable
 final class OpenProjectRegistry {
     private(set) var projects: [OpenProjectReference] = []
 
-    func open(_ id: String, name: String) {
+    func open(_ id: String, name: String, folder: URL? = nil) {
         if let index = projects.firstIndex(where: { $0.id == id }) {
             if projects[index].name != name { projects[index].name = name }
+            if let folder, projects[index].folder != folder { projects[index].folder = folder }
         } else {
-            projects.append(OpenProjectReference(id: id, name: name))
+            projects.append(OpenProjectReference(id: id, name: name, folder: folder))
         }
     }
 

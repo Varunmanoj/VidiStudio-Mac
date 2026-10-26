@@ -21,7 +21,8 @@ model = (ROOT/'VidiStudio/StudioModel.swift').read_text()
 exports = (ROOT/'VidiStudio/ExportOptionsMenu.swift').read_text()
 types = [declaration(model, marker) for marker in (
     'struct Segment:', 'enum DescriptionOrigin:', 'enum SynchronizedAudioStatus:',
-    'struct ExportMediaInformation:', 'struct AnalysisVideoAvailability:', 'struct StudioProject:',
+    'struct ExportMediaInformation:', 'struct AnalysisVideoAvailability:',
+    'struct ProjectPlaybackSettings:', 'struct StudioProject:',
 )]
 types += [declaration(exports, marker).replace('private enum', 'enum', 1) for marker in (
     'enum VideoCaptionOption:', 'enum StudioExportAction:', 'private enum VideoAudioChoice:',

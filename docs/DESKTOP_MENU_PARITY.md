@@ -14,7 +14,7 @@ Mac is the reference layout. Windows' shared menus follow this order:
   - **Narration:**
     - **AD Segment Generation:** Generate/Regenerate Audio Descriptions; Delete Descriptions.
     - **Narration Audio:** Generate/Regenerate All AD Audio, Generate Missing or Changed AD Audio, Review Narration Issues, Review Narration Voices; Delete All Narration Audio.
-  - Delete Current Page; Show Project in Finder/File Explorer.
+  - Delete Current Page; Show Project in Finder/File Explorer; Open Project Configuration (project.json in the default editor).
 - **Help:** VidiStudio Help; About is here on Windows and in the native app menu on Mac.
 
 The source declarations, not this summary, determine current labels, separators, and actions. Mac retains OS-owned app, standard Edit, and Window menus; Windows retains its system window menu/title-bar controls. Windows uses F1 for Help. Windows full-screen video is available for local media; the YouTube player owns its own full-screen action. Windows rendered-summary selection is paragraph based; Mac additionally supports a zero-length reading anchor.

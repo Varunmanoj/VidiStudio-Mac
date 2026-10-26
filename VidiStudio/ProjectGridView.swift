@@ -58,6 +58,11 @@ struct ProjectGridView: View {
                         Button("Open in Project Folder", systemImage: "folder") {
                             if let folder = project.folder { NSWorkspace.shared.open(folder) }
                         }
+                        Button("Open Project Configuration", systemImage: "doc.text") {
+                            guard let url = project.folder?.appendingPathComponent("project.json"),
+                                  FileManager.default.fileExists(atPath: url.path) else { return }
+                            NSWorkspace.shared.open(url)
+                        }
                         ProjectAnalysisMenu(project: project, busy: busy, hasApiKey: hasApiKey, apiKeyVerified: apiKeyVerified) { command in
                             process(project, command)
                         }
