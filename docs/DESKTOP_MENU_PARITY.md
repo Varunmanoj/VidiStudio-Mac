@@ -15,6 +15,7 @@ Mac is the reference layout. Windows' shared menus follow this order:
     - **AD Segment Generation:** Generate/Regenerate Audio Descriptions; Delete Descriptions.
     - **Narration Audio:** Generate/Regenerate All AD Audio, Generate Missing or Changed AD Audio, Review Narration Issues, Review Narration Voices; Delete All Narration Audio.
   - Delete Current Page; Show Project in Finder/File Explorer; Open Project Configuration (project.json in the default editor).
+  - After a separator: Rename Project…; Move Project to Bin… (Windows: Move Project to Recycle Bin…). These target the active editor project, use the existing rename/confirmed whole-project recycling flows, require an idle editor, and do not require an API key. Rename is unavailable for an unreadable/missing project. No new shortcuts are assigned. The Bin/Recycle Bin label difference is the intentional native-OS exception, checked explicitly by the parity validator.
 - **Help:** VidiStudio Help; About is here on Windows and in the native app menu on Mac.
 
 The source declarations, not this summary, determine current labels, separators, and actions. Mac retains OS-owned app, standard Edit, and Window menus; Windows retains its system window menu/title-bar controls. Windows uses F1 for Help. Windows full-screen video is available for local media; the YouTube player owns its own full-screen action. Windows rendered-summary selection is paragraph based; Mac additionally supports a zero-length reading anchor.

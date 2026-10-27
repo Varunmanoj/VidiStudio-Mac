@@ -122,6 +122,7 @@ final class EditorShortcutActions {
         guard available, handler != nil else { return false }
         if action.hasPrefix("summary-") { return canRunSummary(action) }
         switch action {
+        case "rename-project", "trash-project": return true
         case "narration": return canToggleNarration
         case "follow": return canToggleFollow
         case "add": return canAddSegment
@@ -441,6 +442,11 @@ struct StudioCommands: Commands {
                 .disabled(editor?.canRun("show-in-finder") != true)
             Button("Open Project Configuration", systemImage: "doc.text") { editor?.run("open-configuration") }
                 .disabled(editor?.canRun("open-configuration") != true)
+            Divider()
+            Button("Rename Project…", systemImage: "pencil") { editor?.run("rename-project") }
+                .disabled(editor?.canRun("rename-project") != true)
+            Button("Move Project to Bin…", systemImage: "trash", role: .destructive) { editor?.run("trash-project") }
+                .disabled(editor?.canRun("trash-project") != true)
         }
         CommandGroup(replacing: .help) {
             Button("VidiStudio Help", systemImage: "questionmark.circle") { StudioHelp.open() }.keyboardShortcut("/", modifiers: [.command, .option])

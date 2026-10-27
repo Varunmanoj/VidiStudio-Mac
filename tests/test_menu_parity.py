@@ -1,4 +1,5 @@
 import importlib.util
+import os
 from pathlib import Path
 import unittest
 
@@ -6,19 +7,46 @@ import unittest
 class DesktopMenuParity(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
-        root = Path(__file__).resolve().parents[2]
+        root = Path(os.environ.get('VIDISTUDIO_DESKTOP_WORKSPACE', Path(__file__).resolve().parents[2]))
         checker = root / 'script/check_menu_parity.py'
         if not checker.is_file():
             raise unittest.SkipTest('Cross-platform menu checks require the combined workspace.')
         spec = importlib.util.spec_from_file_location('desktop_menu_parity', checker)
         cls.checker = importlib.util.module_from_spec(spec)
         spec.loader.exec_module(cls.checker)
-        cls.mac = (root / 'VidiStudio Mac/VidiStudio/KeyboardShortcuts.swift').read_text()
-        cls.app = (root / 'VidiStudio Mac/VidiStudio/VidiStudioApp.swift').read_text()
-        cls.windows = (root / 'Vidi-Studio-Windows/Vidi Studio Windows/MainWindow.Menus.cs').read_text()
+        cls.mac = (root / 'VidiStudio Mac/VidiStudio/KeyboardShortcuts.swift').read_text(encoding='utf-8')
+        cls.app = (root / 'VidiStudio Mac/VidiStudio/VidiStudioApp.swift').read_text(encoding='utf-8')
+        cls.windows = (root / 'Vidi-Studio-Windows/Vidi Studio Windows/MainWindow.Menus.cs').read_text(encoding='utf-8')
 
     def test_actual_menus_and_shortcuts_match(self):
         self.assertGreater(self.checker.compare_sources(self.mac, self.app, self.windows), 30)
+
+    def test_project_management_order_guards_and_handlers_match(self):
+        nodes = self.checker.swift_group(self.mac, 'CommandMenu("Project")', self.checker.shortcut_rows(self.mac))
+        self.assertEqual(nodes[-3:], ['-', 'rename-project', 'trash-project'])
+        for action in ('rename-project', 'trash-project'):
+            self.assertIn(f'Command("{action}")', self.windows)
+            self.assertIn(f'case "{action}":', self.windows)
+            self.assertIn(f'.disabled(editor?.canRun("{action}") != true)', self.mac)
+        root = Path(os.environ.get('VIDISTUDIO_DESKTOP_WORKSPACE', Path(__file__).resolve().parents[2]))
+        content = (root / 'VidiStudio Mac/VidiStudio/ContentView.swift').read_text(encoding='utf-8')
+        self.assertIn('case "rename-project": renameProject()', content)
+        self.assertIn('case "trash-project": trashProject()', content)
+        self.assertIn('case "trash-project": return true;', self.windows)
+        self.assertIn('case "rename-project": return !p.IntegrityPlaceholder', self.windows)
+
+    def test_missing_project_management_actions_are_detected(self):
+        for action in ('rename-project', 'trash-project'):
+            with self.subTest(action=action), self.assertRaisesRegex(ValueError, 'hierarchy/order'):
+                self.checker.compare_sources(self.mac, self.app, self.windows.replace(f'Command("{action}")', 'Separator()', 1))
+
+    def test_native_project_recycling_labels_are_explicitly_checked(self):
+        changed = self.windows.replace('"Move Project to Recycle Bin…"', '"Permanently Delete Project…"')
+        with self.assertRaisesRegex(ValueError, 'native menu label'):
+            self.checker.compare_sources(self.mac, self.app, changed)
+        changed_mac = self.mac.replace('"Move Project to Bin…"', '"Permanently Delete Project…"')
+        with self.assertRaisesRegex(ValueError, 'native menu label'):
+            self.checker.compare_sources(changed_mac, self.app, self.windows)
 
     def test_missing_menu_item_is_detected(self):
         changed = self.windows.replace('Command("review-narration-issues"), ', '', 1)
@@ -45,8 +73,8 @@ class DesktopMenuParity(unittest.TestCase):
             self.checker.compare_sources(self.mac, self.app, changed)
 
     def test_narration_voice_review_is_wired_to_existing_dialog(self):
-        root = Path(__file__).resolve().parents[2]
-        content = (root / 'VidiStudio Mac/VidiStudio/ContentView.swift').read_text()
+        root = Path(os.environ.get('VIDISTUDIO_DESKTOP_WORKSPACE', Path(__file__).resolve().parents[2]))
+        content = (root / 'VidiStudio Mac/VidiStudio/ContentView.swift').read_text(encoding='utf-8')
         self.assertIn('case "review-narration-voices": studio.narrationVoiceReport = studio.narrationVoiceUsageReport(for: project)', content)
         self.assertIn('Button("Review Narration Voices…"', self.mac)
         self.assertIn('"review-narration-voices": return true', self.mac)

@@ -364,6 +364,8 @@ struct ProjectEditorWindow: View {
     @State private var editorShortcutActions = EditorShortcutActions()
     @State private var showInspector = true
     @State private var showingExportDialog = false
+    @State private var renamingProject = false
+    @State private var projectName = ""
     init(projectID: String, openProjects: OpenProjectRegistry) {
         self.projectID = projectID
         self.openProjects = openProjects
@@ -465,7 +467,12 @@ struct ProjectEditorWindow: View {
                             studio: studio,
                             project: project,
                             shortcutActions: editorShortcutActions,
-                            showExportDialog: { showingExportDialog = true }
+                            showExportDialog: { showingExportDialog = true },
+                            renameProject: {
+                                projectName = project.name
+                                renamingProject = true
+                            },
+                            trashProject: { deleteProject(project) }
                         )
                         .id(project.id)
                     }
@@ -510,6 +517,23 @@ struct ProjectEditorWindow: View {
             Button("OK", role: .cancel) { studio.dismissError() }
         } message: {
             Text(studio.error ?? "")
+        }
+        .sheet(isPresented: $renamingProject) {
+            VStack(spacing: 20) {
+                TextField("Project name", text: $projectName)
+                HStack {
+                    Button("Cancel", role: .cancel) { renamingProject = false }
+                    Button("Rename", systemImage: "pencil") {
+                        if let project = studio.selected {
+                            studio.execute("rename-project", extra: ["--name", projectName], project: project)
+                        }
+                        renamingProject = false
+                    }
+                    .keyboardShortcut(.defaultAction)
+                }
+            }
+            .padding(24)
+            .frame(width: 420)
         }
         .sheet(isPresented: $showingExportDialog) {
             if let project = studio.selected {
@@ -1136,6 +1160,8 @@ struct ProjectEditor: View {
     let project: StudioProject
     let shortcutActions: EditorShortcutActions
     let showExportDialog: () -> Void
+    let renameProject: () -> Void
+    let trashProject: () -> Void
     @State private var playback = PlaybackModel()
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @State private var tab = "transcript"
@@ -2117,6 +2143,8 @@ struct ProjectEditor: View {
         case "review-narration-voices": studio.narrationVoiceReport = studio.narrationVoiceUsageReport(for: project)
         case "show-in-finder": if let folder = project.folder { NSWorkspace.shared.open(folder) }
         case "open-configuration": openProjectConfiguration(project)
+        case "rename-project": renameProject()
+        case "trash-project": trashProject()
         case "analyze", "prepare-video", "transcribe", "generate-summary": studio.execute(action)
         case "generate-ad-cues":
             if project.canGenerateDescriptions { studio.execute(action) }
