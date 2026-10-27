@@ -3,7 +3,7 @@ set -euo pipefail
 cd "$(dirname "$0")/.."
 VIDISTUDIO_CONFIGURATION=Release ./script/build_and_run.sh --build-only
 mkdir -p dist
-APP="$PWD/build/DerivedData/Build/Products/Release/VidiStudio.app"
+APP="$PWD/build/DerivedData.noindex/Build/Products/Release/VidiStudio.app"
 /usr/bin/ditto -c -k --sequesterRsrc --keepParent "$APP" dist/VidiStudio-macOS-arm64.zip
 STAGE="$(mktemp -d "$PWD/build/dmg-stage.XXXXXX")"
 trap 'rm -rf "$STAGE"' EXIT

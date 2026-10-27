@@ -3,7 +3,16 @@ set -euo pipefail
 cd "$(dirname "$0")/.."
 export DEVELOPER_DIR="${DEVELOPER_DIR:-/Applications/Xcode.app/Contents/Developer}"
 MODE="${1:-run}"
-CONFIGURATION="${VIDISTUDIO_CONFIGURATION:-Debug}"
+if [[ -n "${VIDISTUDIO_CONFIGURATION:-}" ]]; then
+  CONFIGURATION="$VIDISTUDIO_CONFIGURATION"
+elif [[ "$MODE" == "--debug" ]]; then
+  CONFIGURATION="Debug"
+else
+  CONFIGURATION="Release"
+fi
+INSTALL_DIR="${VIDISTUDIO_INSTALL_DIR:-/Applications}"
+INSTALL_APP="$INSTALL_DIR/VidiStudio.app"
+LSREGISTER="/System/Library/Frameworks/CoreServices.framework/Frameworks/LaunchServices.framework/Support/lsregister"
 mkdir -p build
 touch build/.metadata_never_index
 pkill -x VidiStudio >/dev/null 2>&1 || true
@@ -12,8 +21,8 @@ python3 script/check_menu_parity.py --allow-missing
 if [[ ! -f build/engine/vidistudio-engine/.complete ]] || [[ -n "$(find engine -type f ! -path "*/__pycache__/*" -newer build/engine/vidistudio-engine/.complete -print -quit 2>/dev/null)" ]]; then
   ./script/prepare_engine.sh
 fi
-xcodebuild -project VidiStudio.xcodeproj -scheme VidiStudio -configuration "$CONFIGURATION" -derivedDataPath build/DerivedData CODE_SIGNING_ALLOWED=NO build > build/xcode-build.log 2>&1 || { tail -60 build/xcode-build.log; exit 1; }
-APP="$PWD/build/DerivedData/Build/Products/$CONFIGURATION/VidiStudio.app"
+xcodebuild -project VidiStudio.xcodeproj -scheme VidiStudio -configuration "$CONFIGURATION" -derivedDataPath build/DerivedData.noindex CODE_SIGNING_ALLOWED=NO build > build/xcode-build.log 2>&1 || { tail -60 build/xcode-build.log; exit 1; }
+APP="$PWD/build/DerivedData.noindex/Build/Products/$CONFIGURATION/VidiStudio.app"
 python3 script/verify_help.py "$APP"
 
 SHARE_EXTENSION="$APP/Contents/PlugIns/VidiStudioShareExtension.appex"
@@ -43,11 +52,35 @@ codesign --force --sign "$SIGNING_IDENTITY" --entitlements Config/VidiStudioShar
 codesign --force --sign "$SIGNING_IDENTITY" --entitlements Config/VidiStudioFinderExtension.entitlements "$FINDER_EXTENSION" >> build/codesign.log 2>&1
 codesign --force --sign "$SIGNING_IDENTITY" "$APP" >> build/codesign.log 2>&1
 codesign --verify --deep --strict "$APP" >> build/codesign.log 2>&1
+if [[ "$MODE" == "--build-only" ]]; then
+  # Packaging needs the signed product, but it must not appear as a second app.
+  "$LSREGISTER" -u "$APP" >/dev/null 2>&1 || true
+  echo "$APP"
+  exit 0
+fi
+if [[ ! -d "$INSTALL_DIR" || ! -w "$INSTALL_DIR" ]]; then
+  echo "Cannot install into $INSTALL_DIR. Set VIDISTUDIO_INSTALL_DIR to a writable applications folder." >&2
+  exit 1
+fi
+# Replace the previous install so LaunchServices, Spotlight, and the Dock show
+# exactly one app. Stage the new signed bundle first so a failed copy never
+# destroys the working installation.
+STAGING="$INSTALL_DIR/.VidiStudio.app.staging.$$"
+rm -rf "$INSTALL_DIR"/.VidiStudio.app.staging.* 2>/dev/null || true
+trap 'rm -rf "$STAGING"' EXIT
+ditto "$APP" "$STAGING"
+codesign --verify --deep --strict "$STAGING" >> build/codesign.log 2>&1
+rm -rf "$INSTALL_APP"
+mv "$STAGING" "$INSTALL_APP"
+"$LSREGISTER" -f "$INSTALL_APP" >/dev/null 2>&1 || true
+"$LSREGISTER" -u "$APP" >/dev/null 2>&1 || true
+# Remove the build product so a second VidiStudio.app cannot be found or launched.
+rm -rf "$APP"
+echo "Installed $INSTALL_APP"
 case "$MODE" in
-  --build-only) echo "$APP" ;;
-  --debug) lldb -- "$APP/Contents/MacOS/VidiStudio" ;;
-  --verify) open -n "$APP"; sleep 2; pgrep -x VidiStudio ;;
-  --logs|--telemetry) open -n "$APP"; /usr/bin/log stream --info --predicate 'process == "VidiStudio"' ;;
-  run) open -n "$APP" ;;
+  --debug) lldb -- "$INSTALL_APP/Contents/MacOS/VidiStudio" ;;
+  --verify) open -n "$INSTALL_APP"; sleep 2; pgrep -x VidiStudio ;;
+  --logs|--telemetry) open -n "$INSTALL_APP"; /usr/bin/log stream --info --predicate 'process == "VidiStudio"' ;;
+  run) open -n "$INSTALL_APP" ;;
   *) echo 'Usage: script/build_and_run.sh [--build-only|--verify|--debug|--logs|--telemetry]'; exit 2 ;;
 esac
