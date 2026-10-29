@@ -105,11 +105,14 @@ class Parity(unittest.TestCase):
         self.assertIn('Image(systemName: "trash")', gemini_view)
         self.assertIn('deleteGeminiApiKey()', gemini_view)
 
-    def test_new_project_requires_api_key(self):
+    def test_new_project_does_not_require_api_key(self):
         root = Path(__file__).resolve().parents[1]
         model = (root / 'VidiStudio' / 'StudioModel.swift').read_text(encoding='utf-8')
         self.assertIn('func beginNewProject()', model)
-        self.assertIn('requestGeminiSettings = true', model)
+        self.assertIn('isCreatingProject = true', model)
+        self.assertNotIn('requestGeminiSettings', model)
+        help_page = (root / 'docs' / 'help' / 'projects.html').read_text(encoding='utf-8')
+        self.assertIn('does not require a Gemini API key', help_page)
 
     def test_app_version_parity(self):
         script = Path(__file__).resolve().parents[1] / 'script' / 'sync_version.py'

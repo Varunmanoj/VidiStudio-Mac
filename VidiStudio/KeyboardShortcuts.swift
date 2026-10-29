@@ -33,13 +33,17 @@ final class EditorShortcutActions {
     var hasGeneratedThumbnails = false
     var hasApiKey = false
     var apiKeyVerified: Bool? = nil
-    var hasValidApiKey: Bool { hasApiKey && apiKeyVerified != false }
+    var aiProcessingBlocked = false
+    var hasValidApiKey: Bool { hasApiKey && apiKeyVerified != false && !aiProcessingBlocked }
     var ttsUsesGemini = false
     var isSynthesizingNarration = false
     var narratingSegmentIndex: Int? = nil
     var narratingTotalCount = 0
     /// Summary section readback state, synced by the project editor.
     var summaryActive = false
+    /// True while the Markdown summary editor is active. Project List/Grid
+    /// shortcuts are temporarily disabled so Command-Option-1/2 apply headings.
+    var summaryEditing = false
 
     var synthesizeNarrationTitle: String {
         if isSynthesizingNarration {
@@ -122,7 +126,7 @@ final class EditorShortcutActions {
         guard available, handler != nil else { return false }
         if action.hasPrefix("summary-") { return canRunSummary(action) }
         switch action {
-        case "rename-project", "trash-project": return true
+        case "rename-project", "trash-project", "import-assets", "import-transcript", "import-summary", "import-descriptions": return true
         case "narration": return canToggleNarration
         case "follow": return canToggleFollow
         case "add": return canAddSegment
@@ -324,9 +328,11 @@ struct StudioCommands: Commands {
                 .keyboardShortcut("b", modifiers: [.command, .shift]).disabled(browser?.hasProject != true || browser?.showInspector == nil)
             Divider()
             Button("Project List View", systemImage: "list.bullet") { browser?.grid?.wrappedValue = false; browser?.showProjects?.wrappedValue = true }
-                .keyboardShortcut("1", modifiers: [.command, .option]).disabled(browser?.grid == nil)
+                .keyboardShortcut("1", modifiers: [.command, .option])
+                .disabled(browser?.grid == nil || editor?.summaryEditing == true)
             Button("Project Grid View", systemImage: "square.grid.2x2") { browser?.grid?.wrappedValue = true; browser?.showProjects?.wrappedValue = true }
-                .keyboardShortcut("2", modifiers: [.command, .option]).disabled(browser?.grid == nil)
+                .keyboardShortcut("2", modifiers: [.command, .option])
+                .disabled(browser?.grid == nil || editor?.summaryEditing == true)
         }
         CommandGroup(replacing: .appInfo) {
             Button("About VidiStudio", systemImage: "info.circle") {
@@ -438,6 +444,21 @@ struct StudioCommands: Commands {
             }
             .disabled(editor?.currentDeleteAction == nil || editor?.canRun(editor?.currentDeleteAction ?? "") != true)
             Divider()
+            Menu("Import", systemImage: "square.and.arrow.down") {
+                Button("Import Transcript…", systemImage: "text.bubble") { editor?.run("import-transcript") }
+                    .keyboardShortcut("i", modifiers: [.command, .option])
+                    .disabled(editor?.canRun("import-transcript") != true)
+                Button("Import Summary…", systemImage: "text.alignleft") { editor?.run("import-summary") }
+                    .keyboardShortcut("m", modifiers: [.command, .option])
+                    .disabled(editor?.canRun("import-summary") != true)
+                Button("Import Descriptions…", systemImage: "text.below.photo") { editor?.run("import-descriptions") }
+                    .keyboardShortcut("d", modifiers: [.command, .option])
+                    .disabled(editor?.canRun("import-descriptions") != true)
+                Divider()
+                Button("Import Existing Assets…", systemImage: "square.and.arrow.down") { editor?.run("import-assets") }
+                    .keyboardShortcut("i", modifiers: [.command, .option, .shift])
+                    .disabled(editor?.canRun("import-assets") != true)
+            }
             Button("Show Project in Finder", systemImage: "folder") { editor?.run("show-in-finder") }
                 .disabled(editor?.canRun("show-in-finder") != true)
             Button("Open Project Configuration", systemImage: "doc.text") { editor?.run("open-configuration") }

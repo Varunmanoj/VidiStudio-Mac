@@ -23,10 +23,26 @@ private enum NewProjectSource: String, CaseIterable, Identifiable {
     var icon: String { self == .videoFile ? "film" : "play.rectangle" }
 }
 
+private enum NewProjectAssetMode: String, CaseIterable, Identifiable {
+    case create, existing
+    var id: Self { self }
+    var title: String { self == .create ? "Create Audio Description in VidiStudio" : "I already have Audio Description files" }
+    var detail: String {
+        self == .create
+            ? "Generate a transcript, summary, and descriptions after creating the project."
+            : "Bring an existing transcript, summary, AD transcript, or AD audio and combine it with this video."
+    }
+}
+
 private struct NewProjectView: View {
     @Environment(\.dismiss) private var dismiss
+    @Environment(\.openWindow) private var openWindow
     @Bindable var studio: StudioModel
     @State private var source = NewProjectSource.videoFile
+    @State private var assetMode = NewProjectAssetMode.create
+    @State private var assets = ImportAssetSelection()
+    @State private var showingAssetImport = false
+    @State private var createdProject: StudioProject?
     @State private var videoURL: URL?
     @State private var youtubeURL = ""
     @State private var youtubePreview: YouTubeProjectPreview?
@@ -68,6 +84,7 @@ private struct NewProjectView: View {
                         Button(videoURL == nil ? "Choose Video…" : "Choose Different Video…", systemImage: "folder") {
                             chooseVideo()
                         }
+                        .help("Choose the local video file for this project")
                     }
                     Text(videoURL?.path ?? "No video selected")
                         .font(.caption)
@@ -130,20 +147,75 @@ private struct NewProjectView: View {
             }
 
             Section {
+                Picker("Audio Description", selection: $assetMode) {
+                    ForEach(NewProjectAssetMode.allCases) { mode in
+                        Text(mode.title).tag(mode)
+                    }
+                }
+                .pickerStyle(.radioGroup)
+                .accessibilityHint("Choose whether to create descriptions in VidiStudio or bring existing assets.")
+                Text(assetMode.detail).font(.caption).foregroundStyle(.secondary)
+            } header: {
+                Text("Audio Description")
+            }
+
+            if assetMode == .existing {
+                Section("Bring existing assets") {
+                    existingAssetRow(.transcript, url: $assets.transcript)
+                    existingAssetRow(.summary, url: $assets.summary)
+                    existingAssetRow(.adTranscript, url: $assets.adTranscript)
+                    if assets.adTranscript != nil {
+                        Picker("AD transcript type", selection: $assets.adTranscriptMode) {
+                            ForEach(ImportedADTranscriptMode.allCases) { mode in
+                                Text(mode.title).tag(mode)
+                            }
+                        }
+                        .pickerStyle(.radioGroup)
+                        Text(assets.adTranscriptMode.detail).font(.caption).foregroundStyle(.secondary)
+                    }
+                    if source == .videoFile {
+                        Divider()
+                        existingAssetRow(.audio, url: $assets.adAudio)
+                        if assets.adAudio != nil {
+                            Picker("Audio type", selection: $assets.adAudioMode) {
+                                ForEach(ImportedADAudioMode.allCases) { mode in
+                                    Text(mode.title).tag(mode)
+                                }
+                            }
+                            .pickerStyle(.radioGroup)
+                            Text(assets.adAudioMode.detail).font(.caption).foregroundStyle(.secondary)
+                        }
+                        Text("Combining creates Original Audio and English - Audio Description tracks that viewers can switch between.")
+                            .font(.caption).foregroundStyle(.secondary)
+                    } else {
+                        Text("Text assets are supported for YouTube projects. Audio combination requires a local video source.")
+                            .font(.caption).foregroundStyle(.secondary)
+                    }
+                    Text("Accepted: SRT, VTT, TXT for text; Markdown or TXT for summaries; WAV, MP3, M4A, AAC, or FLAC for audio. TXT timing is reviewed after the project is created.")
+                        .font(.caption2).foregroundStyle(.secondary)
+                }
+            }
+
+            Section {
                 HStack {
                     Button("Cancel", role: .cancel) { dismiss() }
                         .keyboardShortcut(.cancelAction)
                     Spacer()
-                    Button("Create Project", systemImage: "plus") { createProject() }
+                    if assetMode == .existing, source == .videoFile, assets.adAudio != nil {
+                        Button("Create Project & Combine", systemImage: "waveform.badge.plus") { createProject(combine: true) }
+                            .disabled(!canCreate || studio.busy)
+                            .help("Create the project, import these assets, and combine the described audio track")
+                    }
+                    Button(assetMode == .existing ? "Create Project & Open Editor" : "Create Project", systemImage: "plus") { createProject(combine: false) }
                         .keyboardShortcut(.defaultAction)
-                        .disabled(!canCreate || (source == .youtube && !studio.hasValidApiKey))
-                        .help(source == .youtube && !studio.hasApiKey ? "Enter your Gemini API key in Settings → Gemini API to create a YouTube project" : source == .youtube && studio.isApiKeyInvalid ? "Gemini API key is invalid — enter a valid key in Settings → Gemini API to create a YouTube project" : "Create project")
+                        .disabled(!canCreate || studio.busy)
+                        .help("Create this project. A Gemini key is not required; AI actions can be configured later.")
                 }
             }
             }
             .formStyle(.grouped)
         }
-        .frame(width: 600, height: source == .youtube ? 480 : 360)
+        .frame(width: 640, height: source == .youtube ? 640 : assetMode == .existing ? 700 : 480)
         .onChange(of: youtubeURL) {
             youtubePreview = nil
             youtubeFetchError = nil
@@ -152,6 +224,39 @@ private struct NewProjectView: View {
             Button("OK", role: .cancel) { studio.dismissError() }
         } message: {
             Text(studio.error ?? "")
+        }
+        .sheet(isPresented: $showingAssetImport) {
+            if let createdProject {
+                ImportExistingAssetsView(
+                    studio: studio,
+                    project: createdProject,
+                    selection: assets,
+                    title: "Create Project & Open Editor",
+                    primaryTitle: "Create Project & Open Editor",
+                    combineTitle: "Create Project & Combine",
+                    onFinished: { result in finishCreation(result ?? createdProject) }
+                )
+            }
+        }
+    }
+
+    @ViewBuilder
+    private func existingAssetRow(_ kind: ImportFileKind, url: Binding<URL?>) -> some View {
+        LabeledContent(kind.title) {
+            HStack(spacing: 8) {
+                Text(url.wrappedValue?.lastPathComponent ?? "None")
+                    .foregroundStyle(url.wrappedValue == nil ? .secondary : .primary)
+                    .lineLimit(1).truncationMode(.middle)
+                Button("Choose…") {
+                    if let selected = kind.choose() { url.wrappedValue = selected }
+                }
+                .help("Choose a \(kind.title.lowercased()) file")
+                if url.wrappedValue != nil {
+                    Button("Remove", systemImage: "xmark.circle") { url.wrappedValue = nil }
+                        .labelStyle(.iconOnly)
+                        .help("Remove this selection")
+                }
+            }
         }
     }
 
@@ -167,17 +272,40 @@ private struct NewProjectView: View {
         }
     }
 
-    private func createProject() {
+    private func createProject(combine: Bool) {
+        let finished: (StudioProject?) -> Void = { project in
+            guard let project else { return }
+            if assetMode == .existing, assets.hasAny {
+                if assets.hasTextNeedingTiming {
+                    createdProject = project
+                    showingAssetImport = true
+                } else {
+                    studio.importAssets(assets, into: project, combine: combine && assets.adAudio != nil) { result in
+                        finishCreation(result ?? project)
+                    }
+                }
+            } else {
+                finishCreation(project)
+            }
+        }
         let started: Bool
         switch source {
         case .videoFile:
             guard let videoURL else { return }
-            started = studio.importVideo(at: videoURL)
+            started = studio.importVideo(at: videoURL, completion: finished)
         case .youtube:
             guard let youtubePreview else { return }
-            started = studio.importYouTube(at: youtubePreview.canonicalURL, name: youtubePreview.title)
+            started = studio.importYouTube(at: youtubePreview.canonicalURL, name: youtubePreview.title, completion: finished)
         }
-        if started { dismiss() }
+        _ = started
+    }
+
+    private func finishCreation(_ project: StudioProject) {
+        studio.selectedID = project.id
+        dismiss()
+        DispatchQueue.main.async {
+            openWindow(id: "project-editor", value: project.id)
+        }
     }
 
     @MainActor
@@ -267,6 +395,7 @@ struct ContentView: View {
             integrity: studio.projectIntegrity,
             hasApiKey: studio.hasApiKey,
             apiKeyVerified: studio.apiKeyVerified,
+            aiProcessingBlocked: studio.isAIProcessingBlocked,
             apiKeyVerificationMessage: studio.apiKeyVerificationMessage,
             openGeminiSettings: {
                 studio.settingsSection = "Gemini API"
@@ -286,7 +415,10 @@ struct ContentView: View {
             clear: { deletionProject = $0 }
         )
         .safeAreaInset(edge: .top, spacing: 0) {
-            ActiveExportProgressView()
+            VStack(spacing: 0) {
+                AIServiceIssueBanner(studio: studio)
+                ActiveExportProgressView()
+            }
         }
         .background(WindowFitter().frame(width: 0, height: 0))
         .focusedSceneValue(\.projectBrowser, ProjectBrowserActions(
@@ -327,13 +459,6 @@ struct ContentView: View {
                   source !== studio,
                   let settings = notification.userInfo?["settings"] as? StudioSettings else { return }
             studio.applyExternalSettings(settings)
-        }
-        .onChange(of: studio.requestGeminiSettings) { _, requested in
-            guard requested else { return }
-            studio.requestGeminiSettings = false
-            studio.settingsSection = "Gemini API"
-            SettingsSectionRequest.request("Gemini API")
-            openSettings()
         }
         .onOpenURL(perform: handleSharedURL)
         .task {
@@ -395,6 +520,7 @@ struct ProjectEditorWindow: View {
                         openSettings()
                     }
                     .controlSize(.small)
+                    .help("Open Settings → Gemini API to enter or replace the key")
                 }
                 .padding(.horizontal, 16)
                 .padding(.vertical, 8)
@@ -419,6 +545,7 @@ struct ProjectEditorWindow: View {
                         openSettings()
                     }
                     .controlSize(.small)
+                    .help("Open Settings → Gemini API to enter or replace the key")
                 }
                 .padding(.horizontal, 16)
                 .padding(.vertical, 8)
@@ -444,6 +571,11 @@ struct ProjectEditorWindow: View {
                     },
                     deleteProject: {
                         deleteProject(project)
+                    },
+                    showImportReport: project.lastImportReport == nil ? nil : {
+                        if let report = project.lastImportReport {
+                            studio.importReports = [report]
+                        }
                     }
                 )
             }
@@ -491,7 +623,10 @@ struct ProjectEditorWindow: View {
             .inspectorColumnWidth(min: 250, ideal: 272, max: 340)
         }
         .safeAreaInset(edge: .top, spacing: 0) {
-            ActiveExportProgressView()
+            VStack(spacing: 0) {
+                AIServiceIssueBanner(studio: studio)
+                ActiveExportProgressView()
+            }
         }
         .smoothPresentation()
         .background(WindowFitter().frame(width: 0, height: 0))
@@ -511,6 +646,7 @@ struct ProjectEditorWindow: View {
             ToolbarItem(placement: .primaryAction) {
                 Button(showInspector ? "Hide Inspector" : "Show Inspector", systemImage: "sidebar.right") { showInspector.toggle() }
                     .labelStyle(.iconOnly)
+                    .help(showInspector ? "Hide the inspector" : "Show project and section details")
             }
         }
         .alert(studio.errorTitle, isPresented: Binding(get: { studio.error != nil }, set: { if !$0 { studio.dismissError() } })) {
@@ -636,6 +772,11 @@ struct ProcessingInspector: View {
                             },
                             deleteProject: {
                                 deleteProject(project)
+                            },
+                            showImportReport: project.lastImportReport == nil ? nil : {
+                                if let report = project.lastImportReport {
+                                    studio.importReports = [report]
+                                }
                             }
                         )
                         .padding(.top, 4)
@@ -1183,6 +1324,10 @@ struct ProjectEditor: View {
     @State private var summaryReader = SummaryReadbackModel()
     @State private var summaryEditMode = false
     @State private var summaryDraftText = ""
+    @State private var showingImportAssets = false
+    @State private var importScope: ImportScope?
+    @State private var showingTranscriptTimingEditor = false
+    @State private var narrationImportCue: Segment?
     private var transcriptRows: [TranscriptRow] {
         let dialogue = project.transcript.map { TranscriptRow(segment: $0, isDescription: false) }
         let descriptions = project.cues.map { TranscriptRow(segment: $0, isDescription: true) }
@@ -1316,6 +1461,13 @@ struct ProjectEditor: View {
         HStack(spacing: 10) {
             ScrollView(.horizontal, showsIndicators: false) {
                 HStack(spacing: 8) {
+                    Button("Import Existing Assets", systemImage: "square.and.arrow.down") {
+                        showingImportAssets = true
+                    }
+                    .labelStyle(.iconOnly)
+                    .disabled(studio.busy)
+                    .help("Import a transcript, summary, AD transcript, or AD audio into this project")
+                    .accessibilityLabel("Import Existing Assets")
                     Picker("Editor section", selection: $tab) {
                         Text("Transcript").tag("transcript")
                         Text("Summary").tag("summary")
@@ -1326,6 +1478,18 @@ struct ProjectEditor: View {
                     .pickerStyle(.menu)
                     .labelsHidden()
                     .frame(maxWidth: 200)
+                    if tab == "descriptions" || tab == "ad-transcript" {
+                        let origins = Set(project.cues.map(\.provenance))
+                        if origins.count > 1 {
+                            Label("Mixed origins", systemImage: "circle.hexagongrid")
+                                .font(.caption.weight(.semibold))
+                                .foregroundStyle(.secondary)
+                                .help("This section contains more than one provenance label. Each row keeps its own origin.")
+                        } else if let origin = origins.first {
+                            DescriptionOriginLabel(origin: origin)
+                                .help("Every description in this section has this provenance label.")
+                        }
+                    }
                     Button(previewHidden ? "Show Preview" : "Hide Preview", systemImage: previewHidden ? "video" : "video.slash") {
                         playback.exitVideoFullScreen()
                         previewHidden.toggle()
@@ -1407,17 +1571,36 @@ struct ProjectEditor: View {
                     .fixedSize()
             }
             if tab == "descriptions" || tab == "transcript" {
-                Button("Add Segment", systemImage: "plus") {
-                    presentNewSegment(isDescription: tab == "descriptions")
+                Menu {
+                    Button(tab == "transcript" ? "Add Transcript Segment" : "Add Audio Description Segment", systemImage: "plus") {
+                        presentNewSegment(isDescription: tab == "descriptions")
+                    }
+                    .disabled(tab == "descriptions" && project.transcript.isEmpty)
+                    Divider()
+                    Button(tab == "transcript" ? "Import Transcript…" : "Import Descriptions…", systemImage: "square.and.arrow.down") {
+                        importScope = tab == "transcript" ? .transcript : .descriptions
+                    }
+                } label: {
+                    Label("Add", systemImage: "plus")
                 }
-                    .disabled(studio.busy)
-                    .fixedSize()
-                    .accessibilityLabel(tab == "transcript" ? "Add Transcript Segment" : "Add Audio Description Segment")
-                    .help(tab == "transcript"
-                        ? "Add a new transcript segment at the current video time"
-                        : "Add a new Audio Description segment at the current video time")
+                .disabled(studio.busy)
+                .fixedSize()
+                .accessibilityLabel(tab == "transcript" ? "Add or import transcript" : "Add or import descriptions")
+                .help(tab == "transcript"
+                    ? "Add a transcript segment manually or import a transcript"
+                    : "Add an Audio Description segment manually or import AD descriptions")
             }
             if tab == "summary" {
+                Menu {
+                    Button("Write Summary", systemImage: "square.and.pencil") { startSummaryEditing() }
+                    Button("Import Summary…", systemImage: "square.and.arrow.down") { importScope = .summary }
+                } label: {
+                    Label("Add", systemImage: "plus")
+                }
+                .disabled(studio.busy || summaryEditMode)
+                .fixedSize()
+                .accessibilityLabel("Add or import summary")
+                .help("Write a summary manually or import a Markdown or TXT summary")
                 Button(summaryEditMode ? "Done" : "Edit", systemImage: summaryEditMode ? "checkmark" : "pencil") {
                     toggleSummaryEditMode()
                 }
@@ -1447,11 +1630,13 @@ struct ProjectEditor: View {
                     }
                     .disabled(selectedSegmentIDs.isEmpty)
                     .fixedSize()
+                    .help("Edit the timing and text of every selected segment")
                     Button("Delete Selected…", systemImage: "trash", role: .destructive) {
                         deleteSelectedSegments()
                     }
                     .disabled(selectedSegmentIDs.isEmpty)
                     .fixedSize()
+                    .help("Delete the selected segments after confirmation")
                 }
                 Button(segmentEditMode ? "Done" : "Edit", systemImage: segmentEditMode ? "checkmark" : "pencil") {
                     segmentEditMode.toggle()
@@ -1499,6 +1684,7 @@ struct ProjectEditor: View {
                 .fixedSize()
                 .accessibilityLabel("Cancel Processing")
                 .accessibilityHint("Stops the current processing operation. Completed results remain saved.")
+                .help("Stop the current AI processing or export. Completed results remain saved.")
             }
             .padding(.horizontal, 12)
             .padding(.vertical, 8)
@@ -1525,6 +1711,7 @@ struct ProjectEditor: View {
             .frame(height: 200)
             HStack {
                 Button("Close") { studio.screenText = nil }
+                    .help("Close the screen text review without changing the project")
                 Spacer()
                 Button("Add as Description", systemImage: "text.badge.plus") {
                     segmentToEdit = TranscriptRow(
@@ -1534,6 +1721,7 @@ struct ProjectEditor: View {
                     studio.screenText = nil
                 }
                 .disabled(studio.screenText?.isEmpty != false)
+                .help("Create an Audio Description segment from the text found in this frame")
             }
         }
         .padding(24)
@@ -1733,6 +1921,29 @@ struct ProjectEditor: View {
     private var editorPane: some View {
         VStack(spacing: 0) {
             processingControlBar
+            if project.hasDescriptionTimingIssues {
+                HStack(spacing: 10) {
+                    Image(systemName: "exclamationmark.triangle.fill")
+                        .foregroundStyle(.orange)
+                        .accessibilityHidden(true)
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text("Description timing needs attention")
+                            .font(.subheadline.weight(.semibold))
+                        Text("\(project.descriptionTimingIssueCount) segment\(project.descriptionTimingIssueCount == 1 ? "" : "s") overlap dialogue or another description. Described exports are blocked until they are retimed.")
+                            .font(.caption).foregroundStyle(.secondary)
+                    }
+                    Spacer()
+                    Button("Review Descriptions") { tab = "descriptions" }
+                        .help("Open Descriptions to retime the affected segments")
+                    if let report = project.lastImportReport {
+                        Button("Import Report…") { studio.importReports = [report] }
+                            .help("Review the import report that flagged these segments")
+                    }
+                }
+                .padding(.horizontal, 12).padding(.vertical, 7)
+                .background(Color.orange.opacity(0.12))
+                .accessibilityElement(children: .combine)
+            }
             editorToolbar
             if let error = playback.speechError { Text(error).foregroundStyle(.red).padding(8) }
             Divider()
@@ -1747,22 +1958,26 @@ struct ProjectEditor: View {
                 ADOverviewView(studio: studio, project: project)
             } else if tab == "summary" {
                 if summaryEditMode {
-                    SummaryEditorView(
+                    SummaryMarkdownEditorView(
                         text: $summaryDraftText,
-                        onDone: { commitSummaryEdits() },
+                        project: project,
+                        onDone: { origin in commitSummaryEdits(origin: origin) },
                         onCancel: {
                             summaryDraftText = project.summary
                             summaryEditMode = false
                             refreshEditorShortcutActions()
                         }
                     )
+                } else if project.summary.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                    summaryEmptyState
                 } else {
                     SummaryReaderView(
-                        markdown: project.summary.isEmpty ? "Generate a summary after transcription to capture the story and visual context." : project.summary,
+                        markdown: project.summary,
                         model: summaryReader,
                         settings: studio.settings,
                         follow: followTranscript,
                         hasSummary: !project.summary.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
+                        origin: project.summary.isEmpty ? nil : project.summaryOriginLabel,
                         onEdit: { startSummaryEditing() }
                     )
                 }
@@ -1804,8 +2019,18 @@ struct ProjectEditor: View {
                                     }
                                     .foregroundStyle(row.color)
                                 }
+                                if !row.isDescription {
+                                    DescriptionOriginLabel(origin: cue.provenance)
+                                }
                                 if row.isDescription {
                                     DescriptionOriginLabel(origin: cue.provenance)
+                                    if project.descriptionTimingAudit?.segments.contains(where: { $0.id == cue.id }) == true {
+                                        Label("Overlap", systemImage: "exclamationmark.triangle.fill")
+                                            .font(.caption.weight(.semibold))
+                                            .foregroundStyle(.orange)
+                                            .help("This description overlaps dialogue or another description. Described exports are blocked until it is retimed.")
+                                            .accessibilityLabel("Description timing overlaps. Needs retiming.")
+                                    }
                                     SynchronizedAudioStatusLabel(
                                         status: .resolve(
                                             cue: cue,
@@ -1889,6 +2114,9 @@ struct ProjectEditor: View {
                                             enabled: !studio.busy && (studio.settings.ttsMode != "gemini" || studio.hasValidApiKey)
                                         ) {
                                             studio.execute("synthesize-tts", extra: ["--segment", cue.id])
+                                        },
+                                        .init(title: "Import Narration Audio…", systemImage: "square.and.arrow.down", enabled: !studio.busy) {
+                                            chooseNarrationAudio(for: cue)
                                         },
                                         .init(title: "Delete Segment Audio…", systemImage: "speaker.slash", enabled: cue.audio != nil) {
                                             studio.confirmDeleteSegmentAudio(project, cue: cue) {
@@ -1988,6 +2216,13 @@ struct ProjectEditor: View {
                                     }
                                     .disabled(studio.busy || !studio.hasValidApiKey)
                                     .help(!studio.hasApiKey ? "Enter your Gemini API key in Settings → Gemini API to rewrite description text" : studio.isApiKeyInvalid ? "Gemini API key is invalid — enter a valid key in Settings → Gemini API to rewrite description text" : "Rewrite this description to fit into the silent pause")
+
+                                    Button("Import Narration Audio…", systemImage: "square.and.arrow.down") {
+                                        chooseNarrationAudio(for: cue)
+                                    }
+                                    .disabled(studio.busy)
+                                    .help(cue.audio == nil ? "Import a WAV, MP3, M4A, AAC, or FLAC narration file for this description" : "Replace this description's narration with an imported audio file")
+                                    .accessibilityLabel("Import narration audio for segment starting at \(timecode(cue.start))")
 
                                     if cue.audio != nil {
                                         Button("Delete Segment Audio…", systemImage: "speaker.slash", role: .destructive) {
@@ -2143,6 +2378,10 @@ struct ProjectEditor: View {
         case "review-narration-voices": studio.narrationVoiceReport = studio.narrationVoiceUsageReport(for: project)
         case "show-in-finder": if let folder = project.folder { NSWorkspace.shared.open(folder) }
         case "open-configuration": openProjectConfiguration(project)
+        case "import-assets": showingImportAssets = true
+        case "import-transcript": importScope = .transcript
+        case "import-summary": importScope = .summary
+        case "import-descriptions": importScope = .descriptions
         case "rename-project": renameProject()
         case "trash-project": trashProject()
         case "analyze", "prepare-video", "transcribe", "generate-summary": studio.execute(action)
@@ -2152,6 +2391,45 @@ struct ProjectEditor: View {
         }
     }
 
+    private var summaryEmptyState: some View {
+        ContentUnavailableView {
+            Label("Write or bring a summary", systemImage: "text.alignleft")
+        } description: {
+            Text("Generate from a transcript, import an existing Markdown or TXT summary, or write one yourself. Importing and writing do not require a transcript or API key.")
+        } actions: {
+            Button("Generate Summary", systemImage: "sparkles") { studio.execute("generate-summary") }
+                .disabled(studio.busy || project.transcript.isEmpty || !studio.hasValidApiKey)
+                .help(project.transcript.isEmpty
+                    ? "Generate a transcript before generating a summary"
+                    : !studio.hasApiKey
+                        ? "Enter your Gemini API key in Settings → Gemini API to generate a summary"
+                        : "Generate a summary from the transcript and video")
+            Button("Import Summary…", systemImage: "square.and.arrow.down") { chooseSummaryToImport() }
+                .disabled(studio.busy)
+                .help("Import a Markdown or TXT summary without a transcript or API key")
+            Button("Write Summary", systemImage: "pencil") {
+                summaryDraftText = ""
+                summaryEditMode = true
+                refreshEditorShortcutActions()
+            }
+            .disabled(studio.busy)
+            .help("Write a summary manually with the Markdown editor")
+        }
+    }
+
+    private func chooseSummaryToImport() {
+        let panel = NSOpenPanel()
+        panel.allowedContentTypes = ["md", "markdown", "txt"].compactMap { UTType(filenameExtension: $0) }
+        panel.allowsMultipleSelection = false
+        panel.canChooseDirectories = false
+        panel.prompt = "Import Summary"
+        panel.message = "Choose a Markdown or TXT summary."
+        guard panel.runModal() == .OK, let url = panel.url else { return }
+        var selection = ImportAssetSelection()
+        selection.summary = url
+        studio.importAssets(selection, into: project, combine: false)
+    }
+
     private func startSummaryEditing() {
         summaryReader.stop()
         summaryDraftText = project.summary
@@ -2159,10 +2437,11 @@ struct ProjectEditor: View {
         refreshEditorShortcutActions()
     }
 
-    private func commitSummaryEdits() {
+    private func commitSummaryEdits(origin: SummaryOrigin? = nil) {
         let trimmed = summaryDraftText.trimmingCharacters(in: .whitespacesAndNewlines)
-        if trimmed != project.summary.trimmingCharacters(in: .whitespacesAndNewlines) {
-            studio.saveSummary(summaryDraftText)
+        let originChanged = origin != nil && origin != project.summaryOriginLabel
+        if trimmed != project.summary.trimmingCharacters(in: .whitespacesAndNewlines) || originChanged {
+            studio.saveSummary(summaryDraftText, origin: originChanged ? origin : nil)
         }
         summaryEditMode = false
         refreshEditorShortcutActions()
@@ -2218,12 +2497,14 @@ struct ProjectEditor: View {
         shortcutActions.hasGeneratedSummary = GeneratedContentComponent.summary.hasContent(in: project)
         shortcutActions.hasApiKey = studio.hasApiKey
         shortcutActions.apiKeyVerified = studio.apiKeyVerified
+        shortcutActions.aiProcessingBlocked = studio.isAIProcessingBlocked
         shortcutActions.ttsUsesGemini = (studio.settings.ttsMode == "gemini")
         shortcutActions.hasGeneratedThumbnails = !project.thumbnails.isEmpty
         shortcutActions.isSynthesizingNarration = studio.isSynthesizingNarration
         shortcutActions.narratingSegmentIndex = studio.narratingSegmentIndex
         shortcutActions.narratingTotalCount = studio.narratingTotalCount > 0 ? studio.narratingTotalCount : project.cues.count
         shortcutActions.summaryActive = (tab == "summary")
+        shortcutActions.summaryEditing = (tab == "summary" && summaryEditMode)
         shortcutActions.summaryReadable = !project.summary.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty && !studio.busy
         shortcutActions.summaryIsReading = summaryReader.isReading
         shortcutActions.summaryIsPaused = summaryReader.isPaused
@@ -2380,9 +2661,36 @@ struct ProjectEditor: View {
         .sheet(item: $studio.narrationVoiceReport) { report in
             NarrationVoicesView(report: report)
         }
+        .sheet(isPresented: $showingImportAssets) {
+            ImportExistingAssetsView(studio: studio, project: project)
+        }
+        .sheet(item: $importScope) { scope in
+            ImportExistingAssetsView(studio: studio, project: project, scope: scope)
+        }
+        .sheet(isPresented: Binding(
+            get: { !studio.importReports.isEmpty },
+            set: { if !$0 { studio.clearImportReports() } }
+        )) {
+            ImportReportSheet(
+                reports: studio.importReports,
+                canEditTranscriptTimings: !project.transcript.isEmpty && studio.importReports.contains { $0.kind == "transcript" || $0.kind == "narration" },
+                onEditTranscriptTimings: {
+                    DispatchQueue.main.asyncAfter(deadline: .now() + 0.35) {
+                        showingTranscriptTimingEditor = true
+                    }
+                },
+                onReviewDescriptions: { tab = "descriptions" },
+                onReviewTranscript: { tab = "transcript" },
+                onClose: { studio.clearImportReports() }
+            )
+        }
+        .sheet(isPresented: $showingTranscriptTimingEditor) {
+            TranscriptTimingEditorView(studio: studio, project: project)
+        }
     }
 
     private func presentNewSegment(isDescription: Bool) {
+        guard !(isDescription && project.transcript.isEmpty) else { return }
         playback.pauseAndCaptureTime { capturedTime in
             let latestStart = max(0, project.duration - 0.1)
             let start = max(0, min(capturedTime, latestStart))
@@ -2402,6 +2710,26 @@ struct ProjectEditor: View {
     private func safeFrameTimestamp(_ requestedTimestamp: Double) -> Double {
         guard project.duration > 0 else { return 0 }
         return min(max(0, requestedTimestamp), max(0, project.duration - 0.1))
+    }
+
+    private func chooseNarrationAudio(for cue: Segment) {
+        let panel = NSOpenPanel()
+        panel.allowedContentTypes = ["wav", "mp3", "m4a", "aac", "flac"].compactMap { UTType(filenameExtension: $0) }
+        panel.allowsMultipleSelection = false
+        panel.canChooseDirectories = false
+        panel.prompt = "Import Narration"
+        panel.message = "Choose narration audio for AD segment at \(timecode(cue.start)). It must fit inside the segment."
+        guard panel.runModal() == .OK, let url = panel.url else { return }
+        if cue.audio != nil {
+            let alert = NSAlert()
+            alert.messageText = "Replace this segment's narration audio?"
+            alert.informativeText = "The existing narration file will be replaced after the imported audio passes validation."
+            alert.alertStyle = .warning
+            alert.addButton(withTitle: "Cancel")
+            alert.addButton(withTitle: "Replace")
+            guard alert.runModal() == .alertSecondButtonReturn else { return }
+        }
+        studio.importSegmentNarration(url, into: cue, project: project, replacingExisting: cue.audio != nil)
     }
 
     private func readCurrentFrameText() {
@@ -2928,6 +3256,23 @@ private struct SegmentEditor: View {
                 }
             } header: {
                 Text("Timing")
+            }
+            Section("Provenance") {
+                Picker("Origin", selection: Binding(
+                    get: { row.segment.provenance },
+                    set: { value in
+                        row.segment.origin = value.rawValue
+                        row.segment.originOverride = true
+                    }
+                )) {
+                    ForEach(DescriptionOrigin.editableCases, id: \.self) { origin in
+                        Label(origin.title, systemImage: origin.iconName).tag(origin)
+                    }
+                }
+                .pickerStyle(.menu)
+                .help("Choose a provenance label. The manual choice persists and is never guessed from the text.")
+                Text("Base labels move to their modified state when text or timing changes. Unknown is editable.")
+                    .font(.caption).foregroundStyle(.secondary)
             }
             Section {
                 TextEditor(text: $row.segment.text)

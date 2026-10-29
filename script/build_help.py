@@ -58,13 +58,52 @@ def windows_shortcut(spoken):
         return WINDOWS_SHORTCUT_OVERRIDES[spoken]
     return spoken.replace("Command", "Ctrl").replace("Option", "Alt").replace("Control", "Shift")
 
+def markdown_shortcuts():
+    """The summary editor's local Markdown commands, with translated Windows keys."""
+    commands = [
+        ("Bold", "Command-B"),
+        ("Italic", "Command-I"),
+        ("Strikethrough", "Command-Shift-X"),
+        ("Inline code", "Command-Option-`"),
+        ("Code block", "Command-Option-Shift-C"),
+        ("Link", "Command-K"),
+        ("Image", "Command-Shift-I"),
+        ("Heading 1–6", "Command-Option-1–6"),
+        ("Paragraph", "Command-Option-0"),
+        ("Bulleted list", "Command-Shift-8"),
+        ("Numbered list", "Command-Shift-7"),
+        ("Task list", "Command-Shift-9"),
+        ("Blockquote", "Command-Option-Shift-Q"),
+        ("Table", "Command-Option-T"),
+        ("Horizontal rule", "Command-Option-Hyphen"),
+        ("Clear formatting", "Command-Option-Shift-K"),
+        ("Preview", "Command-Option-Shift-P"),
+        ("Markdown Help", "Command-Option-Shift-M"),
+        ("Undo / Redo", "Command-Z / Command-Shift-Z"),
+    ]
+    body = "".join(
+        f"<tr><th scope='row'>{html.escape(label)}</th><td><strong>{html.escape(mac)}</strong></td>"
+        f"<td><strong>{html.escape(windows_shortcut(mac))}</strong></td></tr>"
+        for label, mac in commands
+    )
+    return """<h2 id="summary-markdown-editor">Summary Markdown editor</h2>
+<p>While the Summary editor is open, these commands format its Markdown. On Windows, Command maps to Ctrl and Option maps to Alt. They are editor-local: there is no Format menu, and the commands do not change text elsewhere in the app. The toolbar exposes the same actions, Preview shows a live rendered copy, and Markdown Help opens the cheat sheet.</p>
+<table><caption>Summary Markdown editor shortcuts</caption><thead><tr><th scope='col'>Action</th><th scope='col'>Mac shortcut</th><th scope='col'>Windows shortcut</th></tr></thead><tbody>""" + body + """</tbody></table>
+<p>Project List View and Project Grid View are disabled while the summary editor is active because <strong>Command-Option-1</strong> and <strong>Command-Option-2</strong> insert Heading 1 and Heading 2. On Windows those combinations are <strong>Ctrl-Alt-1</strong> and <strong>Ctrl-Alt-2</strong>. Standard text editing shortcuts still apply in their normal context.</p>
+<p>Supported Markdown includes headings, paragraphs, bold, italic, strikethrough, bulleted, numbered, and task lists, blockquotes, inline and fenced code, links, tables, and horizontal rules. Image Markdown renders as alt text and a link; remote images are not embedded. Math, Mermaid diagrams, and footnotes are not supported. Project &gt; Import Existing Assets… uses Command-Option-Shift-I (Ctrl-Alt-Shift-I on Windows) and opens the same sheet as the editor import button.</p>"""
+
 def keyboard():
     source = (ROOT / "VidiStudio/KeyboardShortcuts.swift").read_text()
     commands = re.findall(r'\.init\(id: "[^"]+", title: "([^"]+)".*?spoken: "([^"]+)"', source)
     if len(commands) < 20:
         raise ValueError("Editor shortcut extraction failed")
     general = [("New Project", "Command + N"), ("Open Selected Project", "Command + O"),
-               ("Open Project Folder", "Command + Shift + O"), ("Rename selected project in All Projects", "Return"),
+               ("Open Project Folder", "Command + Shift + O"),
+               ("Import Transcript", "Command + Option + I"),
+               ("Import Summary", "Command + Option + M"),
+               ("Import Descriptions", "Command + Option + D"),
+               ("Import Existing Assets", "Command + Option + Shift + I"),
+               ("Rename selected project in All Projects", "Return"),
                ("Settings", "Command + Comma"), ("Show or Hide Inspector", "Command + Shift + B"),
                ("Project List View", "Command + Option + 1"), ("Project Grid View", "Command + Option + 2"),
                ("VidiStudio Help", "Command + Option + Slash")]
@@ -75,7 +114,7 @@ def keyboard():
     )
     return """<h1>Keyboard shortcuts and accessibility</h1>
 <p>Use the menu bar to discover commands and their shortcuts. Shortcuts below show the Mac combination first with the Windows equivalent beside it. Project commands require an open project and may be unavailable during processing or while a sheet is open. View can show or hide the preview and the complete timeline, including thumbnails, seeking, Transcript segments, and Audio Description segments. Editor opening, preview, timeline, inspector, Settings and Export presentation, and Settings disclosure changes use short transitions; macOS Reduce Motion disables this added movement. Playback includes Transcript Overlay commands on the Transcript, Descriptions, and AD Transcript pages. Playback &gt; Summary Reading contains separate Play or Resume, Pause, and Stop commands plus Previous and Next Sentence and Paragraph navigation that are available only on Summary. Project &gt; Segments contains Edit or Done, Add Segment, Select All, Deselect All, Edit Selected, Delete Selected, Follow, Undo, and Redo; their availability follows the selected section, edit mode, and selection. Media metadata, thumbnails, and transcription audio are prepared automatically.</p>
-<table><caption>Application shortcuts for Mac and Windows</caption><thead><tr><th scope='col'>Action</th><th scope='col'>Mac shortcut</th><th scope='col'>Windows shortcut</th></tr></thead><tbody>""" + rows + """</tbody></table>
+<table><caption>Application shortcuts for Mac and Windows</caption><thead><tr><th scope='col'>Action</th><th scope='col'>Mac shortcut</th><th scope='col'>Windows shortcut</th></tr></thead><tbody>""" + rows + """</tbody></table>""" + markdown_shortcuts() + """
 <h2>Look more closely at a section</h2><p>In Add or Edit Audio Description, choose a start and end time and use Re-Analyze This Segment beside Read Frame Text. Project &gt; Segments &gt; Re-Analyze a Video Section (<strong>Command-Option-R</strong> on Mac / <strong>Ctrl-Alt-R</strong> on Windows) opens the range editor on Transcript or Descriptions. Audio Description analysis requires a transcript and summary. Gemini receives the video section, summary, transcript, existing descriptions, and your draft. It can rewrite and move nearby descriptions to fit around dialogue; unrelated descriptions remain unchanged. Invalid overlapping proposals are corrected or rejected before saving. Use Undo Segment Edit to restore the previous descriptions. Changed narration must be synthesized again.</p><p>For local videos, Video Analysis Availability shows a spinning progress indicator while checking, uploading, or preparing the video, including when another analysis action triggers a fresh upload. It changes to a green check mark as soon as Gemini reports the upload ready, and the remaining-availability timer starts then. At rest, an orange hourglass marks remote processing and a red information icon marks an availability issue. The timer uses consistent numeric values for days, hours, minutes, and seconds; at the full window it reads <em>“2 days, 0 hours, 0 minutes, 0 seconds.”</em> VoiceOver announces the progress or complete status and remaining time. Use the upload-arrow button to prepare the video and the circular-arrow button to refresh. YouTube videos use their public link and do not show upload availability controls.</p><h2>Generate transcript segments for a range</h2><p>In Transcript edit mode, open Add Segment, choose start and end times, and use Re-Analyze This Segment. You can also use this action in Edit Transcript Segment or open the range editor with <strong>Command-Option-R</strong> (Mac) / <strong>Ctrl-Alt-R</strong> (Windows). Gemini can create multiple dialogue segments and reconcile immediate transcript neighbors. The optional Hint for Gemini is separate from manual Transcript text; Save Segment saves manual text. Shared multilingual system and user prompts preserve every spoken language, original scripts, and code-switching. Range analysis uses the Transcript video model, or the configured YouTube Transcript video model when Transcript uses an audio-only transcription model. No existing transcript or summary is required.</p><p>Existing AD segments, narration, and summary are preserved. Speech that conflicts with AD timing is rejected; review and adjust that description before retrying. Invalid or empty proposals keep existing content. Undo Segment Edit and Redo on Transcript restore saved transcript edits; history restoration also checks for conflicts with current descriptions. Deleting transcript rows clears transcript history so permanently deleted rows cannot return. Successful segment edits clear the current export listing; create fresh exports afterward. Regenerate Transcript replaces all transcript edits and clears transcript history, while retaining AD and narration. Its warning offers Add Segment and Re-Analyze This Segment for targeted changes. Review retained AD timing after full regeneration.</p><h2>Edit text and segments</h2><p><strong>Command-Option-E</strong> (Mac) / <strong>Ctrl-Alt-E</strong> (Windows) enters or leaves segment edit mode. In Transcript edit mode, <strong>Command-Shift-N</strong> (Mac) / <strong>Ctrl-Shift-N</strong> (Windows) adds a new Transcript segment at the current video time; on Descriptions it adds a new Audio Description. <strong>Command-Option-A</strong> (Mac) / <strong>Ctrl-Alt-A</strong> (Windows) selects every visible segment, <strong>Command-Option-Shift-U</strong> (Mac) / <strong>Ctrl-Alt-Shift-U</strong> (Windows) deselects all, <strong>Command-Option-Return</strong> (Mac) / <strong>Ctrl-Alt-Enter</strong> (Windows) edits the selected rows, and <strong>Command-Control-Delete</strong> (Mac) / <strong>Ctrl-Shift-Delete</strong> (Windows) asks to delete selected rows. <strong>Command-Z</strong> and <strong>Command-Shift-Z</strong> (Mac) / <strong>Ctrl-Z</strong> and <strong>Ctrl-Y</strong> (Windows) undo and redo text editing. The separate segment-history commands above restore saved segment edits. <strong>Return</strong> activates Save Segment when the sheet's default action is available; <strong>Escape</strong> cancels a sheet or leaves full-screen video. Regeneration shortcuts still ask for confirmation before replacing existing content.</p>
 <p>When you reopen a local-video project, the inspector resumes the saved availability countdown without contacting Gemini or asking you to refresh. The green check mark means the video was last confirmed ready, not that it has just been checked. Refresh Status or a new video-analysis action checks the remote file before use. A temporary connection or permission error does not replace the last confirmed upload state; an older unverified state appears with a neutral question mark and its remaining countdown. A confirmed missing file or elapsed expiry still needs a new preparation upload.</p>
 <h2>Read the Summary from the keyboard</h2><p>While Summary is selected, <strong>Command-Shift-P</strong> (Mac) / <strong>Ctrl-Shift-P</strong> (Windows) plays or resumes summary reading, <strong>Command-Option-P</strong> (Mac) / <strong>Ctrl-Alt-P</strong> (Windows) pauses it, and <strong>Command-Shift-S</strong> (Mac) / <strong>Ctrl-Shift-S</strong> (Windows) stops it. Previous and next sentence use <strong>Command-Shift-[</strong> / <strong>Command-Shift-]</strong> (Mac) or <strong>Ctrl-Shift-[</strong> / <strong>Ctrl-Shift-]</strong> (Windows); previous and next paragraph use <strong>Command-Option-[</strong> / <strong>Command-Option-]</strong> (Mac) or <strong>Ctrl-Alt-[</strong> / <strong>Ctrl-Alt-]</strong> (Windows). Each command jumps to the target and reads it aloud, and the Summary tab shows the same centered transport buttons. The corresponding Playback &gt; Summary Reading commands show the same shortcuts and update their availability at the start and end of the summary and each paragraph.</p>

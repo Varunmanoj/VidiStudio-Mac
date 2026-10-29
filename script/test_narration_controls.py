@@ -29,6 +29,11 @@ types = [declaration(model, marker) for marker in (
     'struct Segment:', 'enum DescriptionOrigin:', 'enum SynchronizedAudioStatus:',
     'struct ExportMediaInformation:', 'struct AnalysisVideoAvailability:',
     'struct ProjectPlaybackSettings:', 'struct StudioProject:',
+    'enum SummaryOrigin:', 'struct NarrationSourceCounts:',
+    'struct ImportedAudioDescription:', 'struct ImportedADTranscript:',
+    'struct ImportConflict:', 'struct ImportFlaggedSegment:', 'struct ImportOmittedRow:',
+    'struct ImportReport:', 'struct DescriptionTimingAudit:',
+    'struct ImportTimingRow:', 'struct ImportTimingProposal:',
 )]
 types.append('@MainActor\n' + declaration(shortcuts, 'final class EditorShortcutActions'))
 types.append(declaration(model, 'enum ProjectPlaybackPreferences {'))

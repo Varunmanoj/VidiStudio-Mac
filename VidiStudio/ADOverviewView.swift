@@ -12,7 +12,9 @@ struct ADOverviewView: View {
     private var missing: Int { project.cues.filter { audioStatus($0) == .notGenerated }.count }
     private var voiceReport: NarrationVoiceReport { studio.narrationVoiceUsageReport(for: project) }
     private var narrationVoicesStatistic: String {
-        if voiceReport.allSegments.isEmpty { return "None" }
+        if voiceReport.voiceSummaries.isEmpty {
+            return project.narrationSourceCounts.imported > 0 ? "Imported audio" : "None"
+        }
         if voiceReport.hasDifferentVoices {
             let activeCount = voiceReport.voiceSummaries.filter { $0.count > 0 }.count
             return "\(activeCount) voice\(activeCount == 1 ? "" : "s") (\(voiceReport.differentSegments.count) different)"
@@ -20,7 +22,7 @@ struct ADOverviewView: View {
         return voiceReport.primaryVoiceLabel ?? selectedVoice
     }
     private var narrationControlsDisabled: Bool {
-        studio.busy || project.cues.isEmpty || (studio.settings.ttsMode == "gemini" && (!studio.hasApiKey || studio.isApiKeyInvalid))
+        studio.busy || project.cues.isEmpty || (studio.settings.ttsMode == "gemini" && !studio.hasValidApiKey)
     }
     private var selectedVoice: String {
         if studio.settings.ttsMode == "gemini" { return studio.settings.geminiVoice }
@@ -62,6 +64,13 @@ struct ADOverviewView: View {
                             statistic("Spoken transcript segments", value: String(project.transcript.count))
                             Divider()
                             statistic("Narration voices", value: narrationVoicesStatistic)
+                            Divider()
+                            statistic("Narration sources", value: project.importedNarrationText)
+                            if !project.importedNarrationFiles.isEmpty {
+                                statistic("Imported audio", value: "\(project.importedNarrationFiles.count) file\(project.importedNarrationFiles.count == 1 ? "" : "s")")
+                            }
+                            Divider()
+                            statistic("Description timing", value: project.hasDescriptionTimingIssues ? "\(project.descriptionTimingIssueCount) need retiming" : "Ready")
                         }
                         .padding(.vertical, 4)
                     }
@@ -79,7 +88,7 @@ struct ADOverviewView: View {
                                     Divider()
                                 }
                             }
-                            Text("AI-generated and modified AI segments are counted separately. Manual segments remain manual when edited. Older segments without recorded origin appear as unknown.")
+                            Text("All six origin labels are counted, including imported and imported-modified descriptions. Manual choices persist, and older segments without recorded origin appear as unknown.")
                                 .font(.caption).foregroundStyle(.secondary)
                         }
                         .padding(.vertical, 4)
@@ -108,6 +117,26 @@ struct ADOverviewView: View {
                             .padding(.vertical, 4)
                             .accessibilityElement(children: .ignore)
                             .accessibilityLabel(studio.activeNarrationStatusText)
+                        }
+                        if voiceReport.hasMixedSources || !voiceReport.importedFiles.isEmpty {
+                            VStack(alignment: .leading, spacing: 6) {
+                                Label("Imported narration audio is in this project", systemImage: "square.and.arrow.down")
+                                    .font(.subheadline.weight(.semibold))
+                                if voiceReport.hasMixedSources {
+                                    Text("This project mixes AI-generated narration and imported narration. Imported segments never count as a different generated voice.")
+                                        .font(.caption).foregroundStyle(.secondary)
+                                }
+                                if voiceReport.importedFiles.count > 1 {
+                                    Text("Imported narration comes from \(voiceReport.importedFiles.count) different audio files: \(voiceReport.importedFiles.joined(separator: ", ")).")
+                                        .font(.caption).foregroundStyle(.orange)
+                                }
+                                Text("The selected voice applies only to new narration generation. Imported audio keeps its recorded source.")
+                                    .font(.caption).foregroundStyle(.secondary)
+                            }
+                            .padding(10)
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                            .background(Color.teal.opacity(0.1), in: RoundedRectangle(cornerRadius: 8))
+                            .accessibilityElement(children: .combine)
                         }
                         if voiceReport.hasDifferentVoices {
                             VStack(alignment: .leading, spacing: 6) {
@@ -175,6 +204,7 @@ struct ADOverviewView: View {
                             SettingsSectionRequest.request("Narration")
                             openSettings()
                         }
+                        .help("Open Settings → Narration to choose the engine, voice, and speech settings")
                     }
                     .padding(.vertical, 4)
                 }
@@ -193,9 +223,9 @@ struct NarrationFailuresView: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 16) {
             HStack(alignment: .top, spacing: 12) {
-                Image(systemName: report.failures.isEmpty ? "checkmark.circle.fill" : "exclamationmark.triangle.fill")
+                Image(systemName: report.failures.isEmpty && report.warnings.isEmpty ? "checkmark.circle.fill" : "exclamationmark.triangle.fill")
                     .font(.title)
-                    .foregroundStyle(report.failures.isEmpty ? Color.green : Color.orange)
+                    .foregroundStyle(report.failures.isEmpty ? (report.warnings.isEmpty ? Color.green : Color.orange) : Color.red)
                     .accessibilityHidden(true)
                 VStack(alignment: .leading, spacing: 2) {
                     Text(report.title)
@@ -206,6 +236,26 @@ struct NarrationFailuresView: View {
                 }
             }
             .accessibilityElement(children: .combine)
+            if !report.warnings.isEmpty {
+                VStack(alignment: .leading, spacing: 6) {
+                    Label("Warnings", systemImage: "exclamationmark.triangle.fill")
+                        .font(.subheadline.weight(.semibold))
+                        .foregroundStyle(.orange)
+                    ForEach(report.warnings, id: \.self) { warning in
+                        Text(warning)
+                            .font(.callout)
+                            .fixedSize(horizontal: false, vertical: true)
+                            .foregroundStyle(.secondary)
+                    }
+                    Text("Warnings do not count as narration errors and do not block export.")
+                        .font(.caption).foregroundStyle(.secondary)
+                }
+                .padding(10)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .background(Color.orange.opacity(0.1), in: RoundedRectangle(cornerRadius: 8))
+                .accessibilityElement(children: .combine)
+                .accessibilityLabel("Narration warnings")
+            }
             if !report.failures.isEmpty {
                 Text("Start and end: HH:MM:SS.mmm (hours:minutes:seconds.milliseconds). Duration is in seconds.")
                     .font(.caption)
@@ -257,6 +307,7 @@ struct NarrationFailuresView: View {
                 Spacer()
                 Button("Done") { dismiss() }
                     .keyboardShortcut(.defaultAction)
+                    .help("Close this narration review")
             }
         }
         .padding(20)
@@ -272,9 +323,9 @@ struct NarrationVoicesView: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 16) {
             HStack(alignment: .top, spacing: 12) {
-                Image(systemName: report.hasDifferentVoices ? "exclamationmark.triangle.fill" : "checkmark.circle.fill")
+                Image(systemName: report.hasDifferentVoices || !report.importedFiles.isEmpty ? "exclamationmark.triangle.fill" : "checkmark.circle.fill")
                     .font(.title)
-                    .foregroundStyle(report.hasDifferentVoices ? Color.orange : Color.green)
+                    .foregroundStyle(report.hasDifferentVoices || !report.importedFiles.isEmpty ? Color.orange : Color.green)
                     .accessibilityHidden(true)
                 VStack(alignment: .leading, spacing: 2) {
                     Text(report.title)
@@ -285,6 +336,20 @@ struct NarrationVoicesView: View {
                 }
             }
             .accessibilityElement(children: .combine)
+            if !report.importedFiles.isEmpty {
+                GroupBox("Imported audio sources") {
+                    VStack(alignment: .leading, spacing: 6) {
+                        ForEach(report.importedFiles, id: \.self) { file in
+                            Label(file, systemImage: "waveform")
+                                .font(.callout)
+                        }
+                        Text("Imported audio is never compared as a different generated voice. The selected voice applies only to new narration generation.")
+                            .font(.caption).foregroundStyle(.secondary)
+                    }
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .padding(.vertical, 4)
+                }
+            }
             if !report.voiceSummaries.isEmpty {
                 GroupBox("Voice usage by segment count") {
                     VStack(alignment: .leading, spacing: 8) {
@@ -373,6 +438,7 @@ struct NarrationVoicesView: View {
                 Spacer()
                 Button("Done") { dismiss() }
                     .keyboardShortcut(.defaultAction)
+                    .help("Close this narration review")
             }
         }
         .padding(20)

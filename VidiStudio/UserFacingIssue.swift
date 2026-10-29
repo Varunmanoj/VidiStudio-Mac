@@ -127,6 +127,9 @@ struct UserFacingIssue: Equatable {
                 message: "One or more descriptions are too long for their time slots. In Descriptions, use Rewrite to Fit or edit the text and timing, then generate narration again."
             )
         }
+        if command.hasPrefix("import-") || command == "combine-imported-audio" || command == "align-imported-text" {
+            return UserFacingIssue(title: "Import Couldn’t Be Completed", message: detail)
+        }
         if detail.contains("overlap") || detail.contains("start time") || detail.contains("end time") {
             return UserFacingIssue(
                 title: "Timing Needs Attention",
@@ -258,6 +261,12 @@ enum UserFacingProgress {
         case "check-video-availability": return "Checking video availability…"
         case "capture-frame": return "Reading text from the selected frame…"
         case "save-cues", "save-segments", "save-summary": return "Saving your changes…"
+        case "import-transcript", "import-ad-transcript": return "Importing text…"
+        case "import-summary": return "Importing the summary…"
+        case "import-ad-audio", "import-segment-narration": return "Importing audio…"
+        case "inspect-import": return "Inspecting the selected file…"
+        case "align-imported-text": return "Requesting timing from Gemini…"
+        case "combine-imported-audio": return "Combining imported Audio Description…"
         case "delete-export", "delete-generated", "delete-segment-audio": return "Updating the project…"
         case "doctor", "validate-config": return "Checking VidiStudio…"
         case "list-models", "check-api-key": return "Checking Gemini API key and models…"

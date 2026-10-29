@@ -7,6 +7,7 @@ import threading
 import gemini_adapter
 import parity
 import youtube_audio
+import import_assets
 from types import SimpleNamespace
 from pathlib import Path
 
@@ -202,6 +203,8 @@ def migrate_project_schema(root, project):
     if 'descriptionsGenerated' not in project:
         project['descriptionsGenerated'] = bool(project.get('cues')) or (root/'audio-description/cues.json').is_file()
     for cue in project.get('cues', []):
+        if isinstance(cue, dict) and cue.get('audio'):
+            cue.setdefault('audioOrigin', 'unknown')
         if isinstance(cue, dict) and cue.get('audio') and (cue.get('audioSettings') or cue.get('audioEngine') or cue.get('audioVoice')):
             engine_name, voice_name = parse_narration_settings(cue)
             if engine_name and not cue.get('audioEngine'):
@@ -297,6 +300,7 @@ def cleanup_project_storage(root, project):
 
 def save(root, p):
     p['schemaVersion'] = 2
+    import_assets.audit_timing(p)
     p['updatedAt'] = time.time()
     atomic_json(root / 'project.json', p)
 
@@ -346,21 +350,7 @@ def ensure_unique_youtube_video(library, url):
 
 
 def track_cue_origins(cues, previous):
-    """Keep provenance across saves without guessing the origin of legacy cues."""
-    existing = {cue['id']: cue for cue in previous}
-    for cue in cues:
-        old = existing.get(cue['id'])
-        if old:
-            changed = any(cue.get(key) != old.get(key) for key in ('text', 'start', 'end'))
-            if old.get('origin') in ('ai', 'ai_modified'):
-                cue['origin'] = 'ai_modified' if changed or old['origin'] == 'ai_modified' else 'ai'
-            elif cue.get('origin') != 'ai' or not cue.get('aiOriginalText'):
-                cue['origin'] = old.get('origin', 'unknown')
-        else:
-            cue.setdefault('origin', 'manual')
-        if cue.get('origin') == 'ai' and cue.get('aiOriginalText') is not None and cue['text'] != cue['aiOriginalText']:
-            cue['origin'] = 'ai_modified'
-    return cues
+    return import_assets.track_origins(cues, previous)
 
 
 def validate_cues(cues, duration, transcript=()):
@@ -379,6 +369,22 @@ def validate_cues(cues, duration, transcript=()):
         ids.add(c['id'])
         previous = b
     return sorted(cues, key=lambda c: c['start'])
+
+
+def validate_authored_cues(cues, previous, duration, transcript):
+    """Preserve pre-existing/imported conflicts while validating changed drafts."""
+    existing = {cue['id']: cue for cue in previous}
+    for cue in cues:
+        old = existing.get(cue.get('id'))
+        changed = old is None or any(cue.get(key) != old.get(key) for key in ('start', 'end', 'text'))
+        if not changed:
+            continue
+        if not transcript:
+            raise ValueError('Import or generate a transcript before adding or editing descriptions. It is required for overlap validation.')
+        validate_cues([cue], duration, transcript)
+        if any(other is not cue and import_assets.overlap(cue, other) for other in cues):
+            raise ValueError('This audio description overlaps another description. Adjust its timing.')
+    return sorted(cues, key=lambda cue: cue['start'])
 
 
 def validate_transcript(segments, duration):
@@ -402,7 +408,7 @@ def validate_transcript(segments, duration):
 def save_segments(p, transcript, cues):
     """Atomically replace editable transcript and AD rows in one project update."""
     transcript = validate_transcript(transcript, p['duration'])
-    cues = validate_cues(cues, p['duration'], transcript)
+    cues = validate_authored_cues(cues, p.get('cues', []), p['duration'], transcript)
     # Older narration has no timing snapshot. Preserve its pre-edit timing on
     # the first save, so later status checks can detect a timing-only change.
     previous_cues = {cue['id']: cue for cue in p.get('cues', [])}
@@ -412,7 +418,7 @@ def save_segments(p, transcript, cues):
             for key, field in (('audioStart', 'start'), ('audioEnd', 'end')):
                 if cue.get(key) is None:
                     cue[key] = previous.get(key) if previous.get(key) is not None else previous[field]
-            for key in ('audioEngine', 'audioVoice', 'audioSettings', 'audioText', 'audioDuration'):
+            for key in ('audioEngine', 'audioVoice', 'audioSettings', 'audioText', 'audioDuration', 'audioOrigin', 'audioSourceName'):
                 if cue.get(key) is None and previous.get(key) is not None:
                     cue[key] = previous[key]
     if not any(cue.get('audio') for cue in cues):
@@ -428,6 +434,7 @@ def save_segments(p, transcript, cues):
         else:
             remember_transcript(p)
     track_cue_origins(cues, p.get('cues', []))
+    track_cue_origins(transcript, p.get('transcript', []))
     p['transcript'] = transcript
     p['cues'] = cues
     p['transcriptGenerated'] = bool(transcript)
@@ -438,16 +445,12 @@ def save_segments(p, transcript, cues):
         p.get('transcriptGenerated') or p.get('summaryGenerated') or p.get('descriptionsGenerated')
         or p.get('transcript') or p.get('summary') or p.get('cues')
     )
+    import_assets.audit_timing(p)
 
 
 def save_summary(p, text):
     """Directly update the project summary text."""
-    p['summary'] = str(text)
-    p['summaryGenerated'] = bool(str(text).strip())
-    p['hasProcessed'] = bool(
-        p.get('transcriptGenerated') or p.get('summaryGenerated') or p.get('descriptionsGenerated')
-        or p.get('transcript') or p.get('summary') or p.get('cues') or p.get('exports')
-    )
+    import_assets.save_summary(p, text)
 
 
 def thumbnails(root, p):
@@ -778,12 +781,12 @@ def restore_transcript(p, redo=False):
     if not p.get(source):
         raise ValueError('No transcript edit history in this direction.')
     proposal = validate_transcript(copy.deepcopy(p[source][-1]), p['duration'])
-    validate_cues(copy.deepcopy(p.get('cues', [])), p['duration'], proposal)
     p.setdefault(target, []).append(copy.deepcopy(p.get('transcript', [])))
     p[target] = p[target][-50:]
     p[source].pop()
     p['transcript'] = proposal
     p['transcriptGenerated'] = bool(proposal)
+    import_assets.audit_timing(p)
     p['exports'] = []; p['exportMediaInfo'] = {}
 
 
@@ -872,9 +875,9 @@ def reanalyze_transcript_segment(root, p, draft):
                     raise ValueError('No valid transcript could be generated. Existing transcript, descriptions and narration were preserved. Try another range.') from exc
                 continue
             # Accurate newly discovered speech must never silently overwrite or retime existing AD.
-            validate_cues(copy.deepcopy(p.get('cues', [])), p['duration'], proposal)
             remember_transcript(p)
             p['transcript'] = proposal; p['transcriptGenerated'] = True; p['hasProcessed'] = True
+            import_assets.audit_timing(p)
             p['exports'] = []; p['exportMediaInfo'] = {}
             return
     finally:
@@ -931,13 +934,16 @@ def _ai_video_once(root, p, stage):
             for t in data:
                 a=parity.timestamp(t.get('startSeconds',t.get('start',0)));b=parity.timestamp(t.get('endSeconds',t.get('end',0)))
                 if not math.isfinite(a+b) or not 0<=a<b<=p['duration']+.1: raise ValueError('Transcript timestamps are outside the video. Existing results were preserved.')
-                transcript.append(dict(id=str(uuid.uuid4()),start=a,end=b,text=t['text'],speaker=t.get('speaker','')))
+                transcript.append(dict(id=str(uuid.uuid4()),start=a,end=b,text=t['text'],speaker=t.get('speaker',''),origin='ai',aiOriginalText=t['text']))
             if not transcript and p.get('hasAudio') and data: raise ValueError('No usable transcript returned.')
             p['transcriptUndoStack']=[];p['transcriptRedoStack']=[]
             p['transcript']=sorted(transcript,key=lambda t:t['start'])
             p['transcriptGenerated']=True
+            import_assets.audit_timing(p)
         elif stage=='generate-summary':
             p['summary']=data['summary'];p['summaryGenerated']=True
+            if not p.get('summaryOriginOverride'):
+                p['summaryOrigin']='ai';p.pop('summaryOriginSource',None)
         else:
             descriptions=data.get('audioDescriptions',data.get('cues',[])) if isinstance(data,dict) else data
             if not isinstance(descriptions,list):
@@ -1437,6 +1443,7 @@ def synthesize(root,p,segment=None,changed=False,regenerate_all=False):
                 p['narrationVoice'] = voice_name
             c['audio'] = name; c['audioText'] = c['text']; c['audioDuration'] = actual; c['audioSettings'] = signature
             c['audioEngine'] = engine_name; c['audioVoice'] = voice_name
+            c['audioOrigin'] = 'generated'; c.pop('audioSourceName', None)
             c['audioStart'] = c['start']; c['audioEnd'] = c['end']; c.pop('audioError', None)
             p['cues'] = cues; save(root,p)
             generated += 1
@@ -1486,7 +1493,7 @@ def narration_audio_needs_regeneration(cue):
             or any(cue.get(key) is not None and abs(cue[key] - cue[field]) > .001
                    for key, field in (('audioStart', 'start'), ('audioEnd', 'end')))
             or (cue.get('audioDuration') is not None
-                and cue['audioDuration'] > cue['end'] - cue['start'] + .001))
+                and cue['audioDuration'] > cue['end'] - cue['start'] + (import_assets.ENCODER_PADDING_TOLERANCE if cue.get('audioOrigin') == 'imported' else .001)))
 
 
 def narration_audio_is_usable(root, cue):
@@ -1722,7 +1729,11 @@ def validated_caption_segments(project, content='transcript'):
     segments = []
     source = [(segment, False) for segment in project.get('transcript', [])]
     if content == 'combined':
-        source += [(segment, True) for segment in project.get('cues', [])]
+        imported = project.get('importedADTranscript') or {}
+        if imported.get('mode') == 'combined' and imported.get('segments'):
+            source = [(segment, False) for segment in imported['segments']]
+        else:
+            source += [(segment, True) for segment in project.get('cues', [])]
     for segment, is_description in source:
         start, end = float(segment['start']), float(segment['end'])
         text = str(segment.get('text', '')).strip()
@@ -2071,20 +2082,20 @@ def audio_description_mix(root, p, cues, audio_only=False, program_audio_input=N
     return args, filters
 
 
-def validate_closed_audio_description_export(output, expected_duration, captions='none'):
+def validate_closed_audio_description_export(output, expected_duration, captions='none', has_original=True):
     """Verify the switchable tracks used for closed audio description."""
     info = probe(output)
     videos = [stream for stream in info['streams'] if stream.get('codec_type') == 'video']
     audio = [stream for stream in info['streams'] if stream.get('codec_type') == 'audio']
     if any(stream.get('codec_name') != 'aac' for stream in audio):
         raise ValueError('Closed Audio Description audio tracks must use AAC.')
-    if len(videos) != 1 or len(audio) != 2:
-        raise ValueError('Closed Audio Description export did not contain one video and two audio tracks.')
-    if audio[0].get('disposition', {}).get('default') != 1 or audio[1].get('disposition', {}).get('default') != 0:
+    if len(videos) != 1 or len(audio) != (2 if has_original else 1):
+        raise ValueError('Closed Audio Description export has incorrect video/audio track counts.')
+    if audio[0].get('disposition', {}).get('default') != 1 or (has_original and audio[1].get('disposition', {}).get('default') != 0):
         raise ValueError('Closed Audio Description export has incorrect default audio-track ordering.')
-    if 'matroska' in info.get('format', {}).get('format_name', '') and audio[1].get('disposition', {}).get('visual_impaired') != 1:
+    if 'matroska' in info.get('format', {}).get('format_name', '') and audio[-1].get('disposition', {}).get('visual_impaired') != 1:
         raise ValueError('Closed Audio Description export is missing its accessibility audio flag.')
-    expected = [('Original Audio', 'eng'), ('English - Audio Description', 'eng')]
+    expected = ([('Original Audio', 'eng')] if has_original else []) + [('English - Audio Description', 'eng')]
     for stream, (title, language) in zip(audio, expected):
         tags = stream.get('tags', {})
         actual_title = tags.get('title') or tags.get('name') or tags.get('handler_name')
@@ -2105,47 +2116,42 @@ def mux_closed_audio_description(root, p, cues, captions='none', content='transc
     format = media_export_format(media_format, VIDEO_EXPORT_FORMATS, 'mov')
     source = local(root,p['source'])
     has_program_audio = bool(p.get('hasAudio'))
-    program_audio_input = 0 if has_program_audio else 1
-    silent_program_input = [] if has_program_audio else [
-        '-f','lavfi','-i','anullsrc=r=48000:cl=stereo'
-    ]
     narration_args, filters = audio_description_mix(
         root, p, cues,
-        program_audio_input=program_audio_input,
-        narration_input_offset=program_audio_input + 1,
+        narration_input_offset=1,
     )
     export_type = 'Closed Audio Description' + caption_export_suffix(captions, content)
     relative, output, export_temporary = prepare_export_target(
         root, p, export_type, format, replace_existing
     )
     with temporary_video_caption_file(p, captions, content) as caption_path:
-        caption_index = program_audio_input + 1 + len(cues)
+        caption_index = 1 + len(cues)
         common = [
-            tool('ffmpeg'),'-y','-v','error','-i',source,*silent_program_input,*narration_args,
+            tool('ffmpeg'),'-y','-v','error','-i',source,*narration_args,
             *caption_input_args(captions, caption_path, p),
             '-filter_complex',';'.join(filters),
-            '-map','0:v:0','-map',f'{program_audio_input}:a:0','-map','[mix]',
+            '-map','0:v:0',*(['-map','0:a:0'] if has_program_audio else []),'-map','[mix]',
             *caption_output_args(captions, caption_path, caption_index, content, format),
-            *video_audio_metadata(), *video_audio_metadata(described=True, index=1, default=False),
-            '-c:a:1','aac','-b:a','256k',*video_container_args(format),'-t',str(p['duration']),
+            *(video_audio_metadata() if has_program_audio else []),
+            *video_audio_metadata(described=True, index=1 if has_program_audio else 0, default=not has_program_audio),
+            '-c:a','aac','-b:a','256k',*video_container_args(format),'-t',str(p['duration']),
         ]
         # Open captions require video encoding. Every other mode requires a
         # validated stream copy and never silently falls back to transcoding.
-        original_audio_codec = source_video_audio_codec(source) if has_program_audio else 'aac'
         if captions == 'open':
             attempts = [
-                [*video_render_args(source),'-map_metadata','0','-c:a:0',original_audio_codec],
+                [*video_render_args(source),'-map_metadata','0'],
             ]
         else:
             attempts = [
-                ['-c:v','copy','-c:a:0',original_audio_codec],
+                ['-c:v','copy'],
             ]
         last_error = None
         for codecs in attempts:
             export_temporary.unlink(missing_ok=True)
             try:
                 run_export([*common,*codecs,export_temporary], p['duration'], message='Creating described video')
-                validate_closed_audio_description_export(export_temporary, float(p['duration']), captions)
+                validate_closed_audio_description_export(export_temporary, float(p['duration']), captions, has_original=has_program_audio)
                 if captions == 'open':
                     validate_rendered_video(source, export_temporary)
                 else:
@@ -2162,6 +2168,7 @@ def mux_closed_audio_description(root, p, cues, captions='none', content='transc
 
 
 def exportable_narration_cues(root, project, allow_incomplete=False):
+    import_assets.require_resolved_timing(project)
     cues = validate_cues(project['cues'], project['duration'], project['transcript'])
     if not cues and not allow_incomplete:
         raise ValueError('Create and synthesize AD segments before exporting.')
@@ -2815,7 +2822,7 @@ def delete_segment_audio(root, p, segment_id):
         if audio_path.is_dir() and not audio_path.is_symlink():
             raise ValueError('The segment audio path is not an audio file.')
         audio_path.unlink(missing_ok=True)
-    for key in ('audio', 'audioText', 'audioDuration', 'audioSettings', 'audioEngine', 'audioVoice', 'audioStart', 'audioEnd', 'audioError'):
+    for key in ('audio', 'audioText', 'audioDuration', 'audioSettings', 'audioEngine', 'audioVoice', 'audioStart', 'audioEnd', 'audioError', 'audioOrigin', 'audioSourceName'):
         cue.pop(key, None)
     if not any(candidate.get('audio') for candidate in p.get('cues', [])):
         p.pop('narrationEngine', None)
@@ -2830,7 +2837,7 @@ def validate_analysis_prerequisites(command, root, project):
 
 def main():
     parser=argparse.ArgumentParser(description=__doc__)
-    parser.add_argument('command',choices=['check-api-key','reanalyze-transcript-segment','undo-transcript','redo-transcript','reanalyze-segment','prepare-analysis-video','check-video-availability','cleanup-project','clear-generated','delete-generated','delete-segment-audio','list-models','list-voices','preview-tts','synthesize-speech','import-video','probe-video','generate-thumbnails','transcribe','generate-summary','generate-ad-cues','synthesize-tts','export-final-video','export-selectable-video','export-closed-audio-description-video','export-open-audio-description-video','export-closed-caption-video','export-dual-closed-caption-video','export-open-caption-video','export-original-audio','export-described-audio','export-youtube-described-audio','export-youtube-original-audio','download-youtube-audio','export-hls','save-cues','save-segments','save-summary','doctor',*parity.COMMANDS])
+    parser.add_argument('command',choices=['check-api-key','reanalyze-transcript-segment','undo-transcript','redo-transcript','reanalyze-segment','prepare-analysis-video','check-video-availability','cleanup-project','clear-generated','delete-generated','delete-segment-audio','list-models','list-voices','preview-tts','synthesize-speech','import-video','probe-video','generate-thumbnails','transcribe','generate-summary','generate-ad-cues','synthesize-tts','export-final-video','export-selectable-video','export-closed-audio-description-video','export-open-audio-description-video','export-closed-caption-video','export-dual-closed-caption-video','export-open-caption-video','export-original-audio','export-described-audio','export-youtube-described-audio','export-youtube-original-audio','download-youtube-audio','export-hls','save-cues','save-segments','save-summary','doctor',*parity.COMMANDS,*import_assets.COMMANDS])
     parser.add_argument('--project',type=Path); parser.add_argument('--video',type=Path); parser.add_argument('--library',type=Path); parser.add_argument('--input',type=Path)
     parser.add_argument('--media-format', choices=VIDEO_EXPORT_FORMATS + AUDIO_EXPORT_FORMATS)
     parser.add_argument('--content',choices=['transcript','summary','descriptions','combined'],default='descriptions'); parser.add_argument('--url'); parser.add_argument('--name'); parser.add_argument('--timestamp',type=float,default=0); parser.add_argument('--duration',type=float); parser.add_argument('--segment'); parser.add_argument('--format',choices=['srt','vtt','txt','json','md'],default='srt'); parser.add_argument('--changed',action='store_true'); parser.add_argument('--start-stage',default='transcribe')
@@ -2841,7 +2848,10 @@ def main():
     parser.add_argument('--replace-existing',action='store_true',help='Replace the existing export for the same configuration after explicit confirmation.')
     parser.add_argument('--captions', choices=['none','closed','open','dual-closed'], default='none', help='Add no transcript, one switchable caption track, two switchable transcript tracks, or permanently rendered captions to an Audio Description video.')
     parser.add_argument('--web-audio', choices=['original','closed-description','open-description'], default='closed-description', help='Choose the audio presentation for a Web Playback HLS package.')
+    import_assets.add_arguments(parser)
     args=parser.parse_args()
+    if args.command == 'inspect-import' and not args.project:
+        import_assets.execute(args, None, None, SimpleNamespace(**globals())); return
     if args.command == 'download-youtube-audio':
         if not args.url or not args.output:
             raise ValueError('Choose a YouTube URL and temporary audio folder.')
@@ -2880,6 +2890,9 @@ def main():
     root=args.project.resolve()
     with project_lock(root):
         p=migrate_project_schema(root,json.loads((root/'project.json').read_text()))
+        if args.command in import_assets.COMMANDS:
+            import_assets.execute(args, root, p, SimpleNamespace(**globals()))
+            emit('Complete', project=str(root), progress=1); return
         p['status']='Processing '+args.command; save(root,p)
         try:
             if args.command in ('analyze', 'transcribe', 'generate-summary', 'generate-ad-cues', 'synthesize-tts'):
@@ -2929,7 +2942,7 @@ def main():
                 )
             elif args.command=='save-cues':
                 if not args.input: raise ValueError('--input is required.')
-                cues=validate_cues(json.loads(args.input.read_text()),p['duration'],p['transcript'])
+                cues=validate_authored_cues(json.loads(args.input.read_text()),p['cues'],p['duration'],p['transcript'])
                 track_cue_origins(cues,p['cues']);parity.remember(p);p['cues']=cues
                 p['descriptionsGenerated']=True
                 p['exports']=[]
@@ -2947,7 +2960,7 @@ def main():
                     text = payload['summary'] if isinstance(payload, dict) and 'summary' in payload else str(payload)
                 except (json.JSONDecodeError, UnicodeDecodeError):
                     text = args.input.read_text(encoding='utf-8')
-                save_summary(p, text)
+                import_assets.save_summary(p, text, payload.get('summaryOrigin') if isinstance(payload, dict) else None)
             elif args.command in parity.COMMANDS: parity.execute(args,root,p,core)
             cleanup_project_storage(root,p)
             p['status']='Ready'; p.pop('error',None); save(root,p)

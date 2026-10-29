@@ -14,6 +14,7 @@ class YouTubeTitles(unittest.TestCase):
                 parity.execute(args,None,None,SimpleNamespace(
                     save=engine.save,
                     emit=lambda *a,**k:None,
+                    config=lambda: {'apiKey': 'test-key'},
                     validate_youtube_for_gemini=validated.append,
                 ))
             project=json.loads(next(Path(tmp).glob('*/project.json')).read_text())
@@ -29,6 +30,22 @@ class YouTubeTitles(unittest.TestCase):
                 self.assertEqual(project['sourceType'],'youtube')
                 self.assertEqual(project['source'],'')
                 self.assertEqual(project['thumbnails'],['thumbnails/youtube-thumbnail.jpg'])
+
+    def test_youtube_project_can_be_created_without_an_api_key(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            args=SimpleNamespace(command='import-youtube',url='https://youtu.be/hYaQffYszuM',library=Path(tmp),name=None,duration=0)
+            validated=[]
+            with patch.object(parity,'urlopen',side_effect=OSError('offline')), \
+                 patch.object(parity,'download_youtube_thumbnail',return_value=None):
+                parity.execute(args,None,None,SimpleNamespace(
+                    save=engine.save,
+                    emit=lambda *a,**k:None,
+                    config=lambda: {},
+                    validate_youtube_for_gemini=validated.append,
+                ))
+            self.assertEqual(validated,[])
+            self.assertTrue(next(Path(tmp).glob('*/project.json')).is_file())
+
     def test_thumbnail_is_downloaded_into_project(self):
         response=MagicMock()
         response.__enter__.return_value=response
@@ -50,6 +67,7 @@ class YouTubeTitles(unittest.TestCase):
                 parity.execute(args,None,None,SimpleNamespace(
                     save=engine.save,
                     emit=lambda *a,**k:None,
+                    config=lambda: {'apiKey': 'test-key'},
                     validate_youtube_for_gemini=reject,
                 ))
             self.assertEqual(list(Path(tmp).glob('*/project.json')),[])

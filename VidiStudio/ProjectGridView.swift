@@ -9,6 +9,7 @@ struct ProjectGridView: View {
     var integrity: [String: ProjectIntegrityReport] = [:]
     var hasApiKey: Bool = true
     var apiKeyVerified: Bool? = nil
+    var aiProcessingBlocked: Bool = false
     let open: (StudioProject) -> Void
     let rename: (StudioProject) -> Void
     let delete: (StudioProject) -> Void
@@ -63,7 +64,7 @@ struct ProjectGridView: View {
                                   FileManager.default.fileExists(atPath: url.path) else { return }
                             NSWorkspace.shared.open(url)
                         }
-                        ProjectAnalysisMenu(project: project, busy: busy, hasApiKey: hasApiKey, apiKeyVerified: apiKeyVerified) { command in
+                        ProjectAnalysisMenu(project: project, busy: busy, hasApiKey: hasApiKey, apiKeyVerified: apiKeyVerified, aiProcessingBlocked: aiProcessingBlocked) { command in
                             process(project, command)
                         }
                         .disabled(project.integrityPlaceholder == true)

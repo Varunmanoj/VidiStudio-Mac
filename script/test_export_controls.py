@@ -23,6 +23,11 @@ types = [declaration(model, marker) for marker in (
     'struct Segment:', 'enum DescriptionOrigin:', 'enum SynchronizedAudioStatus:',
     'struct ExportMediaInformation:', 'struct AnalysisVideoAvailability:',
     'struct ProjectPlaybackSettings:', 'struct StudioProject:',
+    'enum SummaryOrigin:', 'struct NarrationSourceCounts:',
+    'struct ImportedAudioDescription:', 'struct ImportedADTranscript:',
+    'struct ImportConflict:', 'struct ImportFlaggedSegment:', 'struct ImportOmittedRow:',
+    'struct ImportReport:', 'struct DescriptionTimingAudit:',
+    'struct ImportTimingRow:', 'struct ImportTimingProposal:',
 )]
 types += [declaration(exports, marker).replace('private enum', 'enum', 1) for marker in (
     'enum VideoCaptionOption:', 'enum StudioExportAction:', 'private enum VideoAudioChoice:',

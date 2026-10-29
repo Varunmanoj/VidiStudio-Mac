@@ -404,6 +404,9 @@ struct SettingsView: View {
         }
         .safeAreaInset(edge: .top, spacing: 0) { ActiveExportProgressView() }
         .navigationSplitViewStyle(.balanced)
+        .safeAreaInset(edge: .top, spacing: 0) {
+            AIServiceIssueBanner(studio: studio)
+        }
         .frame(minWidth: 850, idealWidth: 940, minHeight: 650, idealHeight: 740)
         .smoothPresentation()
         .onChange(of: studio.settings.ffmpegPath) { _, _ in studio.engineCheckStatus = .unchecked }

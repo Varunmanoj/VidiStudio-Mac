@@ -19,6 +19,7 @@ struct ProjectIntegrityHarness {
             youtube: Bool = false,
             thumbs: [String] = ["thumbnails/frame-00.jpg"],
             narration: [ProjectNarrationReference] = [ProjectNarrationReference(path: "audio-description/one.mp3", segmentNumber: 1, timeRange: "00:01–00:03")],
+            imports: [String] = ["imports/ad.wav"],
             exports: [String] = ["exports/out.wav"]
         ) -> ProjectIntegrityManifest {
             ProjectIntegrityManifest(
@@ -28,6 +29,7 @@ struct ProjectIntegrityHarness {
                 sourceRelativePath: source,
                 thumbnailPaths: thumbs,
                 narrationReferences: narration,
+                importedPaths: imports,
                 exportPaths: exports
             )
         }
@@ -37,6 +39,7 @@ struct ProjectIntegrityHarness {
         try write("metadata/probe.json")
         try write("thumbnails/frame-00.jpg")
         try write("audio-description/one.mp3")
+        try write("imports/ad.wav")
         try write("exports/out.wav")
 
         let healthy = ProjectIntegrityAuditor.audit(manifest())
@@ -50,6 +53,12 @@ struct ProjectIntegrityHarness {
         precondition(!missingNarration.isDamaged, "missing narration must not mark the project damaged")
 
         try write("audio-description/one.mp3")
+        try fileManager.removeItem(at: root.appendingPathComponent("imports/ad.wav"))
+        let missingImport = ProjectIntegrityAuditor.audit(manifest())
+        precondition(missingImport.level == .warning, "missing imported asset should be a warning")
+        precondition(missingImport.headline.contains("Imported Assets"), "import headline should name the assets")
+        precondition(!missingImport.isDamaged, "missing imported assets must not mark the project damaged")
+        try write("imports/ad.wav")
         try fileManager.removeItem(at: root.appendingPathComponent("source/video.mp4"))
         let missingSource = ProjectIntegrityAuditor.audit(manifest())
         precondition(missingSource.level == .damaged, "missing source should mark the project damaged")

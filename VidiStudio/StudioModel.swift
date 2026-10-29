@@ -20,7 +20,15 @@ struct Segment: Codable, Identifiable, Hashable {
     var audioEnd: Double?
     var audioError: String?
     var origin: String?
+    var originSource: String?
+    /// True when a person chose this provenance in Add/Edit Segment. The choice
+    /// persists across saves instead of being regenerated from the current text.
+    var originOverride: Bool?
     var aiOriginalText: String?
+    /// Imported narration carries its own source file name so voice reports
+    /// never mislabel it as a generated voice.
+    var audioOrigin: String?
+    var audioSourceName: String?
 
     var provenance: DescriptionOrigin { DescriptionOrigin(rawValue: origin ?? "") ?? .unknown }
 
@@ -32,7 +40,8 @@ struct Segment: Codable, Identifiable, Hashable {
             || audioEnd.map({ abs($0 - end) > 0.001 }) == true {
             reasons.append("Segment timing changed since the narration was generated.")
         }
-        if let duration = audioDuration, duration > end - start + 0.001 {
+        let tolerance = audioOrigin == "imported" ? 0.05 : 0.001
+        if let duration = audioDuration, duration > end - start + tolerance {
             reasons.append(String(format: "Narration is %.2fs but the segment timing only allows %.2fs.", duration, end - start))
         }
         return reasons
@@ -40,12 +49,14 @@ struct Segment: Codable, Identifiable, Hashable {
 }
 
 enum DescriptionOrigin: String, CaseIterable {
-    case ai, aiModified = "ai_modified", manual, unknown
+    case ai, aiModified = "ai_modified", imported, importedModified = "imported_modified", manual, unknown
 
     var title: String {
         switch self {
         case .ai: return "AI-generated"
         case .aiModified: return "AI-generated · modified"
+        case .imported: return "Imported"
+        case .importedModified: return "Imported · modified"
         case .manual: return "Manually added"
         case .unknown: return "Origin unknown"
         }
@@ -54,6 +65,8 @@ enum DescriptionOrigin: String, CaseIterable {
         switch self {
         case .ai: return "sparkles"
         case .aiModified: return "pencil"
+        case .imported: return "square.and.arrow.down"
+        case .importedModified: return "square.and.arrow.down.on.square"
         case .manual: return "person"
         case .unknown: return "questionmark.circle"
         }
@@ -62,10 +75,22 @@ enum DescriptionOrigin: String, CaseIterable {
         switch self {
         case .ai: return .purple
         case .aiModified: return .orange
+        case .imported: return .teal
+        case .importedModified: return .orange
         case .manual: return .blue
         case .unknown: return .secondary
         }
     }
+    var isModified: Bool { self == .aiModified || self == .importedModified }
+    var base: DescriptionOrigin {
+        switch self {
+        case .aiModified: return .ai
+        case .importedModified: return .imported
+        default: return self
+        }
+    }
+    /// Choices exposed by the Add/Edit Segment provenance picker.
+    static var editableCases: [DescriptionOrigin] { [.ai, .aiModified, .imported, .importedModified, .manual, .unknown] }
 }
 
 struct DescriptionOriginLabel: View {
@@ -77,7 +102,7 @@ struct DescriptionOriginLabel: View {
         }
         .foregroundStyle(origin.color)
         .accessibilityElement(children: .ignore)
-        .accessibilityLabel("Description origin: \(origin.title)")
+        .accessibilityLabel("Origin: \(origin.title)")
     }
 }
 
@@ -202,8 +227,11 @@ extension Segment {
 
     var narrationVoiceSummary: String? {
         guard audio != nil else { return nil }
-        guard let engine = resolvedAudioEngine ?? (audio != nil ? "system" : nil),
-              let voice = resolvedAudioVoice ?? (audio != nil ? "System default" : nil) else { return nil }
+        if audioOrigin == "imported" {
+            return "Imported audio" + (audioSourceName.map { " · \($0)" } ?? "")
+        }
+        guard let engine = resolvedAudioEngine ?? (audio != nil ? "unknown" : nil),
+              let voice = resolvedAudioVoice ?? (audio != nil ? "Unknown voice" : nil) else { return nil }
         return NarrationVoiceFormatting.combinedLabel(voice: voice, engine: engine)
     }
 }
@@ -315,12 +343,58 @@ struct NarrationFailure: Identifiable, Hashable {
 }
 
 /// The summary shown for narration status, both after a run and on demand.
+/// A persistent Gemini processing failure that should pause every AI action.
+/// Quota/cost exhaustion and service-wide failures are distinct from an invalid
+/// key; the key may still be valid even when the account has no remaining quota.
+struct AIServiceIssue: Equatable, Identifiable {
+    enum Kind: String { case quota, service, access }
+
+    let id = UUID()
+    var kind: Kind
+    var title: String
+    var message: String
+    var detail: String?
+
+    static func detect(_ rawDetail: String) -> AIServiceIssue? {
+        let detail = rawDetail.lowercased()
+        if detail.contains("api key not valid") || detail.contains("api_key_invalid")
+            || detail.contains("invalid api key") { return nil }
+        if detail.contains("quota") || detail.contains("resource_exhausted") || detail.contains("429")
+            || detail.contains("billing") || detail.contains("credit") || detail.contains("spend")
+            || detail.contains("rate limit") {
+            return AIServiceIssue(
+                kind: .quota,
+                title: "Gemini Usage Limit Reached",
+                message: "Your Gemini key has no remaining quota or credits for AI processing. AI actions are paused. Add billing or credits in Google AI Studio, or wait for the limit to reset, then choose Retry AI.",
+                detail: rawDetail)
+        }
+        if detail.contains("503") || detail.contains("service unavailable") || detail.contains("overloaded")
+            || detail.contains("deadline exceeded") || detail.contains("try again later") {
+            return AIServiceIssue(
+                kind: .service,
+                title: "Gemini AI Processing Unavailable",
+                message: "Gemini could not process the request because the service is temporarily unavailable. AI actions are paused until you retry successfully or the service recovers.",
+                detail: rawDetail)
+        }
+        if detail.contains("permission_denied") || detail.contains("permission denied") {
+            return AIServiceIssue(
+                kind: .access,
+                title: "Gemini AI Access Needs Attention",
+                message: "Gemini refused an AI processing request. Check the key's project permissions and AI Studio access, then retry. AI actions are paused until then.",
+                detail: rawDetail)
+        }
+        return nil
+    }
+}
+
 struct NarrationFailureReport: Identifiable {
     let id = UUID()
     let title: String
     let detail: String
     let generated: Int
     let failures: [NarrationFailure]
+    /// Non-blocking source warnings, kept separate from narration errors.
+    var warnings: [String] = []
 }
 
 enum NarrationVoiceFormatting {
@@ -332,7 +406,8 @@ enum NarrationVoiceFormatting {
         case "sapi5": return "Windows SAPI 5"
         case "windows-natural": return "Downloaded Natural Voices"
         case "piper": return "Piper Voices"
-        default: return "Apple Voices"
+        case "unknown", "": return "Unknown engine"
+        default: return "Unknown engine"
         }
     }
 
@@ -429,6 +504,7 @@ struct NarrationVoiceSegmentEntry: Identifiable, Hashable {
     let audioFile: String
     let usesDifferentVoice: Bool
     let reason: String
+    var isImported: Bool = false
 
     var combinedLabel: String { "\(voiceDisplayName) (\(engineDisplayName))" }
 }
@@ -442,6 +518,9 @@ struct NarrationVoiceReport: Identifiable {
     let voiceSummaries: [NarrationVoiceSummary]
     let differentSegments: [NarrationVoiceSegmentEntry]
     let allSegments: [NarrationVoiceSegmentEntry]
+    var importedCount: Int = 0
+    var hasMixedSources: Bool = false
+    var importedFiles: [String] = []
 }
 
 /// Per-section processing state for the Transcript, Summary, and Audio
@@ -483,6 +562,15 @@ struct StudioProject: Codable, Identifiable {
     var descriptionsGenerated: Bool?
     var narrationEngine: String?
     var narrationVoice: String?
+    /// Existing-asset imports. Paths are relative to the project folder and stay
+    /// portable between macOS and Windows.
+    var importedAudioDescription: ImportedAudioDescription?
+    var importedADTranscript: ImportedADTranscript?
+    var summaryOrigin: String?
+    var summaryOriginSource: String?
+    var lastImportReport: ImportReport?
+    var importReports: [ImportReport]?
+    var descriptionTimingAudit: DescriptionTimingAudit?
     /// Project-specific playback choices stored in project.json so the same
     /// choice travels with the project folder between macOS and Windows.
     var playback: ProjectPlaybackSettings?
@@ -522,6 +610,39 @@ struct StudioProject: Codable, Identifiable {
         transcriptGenerated == true || !transcript.isEmpty
     }
     var hasNarrationAudio: Bool { cues.contains { $0.audio != nil } }
+    var descriptionTimingIssueCount: Int { descriptionTimingAudit?.count ?? 0 }
+    var hasDescriptionTimingIssues: Bool { descriptionTimingIssueCount > 0 }
+    var summaryOriginLabel: SummaryOrigin {
+        SummaryOrigin(rawValue: summaryOrigin ?? "") ?? .unknown
+    }
+    var importedADAudioModeLabel: String {
+        importedAudioDescription?.mode == "fullMix" ? "Full AD mix" : "AD narration audio"
+    }
+    var canCombineImportedAudio: Bool {
+        importedAudioDescription != nil && !isYouTubeURLProject && hasFile(source)
+    }
+    var narrationSourceCounts: NarrationSourceCounts {
+        var counts = NarrationSourceCounts()
+        for cue in cues where cue.audio != nil {
+            switch cue.audioOrigin {
+            case "generated": counts.generated += 1
+            case "imported": counts.imported += 1
+            default: counts.unknown += 1
+            }
+        }
+        return counts
+    }
+    var importedNarrationFiles: [String] {
+        Array(Set(cues.filter { $0.audio != nil && $0.audioOrigin == "imported" }.compactMap { $0.audioSourceName })).sorted()
+    }
+    var importedNarrationText: String {
+        let counts = narrationSourceCounts
+        var parts: [String] = []
+        if counts.generated > 0 { parts.append("\(counts.generated) AI-generated") }
+        if counts.imported > 0 { parts.append("\(counts.imported) imported") }
+        if counts.unknown > 0 { parts.append("\(counts.unknown) unknown") }
+        return parts.isEmpty ? "No narration audio" : parts.joined(separator: " · ")
+    }
     var allADAudioTitle: String { hasNarrationAudio ? "Regenerate All AD Audio…" : "Generate All AD Audio" }
     var canGenerateMissingOrChangedAudio: Bool {
         hasNarrationAudio && cues.contains { SynchronizedAudioStatus.resolve(cue: $0, project: self) != .generated }
@@ -562,6 +683,185 @@ struct StudioProject: Codable, Identifiable {
         let resolved = folder.appendingPathComponent(relative).standardizedFileURL.resolvingSymlinksInPath()
         guard resolved.path.hasPrefix(folder.standardizedFileURL.resolvingSymlinksInPath().path + "/") else { return nil }
         return resolved
+    }
+}
+
+enum SummaryOrigin: String, CaseIterable {
+    case ai, imported, manual, unknown
+
+    var title: String {
+        switch self {
+        case .ai: return "AI-generated"
+        case .imported: return "Imported"
+        case .manual: return "Manually added"
+        case .unknown: return "Origin unknown"
+        }
+    }
+    var iconName: String {
+        switch self {
+        case .ai: return "sparkles"
+        case .imported: return "square.and.arrow.down"
+        case .manual: return "person"
+        case .unknown: return "questionmark.circle"
+        }
+    }
+    var color: Color {
+        switch self {
+        case .ai: return .purple
+        case .imported: return .teal
+        case .manual: return .blue
+        case .unknown: return .secondary
+        }
+    }
+    /// Only these three labels can be chosen explicitly for a summary.
+    static var editableCases: [SummaryOrigin] { [.ai, .imported, .manual] }
+}
+
+struct NarrationSourceCounts: Hashable {
+    var generated = 0
+    var imported = 0
+    var unknown = 0
+    var total: Int { generated + imported + unknown }
+    var hasMixedSources: Bool { imported > 0 && generated > 0 }
+}
+
+struct ImportedAudioDescription: Codable, Hashable {
+    var path: String
+    var mode: String
+    var sourceName: String
+    var duration: Double?
+}
+
+struct ImportedADTranscript: Codable, Hashable {
+    var segments: [Segment]
+    var mode: String
+    var format: String?
+    var sourceName: String?
+    var path: String?
+}
+
+struct ImportConflict: Codable, Hashable {
+    var kind: String
+    var id: String?
+    var row: Int?
+    var start: Double?
+    var end: Double?
+    var text: String?
+}
+
+struct ImportFlaggedSegment: Codable, Hashable, Identifiable {
+    var id: String?
+    var row: Int?
+    var sourceLine: Int?
+    var start: Double?
+    var end: Double?
+    var text: String?
+    var conflicts: [ImportConflict]?
+
+    var identity: String { id ?? "\(row ?? sourceLine ?? 0)" }
+}
+
+struct ImportOmittedRow: Codable, Hashable, Identifiable {
+    var sourceLine: Int?
+    var text: String
+    var reason: String
+    var code: String
+
+    var id: String { "\(sourceLine ?? 0)-\(code)-\(text.prefix(24))" }
+}
+
+struct ImportReport: Codable, Hashable, Identifiable {
+    var id: String
+    var kind: String
+    var sourceName: String
+    var rowsImported: Int
+    var rowsFlagged: Int
+    var rowsOmittedAfterVideo: Int
+    var rowsOmittedInvalid: Int
+    var rowsOmittedTranscriptOverlap: Int?
+    var videoDuration: Double?
+    var omitted: [ImportOmittedRow]?
+    var flagged: [ImportFlaggedSegment]?
+    var warnings: [String]?
+    var guidance: String?
+
+    var kindTitle: String {
+        switch kind {
+        case "transcript": return "Transcript"
+        case "narration": return "Descriptions"
+        case "combined": return "AD Transcript"
+        case "summary": return "Summary"
+        case "adAudio": return "AD audio"
+        case "segmentNarration": return "Narration audio"
+        default: return "Import"
+        }
+    }
+    var hasOmissions: Bool { (omitted?.count ?? 0) > 0 }
+    var hasFlags: Bool { (flagged?.count ?? 0) > 0 }
+}
+
+struct DescriptionTimingAudit: Codable, Hashable {
+    var count: Int
+    var segments: [ImportFlaggedSegment]
+    var videoDuration: Double?
+    var guidance: String?
+}
+
+enum ImportedADTranscriptMode: String, CaseIterable, Identifiable {
+    case narration, combined
+    var id: Self { self }
+    var title: String { self == .narration ? "AD narration only" : "Dialogue + AD combined" }
+    var detail: String {
+        self == .narration
+            ? "Creates editable description segments and validates them against the transcript."
+            : "Stored as one combined caption/export track. It is not split into editable descriptions."
+    }
+}
+
+enum ImportedADAudioMode: String, CaseIterable, Identifiable {
+    case narration, fullMix
+    var id: Self { self }
+    var title: String { self == .narration ? "AD narration audio only" : "Full AD mix" }
+    var detail: String {
+        self == .narration
+            ? "Mixed with the original audio; the original is ducked while narration speaks."
+            : "Used directly as the described track. The original soundtrack stays available."
+    }
+}
+
+struct ImportTimingRow: Codable, Identifiable, Hashable {
+    var sourceLine: Int
+    var text: String
+    var start: Double?
+    var end: Double?
+    var aiGenerated: Bool?
+
+    var id: Int { sourceLine }
+}
+
+struct ImportTimingProposal: Codable {
+    var rows: [ImportTimingRow]
+    var aiGenerated: Bool?
+    var reviewed: Bool?
+    var omitted: [ImportOmittedRow]?
+}
+
+struct ImportAssetSelection {
+    var transcript: URL?
+    var summary: URL?
+    var adTranscript: URL?
+    var adTranscriptMode: ImportedADTranscriptMode = .narration
+    var adAudio: URL?
+    var adAudioMode: ImportedADAudioMode = .narration
+    /// Reviewed timing JSON created by the TXT timing editor.
+    var transcriptTiming: URL?
+    var adTranscriptTiming: URL?
+
+    var hasAny: Bool {
+        transcript != nil || summary != nil || adTranscript != nil || adAudio != nil
+    }
+    var hasTextNeedingTiming: Bool {
+        [transcript, adTranscript].contains { $0?.pathExtension.lowercased() == "txt" }
     }
 }
 
@@ -1096,6 +1396,11 @@ final class StudioModel {
     var selectedID: String? { didSet { UserDefaults.standard.set(selectedID, forKey: "lastProjectID") } }
     var settings = StudioSettings() {
         didSet {
+            if settings.apiKey != oldValue.apiKey {
+                aiServiceIssue = nil
+                apiKeyVerified = nil
+                apiKeyVerificationMessage = nil
+            }
             guard settingsPersistenceEnabled, !applyingExternalSettings, settings != oldValue else { return }
             persistSettings(reloadProjects: settings.libraryPath != oldValue.libraryPath)
         }
@@ -1124,6 +1429,9 @@ final class StudioModel {
     var errorTitle = StudioModel.defaultErrorTitle
     var narrationFailureReport: NarrationFailureReport?
     var narrationVoiceReport: NarrationVoiceReport?
+    /// Import reports produced during the current import batch. The editor
+    /// presents them together and clears them after review.
+    var importReports: [ImportReport] = []
     @ObservationIgnored private var pendingVoiceMismatchReview = false
     var isSynthesizingNarration = false
     var narratingSegmentID: String?
@@ -1135,20 +1443,23 @@ final class StudioModel {
     var screenTimestamp = 0.0
     var process: Process?
     var isCreatingProject = false
-    /// Set when a New Project command is invoked without a Gemini API key so the shell can
-    /// open Settings → Gemini API instead, matching the Windows app.
-    var requestGeminiSettings = false
-    /// Opens the New Project dialog only when a Gemini API key is configured; otherwise it
-    /// requests Settings → Gemini API, matching the Windows New Project behavior.
+    /// Opens the New Project dialog. Local and YouTube projects can be created
+    /// without a Gemini key; AI actions explain their own prerequisites later.
     func beginNewProject() {
-        if hasApiKey { isCreatingProject = true } else { requestGeminiSettings = true }
+        // Creating a project never requires a Gemini key. AI actions remain
+        // gated separately and explain their prerequisite when invoked.
+        isCreatingProject = true
     }
     var availableGeminiModels: [GeminiModelOption] = []
     var geminiModelsLoaded = false
     var apiKeyVerified: Bool? = nil
+    /// Non-nil after a quota, billing, or service-level Gemini failure. It
+    /// disables every AI action until Retry AI succeeds or the key changes.
+    var aiServiceIssue: AIServiceIssue?
+    var isAIProcessingBlocked: Bool { aiServiceIssue != nil }
     var apiKeyVerificationMessage: String? = nil
     var hasApiKey: Bool { settings.hasApiKey }
-    var hasValidApiKey: Bool { hasApiKey && apiKeyVerified != false }
+    var hasValidApiKey: Bool { hasApiKey && apiKeyVerified != false && !isAIProcessingBlocked }
     var isApiKeyInvalid: Bool { hasApiKey && apiKeyVerified == false }
     var engineCheckStatus: EngineCheckStatus = .unchecked
     var selected: StudioProject? { projects.first { $0.id == selectedID } }
@@ -1209,21 +1520,53 @@ final class StudioModel {
         let detail = total == 0 ? "There are no audio description segments in this project yet." : failures.isEmpty
             ? "All \(total) audio description segments have current narration audio."
             : "\(failures.count) of \(total) description\(total == 1 ? "" : "s") need attention."
-        return NarrationFailureReport(title: "Narration status", detail: detail, generated: ready, failures: failures)
+        let counts = project.narrationSourceCounts
+        var warnings: [String] = []
+        if counts.hasMixedSources {
+            warnings.append("This project mixes AI-generated narration (\(counts.generated) segments) and imported narration (\(counts.imported) segments).")
+        }
+        if project.importedNarrationFiles.count > 1 {
+            warnings.append("Imported narration comes from \(project.importedNarrationFiles.count) different audio files: \(project.importedNarrationFiles.joined(separator: ", ")).")
+        }
+        if counts.imported > 0 && counts.generated == 0 && counts.unknown == 0 {
+            warnings.append("All narration audio in this project is imported. Generated voice settings do not apply to these segments.")
+        }
+        if counts.generated > 0 && counts.imported == 0 && counts.unknown == 0 {
+            warnings.append("This project uses only AI-generated narration.")
+        }
+        if counts.unknown > 0 {
+            warnings.append("\(counts.unknown) narration segment(s) have no recorded source and are labelled Unknown voice.")
+        }
+        return NarrationFailureReport(title: "Narration status", detail: detail, generated: ready, failures: failures, warnings: warnings)
     }
 
     /// Builds a detailed report of narration voice and engine usage across segments.
     func narrationVoiceUsageReport(for project: StudioProject) -> NarrationVoiceReport {
         var narratedEntries: [(index: Int, cue: Segment, engine: String, voice: String, path: String)] = []
+        var importedEntries: [NarrationVoiceSegmentEntry] = []
+        var generatedCount = 0
         for (index, cue) in project.cues.enumerated() {
             guard let path = cue.audio,
                   let url = project.url(path),
                   FileManager.default.fileExists(atPath: url.path) else { continue }
-            let engine = cue.resolvedAudioEngine ?? "system"
-            let voice = cue.resolvedAudioVoice ?? "System default"
+            if cue.audioOrigin == "imported" {
+                let source = cue.audioSourceName ?? "Unknown source file"
+                importedEntries.append(NarrationVoiceSegmentEntry(
+                    id: index + 1, start: cue.start, end: cue.end,
+                    duration: max(0, cue.end - cue.start),
+                    engine: "imported", engineDisplayName: "Imported audio",
+                    voice: source, voiceDisplayName: source, audioFile: path,
+                    usesDifferentVoice: false,
+                    reason: "Imported audio from \(source). It is not generated narration and does not use a selected voice.",
+                    isImported: true))
+                continue
+            }
+            generatedCount += 1
+            let engine = cue.resolvedAudioEngine ?? "unknown"
+            let voice = cue.resolvedAudioVoice ?? "Unknown voice"
             narratedEntries.append((index: index + 1, cue: cue, engine: engine, voice: voice, path: path))
         }
-        guard !narratedEntries.isEmpty else {
+        if narratedEntries.isEmpty && importedEntries.isEmpty {
             return NarrationVoiceReport(
                 title: "Narration voice details",
                 detail: "No narration audio has been generated for this project yet.",
@@ -1232,6 +1575,21 @@ final class StudioModel {
                 voiceSummaries: [],
                 differentSegments: [],
                 allSegments: []
+            )
+        }
+        if narratedEntries.isEmpty {
+            let files = Set(importedEntries.map(\.voiceDisplayName)).sorted()
+            return NarrationVoiceReport(
+                title: "Imported narration audio",
+                detail: "All narration audio in this project is imported. Generated voice settings do not apply to these segments.",
+                primaryVoiceLabel: nil,
+                hasDifferentVoices: false,
+                voiceSummaries: [],
+                differentSegments: [],
+                allSegments: importedEntries,
+                importedCount: importedEntries.count,
+                hasMixedSources: importedEntries.count > 0,
+                importedFiles: files
             )
         }
         let primaryEngine: String
@@ -1302,23 +1660,31 @@ final class StudioModel {
                 isDifferentVoice: group.isDifferent
             )
         }
+        allSegments.append(contentsOf: importedEntries)
         let hasDifferent = !differentSegments.isEmpty || summaries.filter { $0.count > 0 }.count > 1
         let activeVoiceCount = summaries.filter { $0.count > 0 }.count
-        let detail: String
+        let hasMixedSources = !importedEntries.isEmpty && generatedCount > 0
+        var detail: String
         if hasDifferent {
             let breakdown = summaries.map { "\($0.combinedLabel): \($0.count) segment\($0.count == 1 ? "" : "s")" }.joined(separator: "; ")
-            detail = "\(differentSegments.count) of \(allSegments.count) narrated segment\(allSegments.count == 1 ? "" : "s") use a different voice from \(primaryLabel). (\(breakdown))"
+            detail = "\(differentSegments.count) of \(generatedCount) generated segment\(generatedCount == 1 ? "" : "s") use a different voice from \(primaryLabel). (\(breakdown))"
         } else {
-            detail = "All \(allSegments.count) narrated audio description segment\(allSegments.count == 1 ? "" : "s") use \(primaryLabel)."
+            detail = "All \(generatedCount) generated audio description segment\(generatedCount == 1 ? "" : "s") use \(primaryLabel)."
+        }
+        if !importedEntries.isEmpty {
+            detail += " \(importedEntries.count) segment\(importedEntries.count == 1 ? "" : "s") use imported audio from \(Set(importedEntries.map(\.voiceDisplayName)).sorted().joined(separator: ", "))."
         }
         return NarrationVoiceReport(
-            title: hasDifferent ? "Different narration voices in project" : "Narration voice details",
+            title: hasDifferent || hasMixedSources ? "Narration sources need review" : "Narration voice details",
             detail: detail,
             primaryVoiceLabel: primaryLabel,
             hasDifferentVoices: hasDifferent || activeVoiceCount > 1,
             voiceSummaries: summaries,
             differentSegments: differentSegments,
-            allSegments: allSegments
+            allSegments: allSegments,
+            importedCount: importedEntries.count,
+            hasMixedSources: hasMixedSources,
+            importedFiles: Set(importedEntries.map(\.voiceDisplayName)).sorted()
         )
     }
 
@@ -1938,6 +2304,7 @@ final class StudioModel {
     func deleteGeminiApiKey() {
         settings.apiKey = ""
         KeychainStore.delete()
+        aiServiceIssue = nil
         apiKeyVerified = nil
         apiKeyVerificationMessage = nil
         availableGeminiModels = []
@@ -2304,6 +2671,7 @@ final class StudioModel {
                         geminiModelsLoaded = true
                         chooseAvailableGeminiModels()
                         apiKeyVerified = true
+                        aiServiceIssue = nil
                         if let plan = event["plan"] as? String {
                             settings.geminiPlan = plan
                         }
@@ -2375,12 +2743,23 @@ final class StudioModel {
                         }
                     }
                     if let path = event["export"] as? String { completedExportPath = path }
+                    if let raw = event["importReport"] as? [String: Any],
+                       let data = try? JSONSerialization.data(withJSONObject: raw),
+                       let report = try? JSONDecoder().decode(ImportReport.self, from: data),
+                       report.kind != "segmentNarration",
+                       importReports.last?.id != report.id {
+                        importReports.append(report)
+                    }
                     if eventIsError {
                         let detail = eventMessage ?? "The operation stopped without further details."
+                        if Self.isAICommand(command), let aiIssue = AIServiceIssue.detect(detail) {
+                            aiServiceIssue = aiIssue
+                        }
                         let issue = UserFacingIssue.forEngine(command: command, technicalDetails: detail)
                         present(issue, technicalDetails: detail, context: "Run \(command)")
                         if command == "doctor" { engineCheckStatus = .failed(issue.message) }
-                        if command == "list-models" || command == "check-api-key" || detail.localizedCaseInsensitiveContains("api key not valid") || detail.localizedCaseInsensitiveContains("api_key_invalid") {
+                        if (command == "list-models" || command == "check-api-key" || detail.localizedCaseInsensitiveContains("api key not valid") || detail.localizedCaseInsensitiveContains("api_key_invalid"))
+                            && aiServiceIssue == nil {
                             apiKeyVerified = false
                             apiKeyVerificationMessage = detail
                             availableGeminiModels = []
@@ -2395,7 +2774,11 @@ final class StudioModel {
                 }
             } catch {
                 let detail = error.localizedDescription
-                if command == "list-models" || command == "check-api-key" || detail.localizedCaseInsensitiveContains("api key not valid") || detail.localizedCaseInsensitiveContains("api_key_invalid") {
+                if Self.isAICommand(command), let aiIssue = AIServiceIssue.detect(detail) {
+                    aiServiceIssue = aiIssue
+                }
+                if (command == "list-models" || command == "check-api-key" || detail.localizedCaseInsensitiveContains("api key not valid") || detail.localizedCaseInsensitiveContains("api_key_invalid"))
+                    && aiServiceIssue == nil {
                     apiKeyVerified = false
                     apiKeyVerificationMessage = detail
                     availableGeminiModels = []
@@ -2417,7 +2800,8 @@ final class StudioModel {
                let path = completedExportPath, URL(fileURLWithPath: path).pathExtension.lowercased() == "mov" {
                 do {
                     let described = ["export-selectable-video", "export-closed-audio-description-video",
-                                     "export-final-video", "export-open-audio-description-video"].contains(command)
+                                     "export-final-video", "export-open-audio-description-video",
+                                     "combine-imported-audio"].contains(command)
                     exportActivity?.status = "Finishing accessibility information"
                     exportActivity?.update(fraction: 0.99)
                     try await AppleAccessibilityMetadataWriter().finalizeVideoTracks(at: folder.appendingPathComponent(path), described: described)
@@ -2447,8 +2831,9 @@ final class StudioModel {
                 present(UserFacingIssue.forEngine(command: command, technicalDetails: nil), context: "\(command) stopped")
             }
             if task.terminationStatus == 0 {
+                if Self.isAICommand(command) { aiServiceIssue = nil }
                 self.errorTitle = StudioModel.defaultErrorTitle
-            } else if command == "list-models" || command == "check-api-key" {
+            } else if (command == "list-models" || command == "check-api-key") && aiServiceIssue == nil {
                 apiKeyVerified = false
                 availableGeminiModels = []
                 geminiModelsLoaded = false
@@ -2533,8 +2918,15 @@ final class StudioModel {
         }
     }
 
+    static func isAICommand(_ command: String) -> Bool {
+        ["transcribe", "generate-summary", "generate-ad-cues", "analyze", "regenerate-all",
+         "reanalyze-segment", "reanalyze-transcript-segment", "rewrite-cue", "capture-frame",
+         "check-api-key", "list-models", "validate-config", "import-youtube", "align-imported-text",
+         "synthesize-tts", "prepare-analysis-video"].contains(command)
+    }
+
     private static func isExportCommand(_ command: String) -> Bool {
-        command.hasPrefix("export-")
+        command.hasPrefix("export-") || command == "combine-imported-audio"
     }
     func reanalyzeSegment(_ segment: Segment, hint: String, isDescription: Bool = true) {
         guard let project = selected, !busy else { return }
@@ -2594,20 +2986,139 @@ final class StudioModel {
         }
     }
 
-    func saveSummary(_ text: String) {
+    func saveSummary(_ text: String, origin: SummaryOrigin? = nil) {
         guard let project = selected, !busy else { return }
         struct EditableSummary: Encodable {
             let summary: String
+            let summaryOrigin: String?
         }
         let directory = FileManager.default.temporaryDirectory.appendingPathComponent("vidistudio-summary-\(UUID().uuidString)")
         let input = directory.appendingPathComponent("summary.json")
         do {
             try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true, attributes: [.posixPermissions: 0o700])
-            try JSONEncoder().encode(EditableSummary(summary: text)).write(to: input, options: .atomic)
+            try JSONEncoder().encode(EditableSummary(summary: text, summaryOrigin: origin?.rawValue)).write(to: input, options: .atomic)
             execute("save-summary", extra: ["--input", input.path], project: project, cleanupURL: directory)
         } catch {
             try? FileManager.default.removeItem(at: directory)
             present(.projectSave, technicalDetails: error.localizedDescription, context: "Save project summary")
+        }
+    }
+
+    /// Runs the selected existing-asset imports in a stable order and then the
+    /// optional combine. Each command is atomic in the engine; the chain stops
+    /// on the first failure so later assets are not touched.
+    func importAssets(
+        _ selection: ImportAssetSelection,
+        into project: StudioProject,
+        combine: Bool,
+        replaceExisting: Bool = false,
+        completion: ((StudioProject?) -> Void)? = nil
+    ) {
+        guard !busy else { return }
+        var steps: [(command: String, arguments: [String])] = []
+        if let transcript = selection.transcript {
+            var arguments = ["--input", transcript.path]
+            if let timing = selection.transcriptTiming { arguments += ["--timing-input", timing.path] }
+            steps.append(("import-transcript", arguments))
+        }
+        if let adTranscript = selection.adTranscript {
+            var arguments = ["--input", adTranscript.path, "--ad-transcript-mode", selection.adTranscriptMode.rawValue]
+            if let timing = selection.adTranscriptTiming { arguments += ["--timing-input", timing.path] }
+            steps.append(("import-ad-transcript", arguments))
+        }
+        if let summary = selection.summary {
+            steps.append(("import-summary", ["--input", summary.path]))
+        }
+        if let audio = selection.adAudio {
+            steps.append(("import-ad-audio", ["--input", audio.path, "--audio-mode", selection.adAudioMode.rawValue]))
+        }
+        if replaceExisting {
+            steps = steps.map { (command: $0.command, arguments: $0.arguments + ["--replace-existing"]) }
+        }
+        importReports.removeAll()
+        var current = project
+        var remaining = steps
+
+        func finish(_ result: StudioProject?) {
+            guard var result, combine, selection.adAudio != nil else {
+                completion?(result)
+                return
+            }
+            execute(
+                "combine-imported-audio",
+                extra: ["--audio-presentation", "selectable", "--captions", "none", "--media-format", "mov"]
+                    + (replaceExisting ? ["--replace-existing"] : []),
+                project: result
+            ) { combined in completion?(combined ?? result) }
+        }
+
+        func runNext() {
+            guard let step = remaining.first else {
+                finish(current)
+                return
+            }
+            remaining.removeFirst()
+            execute(step.command, extra: step.arguments, project: current) { updated in
+                guard let updated else {
+                    completion?(nil)
+                    return
+                }
+                current = updated
+                runNext()
+            }
+        }
+        runNext()
+    }
+
+    /// Combines the imported AD asset again without re-importing text.
+    func combineImportedAudio(for project: StudioProject, replacingExisting: Bool = false, completion: ((StudioProject?) -> Void)? = nil) {
+        guard !busy else { return }
+        execute(
+            "combine-imported-audio",
+            extra: ["--audio-presentation", "selectable", "--captions", "none", "--media-format", "mov"]
+                + (replacingExisting ? ["--replace-existing"] : []),
+            project: project,
+            completion: completion
+        )
+    }
+
+    func importSegmentNarration(_ audio: URL, into cue: Segment, project: StudioProject, replacingExisting: Bool, completion: ((StudioProject?) -> Void)? = nil) {
+        guard !busy else { return }
+        execute(
+            "import-segment-narration",
+            extra: ["--input", audio.path, "--segment", cue.id] + (replacingExisting ? ["--replace-existing"] : []),
+            project: project,
+            completion: completion
+        )
+    }
+
+    func clearImportReports() {
+        importReports.removeAll()
+    }
+
+    /// Requests proposed TXT timings. The proposal is never saved by this call;
+    /// the timing editor must review it before import.
+    func alignImportedText(
+        file: URL,
+        mode: ImportedADTranscriptMode,
+        project: StudioProject,
+        completion: @escaping (Result<ImportTimingProposal, Error>) -> Void
+    ) {
+        guard !busy else { return }
+        let output = FileManager.default.temporaryDirectory
+            .appendingPathComponent("vidistudio-alignment-\(UUID().uuidString).json")
+        execute(
+            "align-imported-text",
+            extra: ["--input", file.path, "--output", output.path, "--ad-transcript-mode", mode.rawValue],
+            project: project
+        ) { _ in
+            defer { try? FileManager.default.removeItem(at: output) }
+            do {
+                let proposal = try JSONDecoder().decode(ImportTimingProposal.self, from: Data(contentsOf: output))
+                completion(.success(proposal))
+            } catch {
+                completion(.failure(error))
+            }
         }
     }
 }

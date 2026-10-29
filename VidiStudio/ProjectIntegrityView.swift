@@ -41,6 +41,7 @@ struct ProjectIntegrityBanner: View {
     let regenerateNarration: () -> Void
     let regenerateVideoArtifacts: () -> Void
     let deleteProject: () -> Void
+    var showImportReport: (() -> Void)? = nil
 
     @State private var showingIssues = false
 
@@ -80,6 +81,8 @@ struct ProjectIntegrityBanner: View {
                 return "Video details are missing. They can be regenerated from the original video."
             case .exports:
                 return "\(problem.missingCount) exported file\(problem.missingCount == 1 ? "" : "s") missing. Export again to recreate \(problem.missingCount == 1 ? "it" : "them")."
+            case .importedAssets:
+                return "\(problem.missingCount) imported file\(problem.missingCount == 1 ? "" : "s") missing. Restore the file or use Import Existing Assets to import it again."
             case .manifest, .source, .significantLoss:
                 break
             }
@@ -127,6 +130,7 @@ struct ProjectIntegrityBanner: View {
                 Button(reviewTitle, systemImage: "list.bullet.rectangle") {
                     showingIssues = true
                 }
+                .help("Review every missing or unreadable project file and its recovery action")
                 .buttonStyle(.borderedProminent)
                 .tint(tint)
                 .controlSize(.small)
@@ -144,7 +148,8 @@ struct ProjectIntegrityBanner: View {
                 showInFinder: showInFinder,
                 regenerateNarration: regenerateNarration,
                 regenerateVideoArtifacts: regenerateVideoArtifacts,
-                deleteProject: deleteProject
+                deleteProject: deleteProject,
+                showImportReport: showImportReport
             )
         }
         .accessibilityElement(children: .contain)
@@ -162,6 +167,7 @@ struct ProjectIntegrityDialogButton: View {
     var regenerateNarration: (() -> Void)? = nil
     var regenerateVideoArtifacts: (() -> Void)? = nil
     var deleteProject: (() -> Void)? = nil
+    var showImportReport: (() -> Void)? = nil
 
     @State private var showingIssues = false
 
@@ -192,7 +198,8 @@ struct ProjectIntegrityDialogButton: View {
                 showInFinder: showInFinder,
                 regenerateNarration: regenerateNarration,
                 regenerateVideoArtifacts: regenerateVideoArtifacts,
-                deleteProject: deleteProject
+                deleteProject: deleteProject,
+                showImportReport: showImportReport
             )
         }
     }
@@ -206,6 +213,7 @@ struct ProjectIntegrityDetailsSheet: View {
     var regenerateNarration: (() -> Void)? = nil
     var regenerateVideoArtifacts: (() -> Void)? = nil
     var deleteProject: (() -> Void)? = nil
+    var showImportReport: (() -> Void)? = nil
 
     @Environment(\.dismiss) private var dismiss
 
@@ -278,6 +286,7 @@ struct ProjectIntegrityDetailsSheet: View {
 
             Button("Done") { dismiss() }
                 .keyboardShortcut(.defaultAction)
+                .help("Close the project file issues dialog")
         }
         .padding(20)
     }
@@ -289,6 +298,14 @@ struct ProjectIntegrityDetailsSheet: View {
                     dismiss()
                     showInFinder()
                 }
+                .help("Show the project folder in Finder")
+            }
+            if let showImportReport {
+                Button("Review Import Report…", systemImage: "doc.text.magnifyingglass") {
+                    dismiss()
+                    showImportReport()
+                }
+                .help("Review the report from the most recent existing-asset import")
             }
             if report.canRegenerateNarration, let regenerateNarration {
                 Button("Regenerate Missing Narration", systemImage: "waveform") {

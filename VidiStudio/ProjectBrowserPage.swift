@@ -6,10 +6,12 @@ struct ProjectAnalysisMenu: View {
     let busy: Bool
     var hasApiKey: Bool = true
     var apiKeyVerified: Bool? = nil
+    var aiProcessingBlocked: Bool = false
     let perform: (String) -> Void
 
-    private var hasValidApiKey: Bool { hasApiKey && apiKeyVerified != false }
+    private var hasValidApiKey: Bool { hasApiKey && apiKeyVerified != false && !aiProcessingBlocked }
     private var isApiKeyInvalid: Bool { hasApiKey && apiKeyVerified == false }
+    private var aiBlockedHelp: String? { aiProcessingBlocked ? "Gemini AI processing is paused after a quota or service error. Retry AI from the warning banner or open Gemini settings." : nil }
 
     var body: some View {
         Menu("Analysis", systemImage: "sparkles") {
@@ -20,23 +22,23 @@ struct ProjectAnalysisMenu: View {
             Divider()
             Button("Analyze Video…", systemImage: "sparkles") { perform("analyze") }
                 .disabled(!hasValidApiKey)
-                .help(!hasApiKey ? "Enter your Gemini API key in Settings → Gemini API to analyze this video" : isApiKeyInvalid ? "Gemini API key is invalid — enter a valid key in Settings → Gemini API to analyze this video" : "Generate the transcript, summary, and Audio Descriptions in sequence")
+                .help(aiBlockedHelp ?? (!hasApiKey ? "Enter your Gemini API key in Settings → Gemini API to analyze this video" : isApiKeyInvalid ? "Gemini API key is invalid — enter a valid key in Settings → Gemini API to analyze this video" : "Generate the transcript, summary, and Audio Descriptions in sequence"))
             Divider()
             Button(project.hasGeneratedTranscript ? "Regenerate Transcript…" : "Generate Transcript", systemImage: "text.bubble") {
                 perform("transcribe")
             }
             .disabled(!hasValidApiKey)
-            .help(!hasApiKey ? "Enter your Gemini API key in Settings → Gemini API to transcribe speech" : isApiKeyInvalid ? "Gemini API key is invalid — enter a valid key in Settings → Gemini API to transcribe speech" : "Generate dialogue transcript using Gemini")
+            .help(aiBlockedHelp ?? (!hasApiKey ? "Enter your Gemini API key in Settings → Gemini API to transcribe speech" : isApiKeyInvalid ? "Gemini API key is invalid — enter a valid key in Settings → Gemini API to transcribe speech" : "Generate dialogue transcript using Gemini"))
             Button(project.summary.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? "Generate Summary" : "Regenerate Summary…", systemImage: "text.alignleft") {
                 perform("generate-summary")
             }
             .disabled(!hasValidApiKey)
-            .help(!hasApiKey ? "Enter your Gemini API key in Settings → Gemini API to generate summaries" : isApiKeyInvalid ? "Gemini API key is invalid — enter a valid key in Settings → Gemini API to generate summaries" : "Generate video summary using Gemini")
+            .help(aiBlockedHelp ?? (!hasApiKey ? "Enter your Gemini API key in Settings → Gemini API to generate summaries" : isApiKeyInvalid ? "Gemini API key is invalid — enter a valid key in Settings → Gemini API to generate summaries" : "Generate video summary using Gemini"))
             Button(project.cues.isEmpty ? "Generate Audio Descriptions" : "Regenerate Audio Descriptions…", systemImage: "sparkles") {
                 perform("generate-ad-cues")
             }
             .disabled(!hasValidApiKey || !project.canGenerateDescriptions)
-            .help(!hasApiKey ? "Enter your Gemini API key in Settings → Gemini API to generate Audio Descriptions" : isApiKeyInvalid ? "Gemini API key is invalid — enter a valid key in Settings → Gemini API to generate Audio Descriptions" : project.canGenerateDescriptions ? "Generate timed Audio Description text" : "Generate the transcript and summary first")
+            .help(aiBlockedHelp ?? (!hasApiKey ? "Enter your Gemini API key in Settings → Gemini API to generate Audio Descriptions" : isApiKeyInvalid ? "Gemini API key is invalid — enter a valid key in Settings → Gemini API to generate Audio Descriptions" : project.canGenerateDescriptions ? "Generate timed Audio Description text" : "Generate the transcript and summary first"))
         }
         .disabled(busy)
     }
@@ -53,6 +55,7 @@ struct ProjectBrowserPage: View {
     var integrity: [String: ProjectIntegrityReport] = [:]
     var hasApiKey: Bool = true
     var apiKeyVerified: Bool? = nil
+    var aiProcessingBlocked: Bool = false
     var apiKeyVerificationMessage: String? = nil
     var openGeminiSettings: () -> Void = {}
     let newProject: () -> Void
@@ -178,6 +181,7 @@ struct ProjectBrowserPage: View {
                     integrity: integrity,
                     hasApiKey: hasApiKey,
                     apiKeyVerified: apiKeyVerified,
+                    aiProcessingBlocked: aiProcessingBlocked,
                     open: openEditor,
                     rename: rename,
                     delete: delete,
@@ -344,7 +348,7 @@ struct ProjectBrowserPage: View {
                   FileManager.default.fileExists(atPath: url.path) else { return }
             NSWorkspace.shared.open(url)
         }
-        ProjectAnalysisMenu(project: project, busy: busy, hasApiKey: hasApiKey, apiKeyVerified: apiKeyVerified) { command in
+        ProjectAnalysisMenu(project: project, busy: busy, hasApiKey: hasApiKey, apiKeyVerified: apiKeyVerified, aiProcessingBlocked: aiProcessingBlocked) { command in
             process(project, command)
         }
         .disabled(project.integrityPlaceholder == true)

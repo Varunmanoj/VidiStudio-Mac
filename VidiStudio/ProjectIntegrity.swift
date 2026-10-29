@@ -24,6 +24,7 @@ enum ProjectFileCategory: String, CaseIterable, Sendable {
     case metadata
     case thumbnails
     case narration
+    case importedAssets
     case exports
     case significantLoss
 
@@ -34,6 +35,7 @@ enum ProjectFileCategory: String, CaseIterable, Sendable {
         case .metadata: return "Video Details"
         case .thumbnails: return "Timeline Pictures"
         case .narration: return "Narration Audio"
+        case .importedAssets: return "Imported Assets"
         case .exports: return "Exports"
         case .significantLoss: return "Project Files"
         }
@@ -46,6 +48,7 @@ enum ProjectFileCategory: String, CaseIterable, Sendable {
         case .metadata: return "info.circle"
         case .thumbnails: return "photo.on.rectangle.angled"
         case .narration: return "waveform"
+        case .importedAssets: return "square.and.arrow.down"
         case .exports: return "square.and.arrow.up"
         case .significantLoss: return "externaldrive.badge.exclamationmark"
         }
@@ -96,6 +99,7 @@ struct ProjectIntegrityManifest: Sendable {
     var sourceRelativePath: String?
     var thumbnailPaths: [String]
     var narrationReferences: [ProjectNarrationReference]
+    var importedPaths: [String]
     var exportPaths: [String]
     var knownManifestUnreadable: Bool
 
@@ -106,6 +110,7 @@ struct ProjectIntegrityManifest: Sendable {
         sourceRelativePath: String?,
         thumbnailPaths: [String],
         narrationReferences: [ProjectNarrationReference],
+        importedPaths: [String] = [],
         exportPaths: [String],
         knownManifestUnreadable: Bool = false
     ) {
@@ -115,6 +120,7 @@ struct ProjectIntegrityManifest: Sendable {
         self.sourceRelativePath = sourceRelativePath
         self.thumbnailPaths = thumbnailPaths
         self.narrationReferences = narrationReferences
+        self.importedPaths = importedPaths
         self.exportPaths = exportPaths
         self.knownManifestUnreadable = knownManifestUnreadable
     }
@@ -164,6 +170,7 @@ struct ProjectIntegrityReport: Equatable, Sendable {
             case .thumbnails: return "Timeline Pictures Are Missing"
             case .metadata: return "Video Details Are Missing"
             case .exports: return "Exports Are Missing"
+            case .importedAssets: return "Imported Assets Are Missing"
             case .manifest: return "Project File Is Missing"
             case .source: return "Original Video Is Missing"
             case .significantLoss: return "Project Is Marked as Damaged"
@@ -198,6 +205,8 @@ struct ProjectIntegrityReport: Equatable, Sendable {
                 return "Video details are missing. Playback and editing still work, and the details can be regenerated from the original video."
             case .exports:
                 return "\(problem.missingCount) exported file\(problem.missingCount == 1 ? "" : "s") listed in this project are missing. Export them again to recreate the files."
+            case .importedAssets:
+                return "\(problem.missingCount) imported file\(problem.missingCount == 1 ? "" : "s") are missing. Project text stays available; restore the file or import it again."
             case .manifest, .source, .significantLoss:
                 break
             }
@@ -396,6 +405,32 @@ enum ProjectIntegrityAuditor {
             ))
         }
 
+        // Imported assets are copied into the project and are never recreated by
+        // analysis. Losing one is a warning: the project content stays, but the
+        // original imported file must be restored or imported again.
+        let importedPaths = uniquePaths(manifest.importedPaths)
+        var missingImports: [ProjectMissingFile] = []
+        for path in importedPaths {
+            guard let url = resolve(path, in: folder), fileState(url, allowDirectory: false) == .ok else {
+                missingImports.append(ProjectMissingFile(path: path, displayName: path))
+                continue
+            }
+        }
+        trackedFiles += importedPaths.count
+        if !missingImports.isEmpty {
+            missingFiles += missingImports.count
+            problems.append(ProjectFileProblem(
+                category: .importedAssets,
+                severity: .warning,
+                title: "Imported assets are missing",
+                detail: "\(missingImports.count) of \(importedPaths.count) imported file\(importedPaths.count == 1 ? "" : "s") \(missingImports.count == 1 ? "is" : "are") missing or empty.",
+                impact: "Existing text and descriptions remain in the project, but imported audio or a combined AD transcript cannot be used until it is restored.",
+                recovery: "Restore the imported file from a backup, or use Project → Import Existing Assets… to import it again.",
+                missingFiles: missingImports,
+                expectedCount: importedPaths.count
+            ))
+        }
+
         // Referenced exports. HLS exports are folders, so directories count as
         // present when they contain at least one file.
         let exportPaths = uniquePaths(manifest.exportPaths)
@@ -426,7 +461,7 @@ enum ProjectIntegrityAuditor {
         // category (for example every narration file) stays a warning so the
         // user can recreate it without being told to delete the project.
         let affectedGeneratedCategories = Set(problems.filter {
-            $0.severity == .warning && $0.category != .metadata
+            $0.severity == .warning && $0.category != .metadata && $0.category != .importedAssets
         }.map(\.category))
         if !problems.contains(where: { $0.severity == .damaged }),
            trackedFiles >= 4,

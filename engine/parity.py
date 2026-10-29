@@ -153,8 +153,15 @@ def execute(args,root,p,e):
         if not args.url or not args.library: raise ValueError('YouTube import requires --url and --library.')
         url=youtube_url(args.url);ident=url.split('=')[-1];name=args.name or 'YouTube video'
         ensure_unique_youtube_video(args.library, url)
-        e.emit('Checking that the YouTube video is public and available to Gemini',progress=.1)
-        e.validate_youtube_for_gemini(url)
+        try:
+            has_gemini_key = bool(e.config().get('apiKey'))
+        except Exception:
+            has_gemini_key = False
+        if has_gemini_key:
+            e.emit('Checking that the YouTube video is public and available to Gemini',progress=.1)
+            e.validate_youtube_for_gemini(url)
+        else:
+            e.emit('Creating the YouTube project without an API key. AI analysis will require a key later.',warning=True)
         try:
             with urlopen('https://www.youtube.com/oembed?format=json&url='+url,timeout=10,context=ssl.create_default_context(cafile=certifi.where())) as r:
                 title=str(json.load(r).get('title') or '').strip()
@@ -247,7 +254,11 @@ def execute(args,root,p,e):
             e.write_text_export(root,p,'Summary','md',text,args.replace_existing)
             return
         if args.format=='md':raise ValueError('Markdown export is available for the summary.')
-        segments=p['transcript'] if args.content=='transcript' else p['cues'] if args.content=='descriptions' else sorted(p['transcript']+p['cues'],key=lambda s:s['start'])
+        imported_combined = p.get('importedADTranscript') or {}
+        if args.content=='combined' and imported_combined.get('mode')=='combined' and imported_combined.get('segments'):
+            segments = sorted(imported_combined['segments'], key=lambda s: s['start'])
+        else:
+            segments=p['transcript'] if args.content=='transcript' else p['cues'] if args.content=='descriptions' else sorted(p['transcript']+p['cues'],key=lambda s:s['start'])
         if not segments:raise ValueError('No text available to export.')
         if args.format=='json':text=json.dumps(segments,ensure_ascii=False,indent=2)
         elif args.format=='txt':text='\n\n'.join(f"{clock(c['start'])} — {clock(c['end'])}\n{c['text']}" for c in segments)

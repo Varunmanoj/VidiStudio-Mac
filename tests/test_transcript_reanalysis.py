@@ -103,10 +103,11 @@ class TranscriptRangeTests(unittest.TestCase):
                 self.assertEqual(p,old)
 
     def test_ad_conflict_keeps_narration_and_does_not_retime_speech(self):
-        p=self.project();p['cues'][0].update(start=12,end=14);old=copy.deepcopy(p)
-        with self.assertRaisesRegex(ValueError,'overlaps spoken dialogue'):
-            self.analyze(p)
-        self.assertEqual(p,old)
+        p=self.project();p['cues'][0].update(start=12,end=14);cues=copy.deepcopy(p['cues']);narration=copy.deepcopy(p['cues'][0].get('audio'))
+        self.analyze(p)
+        self.assertEqual(p['cues'],cues)
+        self.assertEqual(p['cues'][0].get('audio'),narration)
+        self.assertEqual(p['descriptionTimingAudit']['count'],1)
 
     def test_network_error_and_invalid_range_preserve_content(self):
         p=self.project();old=copy.deepcopy(p)
@@ -122,8 +123,9 @@ class TranscriptRangeTests(unittest.TestCase):
         e.save_segments(p,edited,copy.deepcopy(p['cues']))
         self.assertEqual(p['transcriptUndoStack'],[old])
         p['cues'][0].update(start=10,end=12);before=copy.deepcopy(p)
-        with self.assertRaises(ValueError):e.restore_transcript(p)
-        self.assertEqual(p,before)
+        e.restore_transcript(p)
+        self.assertEqual(p['cues'],before['cues'])
+        self.assertEqual(p['descriptionTimingAudit']['count'],1)
 
     def test_deleted_transcript_rows_cannot_return_from_history(self):
         p=self.project();e.remember_transcript(p)
@@ -148,7 +150,7 @@ class TranscriptRangeTests(unittest.TestCase):
             for action in ['undo-transcript','redo-transcript']:
                 result=subprocess.run(command+[action,'--project',str(root)],capture_output=True,text=True)
                 self.assertEqual(result.returncode,0,result.stdout+result.stderr)
-                current=json.loads(project.read_text());self.assertEqual(current['cues'],p['cues'])
+                current=json.loads(project.read_text());self.assertEqual([{k:v for k,v in cue.items() if k!='audioOrigin'} for cue in current['cues']],p['cues'])
                 self.assertEqual(audio.read_bytes(),b'preserve narration')
             self.assertEqual(current['transcript'],p['transcript'])
             e.delete_generated_components(root,current,['history'])

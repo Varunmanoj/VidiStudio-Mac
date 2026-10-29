@@ -83,7 +83,7 @@ enum SummarySpeechParser {
     static func sentences(from markdown: String) -> [SummarySentence] {
         let trimmed = markdown.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty else { return [] }
-        let blocks = markdownBlocks(from: markdown)
+        let blocks = markdownBlocks(from: normalizedForReading(markdown))
         var result: [SummarySentence] = []
         var sentenceID = 0
         for block in blocks {
@@ -119,6 +119,46 @@ enum SummarySpeechParser {
             }
         }
         return result
+    }
+
+    /// Gives the sentence-highlighting reading view readable table rows and
+    /// checkbox task items. The preview uses the richer table/task renderer;
+    /// this keeps spoken sentence ranges stable while removing raw pipe syntax.
+    private static func normalizedForReading(_ markdown: String) -> String {
+        let lines = markdown.replacingOccurrences(of: "\r\n", with: "\n").components(separatedBy: "\n")
+        var output: [String] = []
+        var index = 0
+        let separator = #"^\s*\|?\s*:?-{3,}:?\s*(\|\s*:?-{3,}:?\s*)+\|?\s*$"#
+        func cells(_ line: String) -> String {
+            line.trimmingCharacters(in: .whitespaces).trimmingCharacters(in: CharacterSet(charactersIn: "|"))
+                .split(separator: "|")
+                .map { $0.trimmingCharacters(in: .whitespaces) }
+                .joined(separator: "   ")
+        }
+        while index < lines.count {
+            let line = lines[index]
+            if index + 1 < lines.count, line.contains("|"),
+               lines[index + 1].range(of: separator, options: .regularExpression) != nil {
+                output.append(cells(line))
+                index += 2
+                while index < lines.count, lines[index].contains("|"), !lines[index].trimmingCharacters(in: .whitespaces).isEmpty {
+                    output.append(cells(lines[index]))
+                    index += 1
+                }
+                continue
+            }
+            if let task = line.range(of: #"^\s*-\s*\[([ xX])\]\s+(.*)$"#, options: .regularExpression) {
+                let value = String(line[task])
+                let checked = value.range(of: #"\[[xX]\]"#, options: .regularExpression) != nil
+                let text = value.replacingOccurrences(of: #"^\s*-\s*\[[ xX]\]\s+"#, with: "", options: .regularExpression)
+                output.append((checked ? "☑ " : "☐ ") + text)
+                index += 1
+                continue
+            }
+            output.append(line)
+            index += 1
+        }
+        return output.joined(separator: "\n")
     }
 
     private struct MarkdownBlock {
@@ -1180,6 +1220,7 @@ struct SummaryReaderView: View {
     var follow: Bool = true
     /// When true the text is an instructional placeholder, so reading controls stay disabled.
     var hasSummary: Bool = true
+    var origin: SummaryOrigin? = nil
     var onEdit: (() -> Void)? = nil
 
     /// Names the engine actually used for summary reading.
@@ -1231,6 +1272,17 @@ struct SummaryReaderView: View {
 
     private var readbackControls: some View {
         HStack(spacing: 12) {
+            if let origin {
+                HStack(spacing: 4) {
+                    Image(systemName: origin.iconName).accessibilityHidden(true)
+                    Text(origin.title)
+                }
+                .font(.caption.weight(.semibold))
+                .foregroundStyle(origin.color)
+                .help("Whole-summary provenance: \(origin.title)")
+                .accessibilityElement(children: .ignore)
+                .accessibilityLabel("Summary origin: \(origin.title)")
+            }
             Text(model.progressLabel)
                 .font(.callout)
                 .foregroundStyle(.secondary)

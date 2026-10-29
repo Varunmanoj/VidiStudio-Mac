@@ -520,16 +520,18 @@ class Validation(unittest.TestCase):
     def test_legacy_narration_timing_is_preserved_before_edit(self):
         cue = {'id': 'ad', 'start': 1, 'end': 4, 'text': 'Description',
                'audio': 'audio-description/ad.wav', 'audioText': 'Description', 'audioDuration': 2}
-        project = {'duration': 20, 'transcript': [], 'cues': [cue], 'exports': []}
+        project = {'duration': 20,
+                   'transcript': [{'id': 't', 'start': 5, 'end': 6, 'text': 'Dialogue'}],
+                   'cues': [cue], 'exports': []}
         self.assertFalse(engine.narration_audio_needs_regeneration(cue))
         edited = deepcopy(cue)
         edited.update(start=2, end=5, audioStart=None, audioEnd=None)
-        engine.save_segments(project, [], [edited])
+        engine.save_segments(project, project['transcript'], [edited])
         self.assertEqual((edited['audioStart'], edited['audioEnd']), (1, 4))
         self.assertTrue(engine.narration_audio_needs_regeneration(edited))
         restored = deepcopy(edited)
         restored.update(start=1, end=4)
-        engine.save_segments(project, [], [restored])
+        engine.save_segments(project, project['transcript'], [restored])
         self.assertFalse(engine.narration_audio_needs_regeneration(restored))
         restored['end'] = 2
         self.assertTrue(engine.narration_audio_needs_regeneration(restored))
@@ -850,18 +852,20 @@ class Validation(unittest.TestCase):
             self.assertEqual(project['exports'], [])
             self.assertEqual(len(project['undoStack']), 1)
 
-    def test_transcript_edit_rejects_overlap_with_description(self):
+    def test_transcript_edit_flags_overlapping_description_for_retiming(self):
         project = dict(
             duration=10, transcript=[],
             cues=[{'id':'ad','start':2,'end':3,'text':'Description'}],
             exports=[], undoStack=[], redoStack=[], summary='', summaryGenerated=False,
         )
-        with self.assertRaisesRegex(ValueError, 'overlaps spoken dialogue'):
-            engine.save_segments(
-                project,
-                [{'id':'dialogue','start':1,'end':2.5,'text':'Dialogue'}],
-                project['cues'],
-            )
+        engine.save_segments(
+            project,
+            [{'id':'dialogue','start':1,'end':2.5,'text':'Dialogue'}],
+            project['cues'],
+        )
+        self.assertEqual(project['transcript'][0]['text'], 'Dialogue')
+        self.assertEqual(project['descriptionTimingAudit']['count'], 1)
+        self.assertEqual(project['cues'][0]['start'], 2)
     def test_save_segments_adds_a_new_transcript_segment(self):
         project = dict(
             duration=10,
@@ -1290,9 +1294,10 @@ class Validation(unittest.TestCase):
             engine.export(root, project, allow_incomplete=True, selectable=True)
             info = engine.probe(root/project['exports'][0])
             audio = [stream for stream in info['streams'] if stream['codec_type'] == 'audio']
-            self.assertEqual(len(audio), 2)
-            self.assertEqual(audio[0]['tags']['handler_name'], 'Original Audio')
-            self.assertEqual(audio[1]['tags']['handler_name'], 'English - Audio Description')
+            # A silent source has no original track to preserve; the described
+            # mix becomes the only, default track.
+            self.assertEqual(len(audio), 1)
+            self.assertEqual(audio[0]['tags']['handler_name'], 'English - Audio Description')
     def test_path_escape(self):
         with self.assertRaises(ValueError): engine.local(Path('/tmp/project'),'../../etc/passwd')
     def test_pipeline(self):

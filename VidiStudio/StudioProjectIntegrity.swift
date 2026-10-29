@@ -114,6 +114,9 @@ extension StudioProject {
                 timeRange: "\(timecode(cue.start))–\(timecode(cue.end))"
             )
         }
+        let importedPaths = [importedAudioDescription?.path, importedADTranscript?.path]
+            .compactMap { $0?.trimmingCharacters(in: .whitespacesAndNewlines) }
+            .filter { !$0.isEmpty }
         let manifestDecodable = folder.map { StudioProjectIntegrity.isProjectManifestDecodable(at: $0) } ?? false
         return ProjectIntegrityManifest(
             folder: folder,
@@ -122,6 +125,7 @@ extension StudioProject {
             sourceRelativePath: source.isEmpty ? nil : source,
             thumbnailPaths: thumbnails,
             narrationReferences: narrationReferences,
+            importedPaths: importedPaths,
             exportPaths: exports,
             knownManifestUnreadable: integrityPlaceholder == true && !manifestDecodable
         )
