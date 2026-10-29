@@ -394,6 +394,33 @@ class Validation(unittest.TestCase):
             self.assertEqual(reopened['cues'][1]['audioEngine'], 'gemini')
             self.assertEqual(reopened['cues'][1]['audioVoice'], 'Puck')
 
+
+    def test_bulk_narration_generates_only_selected_segments(self):
+        with tempfile.TemporaryDirectory(prefix='vidistudio-bulk-narration-') as temp:
+            root = Path(temp)
+            project = {
+                'id': 'bulk-narration', 'name': 'Bulk Narration', 'duration': 30,
+                'source': 'source.mp4', 'transcript': [],
+                'cues': [
+                    {'id': 'seg1', 'start': 1.0, 'end': 4.0, 'text': 'First.'},
+                    {'id': 'seg2', 'start': 5.0, 'end': 8.0, 'text': 'Second.'},
+                    {'id': 'seg3', 'start': 9.0, 'end': 12.0, 'text': 'Third.'},
+                ],
+            }
+            engine.save(root, project)
+            (root/'source.mp4').write_bytes(b'placeholder')
+            calls = []
+            with patch.object(engine, 'emit'), \
+                 patch.object(engine, 'config', return_value={'ttsMode': 'gemini', 'geminiVoice': 'Kore'}), \
+                 patch.object(engine, 'gemini_speech', lambda output, text, proj: (calls.append(text), output.write_bytes(b'ID3-mp3-data'))), \
+                 patch.object(engine, 'probe', return_value={'format': {'duration': 1.0}}):
+                engine.synthesize(root, project, segments=['seg1', 'seg3'])
+            saved = json.loads((root/'project.json').read_text())
+            self.assertEqual(calls, ['First.', 'Third.'])
+            self.assertIn('audio', saved['cues'][0])
+            self.assertNotIn('audio', saved['cues'][1])
+            self.assertIn('audio', saved['cues'][2])
+
     def test_regenerate_all_narration_replaces_usable_audio_and_updates_primary_voice(self):
         with tempfile.TemporaryDirectory() as temp:
             root = Path(temp)

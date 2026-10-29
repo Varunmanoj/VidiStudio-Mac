@@ -1346,12 +1346,16 @@ def narration_fit_error_message(index, actual, available):
     return f'AD segment {index} takes {actual:.1f}s but has {available:.1f}s. Shorten its text or extend its gap.'
 
 
-def synthesize(root,p,segment=None,changed=False,regenerate_all=False):
-    if regenerate_all and (segment or changed):
+def synthesize(root,p,segment=None,changed=False,regenerate_all=False,segments=None):
+    # Accept one segment for compatibility and a list for bulk generation.
+    selected_segments = set(segments or [])
+    if isinstance(segment, str) and segment:
+        selected_segments.add(segment)
+    if regenerate_all and (selected_segments or changed):
         raise ValueError('Regenerate all narration cannot be combined with segment or changed-only generation.')
     # Every whole-project generation is a full run, regardless of its UI entry
     # point. Only --changed and --segment may preserve unrelated usable audio.
-    regenerate_all = not segment and not changed
+    regenerate_all = not selected_segments and not changed
     cues = validate_cues(p['cues'],p['duration'],p['transcript'])
     if not cues: raise ValueError('Create audio description segments first.')
     cfg = config()
@@ -1383,7 +1387,7 @@ def synthesize(root,p,segment=None,changed=False,regenerate_all=False):
     preserve_existing_usable = changed
     queued_ids = [
         c['id'] for c in cues
-        if (not segment or c['id'] == segment)
+        if (not selected_segments or c['id'] in selected_segments)
         and not (preserve_existing_usable and narration_audio_is_usable(root, c))
     ]
     total_to_attempt = max(1, len(queued_ids))
@@ -1391,7 +1395,7 @@ def synthesize(root,p,segment=None,changed=False,regenerate_all=False):
     generated = 0
     attempted = 0
     for i,c in enumerate(cues):
-        if segment and c['id']!=segment: continue
+        if selected_segments and c['id'] not in selected_segments: continue
         if preserve_existing_usable and narration_audio_is_usable(root, c): continue
         attempted += 1
         emit(
@@ -2840,7 +2844,7 @@ def main():
     parser.add_argument('command',choices=['check-api-key','reanalyze-transcript-segment','undo-transcript','redo-transcript','reanalyze-segment','prepare-analysis-video','check-video-availability','cleanup-project','clear-generated','delete-generated','delete-segment-audio','list-models','list-voices','preview-tts','synthesize-speech','import-video','probe-video','generate-thumbnails','transcribe','generate-summary','generate-ad-cues','synthesize-tts','export-final-video','export-selectable-video','export-closed-audio-description-video','export-open-audio-description-video','export-closed-caption-video','export-dual-closed-caption-video','export-open-caption-video','export-original-audio','export-described-audio','export-youtube-described-audio','export-youtube-original-audio','download-youtube-audio','export-hls','save-cues','save-segments','save-summary','doctor',*parity.COMMANDS,*import_assets.COMMANDS])
     parser.add_argument('--project',type=Path); parser.add_argument('--video',type=Path); parser.add_argument('--library',type=Path); parser.add_argument('--input',type=Path)
     parser.add_argument('--media-format', choices=VIDEO_EXPORT_FORMATS + AUDIO_EXPORT_FORMATS)
-    parser.add_argument('--content',choices=['transcript','summary','descriptions','combined'],default='descriptions'); parser.add_argument('--url'); parser.add_argument('--name'); parser.add_argument('--timestamp',type=float,default=0); parser.add_argument('--duration',type=float); parser.add_argument('--segment'); parser.add_argument('--format',choices=['srt','vtt','txt','json','md'],default='srt'); parser.add_argument('--changed',action='store_true'); parser.add_argument('--start-stage',default='transcribe')
+    parser.add_argument('--content',choices=['transcript','summary','descriptions','combined'],default='descriptions'); parser.add_argument('--url'); parser.add_argument('--name'); parser.add_argument('--timestamp',type=float,default=0); parser.add_argument('--duration',type=float); parser.add_argument('--segment'); parser.add_argument('--segments', action='append'); parser.add_argument('--format',choices=['srt','vtt','txt','json','md'],default='srt'); parser.add_argument('--changed',action='store_true'); parser.add_argument('--start-stage',default='transcribe')
     parser.add_argument('--output', type=Path); parser.add_argument('--text')
     parser.add_argument('--regenerate-all', action='store_true', help='Regenerate every narration segment using the selected voice after explicit confirmation.')
     parser.add_argument('--component', action='append', choices=['transcript','summary','descriptions','narration','thumbnails','exports','history'], default=[])
@@ -2923,7 +2927,7 @@ def main():
             elif args.command in ('transcribe','generate-summary','generate-ad-cues'):
                 validate_analysis_prerequisites(args.command, root, p)
                 ai_video(root,p,args.command)
-            elif args.command=='synthesize-tts': synthesize(root,p,args.segment,args.changed,args.regenerate_all)
+            elif args.command=='synthesize-tts': synthesize(root,p,args.segment,args.changed,args.regenerate_all,args.segments)
             elif args.command in ('export-final-video','export-open-audio-description-video'):
                 export(root,p,allow_incomplete=args.allow_incomplete_narration,captions=args.captions,content=args.content,replace_existing=args.replace_existing,media_format=args.media_format)
             elif args.command in ('export-selectable-video','export-closed-audio-description-video'):

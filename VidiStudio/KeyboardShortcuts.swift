@@ -20,6 +20,12 @@ final class EditorShortcutActions {
     var segmentEditingAvailable = false
     var segmentEditMode = false
     var segmentEditModeTitle = "Edit Segments"
+    var filterTitle = "Filter Segments…"
+    var sortTitle = "Sort Segments…"
+    var segmentSort = "start"
+    var canFilterSegments: Bool {
+        ["transcript", "descriptions", "ad-transcript"].contains(activeSection)
+    }
     var segmentCount = 0
     var selectedSegmentCount = 0
     var canGenerateDescriptions = false
@@ -127,6 +133,8 @@ final class EditorShortcutActions {
         if action.hasPrefix("summary-") { return canRunSummary(action) }
         switch action {
         case "rename-project", "trash-project", "import-assets", "import-transcript", "import-summary", "import-descriptions": return true
+        case "filter-segments", "sort-start", "sort-duration-asc", "sort-duration-desc", "sort-origin":
+            return ["transcript", "descriptions", "ad-transcript"].contains(activeSection)
         case "narration": return canToggleNarration
         case "follow": return canToggleFollow
         case "add": return canAddSegment
@@ -321,6 +329,30 @@ struct StudioCommands: Commands {
                 editor?.run("toggle-timeline")
             }
             .disabled(editor?.canRun("toggle-timeline") != true)
+            if editor?.canFilterSegments == true {
+                Button(editor?.filterTitle ?? "Filter Segments…", systemImage: "line.3.horizontal.decrease.circle") {
+                    editor?.run("filter-segments")
+                }
+                .disabled(editor?.canRun("filter-segments") != true)
+                Menu(editor?.sortTitle ?? "Sort Segments", systemImage: "arrow.up.arrow.down") {
+                Button("Start Time", systemImage: editor?.segmentSort == "start" ? "checkmark" : "clock") {
+                    editor?.run("sort-start")
+                }
+                .disabled(editor?.canRun("sort-start") != true)
+                Button("Duration — Shortest First", systemImage: editor?.segmentSort == "durationAscending" ? "checkmark" : "timer") {
+                    editor?.run("sort-duration-asc")
+                }
+                .disabled(editor?.canRun("sort-duration-asc") != true)
+                Button("Duration — Longest First", systemImage: editor?.segmentSort == "durationDescending" ? "checkmark" : "timer") {
+                    editor?.run("sort-duration-desc")
+                }
+                .disabled(editor?.canRun("sort-duration-desc") != true)
+                Button("Origin", systemImage: editor?.segmentSort == "origin" ? "checkmark" : "tag") {
+                    editor?.run("sort-origin")
+                }
+                .disabled(editor?.canRun("sort-origin") != true)
+                }
+            }
             Divider()
             Button(browser?.showProjects?.wrappedValue == true ? "Hide Project List" : "Show Project List", systemImage: "sidebar.left") { browser?.showProjects?.wrappedValue.toggle() }
                 .keyboardShortcut("b", modifiers: .command).disabled(browser?.showProjects == nil)

@@ -1188,6 +1188,50 @@ private struct ProjectVideoInformationView: View {
     }
 }
 
+
+
+private enum SegmentSort: String, CaseIterable {
+    case start
+    case durationAscending
+    case durationDescending
+    case origin
+
+    var title: String {
+        switch self {
+        case .start: return "Start Time"
+        case .durationAscending: return "Duration — Shortest First"
+        case .durationDescending: return "Duration — Longest First"
+        case .origin: return "Origin"
+        }
+    }
+}
+
+private enum SegmentAudioFilter: String, CaseIterable, Identifiable {
+    case all, withAudio, withoutAudio
+    var id: Self { self }
+    var title: String {
+        switch self {
+        case .all: return "All descriptions"
+        case .withAudio: return "Has audio"
+        case .withoutAudio: return "Missing audio"
+        }
+    }
+}
+
+private struct SegmentFilter: Equatable {
+    var origins: Set<DescriptionOrigin> = []
+    var audio: SegmentAudioFilter = .all
+
+    var isActive: Bool { !origins.isEmpty || audio != .all }
+
+    func matches(_ row: TranscriptRow, project: StudioProject) -> Bool {
+        if !origins.isEmpty && !origins.contains(row.segment.provenance) { return false }
+        guard row.isDescription, audio != .all else { return true }
+        let hasAudio = row.segment.audio.map { project.hasFile($0) } ?? false
+        return audio == .withAudio ? hasAudio : !hasAudio
+    }
+}
+
 private struct TranscriptRow: Identifiable, Hashable {
     var segment: Segment
     let isDescription: Bool
@@ -1327,14 +1371,39 @@ struct ProjectEditor: View {
     @State private var showingImportAssets = false
     @State private var importScope: ImportScope?
     @State private var showingTranscriptTimingEditor = false
+    @State private var showingBulkShift = false
+    @State private var showingSegmentFilter = false
+    @State private var segmentFilter = SegmentFilter()
+    @State private var segmentSort: SegmentSort = .start
+    @State private var confirmBulkNarration = false
     @State private var narrationImportCue: Segment?
     private var transcriptRows: [TranscriptRow] {
         let dialogue = project.transcript.map { TranscriptRow(segment: $0, isDescription: false) }
         let descriptions = project.cues.map { TranscriptRow(segment: $0, isDescription: true) }
         let rows = tab == "descriptions" ? descriptions : tab == "ad-transcript" ? dialogue + descriptions : dialogue
-        return rows.sorted {
-            if $0.segment.start != $1.segment.start { return $0.segment.start < $1.segment.start }
-            return $0.id < $1.id
+        return sortRows(rows.filter { segmentFilter.matches($0, project: project) })
+    }
+
+    private func sortRows(_ rows: [TranscriptRow]) -> [TranscriptRow] {
+        func originRank(_ row: TranscriptRow) -> Int {
+            DescriptionOrigin.editableCases.firstIndex(of: row.segment.provenance) ?? DescriptionOrigin.editableCases.count
+        }
+        return rows.sorted { left, right in
+            switch segmentSort {
+            case .start:
+                break
+            case .durationAscending, .durationDescending:
+                let leftDuration = left.segment.end - left.segment.start
+                let rightDuration = right.segment.end - right.segment.start
+                if abs(leftDuration - rightDuration) > 0.0005 {
+                    return segmentSort == .durationAscending ? leftDuration < rightDuration : leftDuration > rightDuration
+                }
+            case .origin:
+                let leftRank = originRank(left), rightRank = originRank(right)
+                if leftRank != rightRank { return leftRank < rightRank }
+            }
+            if left.segment.start != right.segment.start { return left.segment.start < right.segment.start }
+            return left.id < right.id
         }
     }
 
@@ -1525,6 +1594,7 @@ struct ProjectEditor: View {
                             .disabled(project.transcript.isEmpty && project.cues.isEmpty)
                         } label: {
                             Label("Transcript Overlay: \(captionOverlayTitle)", systemImage: captionOverlayIcon)
+                                .labelStyle(.iconOnly)
                                 .foregroundStyle(captionOverlayColor)
                         } primaryAction: {
                             cycleCaptionDisplayMode()
@@ -1560,14 +1630,16 @@ struct ProjectEditor: View {
             }
             if let action = generationAction {
                 Button(action.title, systemImage: action.icon) { studio.execute(action.command) }
+                    .labelStyle(.iconOnly)
+                    .accessibilityLabel(action.title)
                     .disabled(studio.busy || !studio.hasValidApiKey || (action.command == "generate-ad-cues" && !project.canGenerateDescriptions))
-                    .help(!studio.hasApiKey
+                    .help(action.title + ". " + (!studio.hasApiKey
                         ? "Enter your Gemini API key in Settings → Gemini API to enable this feature"
                         : studio.isApiKeyInvalid
                             ? "Gemini API key is invalid — enter a valid key in Settings → Gemini API to enable this feature"
                             : action.command == "generate-ad-cues" && !project.canGenerateDescriptions
                                 ? "Generate the transcript and summary first"
-                                : action.command == "prepare-video" ? "Read video details and create timeline pictures without using AI" : action.title.hasPrefix("Regenerate") ? "Regenerate the existing content after confirmation" : "Generate content for this section")
+                                : action.command == "prepare-video" ? "Read video details and create timeline pictures without using AI" : action.title.hasPrefix("Regenerate") ? "Regenerate the existing content after confirmation" : "Generate content for this section"))
                     .fixedSize()
             }
             if tab == "descriptions" || tab == "transcript" {
@@ -1583,6 +1655,7 @@ struct ProjectEditor: View {
                 } label: {
                     Label("Add", systemImage: "plus")
                 }
+                .labelStyle(.iconOnly)
                 .disabled(studio.busy)
                 .fixedSize()
                 .accessibilityLabel(tab == "transcript" ? "Add or import transcript" : "Add or import descriptions")
@@ -1597,6 +1670,7 @@ struct ProjectEditor: View {
                 } label: {
                     Label("Add", systemImage: "plus")
                 }
+                .labelStyle(.iconOnly)
                 .disabled(studio.busy || summaryEditMode)
                 .fixedSize()
                 .accessibilityLabel("Add or import summary")
@@ -1604,6 +1678,7 @@ struct ProjectEditor: View {
                 Button(summaryEditMode ? "Done" : "Edit", systemImage: summaryEditMode ? "checkmark" : "pencil") {
                     toggleSummaryEditMode()
                 }
+                .labelStyle(.iconOnly)
                 .disabled(studio.busy)
                 .fixedSize()
                 .accessibilityLabel(summaryEditMode ? "Done editing summary" : "Edit summary")
@@ -1613,7 +1688,37 @@ struct ProjectEditor: View {
             if segmentEditingAvailable {
                 if segmentEditMode {
                     Menu("Selection", systemImage: "checklist") {
-                        Button("Select All", systemImage: "checkmark.square") {
+                        if tab == "transcript" || tab == "ad-transcript" {
+                            Button("Select All Transcripts", systemImage: "text.bubble") {
+                                selectedSegmentIDs = Set(transcriptRows.filter { !$0.isDescription }.map(\.id))
+                                refreshEditorShortcutActions()
+                            }
+                        }
+                        if tab == "descriptions" || tab == "ad-transcript" {
+                            Button("Select All Descriptions", systemImage: "text.below.photo") {
+                                selectedSegmentIDs = Set(transcriptRows.filter(\.isDescription).map(\.id))
+                                refreshEditorShortcutActions()
+                            }
+                            Button("Select Descriptions with Audio", systemImage: "speaker.wave.2") {
+                                selectedSegmentIDs = Set(transcriptRows.filter { $0.isDescription && segmentHasAudio($0.segment) }.map(\.id))
+                                refreshEditorShortcutActions()
+                            }
+                            Button("Select Descriptions without Audio", systemImage: "speaker.slash") {
+                                selectedSegmentIDs = Set(transcriptRows.filter { $0.isDescription && !segmentHasAudio($0.segment) }.map(\.id))
+                                refreshEditorShortcutActions()
+                            }
+                        }
+                        if !availableOrigins.isEmpty {
+                            Menu("Select by Origin") {
+                                ForEach(availableOrigins, id: \.self) { origin in
+                                    Button(origin.title) {
+                                        selectedSegmentIDs = Set(transcriptRows.filter { $0.segment.provenance == origin }.map(\.id))
+                                        refreshEditorShortcutActions()
+                                    }
+                                }
+                            }
+                        }
+                        Button("Select All Segments", systemImage: "checkmark.square") {
                             selectedSegmentIDs = Set(transcriptRows.map(\.id))
                             refreshEditorShortcutActions()
                         }
@@ -1623,17 +1728,66 @@ struct ProjectEditor: View {
                             refreshEditorShortcutActions()
                         }
                         .disabled(selectedSegmentIDs.isEmpty)
+                        Button("Invert Selection", systemImage: "arrow.triangle.2.circlepath") {
+                            selectedSegmentIDs = Set(transcriptRows.map(\.id)).subtracting(selectedSegmentIDs)
+                            refreshEditorShortcutActions()
+                        }
+                        .disabled(transcriptRows.isEmpty)
                     }
+                    .labelStyle(.iconOnly)
+                    .accessibilityLabel("Selection")
                     .fixedSize()
+                    Menu("Set Origin", systemImage: "tag") {
+                        ForEach(DescriptionOrigin.editableCases, id: \.self) { origin in
+                            Button {
+                                setOriginForSelection(origin)
+                            } label: {
+                                Label(origin.title, systemImage: origin.iconName)
+                            }
+                        }
+                    }
+                    .labelStyle(.iconOnly)
+                    .disabled(selectedSegmentIDs.isEmpty || studio.busy)
+                    .fixedSize()
+                    .help("Change the provenance label for every selected transcript or description segment")
+                    Button("Shift Timing…", systemImage: "clock.arrow.circlepath") {
+                        showingBulkShift = true
+                    }
+                    .labelStyle(.iconOnly)
+                    .disabled(selectedSegmentIDs.isEmpty || studio.busy)
+                    .fixedSize()
+                    .help("Move every selected segment earlier or later by the same offset")
+                    if tab == "descriptions" || tab == "ad-transcript" {
+                        Button("Generate Narration for Selected…", systemImage: "speaker.wave.2") {
+                            confirmBulkNarration = true
+                        }
+                        .labelStyle(.iconOnly)
+                        .accessibilityLabel(bulkNarrationLabel)
+                        .accessibilityHint("Only selected Audio Description segments are narrated; selected transcript segments are ignored")
+                        .disabled(selectedDescriptionIDs.isEmpty || studio.busy || !bulkNarrationAvailable)
+                        .fixedSize()
+                        .help(bulkNarrationUnavailableReason ?? "\(bulkNarrationLabel). Generates audio for the selected descriptions only, one after another, using the currently selected narration voice. Transcript segments are not narrated.")
+                    }
+                    if tab == "transcript" {
+                        Button("Merge Selected", systemImage: "rectangle.compress.vertical") {
+                            mergeSelectedTranscript()
+                        }
+                        .labelStyle(.iconOnly)
+                        .disabled(!canMergeSelected || studio.busy)
+                        .fixedSize()
+                        .help(canMergeSelected ? "Combine the selected adjacent transcript segments into one" : "Select two or more consecutive transcript segments to merge")
+                    }
                     Button("Edit Selected…", systemImage: "square.and.pencil") {
                         presentBulkSegmentEditor()
                     }
+                    .labelStyle(.iconOnly)
                     .disabled(selectedSegmentIDs.isEmpty)
                     .fixedSize()
                     .help("Edit the timing and text of every selected segment")
                     Button("Delete Selected…", systemImage: "trash", role: .destructive) {
                         deleteSelectedSegments()
                     }
+                    .labelStyle(.iconOnly)
                     .disabled(selectedSegmentIDs.isEmpty)
                     .fixedSize()
                     .help("Delete the selected segments after confirmation")
@@ -1643,6 +1797,7 @@ struct ProjectEditor: View {
                     if !segmentEditMode { selectedSegmentIDs.removeAll() }
                     refreshEditorShortcutActions()
                 }
+                .labelStyle(.iconOnly)
                 .disabled(studio.busy)
                 .fixedSize()
                 .accessibilityHint(segmentEditMode ? "Returns this section to view mode" : "Shows selection, editing, and deletion controls for segments")
@@ -1859,6 +2014,182 @@ struct ProjectEditor: View {
         }
     }
 
+
+
+
+    private func segmentDurationText(_ segment: Segment) -> String {
+        String(format: "%.2fs", max(0, segment.end - segment.start))
+    }
+
+    private func segmentDurationLabel(for segment: Segment) -> some View {
+        Text(segmentDurationText(segment))
+            .font(.caption.monospacedDigit())
+            .foregroundStyle(.secondary)
+            .accessibilityLabel("Duration \(segmentDurationText(segment))")
+    }
+
+    private func segmentHasAudio(_ segment: Segment) -> Bool {
+        segment.audio.map { project.hasFile($0) } ?? false
+    }
+
+    private var selectedDescriptions: [Segment] {
+        selectedRows.filter(\.isDescription).map(\.segment)
+    }
+
+    private var selectedDescriptionIDs: [String] { selectedDescriptions.map(\.id) }
+
+    private var bulkNarrationCounts: (new: Int, existing: Int) {
+        selectedDescriptions.reduce(into: (0, 0)) { counts, segment in
+            if segmentHasAudio(segment) { counts.existing += 1 }
+            else { counts.new += 1 }
+        }
+    }
+
+    private var bulkNarrationLabel: String {
+        let counts = bulkNarrationCounts
+        if counts.existing == 0 {
+            return "Generate Audio for \(counts.new) Description\(counts.new == 1 ? "" : "s")"
+        }
+        if counts.new == 0 {
+            return "Regenerate Audio for \(counts.existing) Description\(counts.existing == 1 ? "" : "s")"
+        }
+        return "Generate Audio for \(counts.new) New and Regenerate Audio for \(counts.existing) Existing Description\(counts.existing == 1 ? "" : "s")"
+    }
+
+    private var bulkNarrationAvailable: Bool {
+        guard !selectedDescriptionIDs.isEmpty, !studio.busy else { return false }
+        return studio.settings.ttsMode != "gemini" || studio.hasValidApiKey
+    }
+
+    private var bulkNarrationUnavailableReason: String? {
+        if selectedDescriptionIDs.isEmpty { return "Select one or more descriptions; transcript segments do not have narration." }
+        if studio.settings.ttsMode == "gemini" && !studio.hasApiKey {
+            return "Enter your Gemini API key in Settings → Gemini API to generate Gemini narration."
+        }
+        if studio.settings.ttsMode == "gemini" && studio.isApiKeyInvalid {
+            return "The Gemini API key is invalid. Update it in Settings → Gemini API to generate narration."
+        }
+        return nil
+    }
+
+    private func generateNarrationForSelectedDescriptions() {
+        let ids = selectedDescriptionIDs
+        guard !ids.isEmpty, bulkNarrationAvailable else { return }
+        studio.execute("synthesize-tts", extra: ids.flatMap { ["--segments", $0] }, project: project)
+    }
+
+
+    private var filterableTab: Bool {
+        tab == "transcript" || tab == "descriptions" || tab == "ad-transcript"
+    }
+
+    private var segmentFilterTitle: String {
+        switch tab {
+        case "transcript": return "Filter Transcript…"
+        case "descriptions": return "Filter Descriptions…"
+        case "ad-transcript": return "Filter AD Transcript…"
+        default: return "Filter Segments…"
+        }
+    }
+
+    private var availableOrigins: [DescriptionOrigin] {
+        let segments: [Segment]
+        switch tab {
+        case "descriptions": segments = project.cues
+        case "ad-transcript": segments = project.transcript + project.cues
+        default: segments = project.transcript
+        }
+        let present = Set(segments.map(\.provenance))
+        return DescriptionOrigin.editableCases.filter { present.contains($0) }
+    }
+
+    private var selectedRows: [TranscriptRow] {
+        transcriptRows.filter { selectedSegmentIDs.contains($0.id) }
+    }
+
+    private func updateSelectedSegments(_ update: (inout Segment) -> Void) {
+        guard !studio.busy else { return }
+        var transcript = project.transcript
+        var cues = project.cues
+        for row in selectedRows {
+            if row.isDescription {
+                if let index = cues.firstIndex(where: { $0.id == row.segment.id }) { update(&cues[index]) }
+            } else if let index = transcript.firstIndex(where: { $0.id == row.segment.id }) {
+                update(&transcript[index])
+            }
+        }
+        studio.saveSegments(transcript, cues: cues)
+    }
+
+    private func setOriginForSelection(_ origin: DescriptionOrigin) {
+        guard !selectedRows.isEmpty else { return }
+        updateSelectedSegments { segment in
+            segment.origin = origin.rawValue
+            segment.originOverride = true
+        }
+    }
+
+    private func shiftSelectedSegments(_ offset: Double) -> String? {
+        let rows = selectedRows
+        guard !rows.isEmpty else { return "Select at least one segment first." }
+        guard offset.isFinite, abs(offset) > 0.0001 else { return "Enter a non-zero offset in seconds." }
+        let lowest = rows.map(\.segment.start).min() ?? 0
+        let highest = rows.map(\.segment.end).max() ?? 0
+        guard lowest + offset >= -0.001, highest + offset <= project.duration + 0.001 else {
+            return "The shifted selection would move outside the video. Choose a smaller offset."
+        }
+        updateSelectedSegments { segment in
+            segment.start += offset
+            segment.end += offset
+        }
+        return nil
+    }
+
+    private var canMergeSelected: Bool {
+        guard tab == "transcript", selectedRows.count > 1 else { return false }
+        let indices = selectedRows.compactMap { row in
+            project.transcript.firstIndex(where: { $0.id == row.segment.id })
+        }.sorted()
+        guard indices.count == selectedRows.count else { return false }
+        return zip(indices, indices.dropFirst()).allSatisfy { $1 == $0 + 1 }
+    }
+
+    private func mergeSelectedTranscript() {
+        guard canMergeSelected, !studio.busy else { return }
+        let rows = selectedRows.sorted {
+            if $0.segment.start != $1.segment.start { return $0.segment.start < $1.segment.start }
+            return $0.id < $1.id
+        }
+        guard let first = rows.first, let last = rows.last else { return }
+        let ids = Set(rows.map { $0.segment.id })
+        let origins = Set(rows.map(\.segment.provenance))
+        var merged = first.segment
+        merged.end = last.segment.end
+        merged.text = rows.map { $0.segment.text.trimmingCharacters(in: .whitespacesAndNewlines) }
+            .filter { !$0.isEmpty }.joined(separator: " ")
+        merged.speaker = rows.compactMap(\.segment.speaker).first
+        merged.audio = nil
+        merged.audioText = nil
+        merged.audioDuration = nil
+        merged.audioSettings = nil
+        merged.audioEngine = nil
+        merged.audioVoice = nil
+        merged.audioStart = nil
+        merged.audioEnd = nil
+        merged.audioError = nil
+        merged.audioOrigin = nil
+        merged.audioSourceName = nil
+        merged.origin = (origins.count == 1 ? origins.first ?? .unknown : .unknown).rawValue
+        merged.originOverride = true
+        let insertionIndex = project.transcript.firstIndex(where: { $0.id == first.segment.id })
+            ?? project.transcript.count
+        var transcript = project.transcript.filter { !ids.contains($0.id) }
+        transcript.insert(merged, at: min(insertionIndex, transcript.count))
+        studio.saveSegments(transcript, cues: project.cues)
+        selectedSegmentIDs = Set([transcript.first(where: { $0.id == merged.id })?.id].compactMap { $0 })
+        refreshEditorShortcutActions()
+    }
+
     private func deleteSelectedSegments() {
         let selected = transcriptRows.filter { selectedSegmentIDs.contains($0.id) }
         let transcriptIDs = Set(selected.filter { !$0.isDescription }.map { $0.segment.id })
@@ -2020,10 +2351,18 @@ struct ProjectEditor: View {
                                     .foregroundStyle(row.color)
                                 }
                                 if !row.isDescription {
-                                    DescriptionOriginLabel(origin: cue.provenance)
+                                    HStack(spacing: 8) {
+                                        DescriptionOriginLabel(origin: cue.provenance)
+                                        Spacer(minLength: 8)
+                                        segmentDurationLabel(for: cue)
+                                    }
                                 }
                                 if row.isDescription {
-                                    DescriptionOriginLabel(origin: cue.provenance)
+                                    HStack(spacing: 8) {
+                                        DescriptionOriginLabel(origin: cue.provenance)
+                                        Spacer(minLength: 8)
+                                        segmentDurationLabel(for: cue)
+                                    }
                                     if project.descriptionTimingAudit?.segments.contains(where: { $0.id == cue.id }) == true {
                                         Label("Overlap", systemImage: "exclamationmark.triangle.fill")
                                             .font(.caption.weight(.semibold))
@@ -2349,6 +2688,11 @@ struct ProjectEditor: View {
             selectedSegmentIDs.removeAll()
             refreshEditorShortcutActions()
         case "segment-edit-selected": presentBulkSegmentEditor()
+        case "filter-segments": if filterableTab { showingSegmentFilter = true }
+        case "sort-start": segmentSort = .start; refreshEditorShortcutActions()
+        case "sort-duration-asc": segmentSort = .durationAscending; refreshEditorShortcutActions()
+        case "sort-duration-desc": segmentSort = .durationDescending; refreshEditorShortcutActions()
+        case "sort-origin": segmentSort = .origin; refreshEditorShortcutActions()
         case "segment-delete-selected": deleteSelectedSegments()
         case "descriptions", "transcript", "summary", "ad-transcript", "ad-overview": tab = action
         case "summary-play-pause": summaryReader.togglePlayPause()
@@ -2483,6 +2827,14 @@ struct ProjectEditor: View {
             shortcutActions.segmentEditingAvailable = segmentEditingAvailable
             shortcutActions.segmentEditMode = segmentEditMode
             shortcutActions.segmentEditModeTitle = segmentEditMode ? "Done Editing Segments" : "Edit \(segmentSectionTitle) Segments"
+        shortcutActions.filterTitle = segmentFilterTitle
+        shortcutActions.sortTitle = switch tab {
+        case "transcript": "Sort Transcripts…"
+        case "descriptions": "Sort Descriptions…"
+        case "ad-transcript": "Sort AD Transcript…"
+        default: "Sort Segments…"
+        }
+        shortcutActions.segmentSort = segmentSort.rawValue
         }
         shortcutActions.segmentCount = transcriptRows.count
         shortcutActions.selectedSegmentCount = selectedSegmentIDs.count
@@ -2686,6 +3038,28 @@ struct ProjectEditor: View {
         }
         .sheet(isPresented: $showingTranscriptTimingEditor) {
             TranscriptTimingEditorView(studio: studio, project: project)
+        }
+        .sheet(isPresented: $showingBulkShift) {
+            BulkShiftTimingView(count: selectedRows.count, duration: project.duration, apply: shiftSelectedSegments)
+        }
+        .sheet(isPresented: $showingSegmentFilter) {
+            SegmentFilterView(
+                title: segmentFilterTitle.replacingOccurrences(of: "…", with: ""),
+                origins: availableOrigins,
+                showsAudio: tab != "transcript",
+                initial: segmentFilter,
+                onApply: { filter in
+                    segmentFilter = filter
+                    selectedSegmentIDs.formIntersection(Set(transcriptRows.map(\.id)))
+                    refreshEditorShortcutActions()
+                }
+            )
+        }
+        .alert("Generate narration for selected descriptions?", isPresented: $confirmBulkNarration) {
+            Button("Generate", role: .destructive) { generateNarrationForSelectedDescriptions() }
+            Button("Cancel", role: .cancel) { }
+        } message: {
+            Text("\(bulkNarrationLabel), one after another, using the currently selected narration voice. \(bulkNarrationCounts.existing) existing audio file\(bulkNarrationCounts.existing == 1 ? "" : "s") will be replaced; \(bulkNarrationCounts.new) new audio file\(bulkNarrationCounts.new == 1 ? "" : "s") will be created.")
         }
     }
 
@@ -3492,5 +3866,136 @@ private struct BulkSegmentEditor: View {
         }
         .navigationTitle("Edit Selected Segments")
         .frame(width: 880, height: 620)
+    }
+}
+
+// MARK: - Bulk timing shift
+
+private struct BulkShiftTimingView: View {
+    @Environment(\.dismiss) private var dismiss
+    let count: Int
+    let duration: Double
+    let apply: (Double) -> String?
+
+    @State private var offsetText = "1.0"
+    @State private var error: String?
+
+    private var offset: Double? {
+        Double(offsetText.replacingOccurrences(of: ",", with: "."))
+    }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 0) {
+            Text("Shift Selected Timing")
+                .font(.title2.bold()).padding(.horizontal, 20).padding(.top, 20).padding(.bottom, 4)
+            Text("Move all \(count) selected segment\(count == 1 ? "" : "s") earlier or later without changing their duration. Use a negative value to move earlier.")
+                .font(.callout).foregroundStyle(.secondary)
+                .padding(.horizontal, 20).padding(.bottom, 12)
+            Form {
+                TextField("Offset in seconds", text: $offsetText)
+                    .help("Enter a positive or negative number of seconds")
+                Text("The selection must stay inside the video (0–\(importClock(duration))).")
+                    .font(.caption).foregroundStyle(.secondary)
+                if let error {
+                    Label(error, systemImage: "exclamationmark.triangle.fill")
+                        .font(.caption).foregroundStyle(.red)
+                }
+            }
+            .formStyle(.grouped)
+            HStack {
+                Button("Cancel", role: .cancel) { dismiss() }
+                Spacer()
+                Button("Shift Timing", systemImage: "clock.arrow.circlepath") {
+                    guard let offset else {
+                        error = "Enter a valid number of seconds."
+                        return
+                    }
+                    if let message = apply(offset) { error = message }
+                    else { dismiss() }
+                }
+                .keyboardShortcut(.defaultAction)
+            }
+            .padding(20)
+        }
+        .frame(width: 440, height: 280)
+    }
+}
+
+// MARK: - Segment filters
+
+private struct SegmentFilterView: View {
+    @Environment(\.dismiss) private var dismiss
+    let title: String
+    let origins: [DescriptionOrigin]
+    let showsAudio: Bool
+    let onApply: (SegmentFilter) -> Void
+
+    @State private var selectedOrigins: Set<DescriptionOrigin>
+    @State private var audio: SegmentAudioFilter
+
+    init(title: String, origins: [DescriptionOrigin], showsAudio: Bool, initial: SegmentFilter,
+         onApply: @escaping (SegmentFilter) -> Void) {
+        self.title = title
+        self.origins = origins
+        self.showsAudio = showsAudio
+        self.onApply = onApply
+        _selectedOrigins = State(initialValue: initial.origins)
+        _audio = State(initialValue: initial.audio)
+    }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 0) {
+            Text(title).font(.title2.bold()).padding(.horizontal, 20).padding(.top, 20).padding(.bottom, 4)
+            Text("Choose which rows are visible. Leave every origin unchecked to show all origins. Filters do not change project content.")
+                .font(.callout).foregroundStyle(.secondary)
+                .padding(.horizontal, 20).padding(.bottom, 12)
+            Form {
+                Section("Origin") {
+                    if origins.isEmpty {
+                        Text("No origin labels are present in this section.")
+                            .foregroundStyle(.secondary)
+                    } else {
+                        ForEach(origins, id: \.self) { origin in
+                            Toggle(origin.title, isOn: Binding(
+                                get: { selectedOrigins.contains(origin) },
+                                set: { selected in
+                                    if selected { selectedOrigins.insert(origin) }
+                                    else { selectedOrigins.remove(origin) }
+                                }
+                            ))
+                        }
+                    }
+                }
+                if showsAudio {
+                    Section("Audio") {
+                        Picker("Audio", selection: $audio) {
+                            ForEach(SegmentAudioFilter.allCases) { option in
+                                Text(option.title).tag(option)
+                            }
+                        }
+                        .pickerStyle(.radioGroup)
+                        Text("Audio filters apply to description rows only; transcript rows remain visible when their origin matches.")
+                            .font(.caption).foregroundStyle(.secondary)
+                    }
+                }
+            }
+            .formStyle(.grouped)
+            HStack {
+                Button("Clear Filter") {
+                    onApply(SegmentFilter())
+                    dismiss()
+                }
+                .disabled(selectedOrigins.isEmpty && audio == .all)
+                Spacer()
+                Button("Cancel", role: .cancel) { dismiss() }
+                Button("Apply Filter", systemImage: "line.3.horizontal.decrease.circle") {
+                    onApply(SegmentFilter(origins: selectedOrigins, audio: audio))
+                    dismiss()
+                }
+                .keyboardShortcut(.defaultAction)
+            }
+            .padding(20)
+        }
+        .frame(width: 500, height: 420)
     }
 }

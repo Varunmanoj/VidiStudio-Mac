@@ -24,6 +24,38 @@ class ImportAssetsUI(unittest.TestCase):
         self.assertIn('func importSegmentNarration(', MODEL)
         self.assertIn('importReports.append(report)', MODEL)
 
+    def test_editor_actions_are_icon_only(self):
+        self.assertIn('Button(action.title, systemImage: action.icon)', UI)
+        self.assertIn('.labelStyle(.iconOnly)', UI)
+        self.assertIn('Label("Add", systemImage: "plus")', UI)
+        self.assertIn('Label("Transcript Overlay: \(captionOverlayTitle)"', UI)
+        self.assertIn('Button("Edit Selected…", systemImage: "square.and.pencil")', UI)
+
+    def test_multi_select_has_bulk_origin_and_timing_actions(self):
+        self.assertIn('Menu("Set Origin"', UI)
+        self.assertIn('setOriginForSelection', UI)
+        self.assertIn('generateNarrationForSelectedDescriptions', UI)
+        self.assertIn('Select All Transcripts', UI)
+        self.assertIn('Select All Descriptions', UI)
+        self.assertIn('Select Descriptions with Audio', UI)
+        self.assertIn('Select Descriptions without Audio', UI)
+        self.assertIn('Menu("Select by Origin"', UI)
+        self.assertIn('Generate Audio for', UI)
+        self.assertIn('Regenerate Audio for', UI)
+        self.assertIn('Filter Descriptions', UI)
+        self.assertIn('Menu(editor?.sortTitle ?? "Sort Segments", systemImage: "arrow.up.arrow.down")', MENU)
+        self.assertIn('Duration — Shortest First', MENU)
+        self.assertIn('canFilterSegments', MENU)
+        self.assertIn('segmentDurationText', UI)
+        self.assertIn('segmentDurationLabel(for: cue)', UI)
+        self.assertIn('showingSegmentFilter', UI)
+        self.assertIn('Select by Origin', UI)
+        self.assertIn('accessibilityLabel(bulkNarrationLabel)', UI)
+        self.assertIn('--segments', UI)
+        self.assertIn('shiftSelectedSegments', UI)
+        self.assertIn('mergeSelectedTranscript', UI)
+        self.assertIn('BulkShiftTimingView', UI)
+
     def test_import_shortcuts_are_defined_and_documented(self):
         self.assertIn('keyboardShortcut("i", modifiers: [.command, .option])', MENU)
         self.assertIn('keyboardShortcut("m", modifiers: [.command, .option])', MENU)
