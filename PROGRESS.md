@@ -1,5 +1,11 @@
 ## 2026-10-30 — Windows parity repair release, shared version 1.0.176 / build 176
 
+## 2026-10-30 — Windows editor section/source presentation parity (1.0.178 / build 178)
+
+Windows now matches the existing Mac five-section selector by removing Created Exports from that selector; exports remain accessible in the inspector. Windows Summary reading mode displays the persisted source label with the segment provenance icon/color mapping, and the edit-mode choices share those icons/colors. Mac already provides the five sections and a reading-mode source badge, so only its app version changed.
+
+On Windows, 38 focused UI/menu/Help/XAML tests, full ARM64 native UI smoke, ARM64 Release packaging/inspection, and x64 Debug compilation pass. Native checks verify all four origin labels/glyphs in reading mode and the five-item selector. Windows 1.0.178.0 is installed with one package and one Start entry after removing 1.0.177 and loose app copies; launch responsiveness is verified. Detailed evidence is in the Windows PROGRESS.md and build/editor-178-* logs. Sources are synchronized at Windows 1.0.178 / package 1.0.178.0 and Mac 1.0.178 / build 178. No macOS runtime or live Gemini validation was performed.
+
 ## 2026-10-30 — Legacy Summary heading and Windows Help TOC fixes (1.0.177 / build 177)
 
 The user's Windows summary contained five leading U+FEFF byte-order marks from older saves, which prevented the first Markdown heading from rendering. Both desktop readers now ignore the leading marks and normalize CR/LF consistently; the shared save_summary helper removes the marks on future saves while preserving origin metadata. Windows also improves title hierarchy/spacing and removes the whole-summary hover tooltip that obscured the title. A read-only copy of the user's exact summary was used for native regression tests; the original project.json remains byte-for-byte unchanged.
@@ -1895,3 +1901,10 @@ Validation: macOS suite 215 tests pass; Windows suite 304 tests pass (1 Windows-
 The Windows Help window now renders its table of contents with native UI elements, fixing the previously blank TOC rows. The Browser and Home buttons were removed, the window follows the app's light/dark theme and forces the WebView content color scheme to match, and a footer provides Previous/Next chapter navigation with a page indicator. The Windows-edition banner was removed from every generated Help page; the script/sync_windows_help.py generator no longer inserts it.
 
 Validation: macOS suite 215 tests pass; Windows suite 304 tests pass (1 Windows-only skip); Help manifest/page tests, XAML, C# semantic compile of HelpWindow, menu parity, and diff checks pass. VIDISTUDIO_CONFIGURATION=Release ./script/build_and_run.sh --verify installed **1.0.173 (build 173)** over /Applications/VidiStudio.app and launched PID 12225. Versions synchronized at 1.0.173 / Windows 1.0.173.0. Native Windows build/MSIX/install/UI rendering validation remains Windows-host-only.
+
+
+## 2026-10-30 — Reinstall latest macOS app: 1.0.178 (build 178)
+
+Rebuilt the latest Mac source (16453de, verified against GitHub HEAD) as Release in an isolated temporary source folder, signed it with the local Apple Development identity, and installed it over /Applications/VidiStudio.app, replacing 1.0.173. The existing combined-workspace check initially failed against the older local Windows menu implementation; a fresh Windows GitHub checkout passed the unchanged shared menu checker with all 39 translated shortcuts. The isolated version synchronizer aligned that temporary Windows checkout from 1.0.177 to 1.0.178. Existing desktop source checkouts were preserved.
+
+Validation: Release build succeeded, bundled engine rebuilt and its installed --help command passed, packaged Help verification passed all 13 pages, and the installed app reports 1.0.178 / build 178 with a valid deep strict signature and both extensions. One installed process (PID 24543) runs from /Applications/VidiStudio.app/Contents/MacOS/VidiStudio; native process inspection confirmed it is visible with one window. Removed and unregistered the obsolete 1.0.168 TypecheckDerivedData app. Spotlight and LaunchServices now list only /Applications/VidiStudio.app and its current embedded extensions. The temporary build product was removed by the install script and the isolated build folder was deleted after retaining logs and verification.json in build/reinstall-1.0.178-2026-10-30/. This was installation/startup verification; live AI/media workflows were not exercised.
