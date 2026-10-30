@@ -16,10 +16,16 @@ class DesktopMenuParity(unittest.TestCase):
         spec.loader.exec_module(cls.checker)
         cls.mac = (root / 'VidiStudio Mac/VidiStudio/KeyboardShortcuts.swift').read_text(encoding='utf-8')
         cls.app = (root / 'VidiStudio Mac/VidiStudio/VidiStudioApp.swift').read_text(encoding='utf-8')
-        cls.windows = (root / 'Vidi-Studio-Windows/Vidi Studio Windows/MainWindow.Menus.cs').read_text(encoding='utf-8')
+        windows_root = Path(os.environ.get('VIDISTUDIO_WINDOWS_ROOT', root / 'Vidi-Studio-Windows'))
+        cls.windows = (windows_root / 'Vidi Studio Windows/MainWindow.Menus.cs').read_text(encoding='utf-8')
 
     def test_actual_menus_and_shortcuts_match(self):
         self.assertGreater(self.checker.compare_sources(self.mac, self.app, self.windows), 30)
+
+    def test_summary_heading_shortcuts_take_priority_over_project_layout(self):
+        self.assertIn('.disabled(browser?.grid == nil || editor?.summaryEditing == true)', self.mac)
+        self.assertIn('if (id is "project-list" or "project-grid") return !(Section.SelectedIndex == 1 && summaryEditMode);', self.windows)
+        self.assertIn('}, () => CanRunDesktopCommand(id));', self.windows)
 
     def test_project_management_order_guards_and_handlers_match(self):
         nodes = self.checker.swift_group(self.mac, 'CommandMenu("Project")', self.checker.shortcut_rows(self.mac))

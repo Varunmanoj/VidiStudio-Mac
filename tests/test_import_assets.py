@@ -216,6 +216,15 @@ class SummaryTests(unittest.TestCase):
         self.assertNotIn('summaryOrigin', value)
         self.assertFalse(value['summaryGenerated'])
 
+    def test_summary_save_strips_repeated_encoding_marks_without_changing_content(self):
+        value = project(summary='Old summary', summaryOrigin='ai')
+        text = '# Performance Summary: Job Interview Comedy Skit\n\n### Overview\nनमस्ते — reviewed.'
+        assets.save_summary(value, '\ufeff' * 5 + text)
+        self.assertEqual(value['summary'], text)
+        self.assertEqual(value['summaryOrigin'], 'ai')
+        assets.save_summary(value, value['summary'])
+        self.assertEqual(value['summary'], text)
+
     def test_imported_and_generated_summary_origins(self):
         value = project()
         assets.save_summary(value, 'Imported', 'imported', 'notes.md')

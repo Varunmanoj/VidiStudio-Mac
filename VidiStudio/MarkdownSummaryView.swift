@@ -26,7 +26,8 @@ struct MarkdownSummaryView: View {
     }
 
     private var blocks: [Block] {
-        let lines = markdown.replacingOccurrences(of: "\r\n", with: "\n").split(separator: "\n", omittingEmptySubsequences: false).map(String.init)
+        let clean = String(markdown.drop(while: { $0 == "\u{FEFF}" }))
+        let lines = clean.replacingOccurrences(of: "\r\n", with: "\n").replacingOccurrences(of: "\r", with: "\n").split(separator: "\n", omittingEmptySubsequences: false).map(String.init)
         var result: [Block] = []
         var index = 0
         var nextID = 0

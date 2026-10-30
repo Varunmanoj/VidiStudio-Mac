@@ -216,7 +216,8 @@ def track_origins(rows, previous):
 
 
 def save_summary(project, text, origin=None, source=None):
-    text = str(text)
+    # Older Windows saves could accumulate UTF-8 signatures inside the JSON string.
+    text = str(text).lstrip('\ufeff')
     if origin is not None and origin not in ('ai', 'imported', 'manual', 'unknown'):
         raise ValueError('Choose AI-generated, Imported, or Manually added summary provenance.')
     if text.strip():
