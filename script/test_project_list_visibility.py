@@ -7,6 +7,7 @@ BUILD = ROOT / 'build/project-list-visibility-test'
 BUILD.mkdir(parents=True, exist_ok=True)
 env = os.environ | {'DEVELOPER_DIR': '/Applications/Xcode.app/Contents/Developer'}
 subprocess.run(['xcrun', 'swiftc', '-parse-as-library', '-module-cache-path', str(BUILD / 'modules'),
+                str(ROOT / 'VidiStudio/ProjectFolderIdentity.swift'),
                 str(ROOT / 'VidiStudio/ProjectListVisibility.swift'),
                 str(ROOT / 'tests/project_list_visibility_harness.swift'),
                 '-o', str(BUILD / 'project-list-visibility-harness')], check=True, env=env)

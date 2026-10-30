@@ -10,16 +10,16 @@ struct ProjectListVisibility {
     init(defaults: UserDefaults = .standard) {
         self.defaults = defaults
         removedFolders = Set((defaults.stringArray(forKey: Self.key) ?? []).map {
-            URL(fileURLWithPath: $0).standardizedFileURL.path
+            ProjectFolderIdentity.normalize(URL(fileURLWithPath: $0)).path
         })
     }
     func isRemoved(_ folder: URL) -> Bool {
-        removedFolders.contains(folder.standardizedFileURL.path)
+        removedFolders.contains(ProjectFolderIdentity.normalize(folder).path)
     }
     mutating func remove(_ folder: URL) { setRemoved(folder, true) }
     mutating func restore(_ folder: URL) { setRemoved(folder, false) }
     private mutating func setRemoved(_ folder: URL, _ removed: Bool) {
-        let path = folder.standardizedFileURL.path
+        let path = ProjectFolderIdentity.normalize(folder).path
         let changed: Bool
         if removed { changed = removedFolders.insert(path).inserted }
         else { changed = removedFolders.remove(path) != nil }

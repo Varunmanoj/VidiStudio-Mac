@@ -1394,7 +1394,7 @@ final class StudioModel {
     var listedProjects: [StudioProject] {
         projects.filter { project in
             guard let folder = project.folder else { return true }
-            return !removedProjectFolders.contains(folder.standardizedFileURL.path)
+            return !removedProjectFolders.contains(ProjectFolderIdentity.normalize(folder).path)
         }
     }
     /// Latest integrity audit for every project currently shown, including
@@ -1799,8 +1799,8 @@ final class StudioModel {
     }
     func reload() {
         removedProjectFolders = ProjectListVisibility().removedFolders
-        let root = URL(fileURLWithPath: settings.libraryPath).standardizedFileURL
-        let previous = selected?.folder?.standardizedFileURL
+        let root = ProjectFolderIdentity.normalize(URL(fileURLWithPath: settings.libraryPath))
+        let previous = selected?.folder.map { ProjectFolderIdentity.normalize($0) }
         var candidates: [URL: Bool] = [:]
         let libraryFolders = (try? FileManager.default.contentsOfDirectory(
             at: root,
@@ -1808,10 +1808,11 @@ final class StudioModel {
             options: [.skipsHiddenFiles]
         )) ?? []
         for folder in libraryFolders {
-            candidates[folder.standardizedFileURL] = false
+            let identity = ProjectFolderIdentity.normalize(folder)
+            candidates[identity] = candidates[identity] ?? false
         }
         for path in UserDefaults.standard.stringArray(forKey: "recentProjectFolders") ?? [] {
-            candidates[URL(fileURLWithPath: path).standardizedFileURL] = true
+            candidates[ProjectFolderIdentity.normalize(URL(fileURLWithPath: path))] = true
         }
         if let previous {
             candidates[previous] = true
@@ -1857,6 +1858,7 @@ final class StudioModel {
     }
 
     private static func loadProject(at folder: URL) -> StudioProject? {
+        let folder = ProjectFolderIdentity.normalize(folder)
         let manifest = folder.appendingPathComponent("project.json")
         guard let data = try? Data(contentsOf: manifest), !data.isEmpty,
               var project = try? JSONDecoder().decode(StudioProject.self, from: data) else {
@@ -2270,7 +2272,8 @@ final class StudioModel {
         guard !busy else { return }
         let panel = NSOpenPanel(); panel.canChooseDirectories = true; panel.canChooseFiles = false
         panel.message = "Choose a VidiStudio folder containing project.json."
-        if panel.runModal() == .OK, let folder = panel.url {
+        if panel.runModal() == .OK, let chosenFolder = panel.url {
+            let folder = ProjectFolderIdentity.normalize(chosenFolder)
             do {
                 var p = try JSONDecoder().decode(StudioProject.self, from: Data(contentsOf: folder.appendingPathComponent("project.json")))
                 p.folder = folder
@@ -2278,7 +2281,8 @@ final class StudioModel {
                 visibility.restore(folder)
                 removedProjectFolders = visibility.removedFolders
                 var recent = UserDefaults.standard.stringArray(forKey: "recentProjectFolders") ?? []
-                recent.removeAll { $0 == folder.path }; recent.insert(folder.path, at: 0)
+                recent.removeAll { ProjectFolderIdentity.normalize(URL(fileURLWithPath: $0)) == folder }
+                recent.insert(folder.path, at: 0)
                 UserDefaults.standard.set(Array(recent.prefix(50)), forKey: "recentProjectFolders")
                 projects.removeAll { $0.id == p.id }; projects.insert(p, at: 0); selectedID = p.id
             } catch {

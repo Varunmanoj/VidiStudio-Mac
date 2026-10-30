@@ -21,10 +21,21 @@ struct ProjectListVisibilityHarness {
         let files = try folders.flatMap { try FileManager.default.contentsOfDirectory(at: $0, includingPropertiesForKeys: nil) }
         let snapshot = try Dictionary(uniqueKeysWithValues: files.map { ($0, try Data(contentsOf: $0)) })
         let modified = try Dictionary(uniqueKeysWithValues: files.map { ($0, try $0.resourceValues(forKeys: [.contentModificationDateKey]).contentModificationDate) })
+        let alias = root.appendingPathComponent("library-alias")
+        try FileManager.default.createSymbolicLink(at: alias, withDestinationURL: folders[0].deletingLastPathComponent())
+        let aliasProject = alias.appendingPathComponent("project")
+        let variants = [folders[0], folders[0].appendingPathComponent("."),
+                        folders[0].appendingPathComponent("..").appendingPathComponent("project"), aliasProject]
+        precondition(Set(variants.map(ProjectFolderIdentity.normalize)).count == 1, "Library/recent/link aliases must coalesce")
+        precondition(Set(folders.map(ProjectFolderIdentity.normalize)).count == 2, "Independent folders must stay separate")
+        let missing = root.appendingPathComponent("missing/project")
+        precondition(ProjectFolderIdentity.normalize(missing) == ProjectFolderIdentity.normalize(missing.appendingPathComponent(".")), "Missing folder spellings must normalize")
         var visibility = ProjectListVisibility(defaults: defaults)
         precondition(!visibility.isRemoved(folders[0]))
         visibility.remove(folders[0])
         visibility.remove(folders[1])
+        precondition(visibility.isRemoved(aliasProject), "Removing a folder must also hide its aliases")
+        visibility.remove(aliasProject)
         visibility.remove(folders[0].appendingPathComponent("."))
         precondition(visibility.removedFolders.count == 2, "Path aliases must not duplicate preferences")
         visibility = ProjectListVisibility(defaults: UserDefaults(suiteName: suite)!)
@@ -38,6 +49,6 @@ struct ProjectListVisibilityHarness {
             let date = try file.resourceValues(forKeys: [.contentModificationDateKey]).contentModificationDate
             precondition(bytes == snapshot[file] && date == modified[file], "Remove/restore must not change project files")
         }
-        print("PASS: Mac library/external removal persists, path aliases are handled, reopening restores one project, and project files/modified dates stay unchanged.")
+        print("PASS: Mac library/recent/directory-link aliases coalesce, independent folders remain separate, and library/external removal persists, path aliases are handled, reopening restores one project, and project files/modified dates stay unchanged.")
     }
 }
