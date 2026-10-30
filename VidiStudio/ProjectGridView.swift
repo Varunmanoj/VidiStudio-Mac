@@ -11,6 +11,7 @@ struct ProjectGridView: View {
     var apiKeyVerified: Bool? = nil
     var aiProcessingBlocked: Bool = false
     let open: (StudioProject) -> Void
+    let openNewWindow: (StudioProject) -> Void
     let rename: (StudioProject) -> Void
     let delete: (StudioProject) -> Void
     let removeFromList: (StudioProject) -> Void
@@ -53,7 +54,7 @@ struct ProjectGridView: View {
                     .accessibilityAction(named: "Open Project") { open(project) }
                     .accessibilityAddTraits(selection == project.id ? [.isSelected] : [])
                     .contextMenu {
-                        Button("Open Project", systemImage: "macwindow.badge.plus") { open(project) }
+                        Button("Open in New Window", systemImage: "macwindow.badge.plus") { openNewWindow(project) }
                         Divider()
                         Button("Rename", systemImage: "pencil") { rename(project) }
                             .disabled(project.integrityPlaceholder == true)
@@ -88,7 +89,7 @@ struct ProjectGridView: View {
     }
 }
 
-private struct ProjectThumbnail: View {
+struct ProjectThumbnail: View {
     let project: StudioProject
     @State private var thumbnail: NSImage?
     private var youtubeThumbnail: URL? {
@@ -134,15 +135,30 @@ struct ProjectBrowserActions {
     var grid: Binding<Bool>?
     var hasProject: Bool
     var listModel: StudioModel? = nil
+    var preserveOpenProject = false
+    var editorModel: StudioModel? = nil
+
+    func canRun(_ command: String) -> Bool {
+        guard let model = editorModel ?? listModel, let project = model.selected else { return false }
+        if editorModel == nil && !model.listedProjects.contains(where: { $0.id == project.id }) { return false }
+        return model.canManageProject(command, project: project)
+    }
 
     var canRemoveFromList: Bool {
         guard let model = listModel, !model.busy, let project = model.selected, project.folder != nil else { return false }
         return model.listedProjects.contains { $0.id == project.id }
     }
     func run(_ command: String) {
+        if command != "remove-from-list" {
+            guard canRun(command), let model = editorModel ?? listModel, let project = model.selected else { return }
+            model.requestProjectManagement(command, project: project)
+            return
+        }
         guard command == "remove-from-list", canRemoveFromList,
               let model = listModel, let project = model.selected else { return }
+        let currentID = model.selectedID
         model.removeProjectFromList(project)
+        if preserveOpenProject { model.selectedID = currentID }
     }
 }
 private struct ProjectBrowserKey: FocusedValueKey { typealias Value = ProjectBrowserActions }

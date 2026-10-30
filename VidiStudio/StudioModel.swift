@@ -1371,8 +1371,10 @@ struct OpenProjectReference: Identifiable, Equatable {
 @MainActor @Observable
 final class OpenProjectRegistry {
     private(set) var projects: [OpenProjectReference] = []
+    private var owners: [String: Set<UUID>] = [:]
 
-    func open(_ id: String, name: String, folder: URL? = nil) {
+    func open(_ id: String, name: String, folder: URL? = nil, owner: UUID? = nil) {
+        if let owner { owners[id, default: []].insert(owner) }
         if let index = projects.firstIndex(where: { $0.id == id }) {
             if projects[index].name != name { projects[index].name = name }
             if let folder, projects[index].folder != folder { projects[index].folder = folder }
@@ -1381,15 +1383,27 @@ final class OpenProjectRegistry {
         }
     }
 
-    func close(_ id: String) {
+    func close(_ id: String, owner: UUID? = nil) {
+        if let owner {
+            owners[id]?.remove(owner)
+            if owners[id]?.isEmpty == false { return }
+        }
+        owners[id] = nil
         projects.removeAll { $0.id == id }
     }
+}
+
+struct ProjectManagementRequest: Identifiable {
+    let id = UUID()
+    let action: String
+    let project: StudioProject
 }
 
 @MainActor @Observable
 final class StudioModel {
     static let defaultErrorTitle = "VidiStudio Couldn’t Finish"
     var projects: [StudioProject] = []
+    var projectManagementRequest: ProjectManagementRequest?
     private var removedProjectFolders = ProjectListVisibility().removedFolders
     var listedProjects: [StudioProject] {
         projects.filter { project in
@@ -2099,6 +2113,24 @@ final class StudioModel {
                 UserDefaults.standard.set(recent, forKey: "recentProjectFolders")
             }
         }
+    }
+
+    func canManageProject(_ action: String, project: StudioProject) -> Bool {
+        guard !busy, let folder = project.folder else { return false }
+        switch action {
+        case "rename-project":
+            let report = integrityReport(for: project)
+            return project.integrityPlaceholder != true && !report.manifestUnreadable && !report.folderMissing
+        case "trash-project": return true
+        case "show-in-finder": return FileManager.default.fileExists(atPath: folder.path)
+        case "open-configuration": return FileManager.default.fileExists(atPath: folder.appendingPathComponent("project.json").path)
+        default: return false
+        }
+    }
+
+    func requestProjectManagement(_ action: String, project: StudioProject) {
+        guard canManageProject(action, project: project) else { return }
+        projectManagementRequest = ProjectManagementRequest(action: action, project: project)
     }
 
     func removeProjectFromList(_ project: StudioProject) {

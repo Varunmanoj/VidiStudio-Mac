@@ -498,15 +498,15 @@ struct StudioCommands: Commands {
                     .keyboardShortcut("i", modifiers: [.command, .option, .shift])
                     .disabled(editor?.canRun("import-assets") != true)
             }
-            Button("Show Project in Finder", systemImage: "folder") { editor?.run("show-in-finder") }
-                .disabled(editor?.canRun("show-in-finder") != true)
-            Button("Open Project Configuration", systemImage: "doc.text") { editor?.run("open-configuration") }
-                .disabled(editor?.canRun("open-configuration") != true)
+            Button("Show Project in Finder", systemImage: "folder") { browser?.run("show-in-finder") }
+                .disabled(browser?.canRun("show-in-finder") != true)
+            Button("Open Project Configuration", systemImage: "doc.text") { browser?.run("open-configuration") }
+                .disabled(browser?.canRun("open-configuration") != true)
             Divider()
-            Button("Rename Project…", systemImage: "pencil") { editor?.run("rename-project") }
-                .disabled(editor?.canRun("rename-project") != true)
-            Button("Move Project to Bin…", systemImage: "trash", role: .destructive) { editor?.run("trash-project") }
-                .disabled(editor?.canRun("trash-project") != true)
+            Button("Rename Project…", systemImage: "pencil") { browser?.run("rename-project") }
+                .disabled(browser?.canRun("rename-project") != true)
+            Button("Move Project to Bin…", systemImage: "trash", role: .destructive) { browser?.run("trash-project") }
+                .disabled(browser?.canRun("trash-project") != true)
         }
         CommandGroup(replacing: .help) {
             Button("VidiStudio Help", systemImage: "questionmark.circle") { StudioHelp.open() }.keyboardShortcut("/", modifiers: [.command, .option])

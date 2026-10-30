@@ -61,6 +61,7 @@ struct ProjectBrowserPage: View {
     let newProject: () -> Void
     let openProjectFolder: () -> Void
     let openEditor: (StudioProject) -> Void
+    let openNewWindow: (StudioProject) -> Void
     let rename: (StudioProject) -> Void
     let delete: (StudioProject) -> Void
     let removeFromList: (StudioProject) -> Void
@@ -167,10 +168,6 @@ struct ProjectBrowserPage: View {
                             search = ""
                             sourceFilter = .all
                         }
-                    } else {
-                        Button("New Project…", systemImage: "plus", action: newProject)
-                            .disabled(busy)
-                            .help("Create a new project")
                     }
                 }
             } else if grid {
@@ -184,6 +181,7 @@ struct ProjectBrowserPage: View {
                     apiKeyVerified: apiKeyVerified,
                     aiProcessingBlocked: aiProcessingBlocked,
                     open: openEditor,
+                    openNewWindow: openNewWindow,
                     rename: rename,
                     delete: delete,
                     removeFromList: removeFromList,
@@ -338,7 +336,7 @@ struct ProjectBrowserPage: View {
 
     @ViewBuilder
     private func projectMenu(_ project: StudioProject) -> some View {
-        Button("Open Project", systemImage: "macwindow.badge.plus") { openEditor(project) }
+        Button("Open in New Window", systemImage: "macwindow.badge.plus") { openNewWindow(project) }
         Divider()
         Button("Rename", systemImage: "pencil") { rename(project) }
             .disabled(project.integrityPlaceholder == true)

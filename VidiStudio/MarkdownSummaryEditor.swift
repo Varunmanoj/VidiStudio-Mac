@@ -357,22 +357,12 @@ struct MarkdownTextEditor: NSViewRepresentable {
 
 struct SummaryMarkdownEditorView: View {
     @Binding var text: String
-    let project: StudioProject
-    let onDone: (SummaryOrigin?) -> Void
+    @Binding var origin: SummaryOrigin
     let onCancel: () -> Void
 
     @StateObject private var controller = MarkdownEditorController()
     @State private var showPreview = false
-    @State private var origin: SummaryOrigin
     @State private var showingHelp = false
-
-    init(text: Binding<String>, project: StudioProject, onDone: @escaping (SummaryOrigin?) -> Void, onCancel: @escaping () -> Void) {
-        _text = text
-        self.project = project
-        self.onDone = onDone
-        self.onCancel = onCancel
-        _origin = State(initialValue: project.summaryOriginLabel)
-    }
 
     private var wordCount: Int {
         text.split(whereSeparator: { $0.isWhitespace || $0.isNewline }).count
@@ -393,13 +383,8 @@ struct SummaryMarkdownEditorView: View {
                 .pickerStyle(.menu)
                 .frame(maxWidth: 190)
                 .help("Choose the whole-summary provenance. Unknown is replaced when you choose one of these labels.")
-                Button(showPreview ? "Hide Preview" : "Preview", systemImage: "eye") { showPreview.toggle() }
-                    .help("Show or hide the rendered Markdown preview")
                 Button("Revert", systemImage: "arrow.uturn.backward") { onCancel() }
                     .help("Discard uncommitted edits and restore the saved summary")
-                Button("Done", systemImage: "checkmark") { onDone(origin) }
-                    .keyboardShortcut(.defaultAction)
-                    .help("Save summary changes and return to the reading view")
             }
             .controlSize(.small)
             .padding(.horizontal, 16).padding(.vertical, 8)
@@ -461,7 +446,7 @@ struct SummaryMarkdownEditorView: View {
                 Divider().frame(height: 18)
                 group {
                     toolbarButton(.clearFormatting)
-                    Button("Preview", systemImage: "eye") { showPreview.toggle() }
+                    Button(showPreview ? "Hide Preview" : "Preview", systemImage: "eye") { showPreview.toggle() }
                         .keyboardShortcut("p", modifiers: [.command, .option, .shift])
                         .help("Toggle preview (Command-Option-Shift-P)")
                     Button("Markdown Help", systemImage: "questionmark.circle") { showingHelp = true }

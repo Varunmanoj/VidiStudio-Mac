@@ -82,8 +82,8 @@ struct VidiStudioApp: App {
         }
         .commands { StudioCommands() }
         WindowGroup("Project Editor", id: "project-editor", for: String.self) { $projectID in
-            if let projectID {
-                ProjectEditorWindow(projectID: projectID, openProjects: openProjects)
+            if let value = projectID {
+                ProjectEditorWindow(projectID: ProjectEditorWindowValue.projectID(from: value), windowProjectID: $projectID, openProjects: openProjects)
             } else {
                 ContentUnavailableView("Project Unavailable", systemImage: "film", description: Text("Return to All Projects and open the project again."))
             }

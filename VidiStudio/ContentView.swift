@@ -336,6 +336,7 @@ struct ContentView: View {
     @State private var sourceFilter = ProjectSourceFilter.all
     @State private var rename = ""
     @State private var renaming = false
+    @State private var renamingTarget: StudioProject?
     @State private var deletionProject: StudioProject?
     @State private var exportProject: StudioProject?
     @AppStorage("projectBrowserGrid") private var projectGrid = false
@@ -346,6 +347,11 @@ struct ContentView: View {
         // The project ID is the WindowGroup value and therefore its window identity.
         // Reopening the same value activates that editor instead of creating a duplicate.
         openWindow(id: "project-editor", value: project.id)
+    }
+
+    private func openEditorNewWindow(_ project: StudioProject) {
+        guard !studio.busy else { return }
+        openWindow(id: "project-editor", value: ProjectEditorWindowValue.newWindow(for: project.id))
     }
 
     private func handleSharedURL(_ url: URL) {
@@ -408,7 +414,8 @@ struct ContentView: View {
                 if let project = studio.selected { openEditor(project) }
             },
             openEditor: openEditor,
-            rename: { p in studio.selectedID = p.id; rename = p.name; renaming = true },
+            openNewWindow: openEditorNewWindow,
+            rename: { studio.requestProjectManagement("rename-project", project: $0) },
             delete: { studio.confirmTrashProject($0) },
             removeFromList: { studio.removeProjectFromList($0) },
             process: { p, command in studio.selectedID = p.id; studio.execute(command, project: p) },
@@ -436,7 +443,7 @@ struct ContentView: View {
         .sheet(isPresented: $renaming) {
             VStack(spacing: 20) {
                 TextField("Project name", text: $rename)
-                HStack { Button("Cancel", role: .cancel) { renaming = false }; Button("Rename", systemImage: "pencil") { studio.execute("rename-project", extra: ["--name", rename]); renaming = false }.keyboardShortcut(.defaultAction) }
+                HStack { Button("Cancel", role: .cancel) { renaming = false }; Button("Rename", systemImage: "pencil") { studio.execute("rename-project", extra: ["--name", rename], project: renamingTarget); renaming = false }.keyboardShortcut(.defaultAction) }
             }.padding(24).frame(width: 420)
         }
         .sheet(item: $deletionProject) { project in
@@ -465,6 +472,21 @@ struct ContentView: View {
                   let settings = notification.userInfo?["settings"] as? StudioSettings else { return }
             studio.applyExternalSettings(settings)
         }
+        .onChange(of: studio.projectManagementRequest?.id) { _, _ in
+            guard let request = studio.projectManagementRequest else { return }
+            studio.projectManagementRequest = nil
+            switch request.action {
+            case "rename-project":
+                studio.selectedID = request.project.id
+                rename = request.project.name
+                renamingTarget = request.project
+                renaming = true
+            case "trash-project": studio.confirmTrashProject(request.project)
+            case "show-in-finder": if let folder = request.project.folder { NSWorkspace.shared.open(folder) }
+            case "open-configuration": openProjectConfiguration(request.project)
+            default: break
+            }
+        }
         .onOpenURL(perform: handleSharedURL)
         .task {
             studio.refreshProjectIntegrity()
@@ -487,6 +509,11 @@ struct ContentView: View {
 
 struct ProjectEditorWindow: View {
     let projectID: String
+    @Binding var windowProjectID: String?
+    @Environment(\.openWindow) private var openWindow
+    @State private var windowOwner = UUID()
+    @State private var showProjects = false
+    @AppStorage("editorProjectBrowserGrid") private var projectGrid = false
     let openProjects: OpenProjectRegistry
     @Environment(\.openSettings) private var openSettings
     @Environment(\.dismissWindow) private var dismissWindow
@@ -495,8 +522,10 @@ struct ProjectEditorWindow: View {
     @State private var showInspector = true
     @State private var showingExportDialog = false
     @State private var renamingProject = false
+    @State private var renamingTarget: StudioProject?
     @State private var projectName = ""
-    init(projectID: String, openProjects: OpenProjectRegistry) {
+    init(projectID: String, windowProjectID: Binding<String?>, openProjects: OpenProjectRegistry) {
+        _windowProjectID = windowProjectID
         self.projectID = projectID
         self.openProjects = openProjects
         let model = StudioModel()
@@ -505,6 +534,13 @@ struct ProjectEditorWindow: View {
     }
 
     var body: some View {
+        HSplitView {
+            if showProjects {
+                EditorProjectBrowser(projects: studio.listedProjects, selectedID: studio.selectedID,
+                    grid: $projectGrid, busy: studio.busy, summaryEditing: editorShortcutActions.summaryEditing,
+                    openHere: switchProject, openNewWindow: openProjectInNewWindow,
+                    removeFromList: removeProjectFromList, delete: deleteProject)
+            }
         VStack(spacing: 0) {
             if !studio.hasApiKey {
                 HStack(spacing: 12) {
@@ -604,11 +640,9 @@ struct ProjectEditorWindow: View {
                             studio: studio,
                             project: project,
                             shortcutActions: editorShortcutActions,
+                            inspectorVisible: showInspector,
                             showExportDialog: { showingExportDialog = true },
-                            renameProject: {
-                                projectName = project.name
-                                renamingProject = true
-                            },
+                            renameProject: { studio.requestProjectManagement("rename-project", project: project) },
                             trashProject: { deleteProject(project) }
                         )
                         .id(project.id)
@@ -617,6 +651,7 @@ struct ProjectEditorWindow: View {
                     ContentUnavailableView("Project Unavailable", systemImage: "film", description: Text("The project may have moved or been deleted. Return to All Projects to reopen it."))
                 }
             }
+        }
         }
         .inspector(isPresented: $showInspector) {
             ProcessingInspector(
@@ -636,10 +671,13 @@ struct ProjectEditorWindow: View {
         .smoothPresentation()
         .background(WindowFitter().frame(width: 0, height: 0))
         .focusedSceneValue(\.projectBrowser, ProjectBrowserActions(
-            showProjects: nil,
+            showProjects: $showProjects,
             showInspector: $showInspector,
-            grid: nil,
-            hasProject: studio.selected != nil
+            grid: $projectGrid,
+            hasProject: studio.selected != nil,
+            listModel: showProjects ? studio : nil,
+            preserveOpenProject: true,
+            editorModel: studio
         ))
         // Keep the focused command bridge above the playhead-driven editor.
         // Its identity now remains stable while playback updates every 150 ms,
@@ -647,7 +685,26 @@ struct ProjectEditorWindow: View {
         .focusedSceneValue(\.editorShortcuts, studio.selected == nil ? nil : editorShortcutActions)
         .preferredColorScheme(studio.settings.theme == "dark" ? .dark : studio.settings.theme == "light" ? .light : nil)
         .navigationTitle(studio.selected?.name ?? "Project Editor")
+        .toolbar(removing: .title)
         .toolbar {
+            ToolbarItem(placement: .principal) {
+                HStack(spacing: 6) {
+                    Text(studio.selected?.name ?? "Project Editor").font(.headline).lineLimit(1)
+                    Button("Rename Project", systemImage: "pencil") {
+                        if let project = studio.selected { studio.requestProjectManagement("rename-project", project: project) }
+                    }
+                    .labelStyle(.iconOnly)
+                    .accessibilityIdentifier("rename-project-title")
+                    .accessibilityLabel("Rename project")
+                    .help("Rename this project")
+                    .disabled(studio.selected.map { !studio.canManageProject("rename-project", project: $0) } ?? true)
+                }
+            }
+            ToolbarItem(placement: .navigation) {
+                Button(showProjects ? "Hide Project List" : "Show Project List", systemImage: "sidebar.left") { showProjects.toggle() }
+                    .labelStyle(.iconOnly)
+                    .help(showProjects ? "Hide the project list" : "Show projects to switch in this window")
+            }
             ToolbarItem(placement: .primaryAction) {
                 Button(showInspector ? "Hide Inspector" : "Show Inspector", systemImage: "sidebar.right") { showInspector.toggle() }
                     .labelStyle(.iconOnly)
@@ -665,7 +722,7 @@ struct ProjectEditorWindow: View {
                 HStack {
                     Button("Cancel", role: .cancel) { renamingProject = false }
                     Button("Rename", systemImage: "pencil") {
-                        if let project = studio.selected {
+                        if let project = renamingTarget {
                             studio.execute("rename-project", extra: ["--name", projectName], project: project)
                         }
                         renamingProject = false
@@ -687,11 +744,25 @@ struct ProjectEditorWindow: View {
                 }
             }
         }
+        .onChange(of: studio.projectManagementRequest?.id) { _, _ in
+            guard let request = studio.projectManagementRequest else { return }
+            studio.projectManagementRequest = nil
+            switch request.action {
+            case "rename-project":
+                projectName = request.project.name
+                renamingTarget = request.project
+                renamingProject = true
+            case "trash-project": deleteProject(request.project)
+            case "show-in-finder": if let folder = request.project.folder { NSWorkspace.shared.open(folder) }
+            case "open-configuration": openProjectConfiguration(request.project)
+            default: break
+            }
+        }
         .onAppear {
             studio.reload()
             studio.selectedID = projectID
             studio.refreshProjectIntegrity(for: projectID)
-            openProjects.open(projectID, name: studio.selected?.name ?? "Project", folder: studio.selected?.folder)
+            openProjects.open(projectID, name: studio.selected?.name ?? "Project", folder: studio.selected?.folder, owner: windowOwner)
         }
         .task(id: projectID) {
             while !Task.isCancelled {
@@ -704,9 +775,10 @@ struct ProjectEditorWindow: View {
             studio.refreshProjectIntegrity(for: studio.selectedID ?? projectID)
         }
         .onChange(of: studio.selected?.name) { _, name in
-            if let name { openProjects.open(projectID, name: name, folder: studio.selected?.folder) }
+            if let name, let currentID = studio.selectedID { openProjects.open(currentID, name: name, folder: studio.selected?.folder, owner: windowOwner) }
         }
-        .onDisappear { openProjects.close(projectID) }
+        .onDisappear { openProjects.close(studio.selectedID ?? projectID, owner: windowOwner) }
+        .onReceive(NotificationCenter.default.publisher(for: ProjectListVisibility.didChange)) { _ in studio.reload() }
         .onReceive(NotificationCenter.default.publisher(for: .vidiStudioSettingsDidChange)) { notification in
             guard let settings = notification.userInfo?["settings"] as? StudioSettings else { return }
             guard let source = notification.object as? StudioModel, source !== studio else { return }
@@ -714,10 +786,40 @@ struct ProjectEditorWindow: View {
         }
     }
 
+    private func openProjectInNewWindow(_ project: StudioProject) {
+        guard !studio.busy else { return }
+        openWindow(id: "project-editor", value: ProjectEditorWindowValue.newWindow(for: project.id))
+    }
+
+    private func switchProject(_ project: StudioProject) {
+        guard !studio.busy, !editorShortcutActions.summaryEditing else { return }
+        guard studio.selectedID != project.id else { return }
+        let oldID = studio.selectedID
+        studio.reload()
+        guard let target = studio.projects.first(where: { $0.id == project.id }) else { return }
+        if let oldID, oldID != target.id { openProjects.close(oldID, owner: windowOwner) }
+        studio.selectedID = target.id
+        windowProjectID = ProjectEditorWindowValue.replacingProject(in: windowProjectID ?? projectID, with: target.id)
+        openProjects.open(target.id, name: target.name, folder: target.folder, owner: windowOwner)
+    }
+
+    private func removeProjectFromList(_ project: StudioProject) {
+        guard !studio.busy, !editorShortcutActions.summaryEditing else { return }
+        let currentID = studio.selectedID
+        studio.removeProjectFromList(project)
+        // Removing a list entry does not close the project already open here.
+        studio.selectedID = currentID
+    }
+
     private func deleteProject(_ project: StudioProject) {
+        guard !studio.busy else { return }
+        let deletingCurrent = studio.selectedID == project.id
         studio.confirmTrashProject(project)
-        if !studio.projects.contains(where: { $0.id == project.id }) {
-            dismissWindow(id: "project-editor", value: projectID)
+        if deletingCurrent && !studio.projects.contains(where: { $0.id == project.id }) {
+            openProjects.close(project.id, owner: windowOwner)
+            editorShortcutActions.summaryEditing = false
+            if let next = studio.listedProjects.first { switchProject(next) }
+            else { dismissWindow(id: "project-editor", value: windowProjectID ?? projectID) }
         }
     }
 }
@@ -877,7 +979,7 @@ struct ProcessingInspector: View {
                             }
                             }
                         }
-                        if ["descriptions", "ad-overview", "ad-transcript"].contains(editorActions.activeSection) {
+                        if ["descriptions", "ad-transcript"].contains(editorActions.activeSection) {
                             GroupBox("Narration Audio") {
                                 VStack(alignment: .leading, spacing: 8) {
                                     if studio.settings.ttsMode == "gemini" {
@@ -1349,6 +1451,7 @@ struct ProjectEditor: View {
     @Bindable var studio: StudioModel
     let project: StudioProject
     let shortcutActions: EditorShortcutActions
+    let inspectorVisible: Bool
     let showExportDialog: () -> Void
     let renameProject: () -> Void
     let trashProject: () -> Void
@@ -1373,6 +1476,7 @@ struct ProjectEditor: View {
     @State private var summaryReader = SummaryReadbackModel()
     @State private var summaryEditMode = false
     @State private var summaryDraftText = ""
+    @State private var summaryDraftOrigin: SummaryOrigin = .unknown
     @State private var showingImportAssets = false
     @State private var importScope: ImportScope?
     @State private var showingTranscriptTimingEditor = false
@@ -1633,7 +1737,7 @@ struct ProjectEditor: View {
                     }
                 }
             }
-            if let action = generationAction {
+            if let action = generationAction, !inspectorVisible {
                 Button(action.title, systemImage: action.icon) { studio.execute(action.command) }
                     .labelStyle(.iconOnly)
                     .accessibilityLabel(action.title)
@@ -1684,6 +1788,9 @@ struct ProjectEditor: View {
                     toggleSummaryEditMode()
                 }
                 .labelStyle(.iconOnly)
+                .buttonStyle(.borderedProminent)
+                .tint(.accentColor)
+                .keyboardShortcut(summaryEditMode ? .defaultAction : nil)
                 .disabled(studio.busy)
                 .fixedSize()
                 .accessibilityLabel(summaryEditMode ? "Done editing summary" : "Edit summary")
@@ -1803,8 +1910,12 @@ struct ProjectEditor: View {
                     refreshEditorShortcutActions()
                 }
                 .labelStyle(.iconOnly)
+                .buttonStyle(.borderedProminent)
+                .tint(.accentColor)
                 .disabled(studio.busy)
                 .fixedSize()
+                .accessibilityLabel(segmentEditMode ? "Done editing \(segmentSectionTitle) segments" : "Edit \(segmentSectionTitle) segments")
+                .help(segmentEditMode ? "Finish editing \(segmentSectionTitle.lowercased()) segments" : "Edit \(segmentSectionTitle.lowercased()) segments")
                 .accessibilityHint(segmentEditMode ? "Returns this section to view mode" : "Shows selection, editing, and deletion controls for segments")
             }
         }
@@ -2296,10 +2407,10 @@ struct ProjectEditor: View {
                 if summaryEditMode {
                     SummaryMarkdownEditorView(
                         text: $summaryDraftText,
-                        project: project,
-                        onDone: { origin in commitSummaryEdits(origin: origin) },
+                        origin: $summaryDraftOrigin,
                         onCancel: {
                             summaryDraftText = project.summary
+                            summaryDraftOrigin = project.summaryOriginLabel
                             summaryEditMode = false
                             refreshEditorShortcutActions()
                         }
@@ -2746,23 +2857,9 @@ struct ProjectEditor: View {
         } description: {
             Text("Generate from a transcript, import an existing Markdown or TXT summary, or write one yourself. Importing and writing do not require a transcript or API key.")
         } actions: {
-            Button("Generate Summary", systemImage: "sparkles") { studio.execute("generate-summary") }
-                .disabled(studio.busy || project.transcript.isEmpty || !studio.hasValidApiKey)
-                .help(project.transcript.isEmpty
-                    ? "Generate a transcript before generating a summary"
-                    : !studio.hasApiKey
-                        ? "Enter your Gemini API key in Settings → Gemini API to generate a summary"
-                        : "Generate a summary from the transcript and video")
             Button("Import Summary…", systemImage: "square.and.arrow.down") { chooseSummaryToImport() }
                 .disabled(studio.busy)
                 .help("Import a Markdown or TXT summary without a transcript or API key")
-            Button("Write Summary", systemImage: "pencil") {
-                summaryDraftText = ""
-                summaryEditMode = true
-                refreshEditorShortcutActions()
-            }
-            .disabled(studio.busy)
-            .help("Write a summary manually with the Markdown editor")
         }
     }
 
@@ -2782,15 +2879,16 @@ struct ProjectEditor: View {
     private func startSummaryEditing() {
         summaryReader.stop()
         summaryDraftText = project.summary
+        summaryDraftOrigin = project.summaryOriginLabel
         summaryEditMode = true
         refreshEditorShortcutActions()
     }
 
-    private func commitSummaryEdits(origin: SummaryOrigin? = nil) {
+    private func commitSummaryEdits() {
         let trimmed = summaryDraftText.trimmingCharacters(in: .whitespacesAndNewlines)
-        let originChanged = origin != nil && origin != project.summaryOriginLabel
+        let originChanged = summaryDraftOrigin != project.summaryOriginLabel
         if trimmed != project.summary.trimmingCharacters(in: .whitespacesAndNewlines) || originChanged {
-            studio.saveSummary(summaryDraftText, origin: originChanged ? origin : nil)
+            studio.saveSummary(summaryDraftText, origin: originChanged ? summaryDraftOrigin : nil)
         }
         summaryEditMode = false
         refreshEditorShortcutActions()
@@ -2990,9 +3088,11 @@ struct ProjectEditor: View {
         }
         .onDisappear {
             shortcutActions.available = false
+            shortcutActions.summaryEditing = false
             shortcutActions.handler = nil
             shortcutActions.exportHandler = nil
             playback.stop()
+            summaryReader.stop()
             stopNarrationPreview()
         }
         .sheet(isPresented: screenTextPresented) { screenTextReview }

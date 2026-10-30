@@ -35,14 +35,40 @@ class DesktopMenuParity(unittest.TestCase):
         self.assertIn('browser?.run("remove-from-list")', self.mac)
         self.assertIn('.disabled(browser?.canRemoveFromList != true)', self.mac)
         self.assertIn('Command("remove-from-list")', self.windows)
-        self.assertIn('if (id == "remove-from-list") return SelectedGalleryProject() != null;', self.windows)
-        self.assertIn('if (SelectedGalleryProject() is { } listedProject) RemoveProjectFromList(listedProject);', self.windows)
+        self.assertIn('if (id == "remove-from-list") return SelectedBrowserProject() != null;', self.windows)
+        self.assertIn('if (SelectedBrowserProject() is { } listedProject) RemoveProjectFromList(listedProject);', self.windows)
         self.assertIn('if (desktopEditorVisible || GalleryPanel.Visibility != Visibility.Visible) return null;', self.windows)
         for source, replacement in ((self.mac, self.mac.replace('browser?.run("remove-from-list")', 'browser?.run("other")')),
                                     (self.windows, self.windows.replace('Command("remove-from-list")', 'Separator()'))):
             with self.assertRaises(ValueError):
                 self.checker.compare_sources(replacement if source is self.mac else self.mac, self.app,
                                              replacement if source is self.windows else self.windows)
+
+    def test_editor_project_browser_navigation_and_icon_buttons_match(self):
+        root = Path(os.environ.get('VIDISTUDIO_DESKTOP_WORKSPACE', Path(__file__).resolve().parents[2]))
+        sidebar = (root/'VidiStudio Mac/VidiStudio/EditorProjectBrowser.swift').read_text()
+        editor = (root/'VidiStudio Mac/VidiStudio/ContentView.swift').read_text()
+        windows = (root/'Vidi-Studio-Windows/Vidi Studio Windows/MainWindow.Commands.cs').read_text()
+        xaml = (root/'Vidi-Studio-Windows/Vidi Studio Windows/MainWindow.xaml').read_text()
+        self.checker.compare_editor_project_navigation(sidebar, editor, windows, xaml)
+        with self.assertRaises(ValueError):
+            self.checker.compare_editor_project_navigation(sidebar.replace('open-project-here', 'missing'), editor, windows, xaml)
+        with self.assertRaises(ValueError):
+            self.checker.compare_editor_project_navigation(sidebar, editor, windows.replace('Open in New Window', 'Open'), xaml)
+
+    def test_management_actions_follow_selected_or_open_project(self):
+        root = Path(os.environ.get('VIDISTUDIO_DESKTOP_WORKSPACE', Path(__file__).resolve().parents[2]))
+        editor = (root/'VidiStudio Mac/VidiStudio/ContentView.swift').read_text()
+        xaml = (root/'Vidi-Studio-Windows/Vidi Studio Windows/MainWindow.xaml').read_text()
+        self.assertIn('.accessibilityIdentifier("rename-project-title")', editor)
+        self.assertIn('editorModel: studio', editor)
+        self.assertIn('x:Name="RenameProjectTitleButton"', xaml)
+        self.assertIn('AutomationProperties.Name="Rename project"', xaml)
+        for action in ('rename-project', 'trash-project', 'show-in-finder', 'open-configuration'):
+            self.assertIn(f'browser?.run("{action}")', self.mac)
+            self.assertIn(f'.disabled(browser?.canRun("{action}") != true)', self.mac)
+        self.assertIn('ProjectManagementTarget() => desktopEditorVisible ? Model.Project : SelectedGalleryProject()', self.windows)
+        self.assertIn('return CanManageProject(id);', self.windows)
 
     def test_actual_menus_and_shortcuts_match(self):
         self.assertGreater(self.checker.compare_sources(self.mac, self.app, self.windows), 30)
@@ -58,7 +84,7 @@ class DesktopMenuParity(unittest.TestCase):
         for action in ('rename-project', 'trash-project'):
             self.assertIn(f'Command("{action}")', self.windows)
             self.assertIn(f'case "{action}":', self.windows)
-            self.assertIn(f'.disabled(editor?.canRun("{action}") != true)', self.mac)
+            self.assertIn(f'.disabled(browser?.canRun("{action}") != true)', self.mac)
         root = Path(os.environ.get('VIDISTUDIO_DESKTOP_WORKSPACE', Path(__file__).resolve().parents[2]))
         content = (root / 'VidiStudio Mac/VidiStudio/ContentView.swift').read_text(encoding='utf-8')
         self.assertIn('case "rename-project": renameProject()', content)

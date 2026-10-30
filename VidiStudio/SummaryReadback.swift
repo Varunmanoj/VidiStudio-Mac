@@ -1359,23 +1359,12 @@ struct SummaryReaderView: View {
             }
             .fixedSize()
 
-            HStack(spacing: 10) {
-                if let onEdit {
-                    Button("Edit Summary", systemImage: "pencil") {
-                        onEdit()
-                    }
-                    .buttonStyle(.bordered)
-                    .help("Edit the summary directly right inside like a notepad")
-                    .accessibilityLabel("Edit summary directly")
-                }
-
-                Text(speechEngineLabel)
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-                    .help(speechEngineHelp)
-                    .accessibilityLabel(speechEngineHelp)
-            }
-            .frame(maxWidth: .infinity, alignment: .trailing)
+            Text(speechEngineLabel)
+                .font(.caption)
+                .foregroundStyle(.secondary)
+                .help(speechEngineHelp)
+                .accessibilityLabel(speechEngineHelp)
+                .frame(maxWidth: .infinity, alignment: .trailing)
         }
         .controlSize(.small)
         .padding(.horizontal, 16)
