@@ -85,3 +85,6 @@ Both editor headers show an icon-only pencil beside the project name, labeled Re
 
 
 Editor control parity: Transcript, Summary, Descriptions, and AD Transcript use one native accent-colour pencil/checkmark button to enter/finish editing, with icon-only presentation, descriptive accessibility names, and tooltips. Summary uses the same control to save text and provenance; its second Save/Done button is removed. Generation appears in the inspector while open and falls back to the section toolbar when closed. AD Overview owns its narration controls without a second inspector group. Menu/context command alternatives remain available.
+
+
+Project-pane transitions: the left project browser remains closed by default. Toolbar, View menu, and list/grid commands share the same native visibility state. Mac uses NavigationSplitView with a reduced-motion-aware animated binding. Windows uses inline SplitView panes for both projects and inspector, preserving editor space and delegating open/close transitions and reduced-motion handling to WinUI. Closing the Windows project pane restores keyboard focus to its toggle when focus was inside the pane.

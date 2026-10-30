@@ -513,6 +513,7 @@ struct ProjectEditorWindow: View {
     @Environment(\.openWindow) private var openWindow
     @State private var windowOwner = UUID()
     @State private var showProjects = false
+    @Environment(\.accessibilityReduceMotion) private var reduceProjectMotion
     @AppStorage("editorProjectBrowserGrid") private var projectGrid = false
     let openProjects: OpenProjectRegistry
     @Environment(\.openSettings) private var openSettings
@@ -533,14 +534,26 @@ struct ProjectEditorWindow: View {
         _studio = State(initialValue: model)
     }
 
-    var body: some View {
-        HSplitView {
-            if showProjects {
-                EditorProjectBrowser(projects: studio.listedProjects, selectedID: studio.selectedID,
-                    grid: $projectGrid, busy: studio.busy, summaryEditing: editorShortcutActions.summaryEditing,
-                    openHere: switchProject, openNewWindow: openProjectInNewWindow,
-                    removeFromList: removeProjectFromList, delete: deleteProject)
+    private var projectBrowserVisibility: Binding<Bool> {
+        Binding(get: { showProjects }, set: { visible in
+            withAnimation(reduceProjectMotion ? nil : .smooth(duration: 0.22)) {
+                showProjects = visible
             }
+        })
+    }
+
+    var body: some View {
+        NavigationSplitView(columnVisibility: Binding(
+            get: { showProjects ? .all : .detailOnly },
+            set: { projectBrowserVisibility.wrappedValue = $0 != .detailOnly }
+        )) {
+            EditorProjectBrowser(projects: studio.listedProjects, selectedID: studio.selectedID,
+                grid: $projectGrid, busy: studio.busy, summaryEditing: editorShortcutActions.summaryEditing,
+                openHere: switchProject, openNewWindow: openProjectInNewWindow,
+                removeFromList: removeProjectFromList, delete: deleteProject)
+                .navigationSplitViewColumnWidth(min: 220, ideal: 260, max: 340)
+                .toolbar(removing: .sidebarToggle)
+        } detail: {
         VStack(spacing: 0) {
             if !studio.hasApiKey {
                 HStack(spacing: 12) {
@@ -653,6 +666,7 @@ struct ProjectEditorWindow: View {
             }
         }
         }
+        .navigationSplitViewStyle(.balanced)
         .inspector(isPresented: $showInspector) {
             ProcessingInspector(
                 studio: studio,
@@ -671,7 +685,7 @@ struct ProjectEditorWindow: View {
         .smoothPresentation()
         .background(WindowFitter().frame(width: 0, height: 0))
         .focusedSceneValue(\.projectBrowser, ProjectBrowserActions(
-            showProjects: $showProjects,
+            showProjects: projectBrowserVisibility,
             showInspector: $showInspector,
             grid: $projectGrid,
             hasProject: studio.selected != nil,
@@ -701,7 +715,7 @@ struct ProjectEditorWindow: View {
                 }
             }
             ToolbarItem(placement: .navigation) {
-                Button(showProjects ? "Hide Project List" : "Show Project List", systemImage: "sidebar.left") { showProjects.toggle() }
+                Button(showProjects ? "Hide Project List" : "Show Project List", systemImage: "sidebar.left") { projectBrowserVisibility.wrappedValue.toggle() }
                     .labelStyle(.iconOnly)
                     .help(showProjects ? "Hide the project list" : "Show projects to switch in this window")
             }
