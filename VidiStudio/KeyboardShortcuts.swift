@@ -314,6 +314,13 @@ struct StudioCommands: Commands {
             }
             .keyboardShortcut("e", modifiers: [.command, .shift])
             .disabled(editor?.available != true || editor?.exportHandler == nil)
+            Divider()
+            Button("Remove from List", systemImage: "minus.circle") {
+                browser?.run("remove-from-list")
+            }
+            .accessibilityIdentifier("remove-from-list")
+            .disabled(browser?.canRemoveFromList != true)
+            .help("Remove the selected project from this list while keeping its files in place.")
         }
         CommandGroup(after: .sidebar) {
             Button(editor?.previewHidden == true ? "Show Preview" : "Hide Preview", systemImage: editor?.previewHidden == true ? "video" : "video.slash") {

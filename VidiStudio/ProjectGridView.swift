@@ -127,11 +127,23 @@ private struct ProjectThumbnail: View {
     }
 }
 
+@MainActor
 struct ProjectBrowserActions {
     var showProjects: Binding<Bool>?
     var showInspector: Binding<Bool>?
     var grid: Binding<Bool>?
     var hasProject: Bool
+    var listModel: StudioModel? = nil
+
+    var canRemoveFromList: Bool {
+        guard let model = listModel, !model.busy, let project = model.selected, project.folder != nil else { return false }
+        return model.listedProjects.contains { $0.id == project.id }
+    }
+    func run(_ command: String) {
+        guard command == "remove-from-list", canRemoveFromList,
+              let model = listModel, let project = model.selected else { return }
+        model.removeProjectFromList(project)
+    }
 }
 private struct ProjectBrowserKey: FocusedValueKey { typealias Value = ProjectBrowserActions }
 extension FocusedValues {

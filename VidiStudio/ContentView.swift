@@ -429,7 +429,8 @@ struct ContentView: View {
             showProjects: nil,
             showInspector: nil,
             grid: $projectGrid,
-            hasProject: false
+            hasProject: false,
+            listModel: studio
         ))
         .preferredColorScheme(studio.settings.theme == "dark" ? .dark : studio.settings.theme == "light" ? .light : nil)
         .sheet(isPresented: $renaming) {

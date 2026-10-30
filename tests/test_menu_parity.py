@@ -31,6 +31,19 @@ class DesktopMenuParity(unittest.TestCase):
             with self.assertRaises(ValueError):
                 self.checker.compare_project_list_context_actions(*sources)
 
+    def test_remove_from_list_file_menu_uses_gallery_selection(self):
+        self.assertIn('browser?.run("remove-from-list")', self.mac)
+        self.assertIn('.disabled(browser?.canRemoveFromList != true)', self.mac)
+        self.assertIn('Command("remove-from-list")', self.windows)
+        self.assertIn('if (id == "remove-from-list") return SelectedGalleryProject() != null;', self.windows)
+        self.assertIn('if (SelectedGalleryProject() is { } listedProject) RemoveProjectFromList(listedProject);', self.windows)
+        self.assertIn('if (desktopEditorVisible || GalleryPanel.Visibility != Visibility.Visible) return null;', self.windows)
+        for source, replacement in ((self.mac, self.mac.replace('browser?.run("remove-from-list")', 'browser?.run("other")')),
+                                    (self.windows, self.windows.replace('Command("remove-from-list")', 'Separator()'))):
+            with self.assertRaises(ValueError):
+                self.checker.compare_sources(replacement if source is self.mac else self.mac, self.app,
+                                             replacement if source is self.windows else self.windows)
+
     def test_actual_menus_and_shortcuts_match(self):
         self.assertGreater(self.checker.compare_sources(self.mac, self.app, self.windows), 30)
 
