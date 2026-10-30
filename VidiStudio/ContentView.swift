@@ -385,7 +385,7 @@ struct ContentView: View {
 
     var body: some View {
         ProjectBrowserPage(
-            projects: studio.projects,
+            projects: studio.listedProjects,
             search: $search,
             sourceFilter: $sourceFilter,
             grid: $projectGrid,
@@ -410,10 +410,14 @@ struct ContentView: View {
             openEditor: openEditor,
             rename: { p in studio.selectedID = p.id; rename = p.name; renaming = true },
             delete: { studio.confirmTrashProject($0) },
+            removeFromList: { studio.removeProjectFromList($0) },
             process: { p, command in studio.selectedID = p.id; studio.execute(command, project: p) },
             export: { exportProject = $0 },
             clear: { deletionProject = $0 }
         )
+        .onReceive(NotificationCenter.default.publisher(for: ProjectListVisibility.didChange)) { _ in
+            studio.reload()
+        }
         .safeAreaInset(edge: .top, spacing: 0) {
             VStack(spacing: 0) {
                 AIServiceIssueBanner(studio: studio)

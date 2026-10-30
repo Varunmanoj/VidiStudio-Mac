@@ -13,6 +13,7 @@ struct ProjectGridView: View {
     let open: (StudioProject) -> Void
     let rename: (StudioProject) -> Void
     let delete: (StudioProject) -> Void
+    let removeFromList: (StudioProject) -> Void
     let process: (StudioProject, String) -> Void
     let export: (StudioProject) -> Void
     let clear: (StudioProject) -> Void
@@ -72,6 +73,10 @@ struct ProjectGridView: View {
                             export(project)
                         }
                         .disabled(project.integrityPlaceholder == true)
+                        Button("Remove from List", systemImage: "minus.circle") { removeFromList(project) }
+                            .accessibilityIdentifier("remove-from-list")
+                            .help("Remove this entry from the list. The project files stay in their folder. Use Open Project to add it again.")
+                            .disabled(busy)
                         Divider()
                         Button("Choose Content to Delete…", systemImage: "eraser", role: .destructive) { clear(project) }.disabled(busy || project.integrityPlaceholder == true || !project.hasGeneratedContent)
                         Button("Delete Project…", systemImage: "trash", role: .destructive) { delete(project) }.disabled(busy)

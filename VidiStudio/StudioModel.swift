@@ -1390,6 +1390,13 @@ final class OpenProjectRegistry {
 final class StudioModel {
     static let defaultErrorTitle = "VidiStudio Couldn’t Finish"
     var projects: [StudioProject] = []
+    private var removedProjectFolders = ProjectListVisibility().removedFolders
+    var listedProjects: [StudioProject] {
+        projects.filter { project in
+            guard let folder = project.folder else { return true }
+            return !removedProjectFolders.contains(folder.standardizedFileURL.path)
+        }
+    }
     /// Latest integrity audit for every project currently shown, including
     /// in-memory damaged placeholders whose project.json cannot be decoded.
     var projectIntegrity: [String: ProjectIntegrityReport] = [:]
@@ -1791,6 +1798,7 @@ final class StudioModel {
         }
     }
     func reload() {
+        removedProjectFolders = ProjectListVisibility().removedFolders
         let root = URL(fileURLWithPath: settings.libraryPath).standardizedFileURL
         let previous = selected?.folder?.standardizedFileURL
         var candidates: [URL: Bool] = [:]
@@ -2091,6 +2099,14 @@ final class StudioModel {
         }
     }
 
+    func removeProjectFromList(_ project: StudioProject) {
+        guard !busy, let folder = project.folder else { return }
+        var visibility = ProjectListVisibility()
+        visibility.remove(folder)
+        removedProjectFolders = visibility.removedFolders
+        if selectedID == project.id { selectedID = nil }
+    }
+
     func confirmTrashProject(_ project: StudioProject) {
         guard !busy, project.folder != nil else { return }
         let folderExists = project.folder.map { FileManager.default.fileExists(atPath: $0.path) } ?? false
@@ -2258,6 +2274,9 @@ final class StudioModel {
             do {
                 var p = try JSONDecoder().decode(StudioProject.self, from: Data(contentsOf: folder.appendingPathComponent("project.json")))
                 p.folder = folder
+                var visibility = ProjectListVisibility()
+                visibility.restore(folder)
+                removedProjectFolders = visibility.removedFolders
                 var recent = UserDefaults.standard.stringArray(forKey: "recentProjectFolders") ?? []
                 recent.removeAll { $0 == folder.path }; recent.insert(folder.path, at: 0)
                 UserDefaults.standard.set(Array(recent.prefix(50)), forKey: "recentProjectFolders")
