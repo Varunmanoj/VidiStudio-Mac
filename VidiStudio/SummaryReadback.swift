@@ -1236,6 +1236,21 @@ struct SummaryReaderView: View {
 
     var body: some View {
         VStack(spacing: 0) {
+            if let origin {
+                HStack(spacing: 6) {
+                    Image(systemName: origin.iconName).accessibilityHidden(true)
+                    Text("Source: \(origin.title)")
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+                .font(.caption.weight(.semibold))
+                .foregroundStyle(origin.color)
+                .frame(maxWidth: .infinity, alignment: .trailing)
+                .padding(.horizontal, 16)
+                .padding(.top, 10)
+                .help("Summary source: \(origin.title)")
+                .accessibilityElement(children: .ignore)
+                .accessibilityLabel("Summary source: \(origin.title)")
+            }
             readbackControls
             Divider()
             if let error = model.error {
@@ -1272,17 +1287,6 @@ struct SummaryReaderView: View {
 
     private var readbackControls: some View {
         HStack(spacing: 12) {
-            if let origin {
-                HStack(spacing: 4) {
-                    Image(systemName: origin.iconName).accessibilityHidden(true)
-                    Text(origin.title)
-                }
-                .font(.caption.weight(.semibold))
-                .foregroundStyle(origin.color)
-                .help("Whole-summary provenance: \(origin.title)")
-                .accessibilityElement(children: .ignore)
-                .accessibilityLabel("Summary origin: \(origin.title)")
-            }
             Text(model.progressLabel)
                 .font(.callout)
                 .foregroundStyle(.secondary)
