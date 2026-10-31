@@ -113,25 +113,22 @@ struct SettingsView: View {
     var body: some View {
         NavigationSplitView {
             List(sections, id: \.self, selection: $studio.settingsSection) { item in
-                HStack(spacing: 10) {
-                    Image(systemName: sectionIcons[item] ?? "gearshape")
-                        .foregroundStyle(
-                            Color(nsColor: item == section ? .alternateSelectedControlTextColor : .labelColor)
-                        )
-                        .frame(width: 18)
-
+                Label {
                     Text(item)
-                        .lineLimit(1)
-                        .truncationMode(.tail)
-                        .layoutPriority(1)
+                } icon: {
+                    Image(systemName: sectionIcons[item] ?? "gearshape")
+                        .frame(width: 20, height: 20)
+                        .accessibilityHidden(true)
                 }
-                .help(item)
-                .tag(item)
+                    .labelStyle(.titleAndIcon)
+                    .padding(.vertical, 2)
+                    .help(item)
+                    .tag(item)
             }
                 .listStyle(.sidebar)
                 .tint(Color(nsColor: .controlAccentColor))
                 .navigationTitle("Settings")
-                .navigationSplitViewColumnWidth(min: 220, ideal: 280, max: 380)
+                .navigationSplitViewColumnWidth(min: 210, ideal: 240, max: 300)
         } detail: {
         Form {
             if section == "About" { AboutSettingsView() }
@@ -141,86 +138,7 @@ struct SettingsView: View {
                     .animation(interfaceAnimation, value: shortcutReferenceExpanded)
             }
             }
-            if section == "Appearance" {
-                Section("Appearance and playback") {
-                Picker("Appearance", selection: $studio.settings.theme) {
-                    Label("System", systemImage: "desktopcomputer").tag("system"); Label("Light", systemImage: "sun.max").tag("light"); Label("Dark", systemImage: "moon").tag("dark")
-                }
-                Picker("Transcript overlay", selection: $studio.settings.captionDisplayMode) {
-                    Text("Off").tag("off")
-                    Text("Transcript").tag("transcript")
-                    Text("AD Transcript").tag("ad-transcript")
-                }
-                .accessibilityHint("Choose whether video previews show no app transcript, spoken dialogue, or dialogue and audio descriptions")
-                Text("Uses this project's transcript. macOS Captions preference can turn it on automatically.")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-                GroupBox("Caption appearance") {
-                    VStack(alignment: .leading, spacing: 12) {
-                        LabeledContent("Text size") {
-                            HStack {
-                                Slider(value: $studio.settings.captionFontSize, in: 14...48, step: 1)
-                                    .frame(minWidth: 220)
-                                    .accessibilityLabel("Caption text size")
-                                    .accessibilityValue("\(Int(studio.settings.captionFontSize)) points")
-                                Text("\(Int(studio.settings.captionFontSize)) pt")
-                                    .monospacedDigit()
-                                    .foregroundStyle(.secondary)
-                                    .frame(width: 48, alignment: .trailing)
-                            }
-                        }
-                        GroupBox("Dialogue captions") {
-                            VStack(alignment: .leading, spacing: 10) {
-                                ColorPicker("Dialogue text color", selection: captionColorBinding(\.captionTextColor))
-                                    .accessibilityHint("Changes dialogue caption text in the video preview and future open-caption exports")
-                                ColorPicker("Dialogue background color", selection: captionColorBinding(\.captionBackgroundColor))
-                                    .accessibilityHint("Changes dialogue caption backgrounds in the video preview and future open-caption exports")
-                            }
-                            .padding(.vertical, 2)
-                        }
-                        GroupBox("Audio description captions") {
-                            VStack(alignment: .leading, spacing: 10) {
-                                ColorPicker("Audio description text color", selection: captionColorBinding(\.adCaptionTextColor))
-                                    .accessibilityHint("Changes audio description caption text in the video preview and future AD Transcript open-caption exports")
-                                ColorPicker("Audio description background color", selection: captionColorBinding(\.adCaptionBackgroundColor))
-                                    .accessibilityHint("Changes audio description caption backgrounds in the video preview and future AD Transcript open-caption exports")
-                            }
-                            .padding(.vertical, 2)
-                        }
-                        LabeledContent("Background opacity") {
-                            HStack {
-                                Slider(value: $studio.settings.captionBackgroundOpacity, in: 0...1, step: 0.05)
-                                    .frame(minWidth: 220)
-                                    .accessibilityLabel("Caption background opacity")
-                                    .accessibilityValue(studio.settings.captionBackgroundOpacity.formatted(.percent.precision(.fractionLength(0))))
-                                Text(studio.settings.captionBackgroundOpacity, format: .percent.precision(.fractionLength(0)))
-                                    .monospacedDigit()
-                                    .foregroundStyle(.secondary)
-                                    .frame(width: 48, alignment: .trailing)
-                            }
-                        }
-                        Picker("Position", selection: $studio.settings.captionPosition) {
-                            Text("Top").tag("top")
-                            Text("Bottom").tag("bottom")
-                        }
-                        .pickerStyle(.segmented)
-                        CaptionAppearancePreview(settings: studio.settings)
-                        Button("Restore Caption Defaults", systemImage: "arrow.counterclockwise") {
-                            studio.settings.restoreCaptionAppearanceDefaults()
-                        }
-                        .accessibilityHint("Restores caption size, colors, opacity, and position")
-                    }
-                    .padding(.vertical, 4)
-                }
-            }
-                Section("Advanced") {
-                    Toggle("Developer mode", isOn: $studio.settings.developerMode)
-                        .accessibilityHint("Shows Developer prompts in Settings so advanced users can edit the instructions and output requirements sent to Gemini models")
-                    Text("Shows Developer prompts and the advanced executable-path overrides in Narration and Storage.")
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-                }
-            }
+            if section == "Appearance" { appearanceSections }
             if section == "Projects" {
                 if openProjects.projects.isEmpty {
                     Section("Open projects") {
@@ -240,71 +158,63 @@ struct SettingsView: View {
                 }
             }
             if section == "Gemini API" { GeminiAPISettingsView(studio: studio) }
-            if section == "Narration" { Section("Narration") {
-                Picker("Speech engine", selection: $studio.settings.ttsMode) {
-                    Label("Apple Voices", systemImage: "speaker.wave.2").tag("system")
-                    Label("Piper Voices", systemImage: "waveform.circle").tag("piper")
-                    Label("Gemini Voices", systemImage: "sparkles").tag("gemini")
+            if section == "Narration" {
+                Section("Narration") {
+                    Picker("Speech engine", selection: $studio.settings.ttsMode) {
+                        Label("Apple Voices", systemImage: "speaker.wave.2").tag("system")
+                        Label("Piper Voices", systemImage: "waveform.circle").tag("piper")
+                        Label("Gemini Voices", systemImage: "sparkles").tag("gemini")
+                    }
+                    Picker("Narration during playback", selection: $studio.settings.narrationPlayback) {
+                        Label("Play synthesized narration", systemImage: "play.circle").tag("generated")
+                        Label("Preview segment text with the selected voice", systemImage: "text.bubble").tag("device")
+                    }
+                    Toggle("Sound when narration is off", isOn: $studio.settings.soundWhenNarrationOff)
+                    Toggle("Sound when synthesized audio is unavailable", isOn: $studio.settings.soundWhenNarrationMissing)
                 }
-                Picker("Narration during playback", selection: $studio.settings.narrationPlayback) {
-                    Label("Play synthesized narration", systemImage: "play.circle").tag("generated")
-                    Label("Preview segment text with the selected voice", systemImage: "text.bubble").tag("device")
-                }
-                Toggle("Sound when narration is off", isOn: $studio.settings.soundWhenNarrationOff)
-                Toggle("Sound when synthesized audio is unavailable", isOn: $studio.settings.soundWhenNarrationMissing)
                 if studio.settings.ttsMode == "gemini" {
                     GeminiVoiceBrowser(studio: studio)
                 }
                 if studio.settings.ttsMode == "piper" {
-                    GroupBox("Voice controls") {
-                        VStack(alignment: .leading, spacing: 14) {
-                            speechSlider("Speech rate", value: $studio.settings.systemSpeechRate, range: 0.5...2.0)
-                            speechSlider("Pitch", value: $studio.settings.systemSpeechPitch, range: 0.5...2.0)
-                            speechSlider("Speech volume", value: $studio.settings.systemSpeechVolume, range: 0...1.0)
-                            Button("Restore Defaults", systemImage: "arrow.counterclockwise") {
-                                studio.settings.restoreSystemSpeechDefaults()
-                            }
-                            .accessibilityHint("Restores speech rate, pitch, and volume to their original values")
+                    Section("Voice controls") {
+                        speechSlider("Speech rate", value: $studio.settings.systemSpeechRate, range: 0.5...2.0)
+                        speechSlider("Pitch", value: $studio.settings.systemSpeechPitch, range: 0.5...2.0)
+                        speechSlider("Speech volume", value: $studio.settings.systemSpeechVolume, range: 0...1.0)
+                        Button("Restore Defaults", systemImage: "arrow.counterclockwise") {
+                            studio.settings.restoreSystemSpeechDefaults()
                         }
-                        .padding(.vertical, 4)
+                        .accessibilityHint("Restores speech rate, pitch, and volume to their original values")
                     }
                     PiperVoiceSettingsView(settings: $studio.settings)
                 }
                 if studio.settings.ttsMode == "system" {
-                    GroupBox("Voice controls") {
-                        VStack(alignment: .leading, spacing: 14) {
-                            speechSlider("Speech rate", value: $studio.settings.systemSpeechRate, range: 0.5...2.0)
-                            speechSlider("Pitch", value: $studio.settings.systemSpeechPitch, range: 0.5...2.0)
-                            speechSlider("Speech volume", value: $studio.settings.systemSpeechVolume, range: 0...1.0)
-                            Button("Restore Defaults", systemImage: "arrow.counterclockwise") {
-                                studio.settings.restoreSystemSpeechDefaults()
-                            }
-                            .accessibilityHint("Restores speech rate, pitch, and volume to their original values")
+                    Section("Voice controls") {
+                        speechSlider("Speech rate", value: $studio.settings.systemSpeechRate, range: 0.5...2.0)
+                        speechSlider("Pitch", value: $studio.settings.systemSpeechPitch, range: 0.5...2.0)
+                        speechSlider("Speech volume", value: $studio.settings.systemSpeechVolume, range: 0...1.0)
+                        Button("Restore Defaults", systemImage: "arrow.counterclockwise") {
+                            studio.settings.restoreSystemSpeechDefaults()
                         }
-                        .padding(.vertical, 4)
+                        .accessibilityHint("Restores speech rate, pitch, and volume to their original values")
                     }
                     SystemVoiceBrowser(settings: $studio.settings)
                 }
-                GroupBox("Summary readback") {
-                    VStack(alignment: .leading, spacing: 10) {
-                        Text("Reads the summary aloud and highlights the active sentence and word.")
-                            .font(.caption).foregroundStyle(.secondary)
-                        Text("Uses the selected Apple or Piper voice and the speech controls above.")
-                            .font(.caption).foregroundStyle(.secondary)
-                        ColorPicker("Sentence highlight", selection: summaryColorBinding(\.summarySentenceHighlight))
-                            .accessibilityLabel("Sentence highlight background color")
-                            .accessibilityHint("Background color used for the summary text being read")
-                        ColorPicker("Spoken word highlight", selection: summaryColorBinding(\.summaryWordHighlight))
-                            .accessibilityLabel("Spoken word highlight background color")
-                            .accessibilityHint("Background color used for the word currently spoken in the summary")
-                        Button("Restore Highlight Defaults", systemImage: "arrow.counterclockwise") {
-                            studio.settings.restoreSummaryHighlightDefaults()
-                        }
-                        .accessibilityHint("Restores the summary text and word highlight colors")
+                Section("Summary readback") {
+                    Text("Reads the summary aloud and highlights the active sentence and word.")
+                    .font(.caption).foregroundStyle(.secondary)
+                    Text("Uses the selected Apple or Piper voice and the speech controls above.")
+                    .font(.caption).foregroundStyle(.secondary)
+                    ColorPicker("Sentence highlight", selection: summaryColorBinding(\.summarySentenceHighlight))
+                    .accessibilityLabel("Sentence highlight background color")
+                    .accessibilityHint("Background color used for the summary text being read")
+                    ColorPicker("Spoken word highlight", selection: summaryColorBinding(\.summaryWordHighlight))
+                    .accessibilityLabel("Spoken word highlight background color")
+                    .accessibilityHint("Background color used for the word currently spoken in the summary")
+                    Button("Restore Highlight Defaults", systemImage: "arrow.counterclockwise") {
+                        studio.settings.restoreSummaryHighlightDefaults()
                     }
-                    .padding(.vertical, 4)
+                    .accessibilityHint("Restores the summary text and word highlight colors")
                 }
-            }
             }
             if section == "Developer prompts" { Section("Developer prompts") {
                 ForEach(orderedPromptStages, id: \.self) { stage in
@@ -407,7 +317,8 @@ struct SettingsView: View {
         .safeAreaInset(edge: .top, spacing: 0) {
             AIServiceIssueBanner(studio: studio)
         }
-        .frame(minWidth: 850, idealWidth: 940, minHeight: 650, idealHeight: 740)
+        .frame(minWidth: 800, idealWidth: 980, minHeight: 520, idealHeight: 740)
+        .background(SettingsWindowChrome().frame(width: 0, height: 0))
         .smoothPresentation()
         .onChange(of: studio.settings.ffmpegPath) { _, _ in studio.engineCheckStatus = .unchecked }
         .onChange(of: studio.settings.ffprobePath) { _, _ in studio.engineCheckStatus = .unchecked }
@@ -446,6 +357,85 @@ struct SettingsView: View {
         .preferredColorScheme(studio.settings.theme == "dark" ? .dark : studio.settings.theme == "light" ? .light : nil)
     }
 
+    @ViewBuilder
+    private var appearanceSections: some View {
+        Section {
+            Picker("Appearance", selection: $studio.settings.theme) {
+                Label("System", systemImage: "desktopcomputer").tag("system")
+                Label("Light", systemImage: "sun.max").tag("light")
+                Label("Dark", systemImage: "moon").tag("dark")
+            }
+            Picker("Transcript overlay", selection: $studio.settings.captionDisplayMode) {
+                Text("Off").tag("off")
+                Text("Transcript").tag("transcript")
+                Text("AD Transcript").tag("ad-transcript")
+            }
+            .accessibilityHint("Choose whether video previews show no app transcript, spoken dialogue, or dialogue and audio descriptions")
+        } header: {
+            Text("Appearance and playback")
+        } footer: {
+            Text("Uses this project's transcript. macOS Captions preference can turn it on automatically.")
+        }
+        Section("Caption appearance") {
+            LabeledContent("Text size") {
+                HStack {
+                    Slider(value: $studio.settings.captionFontSize, in: 14...48, step: 1)
+                        .frame(minWidth: 100, idealWidth: 220, maxWidth: 280)
+                        .accessibilityLabel("Caption text size")
+                        .accessibilityValue("\(Int(studio.settings.captionFontSize)) points")
+                    Text("\(Int(studio.settings.captionFontSize)) pt")
+                        .monospacedDigit()
+                        .foregroundStyle(.secondary)
+                        .frame(width: 48, alignment: .trailing)
+                }
+            }
+        }
+        Section("Dialogue captions") {
+            ColorPicker("Dialogue text color", selection: captionColorBinding(\.captionTextColor))
+                .accessibilityHint("Changes dialogue caption text in the video preview and future open-caption exports")
+            ColorPicker("Dialogue background color", selection: captionColorBinding(\.captionBackgroundColor))
+                .accessibilityHint("Changes dialogue caption backgrounds in the video preview and future open-caption exports")
+        }
+        Section("Audio description captions") {
+            ColorPicker("Audio description text color", selection: captionColorBinding(\.adCaptionTextColor))
+                .accessibilityHint("Changes audio description caption text in the video preview and future AD Transcript open-caption exports")
+            ColorPicker("Audio description background color", selection: captionColorBinding(\.adCaptionBackgroundColor))
+                .accessibilityHint("Changes audio description caption backgrounds in the video preview and future AD Transcript open-caption exports")
+        }
+        Section("Caption placement and preview") {
+            LabeledContent("Background opacity") {
+                HStack {
+                    Slider(value: $studio.settings.captionBackgroundOpacity, in: 0...1, step: 0.05)
+                        .frame(minWidth: 100, idealWidth: 220, maxWidth: 280)
+                        .accessibilityLabel("Caption background opacity")
+                        .accessibilityValue(studio.settings.captionBackgroundOpacity.formatted(.percent.precision(.fractionLength(0))))
+                    Text(studio.settings.captionBackgroundOpacity, format: .percent.precision(.fractionLength(0)))
+                        .monospacedDigit()
+                        .foregroundStyle(.secondary)
+                        .frame(width: 48, alignment: .trailing)
+                }
+            }
+            Picker("Position", selection: $studio.settings.captionPosition) {
+                Text("Top").tag("top")
+                Text("Bottom").tag("bottom")
+            }
+            .pickerStyle(.segmented)
+            CaptionAppearancePreview(settings: studio.settings)
+            Button("Restore Caption Defaults", systemImage: "arrow.counterclockwise") {
+                studio.settings.restoreCaptionAppearanceDefaults()
+            }
+            .accessibilityHint("Restores caption size, colors, opacity, and position")
+        }
+        Section {
+            Toggle("Developer mode", isOn: $studio.settings.developerMode)
+                .accessibilityHint("Shows project configuration controls, Developer prompts, and advanced tool paths")
+        } header: {
+            Text("Advanced")
+        } footer: {
+            Text("Shows project configuration controls, Developer prompts, and advanced executable-path overrides in Narration and Storage.")
+        }
+    }
+
     private func summaryColorBinding(_ keyPath: WritableKeyPath<StudioSettings, String>) -> Binding<Color> {
         Binding(
             get: { SummaryHighlightColor.color(from: studio.settings[keyPath: keyPath]) },
@@ -461,17 +451,17 @@ struct SettingsView: View {
     }
 
     private func speechSlider(_ title: String, value: Binding<Double>, range: ClosedRange<Double>) -> some View {
-        VStack(alignment: .leading, spacing: 5) {
+        LabeledContent(title) {
             HStack {
-                Text(title)
-                Spacer()
+                Slider(value: value, in: range, step: 0.05)
+                    .frame(minWidth: 100, idealWidth: 220, maxWidth: 280)
+                    .accessibilityLabel(title)
+                    .accessibilityValue(value.wrappedValue.formatted(.percent.precision(.fractionLength(0))))
                 Text(value.wrappedValue, format: .percent.precision(.fractionLength(0)))
                     .foregroundStyle(.secondary)
                     .monospacedDigit()
+                    .frame(width: 48, alignment: .trailing)
             }
-            Slider(value: value, in: range, step: 0.05)
-                .accessibilityLabel(title)
-                .accessibilityValue(value.wrappedValue.formatted(.percent.precision(.fractionLength(0))))
         }
     }
 }

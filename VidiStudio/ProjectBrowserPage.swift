@@ -45,6 +45,7 @@ struct ProjectAnalysisMenu: View {
 }
 
 struct ProjectBrowserPage: View {
+    let studio: StudioModel
     let projects: [StudioProject]
     @Binding var search: String
     @Binding var sourceFilter: ProjectSourceFilter
@@ -172,6 +173,7 @@ struct ProjectBrowserPage: View {
                 }
             } else if grid {
                 ProjectGridView(
+                    studio: studio,
                     projects: filteredProjects,
                     selection: $selection,
                     busy: busy,
@@ -343,10 +345,10 @@ struct ProjectBrowserPage: View {
         Button("Open in Project Folder", systemImage: "folder") {
             if let folder = project.folder { NSWorkspace.shared.open(folder) }
         }
-        Button("Open Project Configuration", systemImage: "doc.text") {
-            guard let url = project.folder?.appendingPathComponent("project.json"),
-                  FileManager.default.fileExists(atPath: url.path) else { return }
-            NSWorkspace.shared.open(url)
+        if studio.settings.developerMode {
+            Button("Open Project Configuration", systemImage: "doc.text") {
+                openProjectConfiguration(project, studio: studio)
+            }
         }
         ProjectAnalysisMenu(project: project, busy: busy, hasApiKey: hasApiKey, apiKeyVerified: apiKeyVerified, aiProcessingBlocked: aiProcessingBlocked) { command in
             process(project, command)

@@ -80,7 +80,7 @@ struct VidiStudioApp: App {
                 Button("Open Project Folder…", systemImage: "folder") { studio.openProject() }.keyboardShortcut("o", modifiers: [.command, .shift]).disabled(studio.busy)
             }
         }
-        .commands { StudioCommands() }
+        .commands { StudioCommands(studio: studio) }
         WindowGroup("Project Editor", id: "project-editor", for: String.self) { $projectID in
             if let value = projectID {
                 ProjectEditorWindow(projectID: ProjectEditorWindowValue.projectID(from: value), windowProjectID: $projectID, openProjects: openProjects)
@@ -90,6 +90,8 @@ struct VidiStudioApp: App {
         }
         .defaultSize(width: 1200, height: 780)
         .windowToolbarStyle(.automatic)
-        Settings { SettingsView(studio: studio, openProjects: openProjects) }.windowToolbarStyle(.automatic)
+        Settings { SettingsView(studio: studio, openProjects: openProjects) }
+            .windowToolbarStyle(.unifiedCompact)
+            .defaultSize(width: 980, height: 740)
     }
 }

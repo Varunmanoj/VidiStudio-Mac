@@ -23,6 +23,8 @@ import SwiftUI
 struct StudioProject { var id: String; var name: String; var folder: URL?; var integrityPlaceholder: Bool? = false }
 struct Report { var manifestUnreadable = false; var folderMissing = false }
 @MainActor final class StudioModel {
+    struct Settings { var developerMode = false }
+    var settings = Settings()
     var busy = false
     var selected: StudioProject?
     var selectedID: String?

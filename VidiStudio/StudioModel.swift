@@ -2123,7 +2123,7 @@ final class StudioModel {
             return project.integrityPlaceholder != true && !report.manifestUnreadable && !report.folderMissing
         case "trash-project": return true
         case "show-in-finder": return FileManager.default.fileExists(atPath: folder.path)
-        case "open-configuration": return FileManager.default.fileExists(atPath: folder.appendingPathComponent("project.json").path)
+        case "open-configuration": return settings.developerMode && FileManager.default.fileExists(atPath: folder.appendingPathComponent("project.json").path)
         default: return false
         }
     }
@@ -2357,6 +2357,7 @@ final class StudioModel {
         loadGeminiModels()
     }
     func deleteGeminiApiKey() {
+        guard hasApiKey, !busy else { return }
         settings.apiKey = ""
         KeychainStore.delete()
         aiServiceIssue = nil

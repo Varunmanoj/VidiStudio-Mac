@@ -302,6 +302,7 @@ struct StudioShortcut: Identifiable {
     ]
 }
 struct StudioCommands: Commands {
+    let studio: StudioModel
     @FocusedValue(\.projectBrowser) private var browser
     @FocusedValue(\.editorShortcuts) private var editor
     @Environment(\.openWindow) private var openWindow
@@ -500,8 +501,10 @@ struct StudioCommands: Commands {
             }
             Button("Show Project in Finder", systemImage: "folder") { browser?.run("show-in-finder") }
                 .disabled(browser?.canRun("show-in-finder") != true)
-            Button("Open Project Configuration", systemImage: "doc.text") { browser?.run("open-configuration") }
-                .disabled(browser?.canRun("open-configuration") != true)
+            if studio.settings.developerMode {
+                Button("Open Project Configuration", systemImage: "doc.text") { browser?.run("open-configuration") }
+                    .disabled(browser?.canRun("open-configuration") != true)
+            }
             Divider()
             Button("Rename Project…", systemImage: "pencil") { browser?.run("rename-project") }
                 .disabled(browser?.canRun("rename-project") != true)

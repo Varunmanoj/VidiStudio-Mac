@@ -41,6 +41,16 @@ struct GeminiAPISettingsView: View {
     @Environment(\.openURL) private var openURL
     @State private var keyDebounceTask: Task<Void, Never>?
     @State private var showingDeleteConfirmation = false
+    @State private var apiKey: String
+
+    init(studio: StudioModel) {
+        self.studio = studio
+        _apiKey = State(initialValue: studio.settings.apiKey)
+    }
+
+    private var hasApiKey: Bool {
+        !apiKey.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+    }
 
     private let apiKeyPage = URL(string: "https://aistudio.google.com/api-keys")!
 
@@ -59,7 +69,7 @@ struct GeminiAPISettingsView: View {
 
     var body: some View {
         Section("Connect to Gemini") {
-            if !studio.hasApiKey {
+            if !hasApiKey {
                 HStack(alignment: .top, spacing: 10) {
                     Image(systemName: "exclamationmark.triangle.fill")
                         .foregroundStyle(.orange)
@@ -76,15 +86,17 @@ struct GeminiAPISettingsView: View {
                 .background(Color.orange.opacity(0.12), in: RoundedRectangle(cornerRadius: 8))
             }
             HStack(spacing: 8) {
-                SecureField("API key", text: $studio.settings.apiKey)
+                SecureField("API key", text: $apiKey)
                     .accessibilityHint("Enter the key from your Google AI Studio account.")
                     .onSubmit {
                         keyDebounceTask?.cancel()
-                        if studio.hasApiKey {
+                        if hasApiKey {
                             studio.checkGeminiApiKey()
                         }
                     }
-                    .onChange(of: studio.settings.apiKey) { _, newValue in
+                    .onAppear { apiKey = studio.settings.apiKey }
+                    .onChange(of: apiKey) { _, newValue in
+                        studio.settings.apiKey = newValue
                         keyDebounceTask?.cancel()
                         let trimmed = newValue.trimmingCharacters(in: .whitespacesAndNewlines)
                         guard !trimmed.isEmpty else {
@@ -100,22 +112,28 @@ struct GeminiAPISettingsView: View {
                         }
                     }
 
-                Button(role: .destructive) {
-                    showingDeleteConfirmation = true
-                } label: {
-                    Image(systemName: "trash")
-                        .foregroundStyle(studio.hasApiKey ? Color.red : Color.secondary)
+                if hasApiKey {
+                    Button(role: .destructive) {
+                        guard hasApiKey, !studio.busy else { return }
+                        showingDeleteConfirmation = true
+                    } label: {
+                        Image(systemName: "trash")
+                            .foregroundStyle(.red)
+                    }
+                    .buttonStyle(.borderless)
+                    .disabled(studio.busy)
+                    .help("Delete API key from Keychain")
+                    .accessibilityLabel("Delete Gemini API key")
                 }
-                .buttonStyle(.borderless)
-                .disabled(!studio.hasApiKey || studio.busy)
-                .help("Delete API key from Keychain")
-                .accessibilityLabel("Delete Gemini API key")
             }
             .alert("Delete Gemini API Key?", isPresented: $showingDeleteConfirmation) {
                 Button("Delete API Key", role: .destructive) {
+                    guard hasApiKey, !studio.busy else { return }
                     keyDebounceTask?.cancel()
                     studio.deleteGeminiApiKey()
+                    apiKey = ""
                 }
+                .disabled(!hasApiKey || studio.busy)
                 Button("Cancel", role: .cancel) {}
             } message: {
                 Text("Are you sure you want to delete your Gemini API key from macOS Keychain? You will need to enter a new key to use AI features.")
@@ -129,7 +147,7 @@ struct GeminiAPISettingsView: View {
                 Button(studio.geminiModelsLoaded ? "Check API Key & Reload Models" : "Check API Key & Plan", systemImage: "arrow.clockwise") {
                     studio.checkGeminiApiKey()
                 }
-                .disabled(studio.busy || !studio.hasApiKey)
+                .disabled(studio.busy || !hasApiKey)
                 .accessibilityHint("Checks the validity of your Gemini API key and detects available models and plan tier.")
             }
 
@@ -174,19 +192,19 @@ struct GeminiAPISettingsView: View {
                     .padding(10)
                     .background(Color.red.opacity(0.12), in: RoundedRectangle(cornerRadius: 8))
                 }
-            } else if studio.hasApiKey {
+            } else if hasApiKey {
                 Text("Check your key to load compatible models.")
                     .font(.caption)
                     .foregroundStyle(.secondary)
             }
         }
         .onAppear {
-            if studio.hasApiKey && studio.apiKeyVerified == nil && !studio.busy {
+            if hasApiKey && studio.apiKeyVerified == nil && !studio.busy {
                 studio.checkGeminiApiKey()
             }
         }
 
-        if studio.hasApiKey {
+        if hasApiKey {
             Section("Account Plan") {
                 HStack {
                     Text("Plan Tier")

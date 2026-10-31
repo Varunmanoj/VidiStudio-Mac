@@ -88,3 +88,8 @@ Editor control parity: Transcript, Summary, Descriptions, and AD Transcript use 
 
 
 Project-pane transitions: the left project browser remains closed by default. Toolbar, View menu, and list/grid commands share the same native visibility state. Mac uses NavigationSplitView with a reduced-motion-aware animated binding. Windows uses inline SplitView panes for both projects and inspector, preserving editor space and delegating open/close transitions and reduced-motion handling to WinUI. Closing the Windows project pane restores keyboard focus to its toggle when focus was inside the pane.
+
+
+## Developer-only project configuration
+
+**Open Project Configuration** (`open-configuration`) is visible only while Settings → Appearance → Developer mode is on. Both desktops hide it from the Project menu, project list/grid context menus, and inspector when off. The command guard and final file-opening action recheck the current setting, including requests from a previously opened menu. Existing idle, selection, and file-availability requirements still apply.

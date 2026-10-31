@@ -8,7 +8,8 @@ import UniformTypeIdentifiers
 /// Opens the project's project.json in the default app for JSON files so its
 /// settings can be inspected or edited as text.
 @MainActor
-func openProjectConfiguration(_ project: StudioProject) {
+func openProjectConfiguration(_ project: StudioProject, studio: StudioModel) {
+    guard studio.canManageProject("open-configuration", project: project) else { return }
     guard let url = project.folder?.appendingPathComponent("project.json"),
           FileManager.default.fileExists(atPath: url.path) else { return }
     NSWorkspace.shared.open(url)
@@ -391,6 +392,7 @@ struct ContentView: View {
 
     var body: some View {
         ProjectBrowserPage(
+            studio: studio,
             projects: studio.listedProjects,
             search: $search,
             sourceFilter: $sourceFilter,
@@ -483,7 +485,7 @@ struct ContentView: View {
                 renaming = true
             case "trash-project": studio.confirmTrashProject(request.project)
             case "show-in-finder": if let folder = request.project.folder { NSWorkspace.shared.open(folder) }
-            case "open-configuration": openProjectConfiguration(request.project)
+            case "open-configuration": openProjectConfiguration(request.project, studio: studio)
             default: break
             }
         }
@@ -768,7 +770,7 @@ struct ProjectEditorWindow: View {
                 renamingProject = true
             case "trash-project": deleteProject(request.project)
             case "show-in-finder": if let folder = request.project.folder { NSWorkspace.shared.open(folder) }
-            case "open-configuration": openProjectConfiguration(request.project)
+            case "open-configuration": openProjectConfiguration(request.project, studio: studio)
             default: break
             }
         }
@@ -1103,13 +1105,15 @@ struct ProcessingInspector: View {
                     .help("Open this project’s folder in Finder")
                     .accessibilityLabel("Show Project in Finder")
                     .disabled(p.folder == nil)
-                    Button("Open Project Configuration", systemImage: "doc.text") {
-                        openProjectConfiguration(p)
+                    if studio.settings.developerMode {
+                        Button("Open Project Configuration", systemImage: "doc.text") {
+                            openProjectConfiguration(p, studio: studio)
+                        }
+                        .labelStyle(.iconOnly)
+                        .help("Open this project’s project.json in the default editor")
+                        .accessibilityLabel("Open Project Configuration")
+                        .disabled(p.folder == nil)
                     }
-                    .labelStyle(.iconOnly)
-                    .help("Open this project’s project.json in the default editor")
-                    .accessibilityLabel("Open Project Configuration")
-                    .disabled(p.folder == nil)
                 }
                 Spacer()
                 SettingsLink {
@@ -2851,7 +2855,7 @@ struct ProjectEditor: View {
         case "review-narration-issues": studio.narrationFailureReport = studio.narrationIssueReport(for: project)
         case "review-narration-voices": studio.narrationVoiceReport = studio.narrationVoiceUsageReport(for: project)
         case "show-in-finder": if let folder = project.folder { NSWorkspace.shared.open(folder) }
-        case "open-configuration": openProjectConfiguration(project)
+        case "open-configuration": openProjectConfiguration(project, studio: studio)
         case "import-assets": showingImportAssets = true
         case "import-transcript": importScope = .transcript
         case "import-summary": importScope = .summary
