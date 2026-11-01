@@ -89,7 +89,7 @@ enum ImportTimeError: LocalizedError {
 }
 
 enum ImportFileKind {
-    case transcript, summary, adTranscript, audio
+    case transcript, summary, adTranscript, audio, originalAudio
 
     var title: String {
         switch self {
@@ -97,13 +97,14 @@ enum ImportFileKind {
         case .summary: return "Summary"
         case .adTranscript: return "AD transcript"
         case .audio: return "AD audio"
+        case .originalAudio: return "Original audio"
         }
     }
     var extensions: [String] {
         switch self {
         case .transcript, .adTranscript: return ["srt", "vtt", "txt"]
         case .summary: return ["md", "markdown", "txt"]
-        case .audio: return ["wav", "mp3", "m4a", "aac", "flac"]
+        case .audio, .originalAudio: return ["wav", "mp3", "m4a", "aac", "flac"]
         }
     }
     var prompt: String {
@@ -112,6 +113,7 @@ enum ImportFileKind {
         case .summary: return "Choose a summary (Markdown or TXT)"
         case .adTranscript: return "Choose an AD transcript (SRT, VTT, or TXT)"
         case .audio: return "Choose AD audio (WAV, MP3, M4A, AAC, or FLAC)"
+        case .originalAudio: return "Choose original audio (WAV, MP3, M4A, AAC, or FLAC)"
         }
     }
 
@@ -130,7 +132,7 @@ enum ImportFileKind {
 // MARK: - Existing assets sheet
 
 enum ImportScope: String, Identifiable {
-    case all, transcript, summary, descriptions
+    case all, transcript, summary, descriptions, originalAudio, adAudio
     var id: Self { self }
     var title: String {
         switch self {
@@ -138,6 +140,8 @@ enum ImportScope: String, Identifiable {
         case .transcript: return "Import Transcript"
         case .summary: return "Import Summary"
         case .descriptions: return "Import Descriptions"
+        case .originalAudio: return "Import Original Audio"
+        case .adAudio: return "Import AD Audio"
         }
     }
     var detail: String {
@@ -146,6 +150,8 @@ enum ImportScope: String, Identifiable {
         case .transcript: return "Choose an SRT, VTT, or TXT transcript. TXT timing is reviewed before saving."
         case .summary: return "Choose a Markdown or TXT summary. A transcript is not required."
         case .descriptions: return "Choose an AD transcript. AD-only text becomes editable descriptions and requires an existing transcript."
+        case .originalAudio: return "Choose the original soundtrack for this YouTube video."
+        case .adAudio: return "Choose AD narration or a complete described soundtrack."
         }
     }
 }
@@ -153,7 +159,8 @@ enum ImportScope: String, Identifiable {
 struct ImportExistingAssetsView: View {
     @Environment(\.dismiss) private var dismiss
     @Bindable var studio: StudioModel
-    let project: StudioProject
+    private let initialProject: StudioProject
+    private var project: StudioProject { studio.projects.first(where: { $0.id == initialProject.id }) ?? initialProject }
     var scope: ImportScope = .all
     var title: String? = nil
     var primaryTitle: String? = nil
@@ -178,7 +185,7 @@ struct ImportExistingAssetsView: View {
         onFinished: ((StudioProject?) -> Void)? = nil
     ) {
         self.studio = studio
-        self.project = project
+        self.initialProject = project
         self.scope = scope
         self.title = title
         self.primaryTitle = primaryTitle
@@ -188,7 +195,7 @@ struct ImportExistingAssetsView: View {
     }
 
     private var canCombine: Bool {
-        scope == .all && selection.adAudio != nil && !project.isYouTubeURLProject && project.hasFile(project.source)
+        (scope == .all || scope == .adAudio) && selection.adAudio != nil && (project.isYouTubeURLProject || project.hasFile(project.source))
     }
     private var replacementNames: [String] {
         var names: [String] = []
@@ -196,6 +203,7 @@ struct ImportExistingAssetsView: View {
         if selection.summary != nil, !project.summary.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty { names.append("Summary") }
         if selection.adTranscript != nil, project.importedADTranscript != nil { names.append("AD transcript") }
         if selection.adAudio != nil, project.importedAudioDescription != nil { names.append("AD audio") }
+        if selection.originalAudio != nil, project.originalAudio != nil { names.append("Original audio") }
         return names
     }
 
@@ -210,6 +218,12 @@ struct ImportExistingAssetsView: View {
                 .font(.callout).foregroundStyle(.secondary)
                 .padding(.horizontal, 20).padding(.bottom, 10)
             Form {
+                if project.isYouTubeURLProject && (scope == .all || scope == .originalAudio) {
+                    Section("Original audio") {
+                        OriginalAudioImportFields(selection: $selection)
+                    }
+                }
+                if scope != .originalAudio && scope != .adAudio {
                 Section("Text assets") {
                     if scope == .all || scope == .transcript {
                         assetRow(.transcript, url: $selection.transcript, timing: selection.transcriptTiming)
@@ -235,12 +249,9 @@ struct ImportExistingAssetsView: View {
                         }
                     }
                 }
-                if scope == .all {
+                }
+                if scope == .all || scope == .adAudio {
                 Section("AD audio") {
-                    if project.isYouTubeURLProject {
-                        Text("Audio combination is unavailable for YouTube projects because there is no local video source. Text imports are still available.")
-                            .font(.caption).foregroundStyle(.secondary)
-                    } else {
                         assetRow(.audio, url: $selection.adAudio, timing: nil)
                         if selection.adAudio != nil {
                             Picker("Audio type", selection: $selection.adAudioMode) {
@@ -252,9 +263,8 @@ struct ImportExistingAssetsView: View {
                             .help("Choose narration-only audio or a full AD mix.")
                             Text(selection.adAudioMode.detail).font(.caption).foregroundStyle(.secondary)
                         }
-                        Text("Create Project & Combine creates Original Audio and English - Audio Description tracks. Viewers can switch between them.")
+                        Text(project.isYouTubeURLProject ? "Import & Combine creates described audio using the selected original soundtrack. A full AD mix is used directly." : "Create Project & Combine creates Original Audio and English - Audio Description tracks. Viewers can switch between them.")
                             .font(.caption).foregroundStyle(.secondary)
-                    }
                 }
                 }
                 if let localError {
@@ -369,6 +379,15 @@ struct ImportExistingAssetsView: View {
 
     private func startImport(combine: Bool) {
         localError = nil
+        if let original = selection.originalAudio {
+            studio.importOriginalAudio(original, into: project, playback: selection.originalAudioPlayback,
+                                       transcription: selection.originalAudioTranscription) { updated in
+                guard updated != nil else { return }
+                selection.originalAudio = nil
+                startImport(combine: combine)
+            }
+            return
+        }
         if let url = selection.transcript, url.pathExtension.lowercased() == "txt", selection.transcriptTiming == nil {
             requestTiming(kind: .transcript, url: url)
             localError = "Review the TXT timing before importing."

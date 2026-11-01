@@ -28,6 +28,7 @@ struct Segment: Codable, Identifiable, Hashable {
     /// Imported narration carries its own source file name so voice reports
     /// never mislabel it as a generated voice.
     var audioOrigin: String?
+    var transcriptionAudioSource: AudioSourceProvenance?
     var audioSourceName: String?
 
     var provenance: DescriptionOrigin { DescriptionOrigin(rawValue: origin ?? "") ?? .unknown }
@@ -557,6 +558,10 @@ struct StudioProject: Codable, Identifiable {
     var geminiVideo: AnalysisVideoAvailability?
     var sourceType: String?
     var youtubeURL: String?
+    var originalAudio: OriginalAudioAsset?
+    var audioSources: AudioSourceSettings?
+    var transcriptAudioSource: AudioSourceProvenance?
+    var exportAudioSources: [String: AudioSourceProvenance]?
     var transcriptGenerated: Bool?
     var summaryGenerated: Bool?
     var descriptionsGenerated: Bool?
@@ -619,7 +624,7 @@ struct StudioProject: Codable, Identifiable {
         importedAudioDescription?.mode == "fullMix" ? "Full AD mix" : "AD narration audio"
     }
     var canCombineImportedAudio: Bool {
-        importedAudioDescription != nil && !isYouTubeURLProject && hasFile(source)
+        importedAudioDescription != nil && (isYouTubeURLProject || hasFile(source))
     }
     var narrationSourceCounts: NarrationSourceCounts {
         var counts = NarrationSourceCounts()
@@ -846,7 +851,63 @@ struct ImportTimingProposal: Codable {
     var omitted: [ImportOmittedRow]?
 }
 
+struct OriginalAudioAsset: Codable, Hashable {
+    var path: String
+    var sourceName: String
+    var duration: Double
+    var sha256: String
+    var validationStatus: String?
+    var confirmedVideoDuration: Double?
+    var timingAccepted: Bool?
+
+    func needsConfirmation(videoDuration: Double) -> Bool {
+        let known = videoDuration.isFinite && videoDuration > 0
+        if known && abs(duration - videoDuration) <= 0.100000001 { return false }
+        return timingAccepted != true || confirmedVideoDuration != (known ? videoDuration : nil)
+    }
+}
+
+struct AudioSourceSettings: Codable, Hashable {
+    var export = "youtube"
+    var playback = "youtube"
+    var transcription = "youtube"
+}
+
+struct AudioSourceProvenance: Codable, Hashable {
+    var origin: String
+    var sourceName: String?
+    var youtubeURL: String?
+    var sha256: String?
+    var adSource: String?
+    var adSourceName: String?
+
+    var label: String {
+        if origin == "mixed" { return "Multiple audio sources" }
+        if origin == "text" { return "Imported text: \(sourceName ?? "Unknown file")" }
+        return origin == "youtube" ? "Extracted from YouTube" : "Imported audio: \(sourceName ?? "Unknown file")"
+    }
+}
+
+struct OriginalAudioInspection: Decodable {
+    var audioDuration: Double
+    var videoDuration: Double?
+    var difference: Double?
+    var status: String
+    var sourceName: String
+    var sha256: String
+
+    var warning: String {
+        let timing = videoDuration.map {
+            String(format: "Audio: %.3f seconds. Video: %.3f seconds. Difference: %.3f seconds.", audioDuration, $0, difference ?? 0)
+        } ?? "Duration could not be verified against the YouTube video."
+        return timing + " Audio starts at zero. Excess audio is omitted and shorter audio ends in silence. Audio is never stretched."
+    }
+}
+
 struct ImportAssetSelection {
+    var originalAudio: URL?
+    var originalAudioPlayback = false
+    var originalAudioTranscription = false
     var transcript: URL?
     var summary: URL?
     var adTranscript: URL?
@@ -858,7 +919,7 @@ struct ImportAssetSelection {
     var adTranscriptTiming: URL?
 
     var hasAny: Bool {
-        transcript != nil || summary != nil || adTranscript != nil || adAudio != nil
+        originalAudio != nil || transcript != nil || summary != nil || adTranscript != nil || adAudio != nil
     }
     var hasTextNeedingTiming: Bool {
         [transcript, adTranscript].contains { $0?.pathExtension.lowercased() == "txt" }
@@ -3071,6 +3132,16 @@ final class StudioModel {
         completion: ((StudioProject?) -> Void)? = nil
     ) {
         guard !busy else { return }
+        if let audio = selection.originalAudio {
+            importOriginalAudio(audio, into: project, playback: selection.originalAudioPlayback,
+                                transcription: selection.originalAudioTranscription, replaceExisting: replaceExisting) { updated in
+                guard let updated else { completion?(nil); return }
+                var remainder = selection
+                remainder.originalAudio = nil
+                self.importAssets(remainder, into: updated, combine: combine, replaceExisting: replaceExisting, completion: completion)
+            }
+            return
+        }
         var steps: [(command: String, arguments: [String])] = []
         if let transcript = selection.transcript {
             var arguments = ["--input", transcript.path]
@@ -3096,13 +3167,13 @@ final class StudioModel {
         var remaining = steps
 
         func finish(_ result: StudioProject?) {
-            guard var result, combine, selection.adAudio != nil else {
+            guard let result, combine, selection.adAudio != nil else {
                 completion?(result)
                 return
             }
             execute(
                 "combine-imported-audio",
-                extra: ["--audio-presentation", "selectable", "--captions", "none", "--media-format", "mov"]
+                extra: (result.isYouTubeURLProject ? ["--audio-only", "--media-format", "wav"] : ["--audio-presentation", "selectable", "--captions", "none", "--media-format", "mov"])
                     + (replaceExisting ? ["--replace-existing"] : []),
                 project: result
             ) { combined in completion?(combined ?? result) }
@@ -3131,7 +3202,7 @@ final class StudioModel {
         guard !busy else { return }
         execute(
             "combine-imported-audio",
-            extra: ["--audio-presentation", "selectable", "--captions", "none", "--media-format", "mov"]
+            extra: (project.isYouTubeURLProject ? ["--audio-only", "--media-format", "wav"] : ["--audio-presentation", "selectable", "--captions", "none", "--media-format", "mov"])
                 + (replacingExisting ? ["--replace-existing"] : []),
             project: project,
             completion: completion

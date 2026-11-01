@@ -50,6 +50,18 @@ struct ImportAssetsHarness {
         precondition(service?.kind == .service)
         precondition(AIServiceIssue.detect("API key not valid") == nil)
         precondition(AIServiceIssue.detect("ordinary validation failure") == nil)
-        print("PASS: imported project fields, provenance, timing audit, narration sources, and import report decoding")
+        let audioJSON = """
+        {"path":"imports/audio.wav","sourceName":"Original soundtrack.wav","duration":3,"sha256":"abc","validationStatus":"unverified","timingAccepted":true}
+        """
+        var original = try JSONDecoder().decode(OriginalAudioAsset.self, from: Data(audioJSON.utf8))
+        precondition(!original.needsConfirmation(videoDuration: 0))
+        precondition(!original.needsConfirmation(videoDuration: 3.1))
+        precondition(original.needsConfirmation(videoDuration: 4))
+        original.confirmedVideoDuration = 4
+        precondition(!original.needsConfirmation(videoDuration: 4))
+        precondition(original.needsConfirmation(videoDuration: 4.1))
+        let source = try JSONDecoder().decode(AudioSourceProvenance.self, from: Data("{\"origin\":\"imported\",\"sourceName\":\"Original soundtrack.wav\"}".utf8))
+        precondition(source.label == "Imported audio: Original soundtrack.wav")
+        print("PASS: imported project fields, audio-source compatibility and duration approvals, provenance, timing audit, narration sources, and import report decoding")
     }
 }

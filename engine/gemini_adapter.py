@@ -67,6 +67,16 @@ def transcribe_audio(client,model,path,offset=0,emit=lambda *_:None):
         try: client.files.delete(name=f.name)
         except Exception: emit('Finishing narration preparation')
 
+def audio_interaction(client, model, uri, mime, prompt, system=''):
+    args = dict(model=model, input=[dict(type='audio', uri=uri, mime_type=mime), dict(type='text', text=prompt)])
+    if system:
+        args['system_instruction'] = system
+    text = output_text(client.interactions.create(**args))
+    if not text:
+        raise ValueError('Gemini returned no text; existing results were preserved.')
+    return text
+
+
 def video_interaction(client,model,uri,mime,prompt,system='',schema=None,processing='agentic'):
     media={'type':'video','uri':uri}
     if mime: media['mime_type']=mime

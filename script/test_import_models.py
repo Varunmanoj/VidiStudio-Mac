@@ -24,6 +24,7 @@ types = [declaration(model, marker) for marker in (
     'struct ProjectPlaybackSettings:', 'struct StudioProject:',
     'enum SummaryOrigin:', 'struct NarrationSourceCounts:',
     'struct ImportedAudioDescription:', 'struct ImportedADTranscript:',
+    'struct OriginalAudioAsset:', 'struct AudioSourceSettings:', 'struct AudioSourceProvenance:',
     'struct ImportConflict:', 'struct ImportFlaggedSegment:', 'struct ImportOmittedRow:',
     'struct ImportReport:', 'struct DescriptionTimingAudit:',
     'struct ImportTimingRow:', 'struct ImportTimingProposal:', 'struct AIServiceIssue:',

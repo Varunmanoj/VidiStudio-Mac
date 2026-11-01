@@ -1,5 +1,7 @@
 """Temporary public YouTube soundtrack retrieval for described-audio exports."""
 import contextlib
+import json
+import math
 import os
 import signal
 import subprocess
@@ -14,6 +16,7 @@ DOWNLOAD_TIMEOUT = 900
 DOWNLOAD_ATTEMPTS = 3
 RETRY_DELAYS = (2, 4)
 MAX_AUDIO_BYTES = 2 * 1024 * 1024 * 1024
+METADATA_TIMEOUT = 45
 DOWNLOAD_ERROR = ('YouTube audio could not be downloaded. Check your connection and that the video '
                   'is public, then try again. If YouTube blocks the download, import your original '
                   'video as a local project and export its described audio instead.')
@@ -27,6 +30,60 @@ def javascript_runtime():
     # Source builds use the same locked runtime that gets copied into the app.
     from deno._find_deno import find_deno_bin
     return Path(find_deno_bin())
+
+
+def read_metadata(url, output):
+    """Worker: retrieve only finite video timing, without media or credentials."""
+    import yt_dlp
+    class QuietLogger:
+        def debug(self, message): pass
+        def warning(self, message): pass
+        def error(self, message): pass
+    options = dict(noplaylist=True, quiet=True, logger=QuietLogger(), cachedir=False,
+                   socket_timeout=10, retries=0, extractor_retries=0,
+                   js_runtimes={'deno': {'path': str(javascript_runtime())}}, remote_components=set())
+    try:
+        with yt_dlp.YoutubeDL(options) as downloader:
+            info = downloader.extract_info(parity.youtube_url(url), download=False)
+        duration = float(info.get('duration') or 0)
+        if (info.get('_type', 'video') != 'video' or info.get('is_live')
+                or info.get('live_status') in ('is_live', 'is_upcoming', 'post_live')
+                or not math.isfinite(duration) or duration <= 0):
+            raise ValueError('Video timing is unavailable.')
+        Path(output).write_text(json.dumps(dict(duration=duration)), encoding='utf-8')
+    except Exception:
+        raise ValueError('YouTube video duration could not be verified. Check the link or open the video preview.') from None
+
+
+def video_duration(url, emit):
+    """Metadata lookup may fail offline; cancellation must still propagate."""
+    with tempfile.TemporaryDirectory(prefix='vidistudio-youtube-metadata-') as directory:
+        output = Path(directory) / 'timing.json'
+        command = [sys.executable]
+        if not getattr(sys, 'frozen', False):
+            command.append(str(Path(__file__).with_name('vidistudio_engine.py')))
+        command += ['read-youtube-metadata', '--url', parity.youtube_url(url), '--output', str(output)]
+        emit('Checking YouTube video duration')
+        try:
+            process = subprocess.Popen(command, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+                                       start_new_session=os.name != 'nt')
+        except OSError:
+            return None
+        try:
+            deadline = time.monotonic() + METADATA_TIMEOUT
+            while process.poll() is None:
+                if time.monotonic() >= deadline:
+                    return None
+                try:
+                    process.wait(timeout=.25)
+                except subprocess.TimeoutExpired:
+                    pass
+            if process.returncode or not output.is_file():
+                return None
+            duration = float(json.loads(output.read_text())['duration'])
+            return duration if math.isfinite(duration) and duration > 0 else None
+        finally:
+            stop_worker(process)
 
 
 def original_audio_format(context):

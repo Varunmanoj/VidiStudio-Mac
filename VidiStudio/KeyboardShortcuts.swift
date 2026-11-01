@@ -61,6 +61,7 @@ final class EditorShortcutActions {
         return hasNarrationAudio ? "Regenerate All AD Audio…" : "Generate All AD Audio"
     }
     var summaryReadable = false
+    var canImportOriginalAudio = false
     var summaryIsReading = false
     var summaryIsPaused = false
     /// Sentence and paragraph navigation availability, synced by the editor.
@@ -132,7 +133,8 @@ final class EditorShortcutActions {
         guard available, handler != nil else { return false }
         if action.hasPrefix("summary-") { return canRunSummary(action) }
         switch action {
-        case "rename-project", "trash-project", "import-assets", "import-transcript", "import-summary", "import-descriptions": return true
+        case "rename-project", "trash-project", "import-assets", "import-transcript", "import-summary", "import-descriptions", "import-ad-audio": return true
+        case "import-original-audio": return canImportOriginalAudio
         case "filter-segments", "sort-start", "sort-duration-asc", "sort-duration-desc", "sort-origin":
             return ["transcript", "descriptions", "ad-transcript"].contains(activeSection)
         case "narration": return canToggleNarration
@@ -494,6 +496,10 @@ struct StudioCommands: Commands {
                 Button("Import Descriptions…", systemImage: "text.below.photo") { editor?.run("import-descriptions") }
                     .keyboardShortcut("d", modifiers: [.command, .option])
                     .disabled(editor?.canRun("import-descriptions") != true)
+                Button("Import Original Audio…", systemImage: "waveform") { editor?.run("import-original-audio") }
+                    .disabled(editor?.canRun("import-original-audio") != true)
+                Button("Import AD Audio…", systemImage: "waveform") { editor?.run("import-ad-audio") }
+                    .disabled(editor?.canRun("import-ad-audio") != true)
                 Divider()
                 Button("Import Existing Assets…", systemImage: "square.and.arrow.down") { editor?.run("import-assets") }
                     .keyboardShortcut("i", modifiers: [.command, .option, .shift])

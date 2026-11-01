@@ -1,6 +1,13 @@
 # VidiStudio Mac agent guide
 
-Native SwiftUI macOS 26 plain app in `VidiStudio.xcodeproj`. `VidiStudio/` owns native UI and engine invocation. `engine/vidistudio_engine.py` owns all project processing and writes. The sibling VidiStudio Online repository is a visual/workflow reference, not a desktop runtime dependency; online fixes are in scope when explicitly requested; preserve unrelated work.
+Native SwiftUI macOS 26 plain app in `VidiStudio.xcodeproj`. `VidiStudio/` owns native UI and engine invocation. `engine/vidistudio_engine.py` owns all project processing and writes. The sibling VidiStudio Online repository is a visual/workflow reference, not a desktop runtime dependency. Website product documentation is part of desktop feature work as required below; unrelated online application changes require an explicit request. Preserve unrelated work.
+
+## Required Help and website documentation synchronization
+
+- Whenever a feature is added, changed, or removed in either the Mac or Windows app, update both desktop Help and the website documentation in the same task, without waiting for a separate documentation request. Documentation must describe the actual application behavior, labels, menu paths, shortcuts, defaults, limitations, and any genuine platform differences.
+- Canonical desktop Help lives in `VidiStudio Mac/docs/help/*.html`. From the Mac checkout, run `python3 script/build_help.py`, then `python3 ../Vidi-Studio-Windows/script/sync_windows_help.py --mac-root .` to generate matching Windows Help. Edit the canonical sources rather than only the generated Windows pages.
+- Update the website guide at `VidiStudio Online/src/pages/DocsPage.tsx` and every affected website feature, workflow, import/export, FAQ, shortcut, troubleshooting, or privacy section. Correct outdated guidance throughout the existing documentation as well as documenting the new behavior.
+- Validate Help generation and links, website checks/build, and affected documentation navigation or search. Keep installed Help and the published website aligned with shipped application features. Record build, installation, or publication blockers in `PROGRESS.md` and the task handoff; distinguish edited sources, generated output, installed Help, and live website publication when reporting completion.
 
 Project data lives in portable local folders with relative paths. Credentials live only in the user config outside projects. No Firebase, Firestore, authentication or embedded website. Gemini runs only in the Python engine; keep API keys out of argv, logs and project JSON. Files API uploads need bounded readiness polling and cleanup.
 

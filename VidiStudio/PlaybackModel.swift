@@ -99,9 +99,68 @@ final class PlaybackModel {
         }
     }
     var playing = false {
-        didSet { if !playing { stopNarration() } }
+        didSet { if !playing { stopNarration(); originalAudioPlayer.pause() } }
     }
     var buffering = false
+    private let originalAudioPlayer = AVPlayer()
+    private var originalAudioURL: URL?
+    private var originalAudioSeeking = false
+    private var usingOriginalAudio = false
+    private var failedOriginalAudio: URL?
+    var youtubeRate: Float = 1
+    var youtubeVolume: Float = 1
+
+    func syncOriginalAudio(_ project: StudioProject) {
+        let selected = project.isYouTubeURLProject && project.audioSources?.playback == "imported"
+        if usingOriginalAudio != selected {
+            usingOriginalAudio = selected
+            webVolumeDucked = false
+            webView?.evaluateJavaScript("setOriginalAudioMode(\(selected ? "true" : "false"))", completionHandler: nil)
+        }
+        let asset = project.originalAudio
+        let url = asset.flatMap { project.url($0.path) }
+        let valid = selected && asset != nil && project.hasFile(asset?.path ?? "")
+            && asset?.needsConfirmation(videoDuration: project.duration) == false
+        if !valid {
+            originalAudioPlayer.pause()
+            originalAudioPlayer.replaceCurrentItem(with: nil)
+            originalAudioURL = nil
+            if selected && playing {
+                pausePlayback()
+                speechError = "Imported original audio is missing or its timing needs confirmation. Review Audio sources."
+            }
+            return
+        }
+        guard let url else { return }
+        if originalAudioURL != url {
+            originalAudioPlayer.pause()
+            originalAudioPlayer.replaceCurrentItem(with: AVPlayerItem(url: url))
+            originalAudioURL = url
+            failedOriginalAudio = nil
+        }
+        if originalAudioPlayer.currentItem?.status == .failed {
+            pausePlayback()
+            if failedOriginalAudio != url {
+                failedOriginalAudio = url
+                speechError = "The imported original audio could not be played. Choose Audio File to repair it."
+            }
+            return
+        }
+        applyDucking()
+        if !playing || buffering { originalAudioPlayer.pause() }
+        guard !originalAudioSeeking else { return }
+        let current = originalAudioPlayer.currentTime().seconds
+        let target = min(max(0, time), asset?.duration ?? time)
+        if !current.isFinite || abs(current - target) > 0.1 {
+            originalAudioSeeking = true
+            originalAudioPlayer.seek(to: CMTime(seconds: target, preferredTimescale: 600), toleranceBefore: .zero, toleranceAfter: .zero) { [weak self] _ in
+                Task { @MainActor [weak self] in self?.originalAudioSeeking = false }
+            }
+        }
+        if playing && !buffering && time < (asset?.duration ?? 0) {
+            originalAudioPlayer.rate = youtubeRate
+        } else { originalAudioPlayer.pause() }
+    }
     var playbackActive: Bool { playing || buffering }
 
     var narrationEnabled = false {
@@ -165,6 +224,10 @@ final class PlaybackModel {
     // or the short AD indication sounds.
     private func applyDucking() {
         let active = narrationDuckingRequested || indicationDuckingRequested
+        if usingOriginalAudio {
+            originalAudioPlayer.volume = youtubeVolume * (active ? 0.2 : 1)
+            return
+        }
         if let webView {
             if active != webVolumeDucked {
                 webVolumeDucked = active
@@ -242,6 +305,7 @@ final class PlaybackModel {
         }
     }
     func syncNarration(_ project: StudioProject, settings: StudioSettings) {
+        syncOriginalAudio(project)
         syncIndication(project, settings: settings)
         if settings.narrationPlayback == "device" {
             narration?.stop(); narrationID = nil
@@ -354,6 +418,11 @@ final class PlaybackModel {
         }
     }
     func stop() {
+        originalAudioPlayer.pause()
+        originalAudioPlayer.replaceCurrentItem(with: nil)
+        originalAudioURL = nil
+        usingOriginalAudio = false
+        webView?.evaluateJavaScript("setOriginalAudioMode(false)", completionHandler: nil)
         cancelPendingPlayback()
         indicatedSegment = nil
         exitVideoFullScreen()
@@ -431,6 +500,7 @@ final class PlaybackModel {
         indicatedSegment = nil
         stopNarration()
         time = max(0, seconds)
+        originalAudioPlayer.pause()
         if let webView { webView.evaluateJavaScript("player?.seekTo(\(time),true)", completionHandler: nil) }
         else { player.seek(to: CMTime(seconds: time, preferredTimescale: 600), toleranceBefore: .zero, toleranceAfter: .zero) }
     }
@@ -440,6 +510,7 @@ final class PlaybackModel {
     }
     /// Pause video playback and stop narration without moving the playhead.
     func pausePlayback() {
+        originalAudioPlayer.pause()
         cancelPendingPlayback()
         stopNarration()
         playing = false
@@ -467,6 +538,7 @@ final class PlaybackModel {
 struct YouTubePlayer: NSViewRepresentable {
     let url: String
     let playback: PlaybackModel
+    var useOriginalAudio = false
     func makeCoordinator() -> Coordinator { Coordinator(playback) }
     func makeNSView(context: Context) -> WKWebView {
         let config = WKWebViewConfiguration()
@@ -480,6 +552,14 @@ struct YouTubePlayer: NSViewRepresentable {
         let html = """
         <!doctype html><html><head><meta name="viewport" content="width=device-width,initial-scale=1"><style>html,body,#player{width:100%;height:100%;margin:0;background:#000}</style></head><body><div id="player"></div><script src="https://www.youtube.com/iframe_api"></script><script>
         var narrationDucked=false, originalVolume=null, duckedVolume=null;
+        var originalAudioMode=\(useOriginalAudio ? "true" : "false"), savedMute=false;
+        function setOriginalAudioMode(active){
+            if(active===originalAudioMode)return;
+            originalAudioMode=active;
+            if(!player || !player.isMuted)return;
+            if(active){savedMute=player.isMuted();setNarrationDucking(false);player.mute();}
+            else if(!savedMute){player.unMute();}
+        }
         function setNarrationDucking(active){
             narrationDucked=active;
             if(!player || !player.getVolume)return;
@@ -500,7 +580,7 @@ struct YouTubePlayer: NSViewRepresentable {
         // Keep YouTube's own captions/transcript state and keyboard controls
         // under YouTube's ownership. The SwiftUI transcript overlay sits above
         // this view without hit testing, so it does not replace or intercept them.
-        var player; function onYouTubeIframeAPIReady(){player=new YT.Player('player',{videoId:'\(id)',playerVars:{playsinline:1,disablekb:0,origin:'https://accessivideo.pages.dev'},events:{onReady:function(){setInterval(function(){window.webkit.messageHandlers.playback.postMessage({time:player.getCurrentTime(),duration:player.getDuration(),state:player.getPlayerState(),title:player.getVideoData().title || ''});},40);}}});}
+        var player; function onYouTubeIframeAPIReady(){player=new YT.Player('player',{videoId:'\(id)',playerVars:{playsinline:1,disablekb:0,origin:'https://accessivideo.pages.dev'},events:{onReady:function(){if(originalAudioMode)player.mute();setInterval(function(){if(originalAudioMode)player.mute();window.webkit.messageHandlers.playback.postMessage({time:player.getCurrentTime(),duration:player.getDuration(),state:player.getPlayerState(),rate:player.getPlaybackRate(),volume:player.getVolume(),title:player.getVideoData().title || ''});},40);}}});}
         </script></body></html>
         """
         view.loadHTMLString(html, baseURL: URL(string: "https://accessivideo.pages.dev"))
@@ -519,6 +599,8 @@ struct YouTubePlayer: NSViewRepresentable {
             if let time = data["time"] as? Double, time.isFinite, !playback.isScrubbing { playback.time = time }
             if let title = data["title"] as? String, !title.isEmpty { playback.videoTitle = title }
             let state = data["state"] as? Int
+            if let rate = data["rate"] as? Double { playback.youtubeRate = Float(rate) }
+            if let volume = data["volume"] as? Double { playback.youtubeVolume = Float(volume / 100) }
             playback.playing = state == 1
             playback.buffering = state == 3
             if let duration = data["duration"] as? Double, duration.isFinite { playback.duration = duration }

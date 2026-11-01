@@ -125,7 +125,7 @@ enum StudioExportAction: Hashable {
         case .importedMixedVideo(let captions, let format):
             descriptor = ("Open Audio Description" + captions.exportTypeSuffix, format)
         case .importedDescribedAudio(let format):
-            descriptor = ("Final Audio with Audio Description", format)
+            descriptor = (project.isYouTubeURLProject ? "YouTube Studio Audio Description" : "Final Audio with Audio Description", format)
         case .closedCaptionVideo(let content, let format):
             descriptor = ("\(content == "combined" ? "AD Transcript" : "Transcript") Closed Caption Video", format)
         case .dualClosedCaptionVideo(let format):
@@ -315,7 +315,9 @@ private enum AudioExportChoice: String, CaseIterable, Identifiable {
 
 struct ExportDialog: View {
     @Environment(\.dismiss) private var dismiss
-    let project: StudioProject
+    private let initialProject: StudioProject
+    let studio: StudioModel?
+    var project: StudioProject { studio?.projects.first(where: { $0.id == initialProject.id }) ?? initialProject }
     let busy: Bool
     let perform: (StudioExportAction, Bool) -> Void
     @State private var category: ExportCategory
@@ -339,8 +341,9 @@ struct ExportDialog: View {
         ("AD Transcript", "combined"),
     ]
 
-    init(project: StudioProject, busy: Bool, perform: @escaping (StudioExportAction, Bool) -> Void) {
-        self.project = project
+    init(project: StudioProject, busy: Bool, studio: StudioModel? = nil, perform: @escaping (StudioExportAction, Bool) -> Void) {
+        self.initialProject = project
+        self.studio = studio
         self.busy = busy
         self.perform = perform
         let firstText = ["transcript", "summary", "descriptions", "combined"]
@@ -392,7 +395,7 @@ struct ExportDialog: View {
                     : .mixedVideo(captions: videoTranscript.captions, format: videoFormat)
             }
         case .audio:
-            if case .described = audioChoice, adSource == .imported {
+            if (audioChoice == .described || audioChoice == .youtubeDescribed), adSource == .imported {
                 return .importedDescribedAudio(format: audioFormat)
             }
             return audioChoice.action(format: audioFormat)
@@ -477,7 +480,10 @@ struct ExportDialog: View {
                                 },
                                 selection: $audioChoice
                             )
-                            if audioChoice == .described { adSourcePicker }
+                            if audioChoice == .described || audioChoice == .youtubeDescribed { adSourcePicker }
+                            if project.isYouTubeURLProject, let studio {
+                                YouTubeAudioSourceControls(studio: studio, project: project, compact: true)
+                            }
                         }
                     case .text:
                         Section("Text Content") {
@@ -606,7 +612,7 @@ struct ExportDialog: View {
             }
             .pickerStyle(.menu)
             .help("Choose whether the described track uses generated narration or the imported AD audio")
-            Text("Closed Audio Description creates Original Audio and English - Audio Description tracks that viewers can switch between. Open Audio Description creates one described mix.")
+            Text(project.isYouTubeURLProject ? "Narration is combined with the selected original audio. An imported full AD mix is used directly." : "Closed Audio Description creates Original Audio and English - Audio Description tracks that viewers can switch between. Open Audio Description creates one described mix.")
                 .font(.caption).foregroundStyle(.secondary)
         } else if hasImportedADSource {
             Label("Using imported AD audio (\(project.importedADAudioModeLabel))", systemImage: "square.and.arrow.down")
@@ -648,7 +654,7 @@ struct ExportDialog: View {
         case .youtubeOriginalAudio:
             return project.isYouTubeURLProject
         case .youtubeDescribedAudio:
-            return project.isYouTubeURLProject && project.hasCompleteExportNarration()
+            return project.isYouTubeURLProject && (project.hasCompleteExportNarration() || (project.duration > 0 && project.importedAudioDescription != nil))
         case .narrationAudio:
             return project.hasCompleteExportNarration()
         case .text(let content, _):

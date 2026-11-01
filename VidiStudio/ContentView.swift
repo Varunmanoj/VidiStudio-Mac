@@ -174,7 +174,6 @@ private struct NewProjectView: View {
                         .pickerStyle(.radioGroup)
                         Text(assets.adTranscriptMode.detail).font(.caption).foregroundStyle(.secondary)
                     }
-                    if source == .videoFile {
                         Divider()
                         existingAssetRow(.audio, url: $assets.adAudio)
                         if assets.adAudio != nil {
@@ -186,14 +185,16 @@ private struct NewProjectView: View {
                             .pickerStyle(.radioGroup)
                             Text(assets.adAudioMode.detail).font(.caption).foregroundStyle(.secondary)
                         }
-                        Text("Combining creates Original Audio and English - Audio Description tracks that viewers can switch between.")
+                        Text(source == .youtube ? "Combining creates described audio using the selected original soundtrack." : "Combining creates Original Audio and English - Audio Description tracks that viewers can switch between.")
                             .font(.caption).foregroundStyle(.secondary)
-                    } else {
-                        Text("Text assets are supported for YouTube projects. Audio combination requires a local video source.")
-                            .font(.caption).foregroundStyle(.secondary)
-                    }
                     Text("Accepted: SRT, VTT, TXT for text; Markdown or TXT for summaries; WAV, MP3, M4A, AAC, or FLAC for audio. TXT timing is reviewed after the project is created.")
                         .font(.caption2).foregroundStyle(.secondary)
+                }
+            }
+
+            if source == .youtube {
+                Section("Original audio (optional)") {
+                    OriginalAudioImportFields(selection: $assets)
                 }
             }
 
@@ -202,7 +203,7 @@ private struct NewProjectView: View {
                     Button("Cancel", role: .cancel) { dismiss() }
                         .keyboardShortcut(.cancelAction)
                     Spacer()
-                    if assetMode == .existing, source == .videoFile, assets.adAudio != nil {
+                    if assetMode == .existing, assets.adAudio != nil {
                         Button("Create Project & Combine", systemImage: "waveform.badge.plus") { createProject(combine: true) }
                             .disabled(!canCreate || studio.busy)
                             .help("Create the project, import these assets, and combine the described audio track")
@@ -274,21 +275,28 @@ private struct NewProjectView: View {
     }
 
     private func createProject(combine: Bool) {
+        var imports = assetMode == .existing ? assets : ImportAssetSelection()
+        if source == .youtube {
+            imports.originalAudio = assets.originalAudio
+            imports.originalAudioPlayback = assets.originalAudioPlayback
+            imports.originalAudioTranscription = assets.originalAudioTranscription
+        } else { imports.originalAudio = nil }
         let finished: (StudioProject?) -> Void = { project in
             guard let project else { return }
-            if assetMode == .existing, assets.hasAny {
-                if assets.hasTextNeedingTiming {
-                    createdProject = project
+            createdProject = project
+            if imports.hasAny {
+                if imports.hasTextNeedingTiming {
                     showingAssetImport = true
                 } else {
-                    studio.importAssets(assets, into: project, combine: combine && assets.adAudio != nil) { result in
-                        finishCreation(result ?? project)
+                    studio.importAssets(imports, into: project, combine: combine && imports.adAudio != nil) { result in
+                        if let result { finishCreation(result) }
                     }
                 }
             } else {
                 finishCreation(project)
             }
         }
+        if let createdProject { finished(createdProject); return }
         let started: Bool
         switch source {
         case .videoFile:
@@ -452,7 +460,7 @@ struct ContentView: View {
             GeneratedContentDeletionView(studio: studio, project: project)
         }
         .sheet(item: $exportProject) { project in
-            ExportDialog(project: project, busy: studio.busy) { action, replacingExisting in
+            ExportDialog(project: project, busy: studio.busy, studio: studio) { action, replacingExisting in
                 studio.execute(
                     action.command,
                     extra: action.arguments(replacingExisting: replacingExisting),
@@ -501,11 +509,8 @@ struct ContentView: View {
         .onReceive(NotificationCenter.default.publisher(for: NSApplication.didBecomeActiveNotification)) { _ in
             studio.refreshProjectIntegrity()
         }
-        .onAppear {
-            if studio.hasApiKey && studio.apiKeyVerified == nil && !studio.busy {
-                studio.checkGeminiApiKey()
-            }
-        }
+        // Opening the library does not require Gemini access. Check a key in
+        // Gemini API Settings or when an AI operation is requested instead.
     }
 }
 
@@ -751,7 +756,7 @@ struct ProjectEditorWindow: View {
         }
         .sheet(isPresented: $showingExportDialog) {
             if let project = studio.selected {
-                ExportDialog(project: project, busy: studio.busy) { action, replacingExisting in
+                ExportDialog(project: project, busy: studio.busy, studio: studio) { action, replacingExisting in
                     studio.execute(
                         action.command,
                         extra: action.arguments(replacingExisting: replacingExisting),
@@ -913,6 +918,7 @@ struct ProcessingInspector: View {
             ScrollView {
                 VStack(alignment: .leading, spacing: 12) {
                     if let p = studio.selected {
+                        YouTubeAudioSourceControls(studio: studio, project: p)
                         if let sectionTitle = currentSectionTitle {
                             GroupBox(editorActions.activeSection == "descriptions" ? "AD Segment Generation" : sectionTitle) {
                             VStack(alignment: .leading, spacing: 8) {
@@ -1496,6 +1502,7 @@ struct ProjectEditor: View {
     @State private var summaryDraftText = ""
     @State private var summaryDraftOrigin: SummaryOrigin = .unknown
     @State private var showingImportAssets = false
+    @State private var showingAudioSources = false
     @State private var importScope: ImportScope?
     @State private var showingTranscriptTimingEditor = false
     @State private var showingBulkShift = false
@@ -1657,6 +1664,12 @@ struct ProjectEditor: View {
         HStack(spacing: 10) {
             ScrollView(.horizontal, showsIndicators: false) {
                 HStack(spacing: 8) {
+                    if project.isYouTubeURLProject {
+                        Button("Audio Sources…", systemImage: "waveform") { showingAudioSources = true }
+                            .help("Choose original audio for playback, exports, and transcription")
+                        Text("Playing: \(project.audioSources?.playback == "imported" ? "Imported audio: \(project.originalAudio?.sourceName ?? "Missing file")" : "YouTube audio")")
+                            .font(.caption).lineLimit(1)
+                    }
                     Button("Import Existing Assets", systemImage: "square.and.arrow.down") {
                         showingImportAssets = true
                     }
@@ -2058,6 +2071,7 @@ struct ProjectEditor: View {
 
     private func preparePlayback() {
         playback.observe()
+        playback.syncNarration(project, settings: studio.settings)
         playback.narrationEnabled = ProjectPlaybackPreferences.narrationEnabled(folder: project.folder, projectID: project.id)
         followTranscript = ProjectPlaybackPreferences.followEnabled(folder: project.folder, projectID: project.id)
         guard !project.isYouTubeURLProject,
@@ -2363,7 +2377,7 @@ struct ProjectEditor: View {
         VStack(spacing: 0) {
             ZStack(alignment: studio.settings.captionPosition == "top" ? .top : .bottom) {
                 Group {
-                    if project.isYouTubeURLProject, let url = project.youtubeURL { YouTubePlayer(url: url, playback: playback) }
+                    if project.isYouTubeURLProject, let url = project.youtubeURL { YouTubePlayer(url: url, playback: playback, useOriginalAudio: project.audioSources?.playback == "imported") }
                     else { NativeVideoPlayer(player: playback.player, playback: playback) }
                 }
                 TranscriptCaptionOverlay(
@@ -2860,6 +2874,8 @@ struct ProjectEditor: View {
         case "import-transcript": importScope = .transcript
         case "import-summary": importScope = .summary
         case "import-descriptions": importScope = .descriptions
+        case "import-original-audio": importScope = .originalAudio
+        case "import-ad-audio": importScope = .adAudio
         case "rename-project": renameProject()
         case "trash-project": trashProject()
         case "analyze", "prepare-video", "transcribe", "generate-summary": studio.execute(action)
@@ -2930,6 +2946,7 @@ struct ProjectEditor: View {
         shortcutActions.timelineVisible = timelineVisible
         shortcutActions.available = !shortcutsBlocked && !studio.busy && segmentToEdit == nil && segmentBatchToEdit == nil && studio.screenText == nil
         shortcutActions.activeSection = tab
+        shortcutActions.canImportOriginalAudio = project.isYouTubeURLProject
         shortcutActions.captionDisplayMode = studio.settings.captionDisplayMode
         shortcutActions.hasTranscriptText = !project.transcript.isEmpty
         shortcutActions.canToggleNarration = narrationControlAvailable
@@ -2998,7 +3015,7 @@ struct ProjectEditor: View {
         .onChange(of: studio.screenText) { _, text in handleScreenText(text) }
         .onChange(of: playback.videoTitle) { _, title in updateYouTubeTitleIfNeeded(title) }
         .onChange(of: playback.duration) { _, duration in
-            if !studio.busy, duration > 0, abs(duration - project.duration) > 0.5 { studio.execute("update-metadata", extra: ["--duration", String(duration)]) }
+            if !studio.busy, duration > 0, abs(duration - project.duration) > 0.001 { studio.execute("update-metadata", extra: ["--duration", String(duration)]) }
         }
     }
 
@@ -3006,6 +3023,9 @@ struct ProjectEditor: View {
         editorWithProjectUpdates
         .onChange(of: playback.time) { _, _ in playback.syncNarration(project, settings: studio.settings) }
         .onChange(of: playback.playing) { _, _ in playback.syncNarration(project, settings: studio.settings) }
+        .onChange(of: project.audioSources) { _, _ in playback.syncNarration(project, settings: studio.settings) }
+        .onChange(of: project.originalAudio) { _, _ in playback.syncNarration(project, settings: studio.settings) }
+        .onChange(of: project.duration) { _, _ in playback.syncNarration(project, settings: studio.settings) }
         .onChange(of: studio.settings.narrationPlayback) { _, _ in playback.syncNarration(project, settings: studio.settings) }
         .onChange(of: studio.settings.soundWhenNarrationOff) { _, _ in playback.syncNarration(project, settings: studio.settings) }
         .onChange(of: studio.settings.soundWhenNarrationMissing) { _, _ in playback.syncNarration(project, settings: studio.settings) }
@@ -3138,6 +3158,12 @@ struct ProjectEditor: View {
         }
         .sheet(isPresented: $showingImportAssets) {
             ImportExistingAssetsView(studio: studio, project: project)
+        }
+        .sheet(isPresented: $showingAudioSources) {
+            VStack(alignment: .leading, spacing: 16) {
+                YouTubeAudioSourceControls(studio: studio, project: project)
+                Button("Done") { showingAudioSources = false }.keyboardShortcut(.defaultAction)
+            }.padding(20).frame(width: 620)
         }
         .sheet(item: $importScope) { scope in
             ImportExistingAssetsView(studio: studio, project: project, scope: scope)

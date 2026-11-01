@@ -358,6 +358,11 @@ def import_text(args, root, project, core, created):
         else:
             if kind == 'transcript':
                 core.remember_transcript(project)
+                if project.get('sourceType') == 'youtube':
+                    provenance = dict(origin='text', sourceName=Path(args.input).name)
+                    project['transcriptAudioSource'] = provenance
+                    for row in accepted:
+                        row['transcriptionAudioSource'] = provenance.copy()
             else:
                 core.parity.remember(project)
             project[field] = accepted
@@ -422,6 +427,10 @@ def imported_mix(root, project, core):
 
 
 def combine_audio(args, root, project, core):
+    if project.get('sourceType') == 'youtube' and args.audio_only:
+        core.export_youtube_audio(root, project, described=True, replace_existing=args.replace_existing,
+                                  media_format=args.media_format, ad_source='imported')
+        return
     if project.get('sourceType') == 'youtube' or not project.get('source'):
         raise ValueError('Audio combination requires a local source video; it is unavailable for YouTube projects.')
     require_resolved_timing(project)

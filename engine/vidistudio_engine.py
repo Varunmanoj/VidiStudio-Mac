@@ -7,6 +7,7 @@ import threading
 import gemini_adapter
 import parity
 import youtube_audio
+import audio_sources
 import import_assets
 from types import SimpleNamespace
 from pathlib import Path
@@ -785,6 +786,8 @@ def restore_transcript(p, redo=False):
     p[target] = p[target][-50:]
     p[source].pop()
     p['transcript'] = proposal
+    if p.get('sourceType') == 'youtube':
+        p['transcriptAudioSource'] = audio_sources.transcript_source_summary(proposal)
     p['transcriptGenerated'] = bool(proposal)
     import_assets.audit_timing(p)
     p['exports'] = []; p['exportMediaInfo'] = {}
@@ -810,7 +813,8 @@ def reanalyze_transcript_segment(root, p, draft):
         if row['end'] <= start: left = max(left, row['end'])
         elif row['start'] >= end: right = min(right, row['start'])
     cfg = config()
-    key = 'youtube_transcript' if p.get('sourceType') == 'youtube' else 'transcript'
+    imported_transcription = p.get('sourceType') == 'youtube' and audio_sources.preferences(p)['transcription'] == 'imported'
+    key = 'youtube_transcript' if p.get('sourceType') == 'youtube' and not imported_transcription else 'transcript'
     # Dedicated audio transcription models cannot accept video ranges and editing prompts.
     model_key = 'youtube_transcript' if 'transcribe' in cfg['models'].get(key, '') else key
     pair = parity.media_prompt_pair(cfg, key)
@@ -832,16 +836,22 @@ def reanalyze_transcript_segment(root, p, draft):
         'Include at least one spoken segment intersecting selectedRange; if there is no speech return an empty list.\n'
         + json.dumps(context, ensure_ascii=False))
     client, model = client_and_model(model_key)
+    audio_cleanup = contextlib.ExitStack()
     try:
-        if p.get('sourceType') == 'youtube':
+        if imported_transcription:
+            uploaded = audio_cleanup.enter_context(audio_sources.upload_range(root, p, client, left, right, SimpleNamespace(**globals())))
+            uri, mime = uploaded.uri, uploaded.mime_type
+            prompt += f'\nThe audio clip begins at original-video time {left:g}s. Add {left:g} seconds to clip-relative timestamps and return absolute original-video times.'
+        elif p.get('sourceType') == 'youtube':
             uri, mime = p['youtubeURL'], None
         else:
             f = reusable_video(root, p, client); uri, mime = f.uri, f.mime_type
         failure = ''
         for attempt in range(3):
             emit('Analyzing dialogue in the selected time range', processingSection='transcript')
-            raw = gemini_adapter.video_interaction(client, model, uri, mime, prompt + failure,
-                pair.get('system_instruction', ''), processing=dict(type='static', start_offset=f'{left:g}s', end_offset=f'{right:g}s', fps=4))
+            raw = (gemini_adapter.audio_interaction(client, model, uri, mime, prompt + failure, pair.get('system_instruction', ''))
+                   if imported_transcription else gemini_adapter.video_interaction(client, model, uri, mime, prompt + failure,
+                   pair.get('system_instruction', ''), processing=dict(type='static', start_offset=f'{left:g}s', end_offset=f'{right:g}s', fps=4)))
             try:
                 data = parity.parse_json(raw)
                 rows = data.get('transcript') if isinstance(data, dict) else None
@@ -876,18 +886,28 @@ def reanalyze_transcript_segment(root, p, draft):
                 continue
             # Accurate newly discovered speech must never silently overwrite or retime existing AD.
             remember_transcript(p)
+            if p.get('sourceType') == 'youtube':
+                previous_rows = {row['id']: row for row in existing}
+                for row in replacements:
+                    if row != previous_rows.get(row['id']):
+                        row['transcriptionAudioSource'] = audio_sources.provenance(p, 'transcription')
+                proposal = validate_transcript(frozen + replacements, p['duration'])
             p['transcript'] = proposal; p['transcriptGenerated'] = True; p['hasProcessed'] = True
+            if p.get('sourceType') == 'youtube':
+                p['transcriptAudioSource'] = audio_sources.transcript_source_summary(proposal)
             import_assets.audit_timing(p)
             p['exports'] = []; p['exportMediaInfo'] = {}
             return
     finally:
+        audio_cleanup.close()
         client.close()
 
 
 def _ai_video_once(root, p, stage):
     cfg=config(); key={'transcribe':'transcript','generate-summary':'summary','generate-ad-cues':'audio_descriptions'}[stage]
     youtube=p.get('sourceType')=='youtube'
-    if stage=='transcribe' and youtube: key='youtube_transcript'
+    imported_transcription = youtube and audio_sources.preferences(p)['transcription'] == 'imported'
+    if stage=='transcribe' and youtube and not imported_transcription: key='youtube_transcript'
     stage_message,processing_section={
         'transcribe':('Creating the transcript','transcript'),
         'generate-summary':('Creating the summary','summary'),
@@ -897,7 +917,9 @@ def _ai_video_once(root, p, stage):
     client,model=client_and_model(key)
     uploaded=None
     try:
-        if stage=='transcribe' and 'transcribe' in model:
+        if stage == 'transcribe' and imported_transcription:
+            data = audio_sources.transcribe(root, p, client, model, cfg, SimpleNamespace(**globals()))
+        elif stage=='transcribe' and 'transcribe' in model:
             if not p.get('hasAudio'):
                 data=[]
             else:
@@ -939,6 +961,10 @@ def _ai_video_once(root, p, stage):
             p['transcriptUndoStack']=[];p['transcriptRedoStack']=[]
             p['transcript']=sorted(transcript,key=lambda t:t['start'])
             p['transcriptGenerated']=True
+            if youtube:
+                p['transcriptAudioSource'] = audio_sources.provenance(p, 'transcription')
+                for row in p['transcript']:
+                    row['transcriptionAudioSource'] = p['transcriptAudioSource'].copy()
             import_assets.audit_timing(p)
         elif stage=='generate-summary':
             p['summary']=data['summary'];p['summaryGenerated']=True
@@ -2235,39 +2261,63 @@ def export_program_audio(root, project, described=False, allow_incomplete=False,
         export_temporary.unlink(missing_ok=True)
 
 
-def export_youtube_audio(root, project, described=False, replace_existing=False, media_format=None):
+def export_youtube_audio(root, project, described=False, replace_existing=False, media_format=None, ad_source='generated'):
     format = media_export_format(media_format, AUDIO_EXPORT_FORMATS, 'mp3')
     if project.get('sourceType') != 'youtube':
         raise ValueError('Choose a YouTube project for this export.')
     duration = float(project.get('duration', 0))
+    imported_ad = described and ad_source == 'imported'
+    if imported_ad and (not math.isfinite(duration) or duration <= 0):
+        known_duration = youtube_audio.video_duration(project.get('youtubeURL', ''), emit)
+        if known_duration is not None:
+            duration = project['duration'] = known_duration
     if described and (not math.isfinite(duration) or duration <= 0):
-        raise ValueError('Generate the YouTube video transcript to determine its duration before exporting.')
-    cues = exportable_narration_cues(root, project) if described else []
+        raise ValueError('Open the YouTube video preview to determine its duration before exporting described audio.')
+    cues = exportable_narration_cues(root, project) if described and not imported_ad else []
+    if imported_ad and not project.get('importedAudioDescription'):
+        raise ValueError('Import AD audio first.')
+    if imported_ad:
+        import_assets.require_resolved_timing(project)
     relative, output, temporary = prepare_export_target(
         root, project, 'YouTube Studio Audio Description' if described else 'YouTube Audio Only', format, replace_existing
     )
     try:
-        with youtube_audio.soundtrack(project.get('youtubeURL', ''), emit) as source:
+        full_mix = imported_ad and project['importedAudioDescription']['mode'] == 'fullMix'
+        source_context = (contextlib.nullcontext(local(root, project['importedAudioDescription']['path']))
+                          if full_mix else audio_sources.soundtrack(root, project, SimpleNamespace(**globals())))
+        with source_context as source:
             emit('Checking YouTube audio timing')
             info = probe(source)
             streams = info.get('streams', [])
-            if (len([item for item in streams if item.get('codec_type') == 'audio']) != 1
-                    or any(item.get('codec_type') == 'video' for item in streams)):
-                raise ValueError('The downloaded YouTube soundtrack could not be read. Import your original video instead.')
+            audio_streams = [item for item in streams if item.get('codec_type') == 'audio']
+            downloaded = not full_mix and audio_sources.preferences(project)['export'] == 'youtube'
+            if (not audio_streams or downloaded and (len(audio_streams) != 1
+                    or any(item.get('codec_type') == 'video' for item in streams))):
+                raise ValueError('The selected original soundtrack could not be read. Choose another audio file.')
             actual_duration = float(info.get('format', {}).get('duration', 0))
             if not math.isfinite(actual_duration) or actual_duration <= 0:
                 raise ValueError('The YouTube soundtrack duration could not be read. Try again, or import your original video.')
-            if described and abs(actual_duration - duration) > 1:
+            if (described and not full_mix and audio_sources.preferences(project)['export'] == 'youtube'
+                    and abs(actual_duration - duration) > audio_sources.TOLERANCE + 1e-9):
                 raise ValueError('YouTube audio duration does not match this project. The video may have been edited. '
                                  'Refresh its transcript and descriptions, or import the matching original video.')
-            if described:
+            if imported_ad:
+                if full_mix:
+                    audio_args = ['-af', f'apad,atrim=duration={duration}', '-map', '0:a:0']
+                else:
+                    narration_args, filters = import_assets.imported_mix(root, project, SimpleNamespace(**globals()))
+                    audio_args = [*narration_args, '-filter_complex', ';'.join(filters), '-map', '[mix]']
+                output_duration = duration
+                emit('Creating described audio from imported AD audio')
+            elif described:
                 narration_args, filters = audio_description_mix(root, project, cues, program_audio_input=0)
                 audio_args = [*narration_args, '-filter_complex', ';'.join(filters), '-map', '[mix]']
                 emit('Mixing the original soundtrack with Audio Description')
                 output_duration = duration
             else:
                 audio_args = ['-map', '0:a:0']
-                output_duration = actual_duration
+                output_duration = duration if duration > 0 and audio_sources.preferences(project)['export'] == 'imported' else actual_duration
+                audio_args += ['-af', f'apad,atrim=duration={output_duration}']
                 emit('Creating YouTube audio-only ' + format.upper())
             run_export([
                 tool('ffmpeg'), '-y', '-v', 'error', '-i', source, *audio_args, '-vn',
@@ -2276,12 +2326,18 @@ def export_youtube_audio(root, project, described=False, replace_existing=False,
             ], output_duration, start=0.25, message='Creating YouTube audio export')
             validate_audio_export(temporary, output_duration, format)
             commit_export(project, relative, output, temporary)
+            source_info = (dict(origin='importedAD', sourceName=project['importedAudioDescription']['sourceName'])
+                           if full_mix else audio_sources.provenance(project, 'export'))
+            source_info['adSource'] = ad_source if described else 'none'
+            if imported_ad:
+                source_info['adSourceName'] = project['importedAudioDescription']['sourceName']
+            project.setdefault('exportAudioSources', {})[relative] = source_info
     finally:
         temporary.unlink(missing_ok=True)
 
 
-def export_youtube_described_audio(root, project, replace_existing=False, media_format=None):
-    export_youtube_audio(root, project, described=True, replace_existing=replace_existing, media_format=media_format)
+def export_youtube_described_audio(root, project, replace_existing=False, media_format=None, ad_source='generated'):
+    export_youtube_audio(root, project, described=True, replace_existing=replace_existing, media_format=media_format, ad_source=ad_source)
 
 
 def export(root,p,audio_only=False,allow_incomplete=False,selectable=False,captions='none',content='transcript',replace_existing=False,media_format=None):
@@ -2841,7 +2897,7 @@ def validate_analysis_prerequisites(command, root, project):
 
 def main():
     parser=argparse.ArgumentParser(description=__doc__)
-    parser.add_argument('command',choices=['check-api-key','reanalyze-transcript-segment','undo-transcript','redo-transcript','reanalyze-segment','prepare-analysis-video','check-video-availability','cleanup-project','clear-generated','delete-generated','delete-segment-audio','list-models','list-voices','preview-tts','synthesize-speech','import-video','probe-video','generate-thumbnails','transcribe','generate-summary','generate-ad-cues','synthesize-tts','export-final-video','export-selectable-video','export-closed-audio-description-video','export-open-audio-description-video','export-closed-caption-video','export-dual-closed-caption-video','export-open-caption-video','export-original-audio','export-described-audio','export-youtube-described-audio','export-youtube-original-audio','download-youtube-audio','export-hls','save-cues','save-segments','save-summary','doctor',*parity.COMMANDS,*import_assets.COMMANDS])
+    parser.add_argument('command',choices=['check-api-key','reanalyze-transcript-segment','undo-transcript','redo-transcript','reanalyze-segment','prepare-analysis-video','check-video-availability','cleanup-project','clear-generated','delete-generated','delete-segment-audio','list-models','list-voices','preview-tts','synthesize-speech','import-video','probe-video','generate-thumbnails','transcribe','generate-summary','generate-ad-cues','synthesize-tts','export-final-video','export-selectable-video','export-closed-audio-description-video','export-open-audio-description-video','export-closed-caption-video','export-dual-closed-caption-video','export-open-caption-video','export-original-audio','export-described-audio','export-youtube-described-audio','export-youtube-original-audio','download-youtube-audio','export-hls','save-cues','save-segments','save-summary','doctor','read-youtube-metadata',*parity.COMMANDS,*import_assets.COMMANDS,*audio_sources.COMMANDS])
     parser.add_argument('--project',type=Path); parser.add_argument('--video',type=Path); parser.add_argument('--library',type=Path); parser.add_argument('--input',type=Path)
     parser.add_argument('--media-format', choices=VIDEO_EXPORT_FORMATS + AUDIO_EXPORT_FORMATS)
     parser.add_argument('--content',choices=['transcript','summary','descriptions','combined'],default='descriptions'); parser.add_argument('--url'); parser.add_argument('--name'); parser.add_argument('--timestamp',type=float,default=0); parser.add_argument('--duration',type=float); parser.add_argument('--segment'); parser.add_argument('--segments', action='append'); parser.add_argument('--format',choices=['srt','vtt','txt','json','md'],default='srt'); parser.add_argument('--changed',action='store_true'); parser.add_argument('--start-stage',default='transcribe')
@@ -2853,7 +2909,12 @@ def main():
     parser.add_argument('--captions', choices=['none','closed','open','dual-closed'], default='none', help='Add no transcript, one switchable caption track, two switchable transcript tracks, or permanently rendered captions to an Audio Description video.')
     parser.add_argument('--web-audio', choices=['original','closed-description','open-description'], default='closed-description', help='Choose the audio presentation for a Web Playback HLS package.')
     import_assets.add_arguments(parser)
+    audio_sources.add_arguments(parser)
     args=parser.parse_args()
+    if args.command == 'read-youtube-metadata':
+        if not args.url or not args.output:
+            raise ValueError('Choose a YouTube URL and metadata output.')
+        youtube_audio.read_metadata(args.url, args.output); return
     if args.command == 'inspect-import' and not args.project:
         import_assets.execute(args, None, None, SimpleNamespace(**globals())); return
     if args.command == 'download-youtube-audio':
@@ -2894,6 +2955,9 @@ def main():
     root=args.project.resolve()
     with project_lock(root):
         p=migrate_project_schema(root,json.loads((root/'project.json').read_text()))
+        if args.command in audio_sources.COMMANDS:
+            audio_sources.execute(args, root, p, SimpleNamespace(**globals()))
+            emit('Complete', project=str(root), progress=1); return
         if args.command in import_assets.COMMANDS:
             import_assets.execute(args, root, p, SimpleNamespace(**globals()))
             emit('Complete', project=str(root), progress=1); return
@@ -2937,7 +3001,7 @@ def main():
             elif args.command=='export-open-caption-video': export_captioned_video(root,p,open_captions=True,content=args.content,replace_existing=args.replace_existing,media_format=args.media_format)
             elif args.command=='export-original-audio': export_program_audio(root,p,replace_existing=args.replace_existing,media_format=args.media_format)
             elif args.command=='export-described-audio': export_program_audio(root,p,described=True,allow_incomplete=args.allow_incomplete_narration,replace_existing=args.replace_existing,media_format=args.media_format)
-            elif args.command=='export-youtube-described-audio': export_youtube_described_audio(root,p,replace_existing=args.replace_existing,media_format=args.media_format)
+            elif args.command=='export-youtube-described-audio': export_youtube_described_audio(root,p,replace_existing=args.replace_existing,media_format=args.media_format,ad_source=args.ad_source)
             elif args.command=='export-youtube-original-audio': export_youtube_audio(root,p,replace_existing=args.replace_existing,media_format=args.media_format)
             elif args.command=='export-hls':
                 export_hls_web(

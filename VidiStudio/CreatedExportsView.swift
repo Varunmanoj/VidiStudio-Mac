@@ -81,11 +81,17 @@ struct CreatedExportsView: View {
             _ = FileManager.default.fileExists(atPath: url.path, isDirectory: &isDirectory)
         }
         return HStack(spacing: 8) {
+            VStack(alignment: .leading, spacing: 3) {
             Label(filename, systemImage: kind.icon)
                 .lineLimit(1)
                 .truncationMode(.middle)
                 .help(filename)
                 .frame(maxWidth: .infinity, alignment: .leading)
+                if let source = project.exportAudioSources?[path] {
+                    Text(source.label).font(.caption).foregroundStyle(.secondary)
+                    if let name = source.adSourceName { Text("AD audio: \(name)").font(.caption).foregroundStyle(.secondary) }
+                }
+            }
 
             Button {
                 selectedExport = ExportSelection(

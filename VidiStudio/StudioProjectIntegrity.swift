@@ -114,7 +114,7 @@ extension StudioProject {
                 timeRange: "\(timecode(cue.start))–\(timecode(cue.end))"
             )
         }
-        let importedPaths = [importedAudioDescription?.path, importedADTranscript?.path]
+        let importedPaths = [importedAudioDescription?.path, importedADTranscript?.path, originalAudio?.path]
             .compactMap { $0?.trimmingCharacters(in: .whitespacesAndNewlines) }
             .filter { !$0.isEmpty }
         let manifestDecodable = folder.map { StudioProjectIntegrity.isProjectManifestDecodable(at: $0) } ?? false

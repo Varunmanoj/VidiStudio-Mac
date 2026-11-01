@@ -93,3 +93,7 @@ Project-pane transitions: the left project browser remains closed by default. To
 ## Developer-only project configuration
 
 **Open Project Configuration** (`open-configuration`) is visible only while Settings → Appearance → Developer mode is on. Both desktops hide it from the Project menu, project list/grid context menus, and inspector when off. The command guard and final file-opening action recheck the current setting, including requests from a previously opened menu. Existing idle, selection, and file-availability requirements still apply.
+
+## YouTube audio sources (1.0.194)
+
+Project > Import includes Import Original Audio and Import AD Audio on both desktops. Original Audio is enabled for YouTube projects; AD Audio supports local and YouTube projects. Both actions use the shared command guard, and neither adds a keyboard shortcut. Audio Sources is also available from the editor toolbar, inspector, and YouTube audio export dialog.
