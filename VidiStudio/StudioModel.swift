@@ -1509,6 +1509,7 @@ final class StudioModel {
     var progress = 0.0
     var error: String?
     var errorTitle = StudioModel.defaultErrorTitle
+    var youtubeAudioExportRecovery: YouTubeAudioExportRecovery?
     var narrationFailureReport: NarrationFailureReport?
     var narrationVoiceReport: NarrationVoiceReport?
     /// Import reports produced during the current import batch. The editor
@@ -1571,6 +1572,7 @@ final class StudioModel {
     }
 
     func dismissError() {
+        youtubeAudioExportRecovery = nil
         error = nil
         errorTitle = StudioModel.defaultErrorTitle
     }
@@ -2624,6 +2626,7 @@ final class StudioModel {
         completion: ((StudioProject?) -> Void)? = nil
     ) {
         guard !busy else { return }
+        youtubeAudioExportRecovery = nil
         let extra = command == "synthesize-tts" && !extra.contains("--segment") && !extra.contains("--changed") && !extra.contains("--regenerate-all")
             ? extra + ["--regenerate-all"] : extra
         errorTitle = StudioModel.defaultErrorTitle
@@ -2707,6 +2710,10 @@ final class StudioModel {
             narratingQueueIDs = []
         }
         var completedExportPath: String?
+        let canRecoverYouTubeAudio = target?.isYouTubeURLProject == true &&
+            ["export-youtube-original-audio", "export-youtube-described-audio", "combine-imported-audio"].contains(command)
+        var youtubeAudioUnavailable = false
+        var deferredExportError: String?
         var completedProjectPath: String?
         progress = 0
         message = UserFacingProgress.message(for: command)
@@ -2873,7 +2880,12 @@ final class StudioModel {
                             aiServiceIssue = aiIssue
                         }
                         let issue = UserFacingIssue.forEngine(command: command, technicalDetails: detail)
-                        present(issue, technicalDetails: detail, context: "Run \(command)")
+                        if canRecoverYouTubeAudio {
+                            youtubeAudioUnavailable = youtubeAudioUnavailable || event["recovery"] as? String == "choose-original-audio"
+                            deferredExportError = detail
+                        } else {
+                            present(issue, technicalDetails: detail, context: "Run \(command)")
+                        }
                         if command == "doctor" { engineCheckStatus = .failed(issue.message) }
                         if (command == "list-models" || command == "check-api-key" || detail.localizedCaseInsensitiveContains("api key not valid") || detail.localizedCaseInsensitiveContains("api_key_invalid"))
                             && aiServiceIssue == nil {
@@ -2944,8 +2956,15 @@ final class StudioModel {
             videoPreparationActivity = nil
             if operationWasCancelled {
                 message = exportWasCancelled ? "Export cancelled." : "Operation cancelled."
+            } else if task.terminationStatus != 0 && youtubeAudioUnavailable, let target {
+                youtubeAudioExportRecovery = YouTubeAudioExportRecovery(project: target, command: command, arguments: extra)
+                present(UserFacingIssue(
+                    title: "YouTube Audio Couldn’t Be Retrieved",
+                    message: "Choose a matching audio file to retry this export with the same format and narration choices. The file will be checked against the video duration before use. Existing exports are unchanged."
+                ), technicalDetails: deferredExportError, context: "Retrieve YouTube audio")
             } else if task.terminationStatus != 0 && self.error == nil {
-                present(UserFacingIssue.forEngine(command: command, technicalDetails: nil), context: "\(command) stopped")
+                present(UserFacingIssue.forEngine(command: command, technicalDetails: deferredExportError),
+                        technicalDetails: deferredExportError, context: "\(command) stopped")
             }
             if task.terminationStatus == 0 {
                 if Self.isAICommand(command) { aiServiceIssue = nil }

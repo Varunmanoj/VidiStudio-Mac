@@ -3041,5 +3041,5 @@ if __name__=='__main__':
     signal.signal(signal.SIGINT, cancel_processing)
     try: main()
     except Exception as exc:
-        emit(safe_error(exc),error=True)
+        emit(safe_error(exc), error=True, **audio_sources.error_metadata(exc))
         sys.exit(1)

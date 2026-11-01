@@ -1,7 +1,30 @@
 import SwiftUI
 import AppKit
 
+struct YouTubeAudioExportRecovery {
+    let project: StudioProject
+    let command: String
+    let arguments: [String]
+}
+
 extension StudioModel {
+    func chooseAudioForFailedExport(_ recovery: YouTubeAudioExportRecovery) {
+        guard !busy else { return }
+        dismissError()
+        guard let file = ImportFileKind.originalAudio.choose() else { return }
+        let current = projects.first(where: { $0.id == recovery.project.id }) ?? recovery.project
+        importOriginalAudio(file, into: current) { imported in
+            guard let imported else { return }
+            var arguments = recovery.arguments
+            while let index = arguments.firstIndex(of: "--soundtrack-source") {
+                arguments.remove(at: index)
+                if arguments.indices.contains(index) { arguments.remove(at: index) }
+            }
+            arguments += ["--soundtrack-source", "imported"]
+            self.execute(recovery.command, extra: arguments, project: imported)
+        }
+    }
+
     func importOriginalAudio(_ file: URL?, into project: StudioProject, playback: Bool? = nil,
                              transcription: Bool? = nil, replaceExisting: Bool = false,
                              completion: ((StudioProject?) -> Void)? = nil) {

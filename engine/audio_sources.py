@@ -20,6 +20,14 @@ TOLERANCE = 0.1
 DEFAULTS = dict(export='youtube', playback='youtube', transcription='youtube')
 
 
+class YouTubeAudioUnavailable(ValueError):
+    """Only soundtrack retrieval failed; a supplied original can replace it."""
+
+
+def error_metadata(error):
+    return {'recovery': 'choose-original-audio'} if isinstance(error, YouTubeAudioUnavailable) else {}
+
+
 def preferences(project):
     return DEFAULTS | (project.get('audioSources') or {})
 
@@ -91,7 +99,16 @@ def soundtrack(root, project, core):
     if preferences(project)['export'] == 'imported':
         yield original_path(root, project, core)
     else:
-        with youtube_audio.soundtrack(project.get('youtubeURL', ''), core.emit) as source:
+        with contextlib.ExitStack() as cleanup:
+            try:
+                source = cleanup.enter_context(youtube_audio.soundtrack(project.get('youtubeURL', ''), core.emit))
+            except (ValueError, OSError) as error:
+                # Mark only context entry failures. Mixing/encoding errors after
+                # yield and cancellation must not offer a soundtrack replacement.
+                raise YouTubeAudioUnavailable(
+                    'YouTube audio could not be retrieved. Choose Audio File to use a matching '
+                    'soundtrack and retry this export. Your existing exports are unchanged.'
+                ) from None
             yield source
 
 

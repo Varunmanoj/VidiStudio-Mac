@@ -223,7 +223,13 @@ private struct NewProjectView: View {
             youtubeFetchError = nil
         }
         .alert(studio.errorTitle, isPresented: Binding(get: { studio.error != nil }, set: { if !$0 { studio.dismissError() } })) {
-            Button("OK", role: .cancel) { studio.dismissError() }
+            if let recovery = studio.youtubeAudioExportRecovery {
+                Button("Choose Audio File…") { studio.chooseAudioForFailedExport(recovery) }
+                    .disabled(studio.busy)
+                Button("Cancel", role: .cancel) { studio.dismissError() }
+            } else {
+                Button("OK", role: .cancel) { studio.dismissError() }
+            }
         } message: {
             Text(studio.error ?? "")
         }
@@ -472,7 +478,13 @@ struct ContentView: View {
             NewProjectView(studio: studio)
         }
         .alert(studio.errorTitle, isPresented: Binding(get: { studio.error != nil }, set: { if !$0 { studio.dismissError() } })) {
-            Button("OK", role: .cancel) { studio.dismissError() }
+            if let recovery = studio.youtubeAudioExportRecovery {
+                Button("Choose Audio File…") { studio.chooseAudioForFailedExport(recovery) }
+                    .disabled(studio.busy)
+                Button("Cancel", role: .cancel) { studio.dismissError() }
+            } else {
+                Button("OK", role: .cancel) { studio.dismissError() }
+            }
         } message: {
             Text(studio.error ?? "")
         }
@@ -733,7 +745,13 @@ struct ProjectEditorWindow: View {
             }
         }
         .alert(studio.errorTitle, isPresented: Binding(get: { studio.error != nil }, set: { if !$0 { studio.dismissError() } })) {
-            Button("OK", role: .cancel) { studio.dismissError() }
+            if let recovery = studio.youtubeAudioExportRecovery {
+                Button("Choose Audio File…") { studio.chooseAudioForFailedExport(recovery) }
+                    .disabled(studio.busy)
+                Button("Cancel", role: .cancel) { studio.dismissError() }
+            } else {
+                Button("OK", role: .cancel) { studio.dismissError() }
+            }
         } message: {
             Text(studio.error ?? "")
         }
