@@ -15,10 +15,12 @@ import Combine
         // Session-only key; never logged or persisted.
         [settings.apiKey, settings.apiVersion, settings.models["tts_audio"] ?? "", settings.geminiVoice, settings.prompts["tts_audio"]?["user_prompt"] ?? "", text].joined(separator: "\u{0}")
     }
+    func hasCached(settings: StudioSettings, text: String) -> Bool { cache[cacheKey(settings, text)].map { FileManager.default.fileExists(atPath: $0.path) } ?? false }
     func play(settings: StudioSettings, text: String) {
         stop(); error = nil
         let key = cacheKey(settings, text)
         if let file = cache[key] { playFile(file); return }
+        guard ConnectivityService.shared.available(.gemini) else { error = ConnectivityService.shared.reason(.gemini); return }
         guard !settings.apiKey.isEmpty else { error = "Enter your Gemini API key in Settings → Gemini API to preview this voice."; return }
         guard let engine = Bundle.main.resourceURL?.appendingPathComponent("Engine/vidistudio-engine") else {
             error = "A required part of VidiStudio is unavailable. Reinstall the application, then try again."
@@ -39,21 +41,27 @@ import Combine
             let task = Process(), pipe = Pipe()
             task.executableURL = engine
             task.arguments = ["preview-tts", "--output", file.path, "--text", text]
-            var environment = ProcessInfo.processInfo.environment.merging(["VIDISTUDIO_CONFIG": config.path]) { _, new in new }
+            var environment = ProcessInfo.processInfo.environment.merging(["VIDISTUDIO_CONFIG": config.path, "VIDISTUDIO_NETWORK_EVENTS": "1"]) { _, new in new }
             if !apiKey.isEmpty { environment["VIDISTUDIO_API_KEY"] = apiKey }
             task.environment = environment
             task.standardOutput = pipe; task.standardError = FileHandle.nullDevice
             try task.run(); process = task; loading = true
+            let connectionWatch = ConnectionRecoveryWatch { if task.isRunning { task.terminate() } }
             Task {
+                defer { connectionWatch.stop() }
                 var failure: String?
                 do {
                     for try await line in pipe.fileHandleForReading.bytes.lines {
-                        if let data = line.data(using: .utf8), let event = try? JSONSerialization.jsonObject(with: data) as? [String: Any], event["error"] as? Bool == true { failure = event["message"] as? String }
+                        if let data = line.data(using: .utf8), let event = try? JSONSerialization.jsonObject(with: data) as? [String: Any] {
+                            connectionWatch.consume(event)
+                            if event["error"] as? Bool == true { failure = event["message"] as? String }
+                        }
                     }
                 } catch { failure = "Could not read the voice preview result." }
                 try? FileManager.default.removeItem(at: config)
                 guard requestID == id else { try? FileManager.default.removeItem(at: directory); return }
                 loading = false; process = nil
+                if connectionWatch.interrupted { failure = "Connection interrupted. Connect to the internet and try again." }
                 if let failure {
                     self.error = UserFacingIssue.forEngine(command: "preview-tts", technicalDetails: failure).message
                     UserFacingIssueReporter.record(failure, context: "Create Gemini voice sample")
@@ -96,7 +104,7 @@ struct GeminiVoiceBrowser: View {
             TextField("Sample text", text: $sample, axis: .vertical).lineLimit(2...4)
             HStack {
                 Button(preview.loading ? "Generating Sample…" : "Play Voice Sample", systemImage: "play.circle") { preview.play(settings: studio.settings, text: sample) }
-                    .disabled(preview.loading || sample.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || sample.count > 500 || !studio.hasApiKey)
+                    .disabled(preview.loading || sample.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || sample.count > 500 || !studio.hasApiKey || (!ConnectivityService.shared.available(.gemini) && !preview.hasCached(settings: studio.settings, text: sample)))
                     .help(!studio.hasApiKey ? "Enter your Gemini API key in Settings → Gemini API to preview this voice" : "Play sample of Gemini voice \(studio.settings.geminiVoice)")
                     .accessibilityLabel("Play sample of Gemini voice \(studio.settings.geminiVoice)")
                 Button(preview.loading ? "Cancel Generation" : "Stop Sample", systemImage: "stop.circle") { preview.stop() }.disabled(!preview.loading && !preview.playing)

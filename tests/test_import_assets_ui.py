@@ -133,7 +133,7 @@ class ImportAssetsUI(unittest.TestCase):
     def test_ai_quota_pause_and_key_free_project_creation(self):
         self.assertIn('struct AIServiceIssue', MODEL)
         self.assertIn('aiServiceIssue = aiIssue', MODEL)
-        self.assertIn('hasValidApiKey: Bool { hasApiKey && apiKeyVerified != false && !isAIProcessingBlocked }', MODEL)
+        self.assertIn('hasValidApiKey: Bool { hasApiKey && apiKeyVerified != false && !isAIProcessingBlocked && ConnectivityService.shared.available(.gemini) }', MODEL)
         self.assertIn('AIServiceIssueBanner', (ROOT / 'VidiStudio' / 'AIServiceIssueBanner.swift').read_text(encoding='utf-8'))
         self.assertIn('isCreatingProject = true', MODEL)
         self.assertNotIn('requestGeminiSettings', MODEL)

@@ -31,6 +31,7 @@ struct AIServiceIssueBanner: View {
                     }
                     .controlSize(.small)
                     .disabled(studio.busy)
+                    .requiresInternet(.gemini)
                     .help("Check the Gemini key and processing access again. AI actions stay disabled until this succeeds.")
                     Button("Gemini Settings…", systemImage: "gearshape") {
                         studio.settingsSection = "Gemini API"

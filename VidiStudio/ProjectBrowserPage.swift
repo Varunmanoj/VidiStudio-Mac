@@ -9,9 +9,9 @@ struct ProjectAnalysisMenu: View {
     var aiProcessingBlocked: Bool = false
     let perform: (String) -> Void
 
-    private var hasValidApiKey: Bool { hasApiKey && apiKeyVerified != false && !aiProcessingBlocked }
+    private var hasValidApiKey: Bool { hasApiKey && apiKeyVerified != false && !aiProcessingBlocked && ConnectivityService.shared.available(.gemini) }
     private var isApiKeyInvalid: Bool { hasApiKey && apiKeyVerified == false }
-    private var aiBlockedHelp: String? { aiProcessingBlocked ? "Gemini AI processing is paused after a quota or service error. Retry AI from the warning banner or open Gemini settings." : nil }
+    private var aiBlockedHelp: String? { ConnectivityService.shared.reason(.gemini) ?? (aiProcessingBlocked ? "Gemini AI processing is paused after a quota or service error. Retry AI from the warning banner or open Gemini settings." : nil) }
 
     var body: some View {
         Menu("Analysis", systemImage: "sparkles") {
@@ -19,6 +19,7 @@ struct ProjectAnalysisMenu: View {
                 perform("prepare-video")
             }
             .help("Refresh video details and timeline pictures without using AI")
+            .disabled(project.isYouTubeURLProject && !ConnectivityService.shared.available(.youtube))
             Divider()
             Button("Analyze Video…", systemImage: "sparkles") { perform("analyze") }
                 .disabled(!hasValidApiKey)

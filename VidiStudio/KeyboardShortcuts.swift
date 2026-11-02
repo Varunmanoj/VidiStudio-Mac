@@ -40,7 +40,8 @@ final class EditorShortcutActions {
     var hasApiKey = false
     var apiKeyVerified: Bool? = nil
     var aiProcessingBlocked = false
-    var hasValidApiKey: Bool { hasApiKey && apiKeyVerified != false && !aiProcessingBlocked }
+    var hasValidApiKey: Bool { hasApiKey && apiKeyVerified != false && !aiProcessingBlocked && ConnectivityService.shared.available(.gemini) }
+    var youtubeProject = false
     var ttsUsesGemini = false
     var isSynthesizingNarration = false
     var narratingSegmentIndex: Int? = nil
@@ -131,6 +132,7 @@ final class EditorShortcutActions {
 
     func canRun(_ action: String) -> Bool {
         guard available, handler != nil else { return false }
+        if ["play", "back", "forward"].contains(action), youtubeProject, !ConnectivityService.shared.available(.youtube) { return false }
         if action.hasPrefix("summary-") { return canRunSummary(action) }
         switch action {
         case "rename-project", "trash-project", "import-assets", "import-transcript", "import-summary", "import-descriptions", "import-ad-audio": return true
@@ -153,7 +155,7 @@ final class EditorShortcutActions {
         case "caption-off": return captionControlsAvailable
         case "caption-transcript": return captionControlsAvailable && hasTranscriptText
         case "caption-ad-transcript": return captionControlsAvailable && (hasTranscriptText || hasDescriptions)
-        case "prepare-video": return true
+        case "prepare-video": return !youtubeProject || ConnectivityService.shared.available(.youtube)
         case "analyze", "transcribe", "generate-summary": return hasValidApiKey
         case "generate-ad-cues": return hasValidApiKey && canGenerateDescriptions
         case "synthesize-tts":

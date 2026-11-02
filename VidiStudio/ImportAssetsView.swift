@@ -538,6 +538,7 @@ struct TXTImportTimingView: View {
                 Button("Auto-time with Gemini", systemImage: "sparkles") { align() }
                     .disabled(!studio.hasValidApiKey || studio.busy)
                     .help(studio.hasApiKey ? "Ask Gemini for proposed timing; review every row before saving" : "Enter your Gemini API key in Settings → Gemini API to auto-time text")
+                    .requiresInternet(.gemini)
                 Spacer()
                 Text("\(rows.count) lines").font(.caption).foregroundStyle(.secondary)
             }

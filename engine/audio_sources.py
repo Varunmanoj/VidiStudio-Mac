@@ -8,6 +8,7 @@ import contextlib
 import copy
 import hashlib
 import math
+import os
 import tempfile
 from pathlib import Path
 
@@ -168,7 +169,7 @@ def add_arguments(parser):
 
 def inspect(args, project, core):
     duration = import_assets.duration_of(project)
-    if duration is None and project.get('youtubeURL'):
+    if duration is None and project.get('youtubeURL') and os.environ.get('VIDISTUDIO_YOUTUBE_AVAILABLE') != '0':
         duration = youtube_audio.video_duration(project['youtubeURL'], core.emit)
     asset = project.get('originalAudio') or {}
     source = args.input or (core.local(args.project, asset['path']) if asset.get('path') else None)

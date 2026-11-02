@@ -1,8 +1,10 @@
 """Project operations shared by the native UI and portable command line."""
+import contextlib
 import base64, copy, json, math, re, shutil, time, uuid
 from pathlib import Path
 from urllib.parse import urlparse,parse_qs
-from urllib.request import urlopen
+from urllib.request import urlopen as _urlopen
+import network_activity
 import gemini_adapter
 import ssl
 import certifi
@@ -10,6 +12,13 @@ COMMANDS=['import-youtube','prepare-video','validate-config','analyze','regenera
 MULTILINGUAL_MEDIA_PROMPT_KEYS={
     'transcript','youtube_transcript','summary','audio_descriptions','screen_text','youtube_screen_text'
 }
+
+@contextlib.contextmanager
+def urlopen(*args, **kwargs):
+    with network_activity.activity('youtube'):
+        with _urlopen(*args, **kwargs) as response:
+            yield response
+
 
 def media_prompt_pair(cfg,key):
     """Add the shared multilingual guidance without changing task prompt defaults."""
@@ -64,7 +73,8 @@ def prepare_video(root,p,e):
         try:
             with urlopen('https://www.youtube.com/oembed?format=json&url='+url,timeout=10,context=ssl.create_default_context(cafile=certifi.where())) as r:
                 title=str(json.load(r).get('title') or '').strip()
-        except Exception:pass
+        except Exception:
+            raise
         placeholders=('YouTube video','YouTube Project','YouTube '+ident)
         if title and p.get('name') in placeholders:p['name']=title[:200]
         thumbnail=download_youtube_thumbnail(root,ident)
@@ -153,20 +163,12 @@ def execute(args,root,p,e):
         if not args.url or not args.library: raise ValueError('YouTube import requires --url and --library.')
         url=youtube_url(args.url);ident=url.split('=')[-1];name=args.name or 'YouTube video'
         ensure_unique_youtube_video(args.library, url)
-        try:
-            has_gemini_key = bool(e.config().get('apiKey'))
-        except Exception:
-            has_gemini_key = False
-        if has_gemini_key:
-            e.emit('Checking that the YouTube video is public and available to Gemini',progress=.1)
-            e.validate_youtube_for_gemini(url)
-        else:
-            e.emit('Creating the YouTube project without an API key. AI analysis will require a key later.',warning=True)
-        try:
+        # Creating a project requires YouTube reachability, independently of
+        # Gemini credentials or availability. Never create an offline placeholder.
+        with network_activity.activity('youtube'):
             with urlopen('https://www.youtube.com/oembed?format=json&url='+url,timeout=10,context=ssl.create_default_context(cafile=certifi.where())) as r:
                 title=str(json.load(r).get('title') or '').strip()
                 if title and not args.name:name=title[:200]
-        except Exception:pass
         root=args.library.resolve()/('YouTube-'+ident+'-'+uuid.uuid4().hex[:8])
         root.mkdir(parents=True,exist_ok=True)
         thumbnail=download_youtube_thumbnail(root,ident)

@@ -431,7 +431,16 @@ final class PlaybackModel {
         if let observer { player.removeTimeObserver(observer); self.observer = nil }
         webView?.evaluateJavaScript("player?.pauseVideo()", completionHandler: nil)
     }
+    var canStartPlayback: Bool { webView == nil || ConnectivityService.shared.available(.youtube) }
+    private func requirePlaybackConnection() -> Bool {
+        guard canStartPlayback else {
+            speechError = ConnectivityService.shared.reason(.youtube)
+            return false
+        }
+        return true
+    }
     func togglePlayback() {
+        guard playing || requirePlaybackConnection() else { return }
         if playing || player.timeControlStatus == .playing { stopNarration() }
         if let webView { webView.evaluateJavaScript("player && ([1, 3].includes(player.getPlayerState()) ? player.pauseVideo() : player.playVideo())", completionHandler: nil) }
         else if player.timeControlStatus != .paused { pausePlayback() }
@@ -441,6 +450,7 @@ final class PlaybackModel {
         }
     }
     func playPlayback() {
+        guard requirePlaybackConnection() else { return }
         if let webView { webView.evaluateJavaScript("player?.playVideo()", completionHandler: nil) }
         else {
             observe()
@@ -469,6 +479,7 @@ final class PlaybackModel {
         }
     }
     func play(from seconds: Double) {
+        guard requirePlaybackConnection() else { return }
         guard seconds.isFinite else { return }
         cancelPendingPlayback()
         let requestID = playbackRequestID

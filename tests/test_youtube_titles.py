@@ -18,7 +18,7 @@ class YouTubeTitles(unittest.TestCase):
                     validate_youtube_for_gemini=validated.append,
                 ))
             project=json.loads(next(Path(tmp).glob('*/project.json')).read_text())
-            self.assertEqual(validated,[project['youtubeURL']])
+            self.assertEqual(validated,[])
             return project
     def test_share_and_watch_urls_create_the_same_canonical_project(self):
         expected='https://www.youtube.com/watch?v=4fYlQtcm6qY'
@@ -35,7 +35,7 @@ class YouTubeTitles(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             args=SimpleNamespace(command='import-youtube',url='https://youtu.be/hYaQffYszuM',library=Path(tmp),name=None,duration=0)
             validated=[]
-            with patch.object(parity,'urlopen',side_effect=OSError('offline')), \
+            with patch.object(parity,'urlopen',return_value=io.StringIO(json.dumps({'title':'A video'}))), \
                  patch.object(parity,'download_youtube_thumbnail',return_value=None):
                 parity.execute(args,None,None,SimpleNamespace(
                     save=engine.save,
@@ -57,17 +57,21 @@ class YouTubeTitles(unittest.TestCase):
             self.assertEqual(relative,'thumbnails/youtube-thumbnail.jpg')
             self.assertEqual((root/relative).read_bytes(),b'\xff\xd8\xffstored thumbnail')
     def test_display_title(self): self.assertEqual(self.import_project('The video display title')['name'],'The video display title')
-    def test_offline_placeholder_has_no_id(self): self.assertEqual(self.import_project(fail=True)['name'],'YouTube video')
+    def test_offline_fetch_does_not_create_a_placeholder(self):
+        with self.assertRaises(OSError): self.import_project(fail=True)
     def test_custom_name_preserved(self): self.assertEqual(self.import_project('Title',custom='My edit')['name'],'My edit')
-    def test_gemini_validation_failure_does_not_create_project(self):
+    def test_saved_key_does_not_make_creation_depend_on_gemini(self):
         with tempfile.TemporaryDirectory() as tmp:
             args=SimpleNamespace(command='import-youtube',url='https://youtu.be/4fYlQtcm6qY',library=Path(tmp),name=None,duration=0)
-            def reject(_url): raise ValueError('not public')
-            with self.assertRaisesRegex(ValueError,'not public'):
-                parity.execute(args,None,None,SimpleNamespace(
-                    save=engine.save,
-                    emit=lambda *a,**k:None,
-                    config=lambda: {'apiKey': 'test-key'},
-                    validate_youtube_for_gemini=reject,
-                ))
-            self.assertEqual(list(Path(tmp).glob('*/project.json')),[])
+            def reject(_url): raise AssertionError('Creation must not invoke Gemini')
+            with patch.object(parity,'urlopen',return_value=io.StringIO(json.dumps({'title':'A video'}))), patch.object(parity,'download_youtube_thumbnail',return_value=None):
+                parity.execute(args,None,None,SimpleNamespace(save=engine.save,emit=lambda *a,**k:None,config=lambda: {'apiKey':'test-key'},validate_youtube_for_gemini=reject))
+            self.assertEqual(len(list(Path(tmp).glob('*/project.json'))),1)
+
+    def test_failed_details_leave_no_project_folder(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            args=SimpleNamespace(command='import-youtube',url='https://youtu.be/4fYlQtcm6qY',library=Path(tmp),name=None,duration=0)
+            with patch.object(parity,'urlopen',side_effect=ConnectionError('network is unreachable')):
+                with self.assertRaises(ConnectionError):
+                    parity.execute(args,None,None,SimpleNamespace(save=engine.save,emit=lambda *a,**k:None))
+            self.assertEqual(list(Path(tmp).iterdir()),[])

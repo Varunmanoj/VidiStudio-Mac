@@ -106,7 +106,7 @@ struct GeminiAPISettingsView: View {
                         }
                         keyDebounceTask = Task {
                             try? await Task.sleep(nanoseconds: 700_000_000)
-                            if !Task.isCancelled {
+                            if !Task.isCancelled && ConnectivityService.shared.available(.gemini) {
                                 studio.checkGeminiApiKey()
                             }
                         }
@@ -134,6 +134,7 @@ struct GeminiAPISettingsView: View {
                     apiKey = ""
                 }
                 .disabled(!hasApiKey || studio.busy)
+                .requiresInternet(.gemini)
                 Button("Cancel", role: .cancel) {}
             } message: {
                 Text("Are you sure you want to delete your Gemini API key from macOS Keychain? You will need to enter a new key to use AI features.")
@@ -148,6 +149,7 @@ struct GeminiAPISettingsView: View {
                     studio.checkGeminiApiKey()
                 }
                 .disabled(studio.busy || !hasApiKey)
+                .requiresInternet(.gemini)
                 .accessibilityHint("Checks the validity of your Gemini API key and detects available models and plan tier.")
             }
 
@@ -199,7 +201,7 @@ struct GeminiAPISettingsView: View {
             }
         }
         .onAppear {
-            if hasApiKey && studio.apiKeyVerified == nil && !studio.busy {
+            if hasApiKey && studio.apiKeyVerified == nil && !studio.busy && ConnectivityService.shared.available(.gemini) {
                 studio.checkGeminiApiKey()
             }
         }

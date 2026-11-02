@@ -1542,7 +1542,17 @@ final class StudioModel {
     var isAIProcessingBlocked: Bool { aiServiceIssue != nil }
     var apiKeyVerificationMessage: String? = nil
     var hasApiKey: Bool { settings.hasApiKey }
-    var hasValidApiKey: Bool { hasApiKey && apiKeyVerified != false && !isAIProcessingBlocked }
+    var hasValidApiKey: Bool { hasApiKey && apiKeyVerified != false && !isAIProcessingBlocked && ConnectivityService.shared.available(.gemini) }
+    func onlineReason(_ command: String, project: StudioProject? = nil, extra: [String] = []) -> String? {
+        OnlineRequirements.services(command, project: project ?? selected, settings: settings, extra: extra)
+            .compactMap { ConnectivityService.shared.reason($0) }.first
+    }
+    func requireInternet(_ command: String, project: StudioProject? = nil, extra: [String] = []) -> Bool {
+        guard let reason = onlineReason(command, project: project, extra: extra) else { return true }
+        present(UserFacingIssue(title: "Internet Connection Required", message: reason), context: command)
+        ConnectivityService.shared.check()
+        return false
+    }
     var isApiKeyInvalid: Bool { hasApiKey && apiKeyVerified == false }
     var engineCheckStatus: EngineCheckStatus = .unchecked
     var selected: StudioProject? { projects.first { $0.id == selectedID } }
@@ -2048,6 +2058,7 @@ final class StudioModel {
         return true
     }
     func validateYouTubeForCreation(_ rawURL: String) -> Bool {
+        guard requireInternet("import-youtube") else { return false }
         if let existing = existingProject(forYouTubeURL: rawURL) {
             showDuplicateProjectError(existing)
             return false
@@ -2387,6 +2398,7 @@ final class StudioModel {
     }
     func loadGeminiModels() {
         guard !busy else { return }
+        guard requireInternet("check-api-key") else { return }
         guard settings.hasApiKey else {
             apiKeyVerified = false
             apiKeyVerificationMessage = "Enter your Gemini API key in Settings → Gemini API to enable features."
@@ -2403,14 +2415,10 @@ final class StudioModel {
             let configData = try JSONSerialization.data(withJSONObject: executionDict)
             try configData.write(to: configuration, options: .atomic)
             try FileManager.default.setAttributes([.posixPermissions: 0o600], ofItemAtPath: configuration.path)
-            availableGeminiModels = []
-            geminiModelsLoaded = false
-            apiKeyVerified = nil
             apiKeyVerificationMessage = nil
             execute("check-api-key", configurationURL: configuration, cleanupURL: directory)
         } catch {
             try? FileManager.default.removeItem(at: directory)
-            apiKeyVerified = false
             apiKeyVerificationMessage = error.localizedDescription
             let issue = UserFacingIssue.forEngine(command: "check-api-key", technicalDetails: error.localizedDescription)
             present(issue, technicalDetails: error.localizedDescription, context: "Load Gemini models")
@@ -2635,6 +2643,11 @@ final class StudioModel {
             engineCheckStatus = .checking
         }
         let target = project ?? (["import-video", "import-youtube", "doctor", "validate-config", "list-models", "check-api-key"].contains(command) ? nil : selected)
+        guard requireInternet(command, project: target, extra: extra) else {
+            if let cleanupURL { try? FileManager.default.removeItem(at: cleanupURL) }
+            completion?(nil)
+            return
+        }
         if ["export-final-video", "export-selectable-video", "export-closed-audio-description-video", "export-open-audio-description-video", "export-closed-caption-video", "export-dual-closed-caption-video", "export-open-caption-video", "export-hls"].contains(command), let target, target.isYouTubeURLProject {
             errorTitle = "Video Export Isn’t Available"
             error = "This project uses a YouTube link, so VidiStudio does not have a local video to export. You can still export text and available narration audio."
@@ -2656,6 +2669,13 @@ final class StudioModel {
             && (extra.contains("closed-description") || extra.contains("open-description"))
         if (["export-final-video", "export-selectable-video", "export-closed-audio-description-video", "export-open-audio-description-video", "export-described-audio", "export-youtube-described-audio", "export-audio"].contains(command) || webPlaybackNeedsNarration), let target {
             guard requireCompleteNarrationForExport(project: target) else { return }
+        }
+        // Confirmation dialogs run their own event loop; recheck after they
+        // close so a connection lost during confirmation cannot start work.
+        guard requireInternet(command, project: target, extra: extra) else {
+            if let cleanupURL { try? FileManager.default.removeItem(at: cleanupURL) }
+            completion?(nil)
+            return
         }
         guard let engine = Bundle.main.resourceURL?.appendingPathComponent("Engine/vidistudio-engine"), FileManager.default.isExecutableFile(atPath: engine.path) else {
             let issue = UserFacingIssue(
@@ -2741,6 +2761,8 @@ final class StudioModel {
         var environment = ProcessInfo.processInfo.environment.merging([
             "VIDISTUDIO_CONFIG": (effectiveConfigurationURL ?? StudioSettings.url).path,
             "VIDISTUDIO_PIPER_VOICES": PiperStorage.voicesDirectory.path,
+            "VIDISTUDIO_NETWORK_EVENTS": "1",
+            "VIDISTUDIO_YOUTUBE_AVAILABLE": ConnectivityService.shared.available(.youtube) ? "1" : "0",
         ]) { _, new in new }
         if !apiKey.isEmpty { environment["VIDISTUDIO_API_KEY"] = apiKey }
         task.environment = environment
@@ -2772,10 +2794,15 @@ final class StudioModel {
             completion?(nil)
             return
         }
+        let connectionWatch = ConnectionRecoveryWatch { [weak self] in self?.cancelCurrentOperation() }
         Task {
+            defer { connectionWatch.stop() }
             do {
                 for try await line in output.fileHandleForReading.bytes.lines {
                     guard let data = line.data(using: .utf8), let event = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else { continue }
+                    connectionWatch.consume(event)
+                    if event["failureKind"] as? String == "connectivity" { ConnectivityService.shared.check() }
+                    if event["networkActive"] != nil { continue }
                     let eventMessage = event["message"] as? String
                     let eventIsError = event["error"] as? Bool == true
                     let eventIsWarning = event["warning"] as? Bool == true
@@ -2874,9 +2901,9 @@ final class StudioModel {
                        importReports.last?.id != report.id {
                         importReports.append(report)
                     }
-                    if eventIsError {
+                    if eventIsError && !connectionWatch.interrupted {
                         let detail = eventMessage ?? "The operation stopped without further details."
-                        if Self.isAICommand(command), let aiIssue = AIServiceIssue.detect(detail) {
+                        if OnlineRequirements.services(command, project: target, settings: settings, extra: extra).contains(.gemini), let aiIssue = AIServiceIssue.detect(detail) {
                             aiServiceIssue = aiIssue
                         }
                         let issue = UserFacingIssue.forEngine(command: command, technicalDetails: detail)
@@ -2887,7 +2914,7 @@ final class StudioModel {
                             present(issue, technicalDetails: detail, context: "Run \(command)")
                         }
                         if command == "doctor" { engineCheckStatus = .failed(issue.message) }
-                        if (command == "list-models" || command == "check-api-key" || detail.localizedCaseInsensitiveContains("api key not valid") || detail.localizedCaseInsensitiveContains("api_key_invalid"))
+                        if (detail.localizedCaseInsensitiveContains("api key not valid") || detail.localizedCaseInsensitiveContains("api_key_invalid") || detail.localizedCaseInsensitiveContains("invalid api key"))
                             && aiServiceIssue == nil {
                             apiKeyVerified = false
                             apiKeyVerificationMessage = detail
@@ -2903,10 +2930,10 @@ final class StudioModel {
                 }
             } catch {
                 let detail = error.localizedDescription
-                if Self.isAICommand(command), let aiIssue = AIServiceIssue.detect(detail) {
+                if OnlineRequirements.services(command, project: target, settings: settings, extra: extra).contains(.gemini), let aiIssue = AIServiceIssue.detect(detail) {
                     aiServiceIssue = aiIssue
                 }
-                if (command == "list-models" || command == "check-api-key" || detail.localizedCaseInsensitiveContains("api key not valid") || detail.localizedCaseInsensitiveContains("api_key_invalid"))
+                if (detail.localizedCaseInsensitiveContains("api key not valid") || detail.localizedCaseInsensitiveContains("api_key_invalid") || detail.localizedCaseInsensitiveContains("invalid api key"))
                     && aiServiceIssue == nil {
                     apiKeyVerified = false
                     apiKeyVerificationMessage = detail
@@ -2954,6 +2981,9 @@ final class StudioModel {
             process = nil
             reload()
             videoPreparationActivity = nil
+            if connectionWatch.interrupted {
+                present(UserFacingIssue(title: "Connection Interrupted", message: "The connection did not recover within 30 seconds. Connect to the internet and try again. Completed results remain saved."), context: command)
+            }
             if operationWasCancelled {
                 message = exportWasCancelled ? "Export cancelled." : "Operation cancelled."
             } else if task.terminationStatus != 0 && youtubeAudioUnavailable, let target {
@@ -2970,9 +3000,6 @@ final class StudioModel {
                 if Self.isAICommand(command) { aiServiceIssue = nil }
                 self.errorTitle = StudioModel.defaultErrorTitle
             } else if (command == "list-models" || command == "check-api-key") && aiServiceIssue == nil {
-                apiKeyVerified = false
-                availableGeminiModels = []
-                geminiModelsLoaded = false
                 if apiKeyVerificationMessage == nil {
                     apiKeyVerificationMessage = self.error ?? "The Gemini API key could not be verified. Please check the key in Settings → Gemini API."
                 }
@@ -3066,6 +3093,7 @@ final class StudioModel {
     }
     func reanalyzeSegment(_ segment: Segment, hint: String, isDescription: Bool = true) {
         guard let project = selected, !busy else { return }
+        guard requireInternet(isDescription ? "reanalyze-segment" : "reanalyze-transcript-segment", project: project) else { return }
         struct ReanalysisRequest: Encodable {
             let id: String
             let start: Double

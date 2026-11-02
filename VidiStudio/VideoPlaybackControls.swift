@@ -23,11 +23,12 @@ struct VideoPlaybackControls: View {
             .accessibilityLabel("Rewind 5 seconds")
             .accessibilityHint(shortcut("back"))
             .help("Rewind 5 seconds (\(shortcut("back")))")
-            .disabled(playback.time <= 0)
+            .disabled(playback.time <= 0 || !playback.canStartPlayback)
 
             Button { playback.togglePlayback() } label: {
                 icon(playback.playbackActive ? "pause.fill" : "play.fill")
             }
+            .disabled(!playback.playing && !playback.canStartPlayback)
             .accessibilityLabel(playback.playbackActive ? "Pause video" : "Play video")
             .accessibilityHint(shortcut("play"))
             .help("\(playback.playbackActive ? "Pause" : "Play") video (\(shortcut("play")))")
@@ -46,7 +47,7 @@ struct VideoPlaybackControls: View {
             .accessibilityLabel("Fast forward 5 seconds")
             .accessibilityHint(shortcut("forward"))
             .help("Fast forward 5 seconds (\(shortcut("forward")))")
-            .disabled(duration <= 0 || playback.time >= duration)
+            .disabled(duration <= 0 || playback.time >= duration || !playback.canStartPlayback)
         }
         .font(.system(size: 16, weight: .medium))
         .buttonStyle(.borderless)

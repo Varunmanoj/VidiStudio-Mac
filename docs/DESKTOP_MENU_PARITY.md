@@ -97,3 +97,10 @@ Project-pane transitions: the left project browser remains closed by default. To
 ## YouTube audio sources (1.0.194)
 
 Project > Import includes Import Original Audio and Import AD Audio on both desktops. Original Audio is enabled for YouTube projects; AD Audio supports local and YouTube projects. Both actions use the shared command guard, and neither adds a keyboard shortcut. Audio Sources is also available from the editor toolbar, inspector, and YouTube audio export dialog.
+
+
+## Internet availability (1.0.197)
+
+Both desktops use the same command requirements for toolbar buttons, Project/Playback menus, project and segment context menus, and keyboard actions. Gemini processing requires reachable Gemini plus the existing key/service prerequisites. YouTube details, project creation, metadata refresh and streaming playback require reachable YouTube; local media preparation stays available offline. Cloud narration is gated by the selected provider. Export availability follows the selected soundtrack and AD source: local imported soundtracks, full AD mixes, narration-only audio and text do not acquire a YouTube requirement. Connection changes restore only actions whose other prerequisites are satisfied. Final execution guards recheck availability; Mac also rechecks after modal confirmation. No command IDs, menu order or shortcuts change.
+
+The Check Connection action is on the connection banner on both platforms. Connectivity and API-key/quota validation are separate. Windows Summary Reading can use the selected Gemini provider and therefore requires internet when creating cloud speech; Mac summary reading uses its existing local Apple/Piper path.

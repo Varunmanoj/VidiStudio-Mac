@@ -141,6 +141,7 @@ enum PiperStorage {
     }
 
     func download(_ voice: PiperVoice) async throws {
+        guard ConnectivityService.shared.available(.voices) else { throw NSError(domain: "VidiStudio.Connectivity", code: 1, userInfo: [NSLocalizedDescriptionKey: ConnectivityService.shared.reason(.voices) ?? "Internet connection required."]) }
         guard !isDownloaded(voice.id) else { return }
         try FileManager.default.createDirectory(at: PiperStorage.voicesDirectory, withIntermediateDirectories: true)
         progress[voice.id] = 0
@@ -199,13 +200,24 @@ enum PiperStorage {
         if FileManager.default.fileExists(atPath: destination.path), fileSize(destination) > 0 {
             return destination
         }
+        guard ConnectivityService.shared.available(.voices) else { throw PiperDownloadError.message(ConnectivityService.shared.reason(.voices) ?? "Internet connection required.") }
         try FileManager.default.createDirectory(at: PiperStorage.samplesDirectory, withIntermediateDirectories: true)
         guard let url = PiperStorage.downloadURL(voice.samplePath) else {
             throw PiperDownloadError.message("This voice has no playable sample.")
         }
         var request = URLRequest(url: url)
         request.timeoutInterval = 60
-        let (temporary, response) = try await URLSession.shared.download(for: request)
+        let sampleTask = Task { try await URLSession.shared.download(for: request) }
+        let connectionWatch = ConnectionRecoveryWatch { sampleTask.cancel() }
+        connectionWatch.consume(["networkService": "voices", "networkActive": true])
+        defer { connectionWatch.stop() }
+        let temporary: URL
+        let response: URLResponse
+        do { (temporary, response) = try await sampleTask.value }
+        catch {
+            if connectionWatch.interrupted { throw PiperDownloadError.message("The connection did not recover within 30 seconds. Connect to the internet and retry the sample.") }
+            throw error
+        }
         if let http = response as? HTTPURLResponse, !(200..<300).contains(http.statusCode) {
             throw PiperDownloadError.message("The sample could not be downloaded. Check the internet connection and try again.")
         }
@@ -240,13 +252,21 @@ enum PiperStorage {
         let session = URLSession(configuration: .ephemeral, delegate: delegate, delegateQueue: nil)
         defer { session.finishTasksAndInvalidate() }
         let task = session.downloadTask(with: url)
-        try await withTaskCancellationHandler {
-            try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<Void, Error>) in
-                delegate.continuation = continuation
-                task.resume()
+        let connectionWatch = ConnectionRecoveryWatch { task.cancel() }
+        connectionWatch.consume(["networkService": "voices", "networkActive": true])
+        defer { connectionWatch.stop() }
+        do {
+            try await withTaskCancellationHandler {
+                try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<Void, Error>) in
+                    delegate.continuation = continuation
+                    task.resume()
+                }
+            } onCancel: {
+                task.cancel()
             }
-        } onCancel: {
-            task.cancel()
+        } catch {
+            if connectionWatch.interrupted { throw PiperDownloadError.message("The connection did not recover within 30 seconds. Connect to the internet and retry the download.") }
+            throw error
         }
     }
 
@@ -845,7 +865,7 @@ struct PiperVoiceBrowser: View {
                 Text(sampleButtonTitle(voice))
                     .frame(width: 112)
             }
-            .disabled(sample.loadingID != nil || busy)
+            .disabled(sample.loadingID != nil || busy || (sample.playingID != voice.id && !FileManager.default.fileExists(atPath: PiperStorage.sampleCacheURL(voice.id).path) && !ConnectivityService.shared.available(.voices)))
             .accessibilityLabel(
                 (sample.playingID == voice.id ? "Stop sample for " : "Play sample for ") + voice.displayName
             )
@@ -865,7 +885,7 @@ struct PiperVoiceBrowser: View {
                 )
                 .frame(width: 142)
             }
-            .disabled(busy || downloading || deleting)
+            .disabled(busy || downloading || deleting || (!downloaded && !ConnectivityService.shared.available(.voices)))
             .foregroundStyle(downloaded || deleting ? Color.red : Color.primary)
             .tint(downloaded || deleting ? .red : nil)
             .help(downloaded ? "Removes this voice, its settings file, and its cached sample" : "Downloads this voice and its settings file")

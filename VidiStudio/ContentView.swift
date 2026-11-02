@@ -55,7 +55,7 @@ private struct NewProjectView: View {
     }
 
     private var canCreate: Bool {
-        source == .videoFile ? videoURL != nil : youtubePreview != nil
+        source == .videoFile ? videoURL != nil : youtubePreview != nil && ConnectivityService.shared.available(.youtube)
     }
 
     var body: some View {
@@ -66,6 +66,7 @@ private struct NewProjectView: View {
                 .padding(.horizontal, 20)
                 .padding(.top, 20)
                 .padding(.bottom, 8)
+            ConnectivityBanner()
             Form {
             Section {
                 Picker("Project type", selection: $source) {
@@ -102,6 +103,7 @@ private struct NewProjectView: View {
                                 Task { await fetchYouTubeDetails() }
                             }
                             .disabled(trimmedYouTubeURL.isEmpty || fetchingYouTube)
+                            .requiresInternet(.youtube)
                             .help("Fetch the video's project name and thumbnail for review.")
                             .accessibilityHint("Fetch the video's project name and thumbnail for review.")
                         }
@@ -443,6 +445,7 @@ struct ContentView: View {
         }
         .safeAreaInset(edge: .top, spacing: 0) {
             VStack(spacing: 0) {
+                ConnectivityBanner()
                 AIServiceIssueBanner(studio: studio)
                 ActiveExportProgressView()
             }
@@ -697,6 +700,7 @@ struct ProjectEditorWindow: View {
         }
         .safeAreaInset(edge: .top, spacing: 0) {
             VStack(spacing: 0) {
+                ConnectivityBanner()
                 AIServiceIssueBanner(studio: studio)
                 ActiveExportProgressView()
             }
@@ -1201,6 +1205,7 @@ private struct AnalysisVideoStatusView: View {
                         }
                         .labelStyle(.iconOnly)
                         .help(!studio.hasApiKey ? "Enter your Gemini API key in Settings → Gemini API to prepare video for analysis" : studio.isApiKeyInvalid ? "Gemini API key is invalid — enter a valid key in Settings → Gemini API to prepare video for analysis" : "Prepare video for analysis")
+                        .requiresInternet(.gemini)
                         .accessibilityLabel("Prepare video for analysis")
                         .disabled(studio.busy || !studio.hasValidApiKey)
                     }
@@ -1211,6 +1216,7 @@ private struct AnalysisVideoStatusView: View {
                         }
                         .labelStyle(.iconOnly)
                         .help(!studio.hasApiKey ? "Enter your Gemini API key in Settings → Gemini API to check video analysis status" : studio.isApiKeyInvalid ? "Gemini API key is invalid — enter a valid key in Settings → Gemini API to check video analysis status" : "Refresh video analysis status")
+                        .requiresInternet(.gemini)
                         .accessibilityLabel("Refresh video analysis status")
                         .disabled(studio.busy || !studio.hasValidApiKey)
                     }
@@ -1735,6 +1741,7 @@ struct ProjectEditor: View {
                         }
                         .labelStyle(.iconOnly)
                         .help(!studio.hasApiKey ? "Enter your Gemini API key in Settings → Gemini API to read frame text" : studio.isApiKeyInvalid ? "Gemini API key is invalid — enter a valid key in Settings → Gemini API to read frame text" : "Extract text from the current video frame")
+                        .requiresInternet(.gemini)
                         .disabled(studio.busy || !studio.hasValidApiKey)
                     }
                     if captionControlsAvailable {
@@ -2721,6 +2728,7 @@ struct ProjectEditor: View {
                                     }
                                     .disabled(studio.busy || !studio.hasValidApiKey)
                                     .help(!studio.hasApiKey ? "Enter your Gemini API key in Settings → Gemini API to rewrite description text" : studio.isApiKeyInvalid ? "Gemini API key is invalid — enter a valid key in Settings → Gemini API to rewrite description text" : "Rewrite this description to fit into the silent pause")
+                                    .requiresInternet(.gemini)
 
                                     Button("Import Narration Audio…", systemImage: "square.and.arrow.down") {
                                         chooseNarrationAudio(for: cue)
@@ -2745,6 +2753,7 @@ struct ProjectEditor: View {
                                     }
                                     .disabled(studio.busy || !studio.hasValidApiKey)
                                     .help(!studio.hasApiKey ? "Enter your Gemini API key in Settings → Gemini API to re-analyze segment" : studio.isApiKeyInvalid ? "Gemini API key is invalid — enter a valid key in Settings → Gemini API to re-analyze segment" : "Re-analyze this segment with Gemini")
+                                    .requiresInternet(.gemini)
                                 }
 
                                 Divider()
@@ -3003,6 +3012,7 @@ struct ProjectEditor: View {
         shortcutActions.hasChangedNarration = project.canGenerateMissingOrChangedAudio
         shortcutActions.hasGeneratedTranscript = GeneratedContentComponent.transcript.hasContent(in: project)
         shortcutActions.hasGeneratedSummary = GeneratedContentComponent.summary.hasContent(in: project)
+        shortcutActions.youtubeProject = project.isYouTubeURLProject
         shortcutActions.hasApiKey = studio.hasApiKey
         shortcutActions.apiKeyVerified = studio.apiKeyVerified
         shortcutActions.aiProcessingBlocked = studio.isAIProcessingBlocked
@@ -3743,7 +3753,7 @@ private struct SegmentEditor: View {
     let hasApiKey: Bool
     let apiKeyVerified: Bool?
 
-    private var hasValidApiKey: Bool { hasApiKey && apiKeyVerified != false }
+    private var hasValidApiKey: Bool { hasApiKey && apiKeyVerified != false && ConnectivityService.shared.available(.gemini) }
     private var isApiKeyInvalid: Bool { hasApiKey && apiKeyVerified == false }
     let reanalyze: (Segment, String) -> Void
     let save: (TranscriptRow) -> Void

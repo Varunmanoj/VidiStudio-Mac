@@ -4,6 +4,7 @@ import argparse, contextlib, html, json, math, os, platform, plistlib, re, shuti
 import signal
 import queue
 import threading
+import network_activity
 import gemini_adapter
 import parity
 import youtube_audio
@@ -496,7 +497,7 @@ def ai_retry_delay_seconds(attempt):
 
 
 def is_retryable_ai_error(exc):
-    if isinstance(exc, ProcessingCancelled):
+    if isinstance(exc, ProcessingCancelled) or network_activity.transport_failure(exc):
         return False
     message = str(exc).lower()
     return not any(marker in message for marker in AI_NON_RETRYABLE_SUBSTRINGS)
@@ -510,7 +511,7 @@ def gemini_client():
     from google import genai
     cfg = config()
     if not cfg.get('apiKey'): raise ValueError('Add a Gemini API key in Settings first.')
-    return genai.Client(api_key=cfg['apiKey'], http_options={'timeout': 300000, 'api_version':cfg.get('apiVersion','v1beta')})
+    return network_activity.ClientProxy(genai.Client(api_key=cfg['apiKey'], http_options={'timeout': 300000, 'api_version':cfg.get('apiVersion','v1beta')}))
 
 
 def validate_youtube_for_gemini(url):
@@ -1492,6 +1493,9 @@ def synthesize(root,p,segment=None,changed=False,regenerate_all=False,segments=N
             output.unlink(missing_ok=True)
             raise
         except Exception as exc:
+            if network_activity.transport_failure(exc):
+                output.unlink(missing_ok=True)
+                raise
             # A single description must not stop the rest of the narration run.
             output.unlink(missing_ok=True)
             c['audioError'] = safe_error(exc)
@@ -3041,5 +3045,5 @@ if __name__=='__main__':
     signal.signal(signal.SIGINT, cancel_processing)
     try: main()
     except Exception as exc:
-        emit(safe_error(exc), error=True, **audio_sources.error_metadata(exc))
+        emit(safe_error(exc), error=True, **(audio_sources.error_metadata(exc) | network_activity.error_metadata(exc)))
         sys.exit(1)

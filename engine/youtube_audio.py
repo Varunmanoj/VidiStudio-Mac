@@ -11,6 +11,7 @@ import time
 from pathlib import Path
 
 import parity
+import network_activity
 
 DOWNLOAD_TIMEOUT = 900
 DOWNLOAD_ATTEMPTS = 3
@@ -64,6 +65,7 @@ def video_duration(url, emit):
             command.append(str(Path(__file__).with_name('vidistudio_engine.py')))
         command += ['read-youtube-metadata', '--url', parity.youtube_url(url), '--output', str(output)]
         emit('Checking YouTube video duration')
+        network_activity.event('youtube', True)
         try:
             process = subprocess.Popen(command, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
                                        start_new_session=os.name != 'nt')
@@ -83,6 +85,7 @@ def video_duration(url, emit):
             duration = float(json.loads(output.read_text())['duration'])
             return duration if math.isfinite(duration) and duration > 0 else None
         finally:
+            network_activity.event('youtube', False)
             stop_worker(process)
 
 
@@ -194,6 +197,7 @@ def soundtrack(url, emit):
             command.append(str(Path(__file__).with_name('vidistudio_engine.py')))
         command += ['download-youtube-audio', '--url', url, '--output', temporary]
         emit('Downloading original YouTube audio', exportProgress=None)
+        network_activity.event('youtube', True)
         process = subprocess.Popen(command, stderr=subprocess.DEVNULL, start_new_session=os.name != 'nt')
         try:
             deadline = time.monotonic() + DOWNLOAD_TIMEOUT
@@ -210,6 +214,8 @@ def soundtrack(url, emit):
                      if item.is_file() and item.suffix not in ('.part', '.ytdl')]
             if len(files) != 1 or not files[0].stat().st_size or files[0].stat().st_size > MAX_AUDIO_BYTES:
                 raise ValueError(DOWNLOAD_ERROR)
+            network_activity.event('youtube', False)
             yield files[0]
         finally:
+            network_activity.event('youtube', False)
             stop_worker(process)

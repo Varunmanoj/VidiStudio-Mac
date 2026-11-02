@@ -315,7 +315,10 @@ struct SettingsView: View {
         .safeAreaInset(edge: .top, spacing: 0) { ActiveExportProgressView() }
         .navigationSplitViewStyle(.balanced)
         .safeAreaInset(edge: .top, spacing: 0) {
-            AIServiceIssueBanner(studio: studio)
+            VStack(spacing: 0) {
+                ConnectivityBanner()
+                AIServiceIssueBanner(studio: studio)
+            }
         }
         .frame(minWidth: 800, idealWidth: 980, minHeight: 520, idealHeight: 740)
         .background(SettingsWindowChrome().frame(width: 0, height: 0))

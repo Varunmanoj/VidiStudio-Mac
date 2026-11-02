@@ -534,6 +534,7 @@ struct ExportDialog: View {
                     Button("Cancel", role: .cancel) { dismiss() }
                         .keyboardShortcut(.cancelAction)
                         .help("Close Export without creating a file")
+                    ConnectivityBanner()
                     Button("Save", systemImage: "square.and.arrow.down") { save() }
                         .keyboardShortcut(.defaultAction)
                         .help("Create the selected export in the project's exports folder")
@@ -631,6 +632,8 @@ struct ExportDialog: View {
     }
 
     private func canPerform(_ action: StudioExportAction) -> Bool {
+        guard OnlineRequirements.services(action.command, project: project, settings: studio?.settings ?? StudioSettings(), extra: action.arguments)
+            .allSatisfy({ ConnectivityService.shared.available($0) }) else { return false }
         switch action {
         case .selectableVideo(let captions, _), .mixedVideo(let captions, _):
             guard project.hasCompleteExportNarration(), !project.hasDescriptionTimingIssues else { return false }
@@ -667,6 +670,7 @@ struct ExportDialog: View {
     }
 
     private func save() {
+        if let action = selectedAction, let studio, !studio.requireInternet(action.command, project: project, extra: action.arguments) { return }
         guard canSave, let selectedAction else { return }
         let selectedTranscript = category == .webPlayback ? webTranscript : videoTranscript
         if (category == .video || category == .webPlayback) && selectedTranscript.rendersIntoVideo {
