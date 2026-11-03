@@ -87,6 +87,10 @@ def transport_failure(error):
 
 
 def credential_rejected(error):
+    details = getattr(error, 'details', None) or []
+    if isinstance(details, list) and any(isinstance(item, dict) and item.get('reason') in
+            ('API_KEY_INVALID', 'API_KEY_EXPIRED', 'API_KEY_NOT_FOUND') for item in details):
+        return True
     text = str(error).lower()
     return any(marker in text for marker in ('api_key_invalid', 'api key not valid', 'invalid api key', 'api key is not valid'))
 

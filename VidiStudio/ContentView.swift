@@ -103,9 +103,9 @@ private struct NewProjectView: View {
                                 Task { await fetchYouTubeDetails() }
                             }
                             .disabled(trimmedYouTubeURL.isEmpty || fetchingYouTube)
-                            .requiresInternet(.youtube)
                             .help("Fetch the video's project name and thumbnail for review.")
                             .accessibilityHint("Fetch the video's project name and thumbnail for review.")
+                            .requiresInternet(.youtube)
                         }
                         if fetchingYouTube {
                             ProgressView("Fetching video details…")
@@ -209,11 +209,13 @@ private struct NewProjectView: View {
                         Button("Create Project & Combine", systemImage: "waveform.badge.plus") { createProject(combine: true) }
                             .disabled(!canCreate || studio.busy)
                             .help("Create the project, import these assets, and combine the described audio track")
+                            .requiresInternet(source == .youtube ? .youtube : nil)
                     }
                     Button(assetMode == .existing ? "Create Project & Open Editor" : "Create Project", systemImage: "plus") { createProject(combine: false) }
                         .keyboardShortcut(.defaultAction)
                         .disabled(!canCreate || studio.busy)
                         .help("Create this project. A Gemini key is not required; AI actions can be configured later.")
+                        .requiresInternet(source == .youtube ? .youtube : nil)
                 }
             }
             }
@@ -999,6 +1001,7 @@ struct ProcessingInspector: View {
                                                         : title.hasPrefix("Regenerate")
                                                             ? "Regenerate the current \(sectionTitle.lowercased()) after confirmation"
                                                             : "Generate the \(sectionTitle.lowercased()) for this project")
+                                        .requiresInternet(OnlineRequirements.services(action, project: p, settings: studio.settings).first)
                                         if let component = currentComponent, component.hasContent(in: p) {
                                             Button("Delete \(component.title)…", systemImage: "trash", role: .destructive) {
                                                 studio.confirmDeleteGeneratedContent(p, component: component)
@@ -1078,6 +1081,7 @@ struct ProcessingInspector: View {
                                             : studio.settings.ttsMode == "gemini" && studio.isApiKeyInvalid
                                                 ? "Gemini API key is invalid — enter a valid key in Settings → Gemini API to synthesize Gemini TTS narration"
                                                 : "Create narration audio for all Audio Description segments")
+                                        .requiresInternet(studio.settings.ttsMode == "gemini" ? .gemini : nil)
                                         if studio.isSynthesizingNarration {
                                             ProgressView()
                                                 .controlSize(.small)
@@ -1100,6 +1104,7 @@ struct ProcessingInspector: View {
                                         : studio.settings.ttsMode == "gemini" && studio.isApiKeyInvalid
                                             ? "Gemini API key is invalid — enter a valid key in Settings → Gemini API to synthesize changed segments"
                                             : "Generate missing audio and replace audio with text, timing, or generation issues; keep current audio")
+                                    .requiresInternet(studio.settings.ttsMode == "gemini" ? .gemini : nil)
                                 }
                             }
                         }
@@ -2714,6 +2719,7 @@ struct ProjectEditor: View {
                                             : cue.audio == nil
                                                 ? "Generate narration audio for this Audio Description segment"
                                                 : "Regenerate narration audio for this Audio Description segment")
+                                    .requiresInternet(studio.settings.ttsMode == "gemini" ? .gemini : nil)
                                     .accessibilityLabel(
                                         "\(cue.audio == nil ? "Synthesize" : "Regenerate") narration audio for segment starting at \(timecode(cue.start))"
                                     )
@@ -3844,6 +3850,7 @@ private struct SegmentEditor: View {
                         }
                         .disabled(isReadingFrame || !hasValidApiKey)
                         .help(!hasApiKey ? "Enter your Gemini API key in Settings → Gemini API to read frame text" : isApiKeyInvalid ? "Gemini API key is invalid — enter a valid key in Settings → Gemini API to read frame text" : "Read text from the video frame at the segment start time and use it as the description")
+                        .requiresInternet(.gemini)
                         .accessibilityHint("Replaces the description with text found at the segment start time.")
                     }
                 }
@@ -3899,6 +3906,7 @@ private struct SegmentEditor: View {
                         .disabled(!canReanalyze || !hasValidApiKey || isReadingFrame || !row.segment.start.isFinite || !row.segment.end.isFinite || row.segment.start < 0 || row.segment.end <= row.segment.start || row.segment.end > duration)
                         .keyboardShortcut("r", modifiers: [.command, .option])
                         .help(!hasApiKey ? "Enter your Gemini API key in Settings → Gemini API to re-analyze this segment" : isApiKeyInvalid ? "Gemini API key is invalid — enter a valid key in Settings → Gemini API to re-analyze this segment" : (row.isDescription ? "Look closely at this time range using the optional hint and adjust nearby descriptions to fit. Generate a transcript and summary first." : "Generate transcript segments using the selected range, multilingual settings and optional hint. No transcript or summary is required. Audio-only transcription models use the configured YouTube video transcription model for range analysis."))
+                        .requiresInternet(.gemini)
                         .accessibilityHint("Uses the separate Gemini hint to update this range and nearby segments. Use Undo Segment Edit to restore them.")
                     }
                 } header: {

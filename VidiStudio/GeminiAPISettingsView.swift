@@ -75,9 +75,9 @@ struct GeminiAPISettingsView: View {
                         .foregroundStyle(.orange)
                         .imageScale(.medium)
                     VStack(alignment: .leading, spacing: 3) {
-                        Text("API Key Required")
+                        Text("No API Key Entered")
                             .font(.subheadline.bold())
-                        Text("Enter an API key to enable AI features.")
+                        Text("Enter a Gemini API key, then choose Check API Key & Plan.")
                             .font(.caption)
                             .foregroundStyle(.secondary)
                     }
@@ -90,9 +90,7 @@ struct GeminiAPISettingsView: View {
                     .accessibilityHint("Enter the key from your Google AI Studio account.")
                     .onSubmit {
                         keyDebounceTask?.cancel()
-                        if hasApiKey {
-                            studio.checkGeminiApiKey()
-                        }
+                        studio.checkGeminiApiKey()
                     }
                     .onAppear { apiKey = studio.settings.apiKey }
                     .onChange(of: apiKey) { _, newValue in
@@ -133,8 +131,8 @@ struct GeminiAPISettingsView: View {
                     studio.deleteGeminiApiKey()
                     apiKey = ""
                 }
+                // Removing a local credential must remain available offline.
                 .disabled(!hasApiKey || studio.busy)
-                .requiresInternet(.gemini)
                 Button("Cancel", role: .cancel) {}
             } message: {
                 Text("Are you sure you want to delete your Gemini API key from macOS Keychain? You will need to enter a new key to use AI features.")
@@ -146,11 +144,12 @@ struct GeminiAPISettingsView: View {
 
             HStack(spacing: 8) {
                 Button(studio.geminiModelsLoaded ? "Check API Key & Reload Models" : "Check API Key & Plan", systemImage: "arrow.clockwise") {
+                    keyDebounceTask?.cancel()
                     studio.checkGeminiApiKey()
                 }
-                .disabled(studio.busy || !hasApiKey)
-                .requiresInternet(.gemini)
+                .disabled(studio.busy)
                 .accessibilityHint("Checks the validity of your Gemini API key and detects available models and plan tier.")
+                .requiresInternet(hasApiKey ? .gemini : nil)
             }
 
             if studio.busy {
@@ -159,7 +158,18 @@ struct GeminiAPISettingsView: View {
                     Text("Checking API key and plan details…")
                 }
                 .accessibilityElement(children: .combine)
-            } else if let verified = studio.apiKeyVerified {
+            } else if hasApiKey, let failure = studio.apiKeyCheckFailureMessage {
+                VStack(alignment: .leading, spacing: 3) {
+                    Label("API Key Check Incomplete", systemImage: "exclamationmark.triangle.fill")
+                        .font(.subheadline.bold())
+                    Text(failure).font(.caption)
+                    Text("This check did not determine whether the key is valid. Any previous verification is kept.")
+                        .font(.caption).foregroundStyle(.secondary)
+                }
+                .padding(10)
+                .background(Color.orange.opacity(0.12), in: RoundedRectangle(cornerRadius: 8))
+                .accessibilityElement(children: .combine)
+            } else if hasApiKey, let verified = studio.apiKeyVerified {
                 if verified {
                     HStack(alignment: .top, spacing: 8) {
                         Image(systemName: "checkmark.seal.fill")
@@ -183,10 +193,10 @@ struct GeminiAPISettingsView: View {
                             .foregroundStyle(.red)
                             .imageScale(.medium)
                         VStack(alignment: .leading, spacing: 3) {
-                            Text("API Key Check Failed (Invalid Key)")
+                            Text("Invalid API Key")
                                 .font(.subheadline.bold())
                                 .foregroundStyle(.red)
-                            Text(studio.apiKeyVerificationMessage ?? "The engine could not connect to Gemini with this key.")
+                            Text(studio.apiKeyVerificationMessage ?? "The entered Gemini API key is invalid. Google rejected it. Replace it with a valid key from Google AI Studio.")
                                 .font(.caption)
                                 .foregroundStyle(.secondary)
                         }
@@ -195,9 +205,21 @@ struct GeminiAPISettingsView: View {
                     .background(Color.red.opacity(0.12), in: RoundedRectangle(cornerRadius: 8))
                 }
             } else if hasApiKey {
-                Text("Check your key to load compatible models.")
+                Text("API key not checked. Choose Check API Key & Plan to verify the entered key.")
                     .font(.caption)
                     .foregroundStyle(.secondary)
+            }
+        }
+        .onChange(of: studio.apiKeyVerificationMessage) { _, result in
+            if let result {
+                NSAccessibility.post(element: NSApp as Any, notification: .announcementRequested,
+                    userInfo: [.announcement: result, .priority: NSAccessibilityPriorityLevel.medium.rawValue])
+            }
+        }
+        .onChange(of: studio.apiKeyCheckFailureMessage) { _, result in
+            if let result {
+                NSAccessibility.post(element: NSApp as Any, notification: .announcementRequested,
+                    userInfo: [.announcement: "API Key Check Incomplete. " + result, .priority: NSAccessibilityPriorityLevel.medium.rawValue])
             }
         }
         .onAppear {
@@ -226,6 +248,8 @@ struct GeminiAPISettingsView: View {
                         .padding(.horizontal, 10)
                         .padding(.vertical, 4)
                         .background(Color.red.opacity(0.12), in: Capsule())
+                    } else if studio.apiKeyVerified == nil {
+                        Text("Not Checked").foregroundStyle(.secondary)
                     } else {
                         HStack(spacing: 6) {
                             Circle()
@@ -241,12 +265,14 @@ struct GeminiAPISettingsView: View {
                     }
                 }
                 .accessibilityElement(children: .combine)
-                .accessibilityLabel("Account Plan: \(studio.apiKeyVerified == false ? "Invalid Key" : (studio.settings.geminiPlan == "paid" ? "Paid Plan" : "Free Plan"))")
+                .accessibilityLabel("Account Plan: \(studio.apiKeyVerified == nil ? "Not Checked" : (studio.apiKeyVerified == false ? "Invalid Key" : (studio.settings.geminiPlan == "paid" ? "Paid Plan" : "Free Plan")))")
 
                 if studio.apiKeyVerified == false {
                     Text("The plan tier cannot be determined because the API key is invalid.")
                         .font(.caption)
                         .foregroundStyle(.secondary)
+                } else if studio.apiKeyVerified == nil {
+                    Text("Check the entered API key before showing account information.").font(.caption).foregroundStyle(.secondary)
                 } else {
                     Text(studio.settings.geminiPlan == "paid"
                         ? "Paid plan: higher limits and enterprise data privacy."

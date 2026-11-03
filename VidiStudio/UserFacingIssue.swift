@@ -139,7 +139,7 @@ struct UserFacingIssue: Equatable {
         if detail.contains("api_key_invalid") || detail.contains("api key not valid") || detail.contains("api key is not valid") || detail.contains("invalid api key") {
             return UserFacingIssue(
                 title: "Invalid Gemini API Key",
-                message: "Your Gemini API key could not be verified by Google AI Studio. Check and update your API key in Settings → Gemini API."
+                message: "The entered Gemini API key is invalid. Google rejected it. Replace it with a valid key in Settings → Gemini API."
             )
         }
 

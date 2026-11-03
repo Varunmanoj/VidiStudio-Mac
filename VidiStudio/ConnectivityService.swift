@@ -134,15 +134,15 @@ struct ConnectivityBanner: View {
 
 /// Used by buttons whose provider does not pass through StudioModel.execute.
 struct OnlineActionModifier: ViewModifier {
-    let service: OnlineService
+    let service: OnlineService?
     func body(content: Content) -> some View {
-        if let reason = ConnectivityService.shared.reason(service) {
+        if let service, let reason = ConnectivityService.shared.reason(service) {
             content.disabled(true).help(reason).accessibilityHint(reason)
         } else { content }
     }
 }
 extension View {
-    func requiresInternet(_ service: OnlineService) -> some View { modifier(OnlineActionModifier(service: service)) }
+    func requiresInternet(_ service: OnlineService?) -> some View { modifier(OnlineActionModifier(service: service)) }
 }
 
 /// Tracks actual network stages, never the local encode/mix after a download.

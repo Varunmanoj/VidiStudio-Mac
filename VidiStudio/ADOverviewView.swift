@@ -171,11 +171,13 @@ struct ADOverviewView: View {
                                 .help(studio.settings.ttsMode == "gemini" && !studio.hasApiKey
                                     ? "Enter your Gemini API key in Settings → Gemini API to synthesize narration with Gemini TTS"
                                     : "Create narration audio for all Audio Description segments")
+                                .requiresInternet(studio.settings.ttsMode == "gemini" ? .gemini : nil)
                                 .disabled(narrationControlsDisabled)
                             Button("Generate Missing or Changed AD Audio") { studio.execute("synthesize-tts", extra: ["--changed"]) }
                                 .help(studio.settings.ttsMode == "gemini" && !studio.hasApiKey
                                     ? "Enter your Gemini API key in Settings → Gemini API to synthesize narration with Gemini TTS"
                                     : "Generate missing narration and regenerate descriptions with text, timing, or generation issues")
+                                .requiresInternet(studio.settings.ttsMode == "gemini" ? .gemini : nil)
                                 .disabled(narrationControlsDisabled || !project.canGenerateMissingOrChangedAudio)
                         }
                         HStack {

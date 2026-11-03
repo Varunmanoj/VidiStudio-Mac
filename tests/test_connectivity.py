@@ -84,7 +84,7 @@ class NetworkBehavior(unittest.TestCase):
     def test_check_failure_preserves_saved_verification(self):
         if not hasattr(engine,'check_api_key'): self.skipTest('macOS uses list_models directly')
         client=Mock();client.models.list.side_effect=ConnectionError('lost')
-        with patch.object(engine,'gemini_client',return_value=client),patch.object(engine,'atomic_json') as write:
+        with patch.object(engine,'config',return_value={'apiKey':'test'}),patch.object(engine,'gemini_client',return_value=client),patch.object(engine,'atomic_json') as write:
             with self.assertRaises(ConnectionError): engine.check_api_key()
             write.assert_not_called()
 

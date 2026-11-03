@@ -758,6 +758,8 @@ struct PiperVoiceBrowser: View {
                     .fixedSize(horizontal: false, vertical: true)
             }
 
+            ConnectivityBanner()
+
             TextField("Search voices", text: $search, prompt: Text("Name, language, dialect, or quality"))
                 .textFieldStyle(.roundedBorder)
                 .accessibilityLabel("Search voices")
@@ -870,6 +872,7 @@ struct PiperVoiceBrowser: View {
                 (sample.playingID == voice.id ? "Stop sample for " : "Play sample for ") + voice.displayName
             )
             .help("Plays a short sample published with this voice. The preview needs the internet; a downloaded voice itself works offline.")
+            .requiresInternet(sample.playingID == voice.id || FileManager.default.fileExists(atPath: PiperStorage.sampleCacheURL(voice.id).path) ? nil : .voices)
             Button {
                 Task {
                     if downloaded {
@@ -889,6 +892,7 @@ struct PiperVoiceBrowser: View {
             .foregroundStyle(downloaded || deleting ? Color.red : Color.primary)
             .tint(downloaded || deleting ? .red : nil)
             .help(downloaded ? "Removes this voice, its settings file, and its cached sample" : "Downloads this voice and its settings file")
+            .requiresInternet(downloaded ? nil : .voices)
             .accessibilityLabel(
                 deleting ? "Deleting \(voice.displayName)"
                     : downloading ? "Downloading \(voice.displayName)"
@@ -1043,6 +1047,8 @@ struct PiperDeleteVoicesView: View {
                     .fixedSize(horizontal: false, vertical: true)
             }
 
+            ConnectivityBanner()
+
             if downloaded.isEmpty {
                 Text("No Piper voices are downloaded, so there is nothing to delete.")
                     .font(.callout)
@@ -1152,6 +1158,7 @@ struct PiperDeleteVoicesView: View {
                 (sample.playingID == voice.id ? "Stop sample for " : "Play sample for ") + voice.displayName
             )
             .help("Plays a short sample published with this voice. The preview needs the internet; a downloaded voice itself works offline.")
+            .requiresInternet(sample.playingID == voice.id || FileManager.default.fileExists(atPath: PiperStorage.sampleCacheURL(voice.id).path) ? nil : .voices)
             Button {
                 Task { await delete(voice) }
             } label: {

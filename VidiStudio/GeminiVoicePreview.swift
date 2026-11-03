@@ -106,6 +106,7 @@ struct GeminiVoiceBrowser: View {
                 Button(preview.loading ? "Generating Sample…" : "Play Voice Sample", systemImage: "play.circle") { preview.play(settings: studio.settings, text: sample) }
                     .disabled(preview.loading || sample.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || sample.count > 500 || !studio.hasApiKey || (!ConnectivityService.shared.available(.gemini) && !preview.hasCached(settings: studio.settings, text: sample)))
                     .help(!studio.hasApiKey ? "Enter your Gemini API key in Settings → Gemini API to preview this voice" : "Play sample of Gemini voice \(studio.settings.geminiVoice)")
+                    .requiresInternet(preview.hasCached(settings: studio.settings, text: sample) ? nil : .gemini)
                     .accessibilityLabel("Play sample of Gemini voice \(studio.settings.geminiVoice)")
                 Button(preview.loading ? "Cancel Generation" : "Stop Sample", systemImage: "stop.circle") { preview.stop() }.disabled(!preview.loading && !preview.playing)
                 if preview.loading { ProgressView().controlSize(.small).accessibilityLabel("Generating voice sample") }

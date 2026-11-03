@@ -568,6 +568,20 @@ def detect_gemini_plan(client, available_names=None):
     return 'free'
 
 
+def check_api_key():
+    if not str(config().get('apiKey') or '').strip():
+        emit('No API key entered', keyStatus='missing',
+             validationMessage='Enter a Gemini API key, then choose Check API Key & Plan.')
+        return
+    try:
+        list_models()
+    except Exception as exc:
+        if not network_activity.credential_rejected(exc):
+            raise
+        emit('Invalid Gemini API key', keyStatus='invalid', keyValid=False,
+             validationMessage='The entered Gemini API key is invalid. Google rejected it. Replace it with a valid key from Google AI Studio.')
+
+
 def list_models():
     client = gemini_client()
     try:
@@ -597,7 +611,7 @@ def list_models():
                 p.write_text(json.dumps(saved, indent=2))
         except Exception:
             pass
-        emit('Available Gemini models loaded', models=available, plan=plan, valid=True)
+        emit('Available Gemini models loaded', models=available, plan=plan, valid=True, keyValid=True, keyStatus='valid')
     finally:
         client.close()
 
@@ -2929,7 +2943,9 @@ def main():
         preview_tts(args.output, args.text); return
     if args.command == 'synthesize-speech':
         synthesize_speech(args.output, args.text); return
-    if args.command in ('list-models', 'check-api-key'):
+    if args.command == 'check-api-key':
+        check_api_key(); return
+    if args.command == 'list-models':
         list_models(); return
     core=SimpleNamespace(**globals())
     if args.command in ('import-youtube','validate-config'):

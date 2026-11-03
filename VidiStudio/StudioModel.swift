@@ -1482,6 +1482,9 @@ final class StudioModel {
                 aiServiceIssue = nil
                 apiKeyVerified = nil
                 apiKeyVerificationMessage = nil
+                apiKeyCheckFailureMessage = nil
+                availableGeminiModels = []
+                geminiModelsLoaded = false
             }
             guard settingsPersistenceEnabled, !applyingExternalSettings, settings != oldValue else { return }
             persistSettings(reloadProjects: settings.libraryPath != oldValue.libraryPath)
@@ -1535,6 +1538,7 @@ final class StudioModel {
     }
     var availableGeminiModels: [GeminiModelOption] = []
     var geminiModelsLoaded = false
+    var apiKeyCheckFailureMessage: String? = nil
     var apiKeyVerified: Bool? = nil
     /// Non-nil after a quota, billing, or service-level Gemini failure. It
     /// disables every AI action until Retry AI succeeds or the key changes.
@@ -2398,13 +2402,17 @@ final class StudioModel {
     }
     func loadGeminiModels() {
         guard !busy else { return }
-        guard requireInternet("check-api-key") else { return }
         guard settings.hasApiKey else {
-            apiKeyVerified = false
-            apiKeyVerificationMessage = "Enter your Gemini API key in Settings → Gemini API to enable features."
-            error = "Enter your Gemini API key first."
+            apiKeyVerified = nil
+            apiKeyVerificationMessage = nil
+            apiKeyCheckFailureMessage = nil
             return
         }
+        guard requireInternet("check-api-key") else {
+            apiKeyCheckFailureMessage = "The key could not be checked because Gemini is unavailable. Reconnect and try again."
+            return
+        }
+        apiKeyCheckFailureMessage = nil
         let directory = FileManager.default.temporaryDirectory.appendingPathComponent("vidistudio-models-\(UUID().uuidString)")
         let configuration = directory.appendingPathComponent("config.json")
         do {
@@ -2794,6 +2802,9 @@ final class StudioModel {
             completion?(nil)
             return
         }
+        let isKeyCheck = command == "check-api-key" || command == "list-models"
+        let checkedKey = settings.apiKey.trimmingCharacters(in: .whitespacesAndNewlines)
+        var keyCheckGotVerdict = false
         let connectionWatch = ConnectionRecoveryWatch { [weak self] in self?.cancelCurrentOperation() }
         Task {
             defer { connectionWatch.stop() }
@@ -2803,6 +2814,24 @@ final class StudioModel {
                     connectionWatch.consume(event)
                     if event["failureKind"] as? String == "connectivity" { ConnectivityService.shared.check() }
                     if event["networkActive"] != nil { continue }
+                    if isKeyCheck && checkedKey != settings.apiKey.trimmingCharacters(in: .whitespacesAndNewlines) { continue }
+                    if event["keyStatus"] as? String == "missing" {
+                        keyCheckGotVerdict = true
+                        apiKeyVerified = nil
+                        apiKeyVerificationMessage = nil
+                        continue
+                    }
+                    if event["keyValid"] as? Bool == false {
+                        keyCheckGotVerdict = true
+                        aiServiceIssue = nil
+                        apiKeyVerified = false
+                        apiKeyCheckFailureMessage = nil
+                        apiKeyVerificationMessage = event["validationMessage"] as? String
+                            ?? "The entered Gemini API key is invalid. Google rejected it. Replace it with a valid key from Google AI Studio."
+                        availableGeminiModels = []
+                        geminiModelsLoaded = false
+                        continue
+                    }
                     let eventMessage = event["message"] as? String
                     let eventIsError = event["error"] as? Bool == true
                     let eventIsWarning = event["warning"] as? Bool == true
@@ -2818,16 +2847,18 @@ final class StudioModel {
                     }
                     if let text = event["screenText"] as? String { screenText = text; screenTimestamp = event["timestamp"] as? Double ?? 0 }
                     if let rawModels = event["models"] as? [[String: Any]] {
+                        keyCheckGotVerdict = true
                         availableGeminiModels = rawModels.compactMap(GeminiModelOption.init(dictionary:))
                         geminiModelsLoaded = true
                         chooseAvailableGeminiModels()
                         apiKeyVerified = true
+                        apiKeyCheckFailureMessage = nil
                         aiServiceIssue = nil
                         if let plan = event["plan"] as? String {
                             settings.geminiPlan = plan
                         }
                         let planName = (event["plan"] as? String ?? settings.geminiPlan) == "paid" ? "Paid Plan" : "Free Plan"
-                        apiKeyVerificationMessage = "API key verified and active (\(planName)). \(availableGeminiModels.count) models available."
+                        apiKeyVerificationMessage = "The entered Gemini API key is valid. \(availableGeminiModels.count) models available (\(planName))."
                     }
                     if let value = event["progress"] as? Double {
                         progress = value
@@ -2929,6 +2960,7 @@ final class StudioModel {
                     }
                 }
             } catch {
+                if !isKeyCheck || checkedKey == settings.apiKey.trimmingCharacters(in: .whitespacesAndNewlines) {
                 let detail = error.localizedDescription
                 if OnlineRequirements.services(command, project: target, settings: settings, extra: extra).contains(.gemini), let aiIssue = AIServiceIssue.detect(detail) {
                     aiServiceIssue = aiIssue
@@ -2945,6 +2977,7 @@ final class StudioModel {
                     technicalDetails: detail,
                     context: "Read \(command) result"
                 )
+                }
             }
             exportActivity?.canCancel = false
             task.waitUntilExit()
@@ -2966,6 +2999,7 @@ final class StudioModel {
                     present(.exportMetadata, technicalDetails: error.localizedDescription, context: "Finish export accessibility information")
                 }
             }
+            let staleKeyCheck = isKeyCheck && checkedKey != settings.apiKey.trimmingCharacters(in: .whitespacesAndNewlines)
             let operationWasCancelled = cancellationRequested
             let exportWasCancelled = operationWasCancelled && exportActivity != nil
             busy = false
@@ -2981,7 +3015,7 @@ final class StudioModel {
             process = nil
             reload()
             videoPreparationActivity = nil
-            if connectionWatch.interrupted {
+            if connectionWatch.interrupted && !staleKeyCheck {
                 present(UserFacingIssue(title: "Connection Interrupted", message: "The connection did not recover within 30 seconds. Connect to the internet and try again. Completed results remain saved."), context: command)
             }
             if operationWasCancelled {
@@ -2992,17 +3026,15 @@ final class StudioModel {
                     title: "YouTube Audio Couldn’t Be Retrieved",
                     message: "Choose a matching audio file to retry this export with the same format and narration choices. The file will be checked against the video duration before use. Existing exports are unchanged."
                 ), technicalDetails: deferredExportError, context: "Retrieve YouTube audio")
-            } else if task.terminationStatus != 0 && self.error == nil {
+            } else if task.terminationStatus != 0 && self.error == nil && !staleKeyCheck {
                 present(UserFacingIssue.forEngine(command: command, technicalDetails: deferredExportError),
                         technicalDetails: deferredExportError, context: "\(command) stopped")
             }
             if task.terminationStatus == 0 {
                 if Self.isAICommand(command) { aiServiceIssue = nil }
                 self.errorTitle = StudioModel.defaultErrorTitle
-            } else if (command == "list-models" || command == "check-api-key") && aiServiceIssue == nil {
-                if apiKeyVerificationMessage == nil {
-                    apiKeyVerificationMessage = self.error ?? "The Gemini API key could not be verified. Please check the key in Settings → Gemini API."
-                }
+            } else if isKeyCheck && !staleKeyCheck && !keyCheckGotVerdict {
+                apiKeyCheckFailureMessage = self.error ?? "The API key check could not finish. Try again when Gemini is available."
             }
             if command == "doctor" {
                 engineCheckStatus = task.terminationStatus == 0
