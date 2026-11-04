@@ -4,7 +4,7 @@ import argparse
 from pathlib import Path
 import plistlib
 
-from build_help import BOOK_ID, TOPICS, ILLUSTRATIONS, Page
+from build_help import BOOK_ID, TOPICS, Page
 
 
 def verify(app):
@@ -19,9 +19,6 @@ def verify(app):
     assert metadata["HPDBookAccessPath"] == "index.html"
     assert (locale / metadata["HPDBookIndexPath"]).stat().st_size > 0, "Empty search index"
     assert (locale / "style.css").stat().st_size > 0
-    for name, _ in ILLUSTRATIONS.values():
-        for theme in ["light", "dark"]:
-            assert (locale / "images" / f"{name}-{theme}.png").stat().st_size > 0
     pages = {}
     for slug in ["index"] + [key for key, _ in TOPICS]:
         name = f"{slug}.html"
@@ -32,6 +29,8 @@ def verify(app):
         pages[name] = Page(source)
         assert slug in pages[name].ids, f"Missing native Help anchor in {name}"
     for name, page in pages.items():
+        for image in page.images:
+            assert (locale / image).stat().st_size > 0, f"Missing image {image} from {name}"
         for link in page.links:
             if ":" in link:
                 continue
@@ -39,7 +38,7 @@ def verify(app):
             target = target or name
             assert target in pages, f"Missing topic {link} from {name}"
             assert not anchor or anchor in pages[target].ids, f"Missing anchor {link} from {name}"
-    print(f"PASS: packaged registration, {len(pages)} pages, topic anchors, links, style, and nonempty search index")
+    print(f"PASS: packaged registration, {len(pages)} pages, topic anchors, links, images, style, and nonempty search index")
     print("Native Help Viewer rendering and search still require a runtime check.")
 
 

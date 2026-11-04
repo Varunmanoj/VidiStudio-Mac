@@ -28,3 +28,9 @@ Completion requires checking all topic links and anchors, the built Help bundle 
 `python3 script/verify_help.py path/to/VidiStudio.app` validates the actual packaged registration, every topic and anchor, internal navigation, stylesheet, and nonempty search index. The build-and-run entrypoint executes this check before signing and launching. It deliberately does not claim that a nonempty index proves native search works.
 
 Remaining manual acceptance checks: open Help from the Help menu and from Settings; follow Home, a topic, Previous and Next; search for a distinctive word such as narration; inspect narrow and wide layouts in light and dark system appearance; navigate by keyboard and VoiceOver headings. A locked Mac prevents those checks and is not evidence of a Help Viewer failure.
+
+## Screenshot maintenance
+
+Mac captures live in `docs/help/images/mac-*.jpg` and are placed next to the relevant instructions in these HTML fragments. Keep the original screenshots in this directory when updating them. Figures identify the Mac interface, have descriptive alt text and captions, and specify the actual image dimensions so navigation remains stable while images load. Do not put credentials or private account details in a capture. Use existing projects without changing their content.
+
+The website is built independently: copy the captures to `VidiStudio Online/public/screenshots/mac-help/`, update the size map and relevant `MacScreenshot` references in `src/pages/DocsPage.tsx`, and run the website checks. The Windows Help sync preserves the explicit Mac captions rather than converting them to Windows labels. Rebuild Help and sync Windows after any change; verify the packaged app and publish the website separately. Text instructions must remain complete without relying on images.

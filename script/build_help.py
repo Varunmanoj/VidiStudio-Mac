@@ -29,7 +29,7 @@ TOPICS = [
 class Page(HTMLParser):
     def __init__(self, source):
         super().__init__()
-        self.ids, self.links = set(), []
+        self.ids, self.links, self.images = set(), [], []
         self.feed(source)
 
     def handle_starttag(self, tag, attrs):
@@ -40,6 +40,10 @@ class Page(HTMLParser):
             self.ids.add(attrs["id"])
         if tag == "a" and "href" in attrs:
             self.links.append(attrs["href"])
+        if tag == "img" and "src" in attrs:
+            self.images.append(attrs["src"])
+            if not attrs.get("alt"):
+                raise ValueError("Image needs descriptive alt text: " + attrs["src"])
 
 WINDOWS_SHORTCUT_OVERRIDES = {
     # Native Windows substitutions that a mechanical Command->Ctrl mapping would get wrong.
@@ -126,35 +130,12 @@ CSS = """html{color-scheme:light dark;font:17px/1.6 -apple-system,BlinkMacSystem
 
 CSS += """a,a:visited{color:inherit;text-decoration:none}a:hover{background:light-dark(#ececee,#333336);border-radius:4px}a:focus-visible{outline:2px solid currentColor;outline-offset:4px}nav a{display:block;padding:3px 6px}nav a[aria-current=page]{background:light-dark(#ececee,#333336);border-radius:6px}.collection:hover{background:light-dark(#f3f3f5,#29292c)}figure{margin:1.75rem 0}figure img{display:block;width:100%;height:auto;border:1px solid #8885;border-radius:10px}figcaption{font-size:.85rem;color:light-dark(#54545a,#bbb);margin-top:.65rem}.screenshot-light{display:block}.screenshot-dark{display:none}@media(prefers-color-scheme:dark){.screenshot-light{display:none}.screenshot-dark{display:block}}"""
 
-ILLUSTRATIONS = {
-    "index": ("editor", "The VidiStudio editor: video and a labeled Thumbnails, Transcript, and Audio Description timeline above the transcript, with processing actions in the right inspector."),
-    "welcome": ("editor", "The editor brings video, timed text, and processing tools into one window."),
-    "first-project": ("projects", "Start in All Projects. Choose New Project to import a video, or Open Project Folder to reopen existing work."),
-    "projects": ("projects", "All Projects in Grid View, with search, project tiles, layout controls, and the icon-size slider."),
-    "editor": ("editor", "Video preview and the labeled Thumbnails, Transcript, and Audio Description timeline occupy the top; the section picker and Transcript are below. Hide or show the complete timeline from View. Project Inspector is on the right."),
-    "analysis": ("editor", "Find Analyze Video and page-specific generation actions in the Project Inspector on the right."),
-    "narration": ("narration", "Narration settings separate the speech engine from playback mode, followed by indication sounds and Apple voice controls."),
-    "settings": ("narration", "Use the Settings sidebar to choose a section. Narration includes playback, sound, and voice controls."),
-}
-
-def illustration(slug):
-    if slug not in ILLUSTRATIONS:
-        return ""
-    name, caption = ILLUSTRATIONS[slug]
-    return '<figure>' + ''.join(
-        f'<img class="screenshot-{theme}" src="images/{name}-{theme}.png" alt="{html.escape(caption)}" loading="lazy">'
-        for theme in ["light", "dark"]
-    ) + f'<figcaption>{html.escape(caption)}</figcaption></figure>'
 
 def build(output, index=True):
     resources = output / "Contents/Resources"
     locale = resources / "en.lproj"
     locale.mkdir(parents=True, exist_ok=True)
     shutil.copytree(ROOT / "docs/help/images", locale / "images", dirs_exist_ok=True)
-    for name, _ in ILLUSTRATIONS.values():
-        for theme in ["light", "dark"]:
-            if not (locale / "images" / f"{name}-{theme}.png").is_file():
-                raise ValueError(f"Missing screenshot: {name}-{theme}")
     info = dict(CFBundleDevelopmentRegion="en", CFBundleIdentifier=BOOK_ID,
                 CFBundleInfoDictionaryVersion="6.0", CFBundleName="VidiStudio Help",
                 CFBundlePackageType="BNDL", CFBundleSignature="hbwr",
@@ -173,9 +154,6 @@ def build(output, index=True):
             body = keyboard()
         else:
             body = (ROOT / "docs/help" / f"{slug}.html").read_text()
-        if illustration(slug):
-            before, separator, after = body.partition('</p>')
-            body = before + separator + illustration(slug) + after
         toc = ''.join(f'<li><a href="{key}.html"' + (' aria-current="page"' if key == slug else '') + f'>{html.escape(label)}</a></li>' for key, label in TOPICS)
         pager = '<div class="pager">'
         if position:
@@ -189,6 +167,9 @@ def build(output, index=True):
         (locale / f"{slug}.html").write_text(document)
     parsed = {path.name: Page(path.read_text()) for path in locale.glob("*.html")}
     for name, page in parsed.items():
+        for image in page.images:
+            if not (locale / image).is_file():
+                raise ValueError(f"Missing image in {name}: {image}")
         for link in page.links:
             if ":" in link:
                 continue
