@@ -81,13 +81,14 @@ struct YouTubeAudioSourceControls: View {
     @Bindable var studio: StudioModel
     let project: StudioProject
     var compact = false
+    var showsSection = true
 
     private var current: StudioProject { studio.projects.first(where: { $0.id == project.id }) ?? project }
     private var sources: AudioSourceSettings { current.audioSources ?? AudioSourceSettings() }
 
     var body: some View {
         if current.isYouTubeURLProject {
-            GroupBox("Audio sources") {
+            ProjectAudioSourcesSection(showsSection: showsSection) {
                 VStack(alignment: .leading, spacing: 8) {
                     Text(current.originalAudio.map { "Imported audio: \($0.sourceName)" } ?? "No original audio file imported")
                         .font(.caption).textSelection(.enabled)
@@ -182,5 +183,14 @@ struct OriginalAudioImportFields: View {
                     .font(.caption).foregroundStyle(.secondary)
             }
         }
+    }
+}
+
+private struct ProjectAudioSourcesSection<Content: View>: View {
+    let showsSection: Bool
+    @ViewBuilder var content: () -> Content
+    var body: some View {
+        if showsSection { InspectorSection("Audio sources") { content() } }
+        else { content() }
     }
 }

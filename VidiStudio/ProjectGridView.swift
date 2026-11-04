@@ -59,7 +59,12 @@ struct ProjectGridView: View {
                         Divider()
                         Button("Rename", systemImage: "pencil") { rename(project) }
                             .disabled(project.integrityPlaceholder == true)
-                        Button("Open in Project Folder", systemImage: "folder") {
+                        if project.youtubeURL.flatMap(StudioModel.youtubeVideoID) != nil {
+                            Button("Open in YouTube", systemImage: "arrow.up.right.square") { studio.openYouTubeInBrowser(project) }
+                        }
+                        Button("Open Project Settings…", systemImage: "gearshape") { studio.requestProjectManagement("project-settings", project: project) }
+            .disabled(!studio.canManageProject("project-settings", project: project))
+        Button("Open in Project Folder", systemImage: "folder") {
                             if let folder = project.folder { NSWorkspace.shared.open(folder) }
                         }
                         if studio.settings.developerMode {

@@ -129,6 +129,7 @@ struct ProjectIntegrityHarness {
         precondition(allAudioMissing.level == .warning, "all narration audio missing must remain a recoverable warning")
         precondition(allAudioMissing.canRegenerateNarration, "all narration audio missing should offer regeneration")
 
+        try FileManager.default.removeItem(at: root.appendingPathComponent("metadata/probe.json"))
         let youtube = manifest(source: nil, youtube: true, thumbs: [], narration: [], exports: [])
         precondition(ProjectIntegrityAuditor.audit(youtube).level == .healthy, "YouTube project without a local source should be healthy")
 

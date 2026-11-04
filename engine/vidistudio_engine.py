@@ -7,6 +7,7 @@ import threading
 import network_activity
 import gemini_adapter
 import parity
+import youtube_metadata
 import youtube_audio
 import audio_sources
 import import_assets
@@ -2908,6 +2909,7 @@ def delete_segment_audio(root, p, segment_id):
     remove_empty_directory(audio_root)
 
 def validate_analysis_prerequisites(command, root, project):
+    youtube_metadata.guard(project)
     if command != 'transcribe' and not (project.get('transcriptGenerated') or project.get('transcript')):
         raise ValueError('Run transcription first.')
     if command == 'generate-ad-cues' and not project['summary'].strip():
@@ -2915,10 +2917,12 @@ def validate_analysis_prerequisites(command, root, project):
 
 def main():
     parser=argparse.ArgumentParser(description=__doc__)
-    parser.add_argument('command',choices=['check-api-key','reanalyze-transcript-segment','undo-transcript','redo-transcript','reanalyze-segment','prepare-analysis-video','check-video-availability','cleanup-project','clear-generated','delete-generated','delete-segment-audio','list-models','list-voices','preview-tts','synthesize-speech','import-video','probe-video','generate-thumbnails','transcribe','generate-summary','generate-ad-cues','synthesize-tts','export-final-video','export-selectable-video','export-closed-audio-description-video','export-open-audio-description-video','export-closed-caption-video','export-dual-closed-caption-video','export-open-caption-video','export-original-audio','export-described-audio','export-youtube-described-audio','export-youtube-original-audio','download-youtube-audio','export-hls','save-cues','save-segments','save-summary','doctor','read-youtube-metadata',*parity.COMMANDS,*import_assets.COMMANDS,*audio_sources.COMMANDS])
+    parser.add_argument('command',choices=['check-api-key','reanalyze-transcript-segment','undo-transcript','redo-transcript','reanalyze-segment','prepare-analysis-video','check-video-availability','cleanup-project','clear-generated','delete-generated','delete-segment-audio','list-models','list-voices','preview-tts','synthesize-speech','import-video','probe-video','generate-thumbnails','transcribe','generate-summary','generate-ad-cues','synthesize-tts','export-final-video','export-selectable-video','export-closed-audio-description-video','export-open-audio-description-video','export-closed-caption-video','export-dual-closed-caption-video','export-open-caption-video','export-original-audio','export-described-audio','export-youtube-described-audio','export-youtube-original-audio','download-youtube-audio','export-hls','save-cues','save-segments','save-summary','doctor','read-youtube-metadata','expire-youtube-cache',*parity.COMMANDS,*import_assets.COMMANDS,*audio_sources.COMMANDS])
     parser.add_argument('--project',type=Path); parser.add_argument('--video',type=Path); parser.add_argument('--library',type=Path); parser.add_argument('--input',type=Path)
     parser.add_argument('--media-format', choices=VIDEO_EXPORT_FORMATS + AUDIO_EXPORT_FORMATS)
     parser.add_argument('--content',choices=['transcript','summary','descriptions','combined'],default='descriptions'); parser.add_argument('--url'); parser.add_argument('--name'); parser.add_argument('--timestamp',type=float,default=0); parser.add_argument('--duration',type=float); parser.add_argument('--segment'); parser.add_argument('--segments', action='append'); parser.add_argument('--format',choices=['srt','vtt','txt','json','md'],default='srt'); parser.add_argument('--changed',action='store_true'); parser.add_argument('--start-stage',default='transcribe')
+    parser.add_argument('--youtube-metadata', type=Path)
+    parser.add_argument('--caption-provenance', type=Path)
     parser.add_argument('--output', type=Path); parser.add_argument('--text')
     parser.add_argument('--regenerate-all', action='store_true', help='Regenerate every narration segment using the selected voice after explicit confirmation.')
     parser.add_argument('--component', action='append', choices=['transcript','summary','descriptions','narration','thumbnails','exports','history'], default=[])
@@ -2929,6 +2933,20 @@ def main():
     import_assets.add_arguments(parser)
     audio_sources.add_arguments(parser)
     args=parser.parse_args()
+    if args.command == 'expire-youtube-cache':
+        if not args.library: raise ValueError('Choose a project library.')
+        for project_file in args.library.glob('*/project.json'):
+            try:
+                with project_lock(project_file.parent):
+                    project = json.loads(project_file.read_text(encoding='utf-8'))
+                    changed, removed = youtube_metadata.expire(project_file.parent, project)
+                    if changed:
+                        save(project_file.parent, project)
+                        for path in removed: path.unlink(missing_ok=True)
+            except (OSError, ValueError, RuntimeError):
+                # Locked, damaged or disconnected projects are retried next launch.
+                continue
+        return
     if args.command == 'read-youtube-metadata':
         if not args.url or not args.output:
             raise ValueError('Choose a YouTube URL and metadata output.')
@@ -2975,6 +2993,8 @@ def main():
     root=args.project.resolve()
     with project_lock(root):
         p=migrate_project_schema(root,json.loads((root/'project.json').read_text()))
+        if args.command not in ('clear-youtube-data', 'update-youtube-metadata'):
+            youtube_metadata.guard(p)
         if args.command in audio_sources.COMMANDS:
             audio_sources.execute(args, root, p, SimpleNamespace(**globals()))
             emit('Complete', project=str(root), progress=1); return

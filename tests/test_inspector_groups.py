@@ -13,9 +13,9 @@ class InspectorGroups(unittest.TestCase):
     def test_mac_separates_segment_and_audio_controls(self):
         root = Path(__file__).resolve().parents[2]
         source = (root / 'VidiStudio Mac/VidiStudio/ContentView.swift').read_text()
-        start = source.index('GroupBox(editorActions.activeSection == "descriptions" ? "AD Segment Generation"')
-        audio = source.index('GroupBox("Narration Audio")', start)
-        end = source.index('GroupBox("Export")', audio)
+        start = source.index('InspectorSection(editorActions.activeSection == "descriptions" ? "AD Segment Generation"')
+        audio = source.index('InspectorSection("Narration Audio")', start)
+        end = source.index('InspectorSection("Export")', audio)
         generation = source[start:audio]
         narration = source[audio:end]
         self.assertIn('editorActions.run(action)', generation)

@@ -10,6 +10,7 @@ struct EditorProjectBrowser: View {
     let openNewWindow: (StudioProject) -> Void
     let removeFromList: (StudioProject) -> Void
     let delete: (StudioProject) -> Void
+    let openSettings: (StudioProject) -> Void
     @State private var search = ""
     @State private var source = "all"
 
@@ -94,8 +95,10 @@ struct EditorProjectBrowser: View {
         .contextMenu {
             Button("Open in This Window", systemImage: "arrow.forward.square") { openHere(project) }
                 .accessibilityIdentifier("open-project-here")
+            if let url = project.youtubeWatchURL { Link("Open in YouTube", destination: url) }
             Button("Open in New Window", systemImage: "macwindow.badge.plus") { openNewWindow(project) }
                 .accessibilityIdentifier("open-editor-window")
+            Button("Open Project Settings…", systemImage: "gearshape") { openSettings(project) }.disabled(busy || project.integrityPlaceholder == true)
             Divider()
             Button("Remove from List", systemImage: "minus.circle") { removeFromList(project) }
                 .accessibilityIdentifier("remove-from-list")

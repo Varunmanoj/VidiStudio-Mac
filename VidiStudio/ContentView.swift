@@ -49,6 +49,7 @@ private struct NewProjectView: View {
     @State private var youtubePreview: YouTubeProjectPreview?
     @State private var youtubeFetchError: String?
     @State private var fetchingYouTube = false
+    @State private var chooseYouTubeCaptions = false
 
     private var trimmedYouTubeURL: String {
         youtubeURL.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -60,6 +61,8 @@ private struct NewProjectView: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
+            Button("My YouTube Videos…") { openWindow(id: "youtube-browser") }
+            if source == .youtube { Toggle("Choose YouTube captions after creating", isOn: $chooseYouTubeCaptions) }
             Text("New Project")
                 .font(.title2.bold())
                 .accessibilityAddTraits(.isHeader)
@@ -324,6 +327,7 @@ private struct NewProjectView: View {
         dismiss()
         DispatchQueue.main.async {
             openWindow(id: "project-editor", value: project.id)
+            if chooseYouTubeCaptions { studio.youtubeDetailAction = "youtube-captions"; openWindow(id: "youtube-details") }
         }
     }
 
@@ -362,6 +366,7 @@ struct ContentView: View {
     @AppStorage("projectGridItemSize") private var projectGridItemSize = 180.0
 
     private func openEditor(_ project: StudioProject) {
+        if project.youtubeMetadata?.visibility == "private" { studio.error = "Private Video Cannot Be Opened. Signing in to Google does not give Gemini access."; return }
         studio.selectedID = project.id
         // The project ID is the WindowGroup value and therefore its window identity.
         // Reopening the same value activates that editor instead of creating a duplicate.
@@ -509,6 +514,8 @@ struct ContentView: View {
                 renamingTarget = request.project
                 renaming = true
             case "trash-project": studio.confirmTrashProject(request.project)
+            case "youtube-open-browser": studio.openYouTubeInBrowser(request.project)
+            case "project-settings": SettingsSectionRequest.requestProject(request.project); openSettings()
             case "show-in-finder": if let folder = request.project.folder { NSWorkspace.shared.open(folder) }
             case "open-configuration": openProjectConfiguration(request.project, studio: studio)
             default: break
@@ -544,6 +551,8 @@ struct ProjectEditorWindow: View {
     @Environment(\.dismissWindow) private var dismissWindow
     @State private var studio: StudioModel
     @State private var editorShortcutActions = EditorShortcutActions()
+    @State private var youtubeOpening = false
+    @State private var youtubeOpeningIssue: String?
     @State private var showInspector = true
     @State private var showingExportDialog = false
     @State private var renamingProject = false
@@ -574,7 +583,8 @@ struct ProjectEditorWindow: View {
             EditorProjectBrowser(projects: studio.listedProjects, selectedID: studio.selectedID,
                 grid: $projectGrid, busy: studio.busy, summaryEditing: editorShortcutActions.summaryEditing,
                 openHere: switchProject, openNewWindow: openProjectInNewWindow,
-                removeFromList: removeProjectFromList, delete: deleteProject)
+                removeFromList: removeProjectFromList, delete: deleteProject,
+                openSettings: { studio.requestProjectManagement("project-settings", project: $0) })
                 .navigationSplitViewColumnWidth(min: 220, ideal: 260, max: 340)
                 .toolbar(removing: .sidebarToggle)
         } detail: {
@@ -658,7 +668,11 @@ struct ProjectEditorWindow: View {
                 )
             }
             Group {
-                if let project = studio.selected {
+                if let issue = youtubeOpeningIssue {
+                    ContentUnavailableView("YouTube Video Cannot Be Opened", systemImage: "exclamationmark.triangle", description: Text(issue))
+                } else if youtubeOpening {
+                    ProgressView("Checking YouTube video availability")
+                } else if let project = studio.selected {
                     if project.integrityPlaceholder == true || studio.integrityReport(for: project).manifestUnreadable {
                         DamagedProjectPlaceholderView(
                             project: project,
@@ -723,6 +737,12 @@ struct ProjectEditorWindow: View {
         // so an open menu does not get rebuilt and lose focus.
         .focusedSceneValue(\.editorShortcuts, studio.selected == nil ? nil : editorShortcutActions)
         .preferredColorScheme(studio.settings.theme == "dark" ? .dark : studio.settings.theme == "light" ? .light : nil)
+        .contextMenu {
+            if let project = studio.selected {
+                Button("Open Project Settings…", systemImage: "gearshape") { studio.requestProjectManagement("project-settings", project: project) }
+                    .disabled(!studio.canManageProject("project-settings", project: project))
+            }
+        }
         .navigationTitle(studio.selected?.name ?? "Project Editor")
         .toolbar(removing: .title)
         .toolbar {
@@ -798,16 +818,38 @@ struct ProjectEditorWindow: View {
                 renamingTarget = request.project
                 renamingProject = true
             case "trash-project": deleteProject(request.project)
+            case "youtube-open-browser": studio.openYouTubeInBrowser(request.project)
+            case "project-settings": SettingsSectionRequest.requestProject(request.project); openSettings()
             case "show-in-finder": if let folder = request.project.folder { NSWorkspace.shared.open(folder) }
             case "open-configuration": openProjectConfiguration(request.project, studio: studio)
             default: break
             }
         }
+        .sheet(isPresented: $studio.showingYouTubeDetails) {
+            if let project = studio.selected { ScrollView { YouTubeDetailsView(studio: studio, project: project, startWithCaptions: studio.youtubeDetailAction == "youtube-captions") } }
+        }
         .onAppear {
             studio.reload()
             studio.selectedID = projectID
+            editorShortcutActions.youtubeHandler = { action in
+                if action == "youtube-refresh" { studio.youtubeInspectorRefresh = UUID(); showInspector = true }
+                else { studio.youtubeDetailAction = action; studio.showingYouTubeDetails = true }
+            }
             studio.refreshProjectIntegrity(for: projectID)
             openProjects.open(projectID, name: studio.selected?.name ?? "Project", folder: studio.selected?.folder, owner: windowOwner)
+        }
+        .task(id: studio.selectedID) {
+            guard let project = studio.selected, project.isYouTubeURLProject, let id = project.youtubeURL.flatMap(StudioModel.youtubeVideoID) else { youtubeOpeningIssue = nil; return }
+            youtubeOpening = true; youtubeOpeningIssue = nil
+            do {
+                let video = try await YouTubeService.shared.video(id)
+                try video.requireAvailable()
+                guard !Task.isCancelled else { return }
+                studio.saveYouTubeMetadata(video, project: project)
+            } catch {
+                if !Task.isCancelled { youtubeOpeningIssue = error.localizedDescription }
+            }
+            youtubeOpening = false
         }
         .task(id: projectID) {
             while !Task.isCancelled {
@@ -904,9 +946,14 @@ struct ProcessingInspector: View {
 
     var body: some View {
         VStack(spacing: 0) {
+            ScrollView {
+                VStack(alignment: .leading, spacing: 12) {
             if let project = studio.selected {
                 HStack(alignment: .top, spacing: 8) {
-                    ProjectVideoInformationView(project: project)
+                    VStack(alignment: .leading, spacing: 10) {
+                        ProjectVideoInformationView(project: project)
+                        if project.isYouTubeURLProject { YouTubeInspectorInformationView(studio: studio, project: project) }
+                    }
                         .frame(maxWidth: .infinity, alignment: .leading)
                     if let report = studio.projectIntegrity[project.id], report.problems.count > 1 {
                         ProjectIntegrityDialogButton(
@@ -934,17 +981,13 @@ struct ProcessingInspector: View {
                         .padding(.top, 4)
                     }
                 }
-                .padding(.horizontal, 20)
-                .padding(.top, 20)
-                .padding(.bottom, 12)
                 Divider()
             }
-            ScrollView {
-                VStack(alignment: .leading, spacing: 12) {
+
                     if let p = studio.selected {
                         YouTubeAudioSourceControls(studio: studio, project: p)
                         if let sectionTitle = currentSectionTitle {
-                            GroupBox(editorActions.activeSection == "descriptions" ? "AD Segment Generation" : sectionTitle) {
+                            InspectorSection(editorActions.activeSection == "descriptions" ? "AD Segment Generation" : sectionTitle) {
                             VStack(alignment: .leading, spacing: 8) {
                                 if !studio.hasApiKey && editorActions.currentGenerationAction != "prepare-video" {
                                     HStack(spacing: 6) {
@@ -1027,7 +1070,7 @@ struct ProcessingInspector: View {
                             }
                         }
                         if ["descriptions", "ad-transcript"].contains(editorActions.activeSection) {
-                            GroupBox("Narration Audio") {
+                            InspectorSection("Narration Audio") {
                                 VStack(alignment: .leading, spacing: 8) {
                                     if studio.settings.ttsMode == "gemini" {
                                         if !studio.hasApiKey {
@@ -1111,7 +1154,7 @@ struct ProcessingInspector: View {
                         if !p.isYouTubeURLProject {
                             AnalysisVideoStatusView(studio: studio, project: p)
                         }
-                        GroupBox("Export") {
+                        InspectorSection("Export") {
                             VStack(alignment: .leading, spacing: 10) {
                                 ProjectExportButton(
                                     project: p,
@@ -1126,8 +1169,10 @@ struct ProcessingInspector: View {
                             }
                         }
                     }
-                }.padding(20)
+                }.padding(20).frame(maxWidth: .infinity, alignment: .leading)
             }
+            .scrollIndicators(.visible)
+            .accessibilityLabel("Editor inspector")
             Divider()
             HStack {
                 if let p = studio.selected {
@@ -1168,7 +1213,7 @@ private struct AnalysisVideoStatusView: View {
     let project: StudioProject
 
     var body: some View {
-        GroupBox("Video Analysis Availability") {
+        InspectorSection("Video Analysis Availability") {
             SwiftUI.TimelineView(.periodic(from: .now, by: 1)) { context in
                 let video = project.geminiVideo
                 let remaining = max(0, (video?.expiresAt ?? 0) - context.date.timeIntervalSince1970)
@@ -1301,7 +1346,7 @@ private struct ProjectVideoInformationView: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 10) {
-            GroupBox("Project Information") {
+            InspectorSection("Project Information") {
                 VStack(alignment: .leading, spacing: 5) {
                     informationRow("Name", information.projectName)
                     informationRow("Type", information.projectType)
@@ -1312,7 +1357,7 @@ private struct ProjectVideoInformationView: View {
                 .accessibilityElement(children: .contain)
                 .accessibilityLabel("Project information")
             }
-            GroupBox("Video Information") {
+            InspectorSection("Video Information") {
                 VStack(alignment: .leading, spacing: 5) {
                     informationRow(information.sourceDetailLabel, information.sourceDetail)
                     if let sourceURL = information.sourceURL {
@@ -1336,15 +1381,7 @@ private struct ProjectVideoInformationView: View {
     }
 
     private func informationRow(_ label: String, _ value: String) -> some View {
-        LabeledContent(label) {
-            Text(value)
-                .foregroundStyle(.secondary)
-                .multilineTextAlignment(.trailing)
-                .lineLimit(2)
-                .help(value)
-        }
-        .accessibilityElement(children: .ignore)
-        .accessibilityLabel("\(label): \(value)")
+        InspectorInformationRow(label: label, value: value)
     }
 }
 
@@ -1695,9 +1732,12 @@ struct ProjectEditor: View {
                 HStack(spacing: 8) {
                     if project.isYouTubeURLProject {
                         Button("Audio Sources…", systemImage: "waveform") { showingAudioSources = true }
-                            .help("Choose original audio for playback, exports, and transcription")
-                        Text("Playing: \(project.audioSources?.playback == "imported" ? "Imported audio: \(project.originalAudio?.sourceName ?? "Missing file")" : "YouTube audio")")
-                            .font(.caption).lineLimit(1)
+                            .labelStyle(.iconOnly)
+                            .accessibilityLabel("Audio Sources")
+                            .help("Audio Sources: choose audio for playback, exports, and transcription")
+                        Image(systemName: project.audioSources?.playback == "imported" ? "doc.waveform" : "play.rectangle")
+                            .accessibilityLabel("Playing: \(project.audioSources?.playback == "imported" ? "Imported audio: \(project.originalAudio?.sourceName ?? "Missing file")" : "YouTube audio")")
+                            .help("Playing: \(project.audioSources?.playback == "imported" ? "Imported audio: \(project.originalAudio?.sourceName ?? "Missing file")" : "YouTube audio")")
                     }
                     Button("Import Existing Assets", systemImage: "square.and.arrow.down") {
                         showingImportAssets = true

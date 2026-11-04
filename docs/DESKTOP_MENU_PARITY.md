@@ -104,3 +104,18 @@ Project > Import includes Import Original Audio and Import AD Audio on both desk
 Both desktops use the same command requirements for toolbar buttons, Project/Playback menus, project and segment context menus, and keyboard actions. Gemini processing requires reachable Gemini plus the existing key/service prerequisites. YouTube details, project creation, metadata refresh and streaming playback require reachable YouTube; local media preparation stays available offline. Cloud narration is gated by the selected provider. Export availability follows the selected soundtrack and AD source: local imported soundtracks, full AD mixes, narration-only audio and text do not acquire a YouTube requirement. Connection changes restore only actions whose other prerequisites are satisfied. Final execution guards recheck availability; Mac also rechecks after modal confirmation. No command IDs, menu order or shortcuts change.
 
 The Check Connection action is on the connection banner on both platforms. Connectivity and API-key/quota validation are separate. Windows Summary Reading can use the selected Gemini provider and therefore requires internet when creating cloud speech; Mac summary reading uses its existing local Apple/Piper path.
+
+YouTube commands: File > My YouTube Videos…; Project > YouTube > Video Details…, Refresh Details, Import YouTube Captions…. Stable IDs: youtube-browser, youtube-details, youtube-refresh, youtube-captions. No new keyboard shortcuts.
+
+YouTube browser commands now have a dedicated YouTube menu and selected-video editor/browser actions. Shortcuts: Cmd/Ctrl+Option/Alt+Y (videos), +Shift+Y (accounts); Cmd/Ctrl+Return (editor), +Shift+Return (YouTube); Cmd/Ctrl+R (refresh); Cmd/Ctrl+Option/Alt+L (more videos), +Shift+L (more playlists). Browser actions are guarded by the focused browser and selection.
+
+Project > YouTube > Refresh YouTube Details (stable ID youtube-refresh) now refreshes the inspector and saved project metadata directly. The inspector button shares that action. Video Details and caption import remain separate commands.
+
+YouTube > List View/Table View change the remembered YouTube browser layout. File > Open in YouTube and YouTube > Open in YouTube share youtube-open-browser and resolve the focused YouTube browser selection, otherwise the selected/current imported YouTube project. Project context menus and inspector use the same saved canonical URL.
+
+File has adjacent Settings… and Open Project Settings… commands. Open Project Settings uses stable ID `project-settings`, is enabled in an active usable editor, and opens Settings directly to Projects for that project. Project context menus target the clicked project. On Mac, Settings… also remains in the application menu.
+
+
+## Settings shortcuts (1.0.211)
+
+File > Settings… shows Cmd/Ctrl+Comma. File > Open Project Settings… shows Cmd/Ctrl+Shift+Comma and uses the existing guarded project-settings command for the active editor. The shared Settings window selects that editor project in Projects. The Mac application-menu Settings entry retains the native Cmd+Comma action.

@@ -104,7 +104,7 @@ def keyboard():
                ("Import Descriptions", "Command + Option + D"),
                ("Import Existing Assets", "Command + Option + Shift + I"),
                ("Rename selected project in All Projects", "Return"),
-               ("Settings", "Command + Comma"), ("Show or Hide Inspector", "Command + Shift + B"),
+               ("Settings", "Command + Comma"), ("Open Project Settings", "Command + Shift + Comma"), ("Show or Hide Inspector", "Command + Shift + B"),
                ("Project List View", "Command + Option + 1"), ("Project Grid View", "Command + Option + 2"),
                ("VidiStudio Help", "Command + Option + Slash")]
     rows = "".join(

@@ -46,6 +46,7 @@ struct ProjectAnalysisMenu: View {
 }
 
 struct ProjectBrowserPage: View {
+    @Environment(\.openWindow) private var openWindow
     let studio: StudioModel
     let projects: [StudioProject]
     @Binding var search: String
@@ -196,8 +197,8 @@ struct ProjectBrowserPage: View {
                 Table(filteredProjects, selection: $selection) {
                     TableColumn("Name") { project in
                         HStack(spacing: 8) {
-                            Image(systemName: project.sourceIconName)
-                                .foregroundStyle(project.isYouTubeURLProject ? .red : .secondary)
+                            ProjectThumbnail(project: project)
+                                .frame(width: 70, height: 40)
                                 .help(project.sourceTitle)
                                 .accessibilityHidden(true)
                             Text(project.name)
@@ -287,6 +288,7 @@ struct ProjectBrowserPage: View {
                 }
                 .pickerStyle(.segmented)
 
+                Button("My YouTube Videos…") { openWindow(id: "youtube-browser") }.disabled(busy)
                 Button("Open Project Folder", systemImage: "folder", action: openProjectFolder)
                     .disabled(busy)
                 Button("New Project", systemImage: "plus", action: newProject)
@@ -343,6 +345,11 @@ struct ProjectBrowserPage: View {
         Divider()
         Button("Rename", systemImage: "pencil") { rename(project) }
             .disabled(project.integrityPlaceholder == true)
+        if project.youtubeURL.flatMap(StudioModel.youtubeVideoID) != nil {
+            Button("Open in YouTube", systemImage: "arrow.up.right.square") { studio.openYouTubeInBrowser(project) }
+        }
+        Button("Open Project Settings…", systemImage: "gearshape") { studio.requestProjectManagement("project-settings", project: project) }
+            .disabled(!studio.canManageProject("project-settings", project: project))
         Button("Open in Project Folder", systemImage: "folder") {
             if let folder = project.folder { NSWorkspace.shared.open(folder) }
         }

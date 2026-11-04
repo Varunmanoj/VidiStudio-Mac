@@ -36,59 +36,11 @@ enum YouTubeProjectPreviewFetcher {
             throw YouTubeProjectPreviewError.invalidURL
         }
         let canonicalURL = "https://www.youtube.com/watch?v=\(videoID)"
-        var metadataComponents = URLComponents(string: "https://www.youtube.com/oembed")!
-        metadataComponents.queryItems = [
-            URLQueryItem(name: "format", value: "json"),
-            URLQueryItem(name: "url", value: canonicalURL),
-        ]
-        guard let metadataURL = metadataComponents.url else {
-            throw YouTubeProjectPreviewError.invalidURL
-        }
-
-        let configuration = URLSessionConfiguration.ephemeral
-        configuration.requestCachePolicy = .reloadIgnoringLocalCacheData
-        configuration.urlCache = nil
-        let session = URLSession(configuration: configuration)
-        defer { session.invalidateAndCancel() }
-
-        let metadataRequest: URLRequest = {
-            var request = URLRequest(url: metadataURL)
-            request.cachePolicy = .reloadIgnoringLocalCacheData
-            return request
-        }()
-        let thumbnailRequest: URLRequest = {
-            var request = URLRequest(
-                url: URL(string: "https://i.ytimg.com/vi/\(videoID)/hqdefault.jpg")!
-            )
-            request.cachePolicy = .reloadIgnoringLocalCacheData
-            return request
-        }()
-
-        async let metadataResponse = session.data(for: metadataRequest)
-        async let thumbnailResponse = session.data(for: thumbnailRequest)
-        let (metadataResult, thumbnailResult) = try await (metadataResponse, thumbnailResponse)
-
-        guard let metadataResponse = metadataResult.1 as? HTTPURLResponse,
-              (200..<300).contains(metadataResponse.statusCode),
-              let metadata = try? JSONDecoder().decode(YouTubeOEmbedMetadata.self, from: metadataResult.0),
-              !metadata.title.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
-            throw YouTubeProjectPreviewError.detailsUnavailable
-        }
-        let thumbnailData = thumbnailResult.0
-        guard let thumbnailResponse = thumbnailResult.1 as? HTTPURLResponse,
-              (200..<300).contains(thumbnailResponse.statusCode),
-              thumbnailResponse.mimeType == "image/jpeg",
-              thumbnailData.count <= 5 * 1024 * 1024,
-              thumbnailData.starts(with: [0xFF, 0xD8, 0xFF]),
-              let thumbnail = NSImage(data: thumbnailData) else {
-            throw YouTubeProjectPreviewError.thumbnailUnavailable
-        }
-
-        return YouTubeProjectPreview(
-            videoID: videoID,
-            canonicalURL: canonicalURL,
-            title: metadata.title.trimmingCharacters(in: .whitespacesAndNewlines),
-            thumbnail: thumbnail
-        )
+        let video = try await YouTubeService.shared.video(videoID)
+        try video.requireAvailable()
+        guard let thumbnailURL = URL(string: video.thumbnailURL) else { throw YouTubeProjectPreviewError.thumbnailUnavailable }
+        let (data, _) = try await URLSession.shared.data(from: thumbnailURL)
+        let thumbnail = NSImage(data: data) ?? NSImage(systemSymbolName: "film", accessibilityDescription: "Video")!
+        return YouTubeProjectPreview(videoID: videoID, canonicalURL: canonicalURL, title: video.title, thumbnail: thumbnail)
     }
 }

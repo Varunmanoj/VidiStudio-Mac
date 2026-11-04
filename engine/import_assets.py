@@ -347,11 +347,23 @@ def import_text(args, root, project, core, created):
     elif Path(args.input).suffix.lower() == '.txt':
         raise ValueError('TXT import requires reviewed start and end times for every line (--timing-input). Use inspect-import to open the timing editor.')
     accepted, omitted = validate_rows(rows, duration_of(project), kind)
+    if getattr(args, 'caption_provenance', None) and (not accepted or omitted):
+        raise ValueError('The YouTube caption track contains invalid or overlapping timing. Existing transcript has been kept. Download another track or review the subtitle file before importing.')
     if accepted:
         confirm_replacement(project.get(field), args.replace_existing)
         source = copy_asset(root, args.input, core, created)
         for row in accepted:
             row.update(origin='imported', originSource=Path(args.input).name)
+        caption_source = None
+        if kind == 'transcript' and getattr(args, 'caption_provenance', None):
+            raw = json.loads(Path(args.caption_provenance).read_text(encoding='utf-8'))
+            caption_source = {key: raw[key] for key in ('videoID', 'trackID', 'language', 'name', 'trackKind') if key in raw}
+            if caption_source.get('videoID') != project.get('youtubeURL', '').split('=')[-1]:
+                raise ValueError('Captions belong to a different video.')
+            label = 'YouTube captions · ' + str(caption_source.get('language', 'Unknown')) + (' · Automatic' if caption_source.get('trackKind') == 'ASR' else '')
+            for row in accepted: row['originSource'] = label
+            caption_source['fetchedAt'] = __import__('time').time()
+            project['youtubeCaptionSource'] = caption_source
         if kind == 'combined':
             project['importedADTranscript'] = dict(segments=accepted, format=Path(args.input).suffix[1:].lower(),
                                                     sourceName=Path(args.input).name, path=source, mode=kind)
@@ -359,7 +371,7 @@ def import_text(args, root, project, core, created):
             if kind == 'transcript':
                 core.remember_transcript(project)
                 if project.get('sourceType') == 'youtube':
-                    provenance = dict(origin='text', sourceName=Path(args.input).name)
+                    provenance = dict(origin='text', sourceName=(label if caption_source else Path(args.input).name))
                     project['transcriptAudioSource'] = provenance
                     for row in accepted:
                         row['transcriptionAudioSource'] = provenance.copy()

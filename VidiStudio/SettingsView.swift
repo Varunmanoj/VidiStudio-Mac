@@ -62,12 +62,19 @@ struct SettingsView: View {
     @Bindable var openProjects: OpenProjectRegistry
     @Environment(\.openWindow) private var openWindow
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @State private var requestedProject: OpenProjectReference?
+    @State private var requestedProjectWasOpen = false
+    @AppStorage("projectSettingsSelection") private var selectedSettingsProjectID = ""
+    private var settingsProjects: [OpenProjectReference] {
+        guard let requestedProject, !requestedProjectWasOpen || openProjects.projects.contains(where: { $0.id == requestedProject.id }) else { return openProjects.projects }
+        return [requestedProject] + openProjects.projects.filter { $0.id != requestedProject.id }
+    }
     @State private var shortcutReferenceExpanded = false
     @State private var expandedPromptStages: Set<String> = []
     @State private var finderExtensionEnabled = FIFinderSyncController.isExtensionEnabled
     private var section: String { studio.settingsSection }
     private var sections: [String] {
-        var sections = ["Appearance", "Projects", "Narration", "Gemini API"]
+        var sections = ["Appearance", "Projects", "Narration", "Gemini API", "YouTube Accounts"]
         if studio.settings.developerMode { sections.append("Developer prompts") }
         sections += ["Storage", "Help", "About"]
         return sections
@@ -140,12 +147,18 @@ struct SettingsView: View {
             }
             if section == "Appearance" { appearanceSections }
             if section == "Projects" {
-                if openProjects.projects.isEmpty {
+                if settingsProjects.isEmpty {
                     Section("Open projects") {
                         ContentUnavailableView("No Open Projects", systemImage: "rectangle.stack", description: Text("Open a project to manage its project-specific playback settings."))
                     }
                 } else {
-                    ForEach(openProjects.projects) { project in
+                    Section("Project") {
+                        Picker("Project settings for", selection: $selectedSettingsProjectID) {
+                            ForEach(settingsProjects) { Text($0.name).tag($0.id) }
+                        }
+                        Text("Choose an open editor project. Opening Project Settings from a project selects it here.").font(.caption).foregroundStyle(.secondary)
+                    }
+                    if let project = settingsProjects.first(where: { $0.id == selectedSettingsProjectID }) ?? settingsProjects.first {
                         Section(project.name) {
                             ProjectPlaybackPreferenceControls(
                                 folder: project.folder,
@@ -154,6 +167,7 @@ struct SettingsView: View {
                             )
                             .id("\(project.id)-\(project.folder?.path ?? "")")
                         }
+                        ProjectSourcesSettingsView(reference: project, appSettings: studio.settings).id(project.id)
                     }
                 }
             }
@@ -231,6 +245,7 @@ struct SettingsView: View {
                 }
             }
             }
+            if section == "YouTube Accounts" { YouTubeAccountsView() }
             if section == "Storage" { Section("Local storage and tools") {
                 LabeledContent("Default folder for new projects") {
                     HStack {
@@ -330,6 +345,9 @@ struct SettingsView: View {
                 studio.settingsSection = "Appearance"
             }
         }
+        .onChange(of: settingsProjects) { _, values in
+            if !values.contains(where: { $0.id == selectedSettingsProjectID }) { selectedSettingsProjectID = values.first?.id ?? "" }
+        }
         .onChange(of: studio.settingsSection) { _, updated in
             if !sections.contains(updated) { studio.settingsSection = "Appearance" }
         }
@@ -345,11 +363,25 @@ struct SettingsView: View {
         }
         .onAppear {
             finderExtensionEnabled = FIFinderSyncController.isExtensionEnabled
+            requestedProject = SettingsSectionRequest.consumeProject()
+            if let requestedProject {
+                requestedProjectWasOpen = openProjects.projects.contains { $0.id == requestedProject.id }
+                selectedSettingsProjectID = requestedProject.id
+            } else if !settingsProjects.contains(where: { $0.id == selectedSettingsProjectID }) {
+                selectedSettingsProjectID = settingsProjects.first?.id ?? ""
+            }
             if let section = SettingsSectionRequest.consume(), sections.contains(section) {
                 studio.settingsSection = section
             }
         }
         .onReceive(NotificationCenter.default.publisher(for: .vidiStudioOpenSettingsSection)) { _ in
+            requestedProject = SettingsSectionRequest.consumeProject()
+            if let requestedProject {
+                requestedProjectWasOpen = openProjects.projects.contains { $0.id == requestedProject.id }
+                selectedSettingsProjectID = requestedProject.id
+            } else if !settingsProjects.contains(where: { $0.id == selectedSettingsProjectID }) {
+                selectedSettingsProjectID = settingsProjects.first?.id ?? ""
+            }
             if let section = SettingsSectionRequest.consume(), sections.contains(section) {
                 studio.settingsSection = section
             }

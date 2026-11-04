@@ -71,6 +71,7 @@ struct VidiStudioApp: App {
                 .writingToolsBehavior(.disabled)
                 .writingToolsAffordanceVisibility(.hidden)
                 .frame(minWidth: 760, minHeight: 560)
+                .task { YouTubeService.expireCaches(library: studio.settings.libraryPath) }
         }
         .defaultSize(width: 1200, height: 780)
         .windowToolbarStyle(.automatic)
@@ -90,6 +91,13 @@ struct VidiStudioApp: App {
         }
         .defaultSize(width: 1200, height: 780)
         .windowToolbarStyle(.automatic)
+        Window("My YouTube Videos", id: "youtube-browser") {
+            YouTubeBrowserView(studio: studio)
+        }
+        Window("YouTube Details", id: "youtube-details") {
+            if let project = studio.selected, project.isYouTubeURLProject { ScrollView { YouTubeDetailsView(studio: studio, project: project, startWithCaptions: studio.youtubeDetailAction == "youtube-captions") } }
+            else { Text("Choose a YouTube project.").padding() }
+        }
         Settings { SettingsView(studio: studio, openProjects: openProjects) }
             .windowToolbarStyle(.unifiedCompact)
             .defaultSize(width: 980, height: 740)

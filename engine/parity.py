@@ -1,3 +1,4 @@
+import youtube_metadata
 """Project operations shared by the native UI and portable command line."""
 import contextlib
 import base64, copy, json, math, re, shutil, time, uuid
@@ -8,7 +9,7 @@ import network_activity
 import gemini_adapter
 import ssl
 import certifi
-COMMANDS=['import-youtube','prepare-video','validate-config','analyze','regenerate-all','capture-frame','rewrite-cue','export-subtitles','export-audio','rename-project','undo-cues','redo-cues','update-metadata','attach-video','delete-export']
+COMMANDS=['import-youtube','prepare-video','validate-config','analyze','regenerate-all','capture-frame','rewrite-cue','export-subtitles','export-audio','rename-project','undo-cues','redo-cues','update-metadata','attach-video','delete-export','update-youtube-metadata','clear-youtube-data']
 MULTILINGUAL_MEDIA_PROMPT_KEYS={
     'transcript','youtube_transcript','summary','audio_descriptions','screen_text','youtube_screen_text'
 }
@@ -163,22 +164,38 @@ def execute(args,root,p,e):
         if not args.url or not args.library: raise ValueError('YouTube import requires --url and --library.')
         url=youtube_url(args.url);ident=url.split('=')[-1];name=args.name or 'YouTube video'
         ensure_unique_youtube_video(args.library, url)
-        # Creating a project requires YouTube reachability, independently of
-        # Gemini credentials or availability. Never create an offline placeholder.
-        with network_activity.activity('youtube'):
-            with urlopen('https://www.youtube.com/oembed?format=json&url='+url,timeout=10,context=ssl.create_default_context(cafile=certifi.where())) as r:
-                title=str(json.load(r).get('title') or '').strip()
-                if title and not args.name:name=title[:200]
+        details = youtube_metadata.read(args.youtube_metadata, ident) if getattr(args, 'youtube_metadata', None) else None
+        if details:
+            if not args.name: name = details.get('title') or name
+        else:
+            with network_activity.activity('youtube'):
+                with urlopen('https://www.youtube.com/oembed?format=json&url='+url,timeout=10,context=ssl.create_default_context(cafile=certifi.where())) as r:
+                    title=str(json.load(r).get('title') or '').strip()
+                    if title and not args.name:name=title[:200]
         root=args.library.resolve()/('YouTube-'+ident+'-'+uuid.uuid4().hex[:8])
         root.mkdir(parents=True,exist_ok=True)
         thumbnail=download_youtube_thumbnail(root,ident)
         p=dict(schemaVersion=2,id=str(uuid.uuid4()),name=name,source='',sourceType='youtube',youtubeURL=url,duration=args.duration or 0,width=0,height=0,hasAudio=True,createdAt=time.time(),updatedAt=time.time(),thumbnails=[thumbnail] if thumbnail else [],transcript=[],summary='',cues=[],exports=[],exportMediaInfo={},status='Imported')
+        if details: p['youtubeMetadata']=details; p['duration']=details['duration']
         p['transcriptGenerated']=False;p['summaryGenerated']=False;p['descriptionsGenerated']=False
         e.save(root,p);e.emit('YouTube project imported',project=str(root));return
+    if command=='clear-youtube-data':
+        removed=youtube_metadata.clear(root,p); e.save(root,p)
+        for path in removed: path.unlink(missing_ok=True)
+        return
+    if command=='update-youtube-metadata':
+        details=youtube_metadata.read(args.youtube_metadata, youtube_url(p['youtubeURL']).split('=')[-1])
+        previous=p.get('youtubeMetadata') or {}
+        for key in ('playlists', 'openedFromPlaylist', 'playlistChannelTitle', 'playlistLookupStatus'):
+            if details.get(key) is None and key in previous: details[key]=previous[key]
+        p['youtubeMetadata']=details; p['duration']=details['duration']
+        e.save(root,p); return
     if command=='prepare-video':
         prepare_video(root,p,e);return
     if command in ('analyze', 'regenerate-all'):
         stages=['transcribe','generate-summary','generate-ad-cues']
+        if command == 'analyze' and p.get('youtubeCaptionSource') and p.get('transcript') and args.start_stage == 'transcribe':
+            args.start_stage = 'generate-summary'
         if args.start_stage not in stages:raise ValueError('Unknown analysis stage.')
         if command == 'regenerate-all':
             e.clear_generated(root,p)

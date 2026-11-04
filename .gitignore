@@ -7,3 +7,11 @@ __pycache__/
 *.xcuserstate
 xcuserdata/
 .venv-windows/
+
+# Publisher Google configuration; never contains user tokens
+Config/youtube-release.json
+
+# Google OAuth client downloads (publisher configuration)
+Google API Clients/
+
+/Google Api Clients*/

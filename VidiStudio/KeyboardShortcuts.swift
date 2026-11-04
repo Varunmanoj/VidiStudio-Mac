@@ -42,6 +42,7 @@ final class EditorShortcutActions {
     var aiProcessingBlocked = false
     var hasValidApiKey: Bool { hasApiKey && apiKeyVerified != false && !aiProcessingBlocked && ConnectivityService.shared.available(.gemini) }
     var youtubeProject = false
+    var youtubeHandler: ((String) -> Void)?
     var ttsUsesGemini = false
     var isSynthesizingNarration = false
     var narratingSegmentIndex: Int? = nil
@@ -126,6 +127,7 @@ final class EditorShortcutActions {
     }
 
     func run(_ action: String) {
+        if ["youtube-details", "youtube-refresh", "youtube-captions"].contains(action) { if available && youtubeProject { youtubeHandler?(action) }; return }
         guard canRun(action) else { return }
         handler?(action)
     }
@@ -263,6 +265,15 @@ struct StudioShortcut: Identifiable {
         default: return "arrow.clockwise"
         }
     }
+    static let youtube: [StudioShortcut] = [
+        .init(id: "youtube-browser", title: "My YouTube Videos…", key: "y", modifiers: [.command, .option], spoken: "Command + Option + Y", group: "YouTube"),
+        .init(id: "youtube-accounts", title: "YouTube Accounts…", key: "y", modifiers: [.command, .option, .shift], spoken: "Command + Option + Shift + Y", group: "YouTube"),
+        .init(id: "youtube-open-editor", title: "Open in Editor", key: .return, modifiers: [.command], spoken: "Command + Return", group: "YouTube"),
+        .init(id: "youtube-open-browser", title: "Open in YouTube", key: .return, modifiers: [.command, .shift], spoken: "Command + Shift + Return", group: "YouTube"),
+        .init(id: "youtube-refresh-list", title: "Refresh Videos", key: "r", modifiers: [.command], spoken: "Command + R", group: "YouTube"),
+        .init(id: "youtube-load-videos", title: "Load More Videos", key: "l", modifiers: [.command, .option], spoken: "Command + Option + L", group: "YouTube"),
+        .init(id: "youtube-load-playlists", title: "Load More Playlists", key: "l", modifiers: [.command, .option, .shift], spoken: "Command + Option + Shift + L", group: "YouTube")
+    ]
     static let editor: [StudioShortcut] = [
         .init(id: "export", title: "Export…", key: "e", modifiers: [.command, .shift], spoken: "Command + Shift + E", group: "File"),
         .init(id: "preview", title: "Show or Hide Preview", key: "v", modifiers: [.command, .shift], spoken: "Command + Shift + V", group: "Playback"),
@@ -307,12 +318,15 @@ struct StudioShortcut: Identifiable {
 }
 struct StudioCommands: Commands {
     let studio: StudioModel
+    @FocusedValue(\.youtubeBrowser) private var youtubeBrowser
     @FocusedValue(\.projectBrowser) private var browser
     @FocusedValue(\.editorShortcuts) private var editor
     @Environment(\.openWindow) private var openWindow
     @Environment(\.openSettings) private var openSettings
     var body: some Commands {
         CommandGroup(after: .newItem) {
+            Button("My YouTube Videos…", systemImage: "play.rectangle") { studio.runYouTube("youtube-browser"); openWindow(id: "youtube-browser") }.keyboardShortcut("y", modifiers: [.command, .option]).disabled(studio.busy)
+            Button("Open in YouTube", systemImage: "arrow.up.right.square") { if youtubeBrowser != nil { youtubeBrowser?.run("youtube-open-browser") } else { browser?.run("youtube-open-browser") } }.keyboardShortcut(.return, modifiers: [.command, .shift]).disabled(youtubeBrowser != nil ? youtubeBrowser?.canRun("youtube-open-browser") != true : browser?.canRun("youtube-open-browser") != true)
             Divider()
             Button("Export…", systemImage: "square.and.arrow.up") {
                 editor?.showExportDialog()
@@ -326,6 +340,13 @@ struct StudioCommands: Commands {
             .accessibilityIdentifier("remove-from-list")
             .disabled(browser?.canRemoveFromList != true)
             .help("Remove the selected project from this list while keeping its files in place.")
+            Divider()
+            Button("Settings…", systemImage: "gearshape") { openSettings() }
+                .keyboardShortcut(",", modifiers: [.command])
+            Button("Open Project Settings…", systemImage: "gearshape") { browser?.run("project-settings") }
+                .keyboardShortcut(",", modifiers: [.command, .shift])
+                .disabled(browser?.hasProject != true || browser?.canRun("project-settings") != true)
+
         }
         CommandGroup(after: .sidebar) {
             Button(editor?.previewHidden == true ? "Show Preview" : "Hide Preview", systemImage: editor?.previewHidden == true ? "video" : "video.slash") {
@@ -460,6 +481,11 @@ struct StudioCommands: Commands {
                     .keyboardShortcut("s", modifiers: [.command, .option, .shift])
                     .disabled(editor?.canRun("generate-summary") != true)
             }
+            Menu("YouTube", systemImage: "play.rectangle") {
+                Button("Video Details…", systemImage: "info.circle") { editor?.run("youtube-details") }.disabled(editor?.youtubeProject != true || editor?.available != true)
+                Button("Refresh YouTube Details", systemImage: "arrow.clockwise") { editor?.run("youtube-refresh") }.disabled(editor?.youtubeProject != true || editor?.available != true)
+                Button("Import YouTube Captions…", systemImage: "captions.bubble") { editor?.run("youtube-captions") }.disabled(editor?.youtubeProject != true || editor?.available != true)
+            }
             Menu("Narration", systemImage: editor?.isSynthesizingNarration == true ? "rays" : "speaker.wave.2") {
                 Menu("AD Segment Generation", systemImage: "sparkles") {
                     Button(editor?.hasDescriptions == true ? "Regenerate Audio Descriptions…" : "Generate Audio Descriptions", systemImage: "sparkles") { editor?.run("generate-ad-cues") }
@@ -519,6 +545,21 @@ struct StudioCommands: Commands {
             Button("Move Project to Bin…", systemImage: "trash", role: .destructive) { browser?.run("trash-project") }
                 .disabled(browser?.canRun("trash-project") != true)
         }
+        CommandMenu("YouTube") {
+            Button("My YouTube Videos…", systemImage: "play.rectangle") { studio.runYouTube("youtube-browser"); openWindow(id: "youtube-browser") }.keyboardShortcut("y", modifiers: [.command, .option]).disabled(studio.busy)
+            Button("YouTube Accounts…", systemImage: "person.crop.circle") { youtubeBrowser?.run("youtube-accounts"); if youtubeBrowser == nil { SettingsSectionRequest.request("YouTube Accounts"); openSettings() } }
+                .keyboardShortcut("y", modifiers: [.command, .option, .shift])
+            Divider()
+            Button("List View", systemImage: youtubeBrowser?.layout == "list" ? "checkmark" : "list.bullet") { youtubeBrowser?.run("youtube-list") }.disabled(youtubeBrowser == nil)
+            Button("Table View", systemImage: youtubeBrowser?.layout == "table" ? "checkmark" : "tablecells") { youtubeBrowser?.run("youtube-table") }.disabled(youtubeBrowser == nil)
+            Divider()
+            Button("Open in Editor", systemImage: "pencil") { youtubeBrowser?.run("youtube-open-editor") }.keyboardShortcut(.return, modifiers: [.command]).disabled(youtubeBrowser?.canRun("youtube-open-editor") != true)
+            Button("Open in YouTube", systemImage: "arrow.up.right.square") { if youtubeBrowser != nil { youtubeBrowser?.run("youtube-open-browser") } else { browser?.run("youtube-open-browser") } }.keyboardShortcut(.return, modifiers: [.command, .shift]).disabled(youtubeBrowser != nil ? youtubeBrowser?.canRun("youtube-open-browser") != true : browser?.canRun("youtube-open-browser") != true)
+            Divider()
+            Button("Refresh Videos", systemImage: "arrow.clockwise") { youtubeBrowser?.run("youtube-refresh-list") }.keyboardShortcut("r", modifiers: [.command]).disabled(youtubeBrowser?.canRun("youtube-refresh-list") != true)
+            Button("Load More Videos", systemImage: "plus") { youtubeBrowser?.run("youtube-load-videos") }.keyboardShortcut("l", modifiers: [.command, .option]).disabled(youtubeBrowser?.canRun("youtube-load-videos") != true)
+            Button("Load More Playlists", systemImage: "plus") { youtubeBrowser?.run("youtube-load-playlists") }.keyboardShortcut("l", modifiers: [.command, .option, .shift]).disabled(youtubeBrowser?.canRun("youtube-load-playlists") != true)
+        }
         CommandGroup(replacing: .help) {
             Button("VidiStudio Help", systemImage: "questionmark.circle") { StudioHelp.open() }.keyboardShortcut("/", modifiers: [.command, .option])
         }
@@ -577,12 +618,13 @@ struct ShortcutReferenceView: View {
             shortcutRow("Open Project Folder", value: "Command + Shift + O")
             shortcutRow("Rename Selected Project", value: "Return; All Projects")
             shortcutRow("Settings", value: "Command + Comma")
+            shortcutRow("Open Project Settings", value: "Command + Shift + Comma; current project editor")
             shortcutRow("Show or Hide Inspector", value: "Command + Shift + B; requires a selected project")
             shortcutRow("Show or Hide Timeline", value: "View menu; project editor")
             shortcutRow("Project List View", value: "Command + Option + 1")
             shortcutRow("Project Grid View", value: "Command + Option + 2")
             shortcutRow("VidiStudio Help", value: "Command + Option + Slash")
-            ForEach(StudioShortcut.editor) { shortcut in
+            ForEach(StudioShortcut.editor + StudioShortcut.youtube) { shortcut in
                 shortcutRow(shortcut.title, value: shortcut.spoken)
             }
             shortcutRow("Read Summary from Start", value: "Playback → Summary Reading menu; Summary section")

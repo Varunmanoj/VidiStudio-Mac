@@ -73,6 +73,17 @@ class DesktopMenuParity(unittest.TestCase):
     def test_actual_menus_and_shortcuts_match(self):
         self.assertGreater(self.checker.compare_sources(self.mac, self.app, self.windows), 30)
 
+    def test_settings_shortcuts_are_visible_on_both_file_menu_items(self):
+        for title, modifiers in (("Settings…", ".command"), ("Open Project Settings…", ".command, .shift")):
+            binding = '.keyboardShortcut(",", modifiers: [' + modifiers + '])'
+            self.assertIn(binding, self.mac)
+            with self.subTest(title=title), self.assertRaisesRegex(ValueError, 'File Settings shortcut'):
+                self.checker.compare_sources(self.mac.replace(binding, '', 1), self.app, self.windows)
+        for command in ('settings', 'project-settings'):
+            changed = ''.join(line for line in self.windows.splitlines(keepends=True) if not line.lstrip().startswith('["' + command + '"] ='))
+            with self.subTest(command=command), self.assertRaisesRegex(ValueError, 'File Settings shortcut'):
+                self.checker.compare_sources(self.mac, self.app, changed)
+
     def test_summary_heading_shortcuts_take_priority_over_project_layout(self):
         self.assertIn('.disabled(browser?.grid == nil || editor?.summaryEditing == true)', self.mac)
         self.assertIn('if (id is "project-list" or "project-grid") return !(Section.SelectedIndex == 1 && summaryEditMode);', self.windows)

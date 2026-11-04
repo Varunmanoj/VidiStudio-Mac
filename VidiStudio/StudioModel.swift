@@ -557,6 +557,7 @@ struct StudioProject: Codable, Identifiable {
     var error: String?
     var geminiVideo: AnalysisVideoAvailability?
     var sourceType: String?
+    var youtubeMetadata: YouTubeVideo?
     var youtubeURL: String?
     var originalAudio: OriginalAudioAsset?
     var audioSources: AudioSourceSettings?
@@ -916,6 +917,7 @@ struct ImportAssetSelection {
     var adAudioMode: ImportedADAudioMode = .narration
     /// Reviewed timing JSON created by the TXT timing editor.
     var transcriptTiming: URL?
+    var transcriptCaptionProvenance: URL?
     var adTranscriptTiming: URL?
 
     var hasAny: Bool {
@@ -1303,6 +1305,17 @@ enum SettingsSectionRequest {
         )
     }
 
+    static func requestProject(_ project: StudioProject) {
+        UserDefaults.standard.set(["id": project.id, "name": project.name, "folder": project.folder?.path ?? ""], forKey: defaultsKey + "Project")
+        request("Projects")
+    }
+
+    static func consumeProject() -> OpenProjectReference? {
+        guard let value = UserDefaults.standard.dictionary(forKey: defaultsKey + "Project") as? [String: String], let id = value["id"], let name = value["name"] else { return nil }
+        UserDefaults.standard.removeObject(forKey: defaultsKey + "Project")
+        return OpenProjectReference(id: id, name: name, folder: value["folder"].flatMap { $0.isEmpty ? nil : URL(fileURLWithPath: $0) })
+    }
+
     /// Returns and clears a pending request, or nil when there is none.
     static func consume() -> String? {
         guard let section = UserDefaults.standard.string(forKey: defaultsKey) else { return nil }
@@ -1462,6 +1475,10 @@ struct ProjectManagementRequest: Identifiable {
 
 @MainActor @Observable
 final class StudioModel {
+    var showingYouTubeBrowser = false
+    var showingYouTubeDetails = false
+    var youtubeDetailAction = "youtube-details"
+    var youtubeInspectorRefresh = UUID()
     static let defaultErrorTitle = "VidiStudio Couldn’t Finish"
     var projects: [StudioProject] = []
     var projectManagementRequest: ProjectManagementRequest?
@@ -1475,7 +1492,8 @@ final class StudioModel {
     /// Latest integrity audit for every project currently shown, including
     /// in-memory damaged placeholders whose project.json cannot be decoded.
     var projectIntegrity: [String: ProjectIntegrityReport] = [:]
-    var selectedID: String? { didSet { UserDefaults.standard.set(selectedID, forKey: "lastProjectID") } }
+    private var persistsProjectSelection = true
+    var selectedID: String? { didSet { if persistsProjectSelection { UserDefaults.standard.set(selectedID, forKey: "lastProjectID") } } }
     var settings = StudioSettings() {
         didSet {
             if settings.apiKey != oldValue.apiKey {
@@ -1795,7 +1813,8 @@ final class StudioModel {
         if logs.count > 200 { logs.removeFirst(logs.count - 200) }
     }
 
-    init() {
+    init(persistSelection: Bool = true) {
+        self.persistsProjectSelection = persistSelection
         var merged = (try? JSONSerialization.jsonObject(with: JSONEncoder().encode(settings))) as? [String: Any] ?? [:]
         var hasSavedCaptionDisplayMode = false
         var legacyApiKey: String?
@@ -2054,11 +2073,13 @@ final class StudioModel {
     func importYouTube(at rawURL: String, name: String? = nil, completion: ((StudioProject?) -> Void)? = nil) -> Bool {
         guard !busy else { return false }
         guard validateYouTubeForCreation(rawURL) else { return false }
-        var arguments = ["--url", rawURL, "--library", settings.libraryPath]
-        if let name, !name.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-            arguments += ["--name", name]
+        Task {
+            do {
+                guard let id = Self.youtubeVideoID(from: rawURL) else { throw YouTubeFailure("Enter a valid YouTube video link.") }
+                let video = try await YouTubeService.shared.video(id)
+                openYouTubeVideo(video) { completion?($0) }
+            } catch { self.error = error.localizedDescription; completion?(nil) }
         }
-        execute("import-youtube", extra: arguments, project: nil, completion: completion)
         return true
     }
     func validateYouTubeForCreation(_ rawURL: String) -> Bool {
@@ -2194,9 +2215,10 @@ final class StudioModel {
     }
 
     func canManageProject(_ action: String, project: StudioProject) -> Bool {
+        if action == "youtube-open-browser" { return project.youtubeURL.flatMap(Self.youtubeVideoID) != nil }
         guard !busy, let folder = project.folder else { return false }
         switch action {
-        case "rename-project":
+        case "project-settings", "rename-project":
             let report = integrityReport(for: project)
             return project.integrityPlaceholder != true && !report.manifestUnreadable && !report.folderMissing
         case "trash-project": return true
@@ -2651,6 +2673,7 @@ final class StudioModel {
             engineCheckStatus = .checking
         }
         let target = project ?? (["import-video", "import-youtube", "doctor", "validate-config", "list-models", "check-api-key"].contains(command) ? nil : selected)
+        if target?.youtubeMetadata?.visibility == "private" { errorTitle = "Private Video Cannot Be Opened"; error = "Signing in to Google does not give Gemini access to this private video."; completion?(nil); return }
         guard requireInternet(command, project: target, extra: extra) else {
             if let cleanupURL { try? FileManager.default.removeItem(at: cleanupURL) }
             completion?(nil)
@@ -3225,6 +3248,7 @@ final class StudioModel {
         if let transcript = selection.transcript {
             var arguments = ["--input", transcript.path]
             if let timing = selection.transcriptTiming { arguments += ["--timing-input", timing.path] }
+            if let provenance = selection.transcriptCaptionProvenance { arguments += ["--caption-provenance", provenance.path] }
             steps.append(("import-transcript", arguments))
         }
         if let adTranscript = selection.adTranscript {
