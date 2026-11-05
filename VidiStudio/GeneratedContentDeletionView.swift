@@ -118,7 +118,7 @@ struct GeneratedContentDeletionView: View {
             if let component = studio.languageDeletionComponent {
                 components = [component.rawValue]
                 let kind = component == .narration || component == .history ? "descriptions" : component.rawValue
-                language = component == .thumbnails || component == .exports ? "all" : project.sectionLanguage(kind)
+                language = component == .thumbnails || component == .exports ? "all" : project.languageCode
                 if component == .exports { exportPaths = Set(project.exports) }
                 let id = project.activeLanguageResultID(kind)
                 if !id.isEmpty { selection = [id] }

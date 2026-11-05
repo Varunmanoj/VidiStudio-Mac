@@ -13,7 +13,7 @@ from pathlib import Path
 
 import output_languages
 
-COMMANDS = ['select-language', 'select-result', 'assign-result-language',
+COMMANDS = ['select-overview-language', 'select-view-result', 'select-language', 'select-result', 'assign-result-language',
             'review-result', 'delete-results', 'preview-delete-results', 'export-batch', 'select-section-language', 'sync-section-languages']
 FIELDS = {
     'transcript': ['transcript', 'transcriptGenerated', 'transcriptUndoStack',
@@ -91,7 +91,11 @@ def migrate(p, initial_language='auto'):
     p.setdefault('activeResultIDs', {})
     p.setdefault('sectionLanguages', {})
     p.setdefault('exportResults', {})
+    p.pop('overviewLanguage', None)
     p['schemaVersion'] = 3
+    if p.get('languageViewVersion') != 1:
+        p['languageViewVersion'] = 1
+        project(p)
     return p
 
 
@@ -107,7 +111,7 @@ def effective_language(p, kind):
 
 
 def active(p, kind, code=None):
-    code = code or effective_language(p, kind)
+    code = code or p['selectedLanguage']
     rid = p['activeResultIDs'].get(code, {}).get(kind)
     selected = next((r for r in p['languageResults'] if r['id'] == rid and r['state'] == 'saved' and r['language'] == code and r['kind'] == kind), None)
     if selected is None:
@@ -140,9 +144,9 @@ def capture(p):
             if r['payload'] != data:
                 r.update(payload=data, updatedAt=time.time())
         elif p.get(PRIMARY[kind]):
-            r = record(p, kind, effective_language(p, kind), data)
+            r = record(p, kind, p['selectedLanguage'], data)
             p['languageResults'].append(r)
-            p['activeResultIDs'].setdefault(effective_language(p, kind), {})[kind] = r['id']
+            p['activeResultIDs'].setdefault(p['selectedLanguage'], {})[kind] = r['id']
 
 
 def referenced_paths(p):
@@ -196,7 +200,7 @@ def produce(args, root, p, core, dispatch):
     kinds = PRODUCERS[args.command]
     working = copy.deepcopy(p)
     sources = {kind: r['id'] for kind in FIELDS if (r := active(p, kind)) is not None}
-    target_language = effective_language(p, kinds[0])
+    target_language = getattr(args, 'language', None) or (effective_language(p, kinds[0]) if args.command in ('transcribe', 'generate-summary', 'generate-ad-cues') or args.command.startswith('import-') else p['selectedLanguage'])
     previous_language = os.environ.get('VIDISTUDIO_OUTPUT_LANGUAGE')
     os.environ['VIDISTUDIO_OUTPUT_LANGUAGE'] = target_language
     for kind in ('transcript', 'summary'):
@@ -327,11 +331,14 @@ def _run(args, root, p, core, dispatch):
     global _export_language
     migrate(p)
     capture(p)
+    organize_exports(root, p, core, recover_only=True)
+    if (args.command.startswith('export-') and args.command != 'export-batch') or args.command == 'combine-imported-audio':
+        organize_exports(root, p, core)
     code = getattr(args, 'language', None)
     target_kind = PRODUCERS.get(args.command, [EDIT_KINDS.get(args.command)])[0]
     if args.command == 'select-language' and code:
         p['selectedLanguage'] = language(code)
-    elif args.command not in COMMANDS and target_kind and code and code != effective_language(p, target_kind):
+    elif args.command in ('transcribe', 'generate-summary', 'generate-ad-cues') and target_kind and code and code != effective_language(p, target_kind):
         p['sectionLanguages'][target_kind] = language(code)
     project(p)
     if args.command not in COMMANDS:
@@ -339,11 +346,11 @@ def _run(args, root, p, core, dispatch):
             rid = getattr(args, 'selected_' + ('ad_audio' if kind == 'adAudio' else kind) + '_id', None)
             if rid:
                 chosen = find(p, rid, kind, saved_only=True)
-                if chosen['language'] != effective_language(p, kind):
+                if chosen['language'] != p['selectedLanguage']:
                     # An explicit import language can intentionally target another category.
                     if args.command.startswith('import-'): continue
                     raise ValueError('The captured result does not match the section language.')
-                p['activeResultIDs'].setdefault(effective_language(p, kind), {})[kind] = rid
+                p['activeResultIDs'].setdefault(chosen['language'], {})[kind] = rid
         project(p)
     os.environ['VIDISTUDIO_OUTPUT_LANGUAGE'] = effective_language(p, target_kind) if target_kind else p['selectedLanguage']
     command = args.command
@@ -359,6 +366,7 @@ def _run(args, root, p, core, dispatch):
         for stage in stages[stages.index(start):]:
             step = copy.copy(args)
             step.command = stage
+            step.language = effective_language(p, PRODUCERS[stage][0])
             made = produce(step, root, p, core, dispatch)
             for kind in ('transcript', 'summary'):
                 if kind in made:
@@ -366,6 +374,15 @@ def _run(args, root, p, core, dispatch):
     elif command in PRODUCERS:
         produce(args, root, p, core, dispatch)
     elif command == 'select-language':
+        project(p)
+    elif command == 'select-overview-language':
+        p['overviewLanguage'] = 'project' if args.language == 'project' else language(args.language)
+    elif command == 'select-view-result':
+        r = find(p, args.result_id, saved_only=True)
+        code = p['selectedLanguage'] if p.get('overviewLanguage', 'project') == 'project' else p['overviewLanguage']
+        if r['language'] != code or r['kind'] not in ('descriptions', 'adAudio'):
+            raise ValueError('Choose a saved result for the overview language.')
+        p['activeResultIDs'].setdefault(code, {})[r['kind']] = r['id']
         project(p)
     elif command == 'select-section-language':
         if args.section not in FIELDS: raise ValueError('Choose a content section.')
@@ -379,7 +396,7 @@ def _run(args, root, p, core, dispatch):
         project(p)
     elif command == 'select-result':
         r = find(p, args.result_id, saved_only=True)
-        if r['language'] != effective_language(p, r['kind']): p['sectionLanguages'][r['kind']] = r['language']
+        if r['language'] != p['selectedLanguage']: raise ValueError('Choose a result in View Project Language.')
         p['activeResultIDs'].setdefault(r['language'], {})[r['kind']] = r['id']
         project(p)
     elif command == 'assign-result-language':
@@ -393,7 +410,6 @@ def _run(args, root, p, core, dispatch):
             if selections.get(r['kind']) == r['id']:
                 selections.pop(r['kind'])
         p['activeResultIDs'].setdefault(r['language'], {})[r['kind']] = r['id']
-        if r['language'] != effective_language(p, r['kind']): p['sectionLanguages'][r['kind']] = r['language']
         project(p)
     elif command == 'review-result':
         r = find(p, args.result_id)
@@ -451,7 +467,7 @@ def _run(args, root, p, core, dispatch):
         exports = {k: copy.deepcopy(p.get(k, {} if k != 'exports' else [])) for k in ('exports', 'exportMediaInfo', 'exportResults', 'exportAudioSources')}
         _export_language = p['selectedLanguage']
         dispatch(args, root, p)
-        if not command.startswith('export') and command not in ('delete-export',):
+        if not command.startswith('export') and command not in ('delete-export', 'combine-imported-audio'):
             p.update(exports)
         capture(p)
     p['status'] = 'Ready'
@@ -522,6 +538,10 @@ def export_batch(args, root, p, core, dispatch):
             core.validate_cues(view['cues'], view['duration'], view['transcript'])
         view['_exportDescribed'] = narration or command == 'combine-imported-audio'
         prepared.append((job, step, view))
+    organize_exports(root, p, core)
+    for _, _, view in prepared:
+        for key in ('exports', 'exportResults', 'exportMediaInfo', 'exportAudioSources'):
+            view[key] = copy.deepcopy(p.get(key, [] if key == 'exports' else {}))
     failed = []
     for job, step, view in prepared:
         _export_language = view['selectedLanguage']
@@ -548,3 +568,96 @@ def export_batch(args, root, p, core, dispatch):
             core.emit(core.safe_error(exc), exportLanguage=view['selectedLanguage'], exportFailed=True)
     if failed:
         raise ValueError('Some exports could not be completed: ' + ', '.join(failed) + '. Completed exports are saved.')
+
+
+def export_folder(p):
+    return 'exports/' + language(p.get('selectedLanguage', 'auto'))
+
+
+def organize_exports(root, p, core, recover_only=False):
+    """Move tracked export units intact; journal makes interrupted renames recoverable."""
+    root = Path(root)
+    export_root = core.local(root, 'exports')
+    journal = export_root / '.language-folders.json'
+    if journal.exists():
+        saved = json.loads(journal.read_text(encoding='utf-8'))
+        moves = saved.get('moves', saved)
+        retained = saved.get('retained', [])
+    elif recover_only:
+        return
+    else:
+        moves = {}
+        retained = []
+        reserved = set()
+        for relative in sorted(p.get('exports', []), key=lambda v: (len(Path(v).parts), v)):
+            if not relative.startswith('exports/') or any(relative.startswith(parent + '/') for parent in moves):
+                continue
+            old = core.local(root, relative)
+            if not old.is_relative_to(export_root):
+                raise ValueError('An export path is outside the exports folder.')
+            if not old.exists():
+                continue
+            provenance = p.get('exportResults', {}).get(relative, {})
+            parts = Path(relative).parts
+            candidate = provenance.get('language', parts[1] if len(parts) >= 3 else 'auto')
+            code = candidate if candidate == 'auto' or candidate in output_languages.options() else 'auto'
+            if len(parts) >= 3 and parts[1] == code:
+                continue
+            target = Path('exports') / code / old.name
+            if old.is_dir() and (root / target).resolve().is_relative_to(old.resolve()):
+                continue
+            number = 2
+            while (root / target).exists() or target.as_posix().casefold() in reserved:
+                if (root / target).exists() and target.as_posix() not in p.get('exports', []):
+                    retained.append(target.as_posix())
+                name = f'{old.name} ({number})' if old.is_dir() else f'{old.stem} ({number}){old.suffix}'
+                target = Path('exports') / code / name
+                number += 1
+            moves[relative] = target.as_posix()
+            reserved.add(target.as_posix().casefold())
+        if not moves:
+            return
+        journal.parent.mkdir(parents=True, exist_ok=True)
+        core.atomic_json(journal, dict(moves=moves, retained=retained))
+    validated = []
+    for old, new in moves.items():
+        if not old.startswith('exports/') or not new.startswith('exports/'):
+            raise ValueError('Invalid export organization journal.')
+        source, target = core.local(root, old), core.local(root, new)
+        if not source.is_relative_to(export_root) or not target.is_relative_to(export_root):
+            raise ValueError('An export move is outside the exports folder.')
+        validated.append((source, target))
+    retained_files = []
+    for relative in retained:
+        path = core.local(root, relative)
+        if not relative.startswith('exports/') or not path.is_relative_to(export_root) or path == export_root:
+            raise ValueError('Invalid retained export path.')
+        retained_files.append((relative, path))
+    for source, target in validated:
+        if source.exists():
+            if target.exists():
+                raise ValueError('An export organization destination is occupied; existing files were preserved.')
+            target.parent.mkdir(parents=True, exist_ok=True)
+            source.rename(target)
+        elif not target.exists():
+            raise ValueError('An export being organized is unavailable. Restore it and retry.')
+    def updated(value):
+        if isinstance(value, str):
+            for old, new in moves.items():
+                if value == old or value.startswith(old + '/'):
+                    return new + value[len(old):]
+            return value
+        if isinstance(value, dict):
+            return {updated(k): updated(v) for k, v in value.items()}
+        if isinstance(value, list):
+            return [updated(v) for v in value]
+        return value
+    for field in ('exports', 'exportResults', 'exportMediaInfo', 'exportAudioSources'):
+        if field in p: p[field] = updated(p[field])
+    for relative, path in retained_files:
+        if path.exists() and relative not in p['exports']:
+            p['exports'].append(relative)
+            p.setdefault('exportResults', {}).setdefault(relative, dict(language=Path(relative).parts[1], resultIDs={}, createdAt=path.stat().st_mtime))
+    core.save(root, p)
+    journal.unlink()
+    core.emit('Exports organized into language folders', movedExports=len(moves))

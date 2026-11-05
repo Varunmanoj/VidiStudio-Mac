@@ -955,17 +955,17 @@ class Validation(unittest.TestCase):
             relative = engine.export_relative_path(
                 root, {'name':'Dilemma / Episode: 3'}, 'Final Video', 'mp4'
             )
-            self.assertEqual(relative, 'exports/Dilemma - Episode - 3 - Final Video.mp4')
+            self.assertEqual(relative, 'exports/auto/Dilemma - Episode - 3 - Final Video.mp4')
             project = {'name':'Dilemma / Episode: 3', 'exports': []}
             engine.write_text_export(root, project, 'Transcript', 'txt', 'first')
-            target = root/'exports/Dilemma - Episode - 3 - Transcript.txt'
+            target = root/'exports/auto/Dilemma - Episode - 3 - Transcript.txt'
             self.assertEqual(target.read_text(), 'first')
             with self.assertRaisesRegex(ValueError, 'Confirm replacement'):
                 engine.write_text_export(root, project, 'Transcript', 'txt', 'second')
             self.assertEqual(target.read_text(), 'first')
             engine.write_text_export(root, project, 'Transcript', 'txt', 'second', replace_existing=True)
             self.assertEqual(target.read_text(), 'second')
-            self.assertEqual(project['exports'], ['exports/Dilemma - Episode - 3 - Transcript.txt'])
+            self.assertEqual(project['exports'], ['exports/auto/Dilemma - Episode - 3 - Transcript.txt'])
     def test_youtube_project_cannot_export_final_video_even_with_legacy_source(self):
         with tempfile.TemporaryDirectory() as temp:
             root = Path(temp)
@@ -1028,7 +1028,7 @@ class Validation(unittest.TestCase):
                 engine.export_captioned_video(root, project, dual_closed=True)
                 engine.export_captioned_video(root, project, open_captions=True, content='combined')
 
-            self.assertEqual(project['exports'][0], 'exports/Caption Demo - Transcript Closed Caption Video.mp4')
+            self.assertEqual(project['exports'][0], 'exports/auto/Caption Demo - Transcript Closed Caption Video.mp4')
             closed_info = engine.probe(root/project['exports'][0])
             source_video_hash = engine.run([
                 engine.tool('ffmpeg'), '-v', 'error', '-i', source,
@@ -1049,7 +1049,7 @@ class Validation(unittest.TestCase):
 
             self.assertEqual(
                 project['exports'][1],
-                'exports/Caption Demo - Transcript and Descriptive Transcript Closed Caption Video.mp4',
+                'exports/auto/Caption Demo - Transcript and Descriptive Transcript Closed Caption Video.mp4',
             )
             dual_output = root/project['exports'][1]
             dual_info = engine.probe(dual_output)
@@ -1072,7 +1072,7 @@ class Validation(unittest.TestCase):
             self.assertIn('A caption appears.', descriptive_srt.read_text())
             self.assertIn('Audio description: A shape fades.', descriptive_srt.read_text())
 
-            self.assertEqual(project['exports'][2], 'exports/Caption Demo - AD Transcript Open Caption Video.mp4')
+            self.assertEqual(project['exports'][2], 'exports/auto/Caption Demo - AD Transcript Open Caption Video.mp4')
             open_info = engine.probe(root/project['exports'][2])
             self.assertFalse([stream for stream in open_info['streams'] if stream['codec_type'] == 'subtitle'])
             self.assertEqual(len([stream for stream in open_info['streams'] if stream['codec_type'] == 'video']), 1)
@@ -1286,8 +1286,8 @@ class Validation(unittest.TestCase):
             }
             engine.export_program_audio(root, project)
             engine.export_program_audio(root, project, described=True)
-            self.assertEqual(project['exports'][0], 'exports/Audio Demo - Original Video Audio.mp3')
-            self.assertEqual(project['exports'][1], 'exports/Audio Demo - Final Audio with Audio Description.mp3')
+            self.assertEqual(project['exports'][0], 'exports/auto/Audio Demo - Original Video Audio.mp3')
+            self.assertEqual(project['exports'][1], 'exports/auto/Audio Demo - Final Audio with Audio Description.mp3')
             original_bytes = (root/project['exports'][0]).read_bytes()
             with self.assertRaisesRegex(ValueError, 'Confirm replacement'):
                 engine.export_program_audio(root, project)
@@ -1349,10 +1349,9 @@ class Validation(unittest.TestCase):
             self.assertEqual(len(project()['thumbnails']),8)
             self.assertTrue((folder/project()['source']).exists())
             timed_transcript = [{'id':'dialogue','start':6.2,'end':7.5,'text':'The final caption.'}]
-            caption_ready = project()
-            caption_ready['transcript'] = timed_transcript
-            caption_ready['transcriptGenerated'] = True
-            (folder/'project.json').write_text(json.dumps(caption_ready))
+            transcript_input = root/'initial-segments.json'
+            transcript_input.write_text(json.dumps(dict(transcript=timed_transcript, cues=[])))
+            cli('save-segments', '--project', folder, '--input', transcript_input)
             cues=root/'cues.json'; cues.write_text(json.dumps([{'id':'test','start':1,'end':6,'text':'Colorful shapes move.'}]))
             cli('save-cues','--project',folder,'--input',cues)
             cli('synthesize-tts','--project',folder)
@@ -1402,13 +1401,13 @@ class Validation(unittest.TestCase):
             }))
             cli('export-open-audio-description-video','--project',folder,'--captions','open','--content','transcript')
             output=folder/project()['exports'][0]
-            self.assertEqual(project()['exports'][0],'exports/sample video - Open Audio Description with Transcript Open Captions.mp4')
+            self.assertEqual(project()['exports'][0],'exports/auto/sample video - Open Audio Description with Transcript Open Captions.mp4')
             self.assertAlmostEqual(float(engine.probe(output)['format']['duration']),8,delta=.2)
             self.assertFalse([stream for stream in engine.probe(output)['streams'] if stream['codec_type']=='subtitle'])
             self.assertEqual(project()['exportMediaInfo'][project()['exports'][0]]['videoProcessing'],'renderedOpenCaptions')
             cli('export-closed-audio-description-video','--project',folder,'--captions','closed','--content','combined')
             selectable=folder/project()['exports'][1]
-            self.assertEqual(project()['exports'][1],'exports/sample video - Closed Audio Description with AD Transcript Closed Captions.mov')
+            self.assertEqual(project()['exports'][1],'exports/auto/sample video - Closed Audio Description with AD Transcript Closed Captions.mov')
             selectable_info=engine.probe(selectable)
             self.assertEqual(len([s for s in selectable_info['streams'] if s['codec_type']=='video']),1)
             selectable_audio=[s for s in selectable_info['streams'] if s['codec_type']=='audio']
@@ -1463,7 +1462,7 @@ class Validation(unittest.TestCase):
             self.assertTrue(web_folder.is_dir())
             self.assertEqual(
                 project()['exports'][7],
-                'exports/sample video - Web Playback - Closed Audio Description with Transcript and Descriptive Transcript Closed Captions',
+                'exports/auto/sample video - Web Playback - Closed Audio Description with Transcript and Descriptive Transcript Closed Captions',
             )
             master=(web_folder/'master.m3u8').read_text()
             self.assertEqual(master.count('#EXT-X-STREAM-INF:'),2)

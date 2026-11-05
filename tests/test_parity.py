@@ -53,21 +53,21 @@ class Parity(unittest.TestCase):
             text=(root/project['exports'][0]).read_text()
             self.assertIn('00:00:01.000 --> 00:00:02.500',text)
             self.assertTrue(text.startswith('WEBVTT'))
-            self.assertEqual(project['exports'][0],'exports/Dilemma - Episode - 3 - Transcript.vtt')
+            self.assertEqual(project['exports'][0],'exports/auto/Dilemma - Episode - 3 - Transcript.vtt')
             with self.assertRaisesRegex(ValueError,'Confirm replacement'):
                 parity.execute(args,root,project,e)
             args.replace_existing=True
             parity.execute(args,root,project,e)
-            self.assertEqual(project['exports'],['exports/Dilemma - Episode - 3 - Transcript.vtt'])
+            self.assertEqual(project['exports'],['exports/auto/Dilemma - Episode - 3 - Transcript.vtt'])
             project['summary']='A concise project summary.'
             args=SimpleNamespace(command='export-subtitles',content='summary',format='md',replace_existing=False)
             parity.execute(args,root,project,e)
             summary=(root/project['exports'][1]).read_text()
             self.assertEqual(summary,'# Summary\n\nA concise project summary.\n')
-            self.assertEqual(project['exports'][1],'exports/Dilemma - Episode - 3 - Summary.md')
+            self.assertEqual(project['exports'][1],'exports/auto/Dilemma - Episode - 3 - Summary.md')
             args=SimpleNamespace(command='export-subtitles',content='combined',format='srt',replace_existing=False)
             parity.execute(args,root,project,e)
-            self.assertEqual(project['exports'][2],'exports/Dilemma - Episode - 3 - AD Transcript.srt')
+            self.assertEqual(project['exports'][2],'exports/auto/Dilemma - Episode - 3 - AD Transcript.srt')
             deleted=project['exports'][0]
             args=SimpleNamespace(command='delete-export',name=deleted)
             parity.execute(args,root,project,e)

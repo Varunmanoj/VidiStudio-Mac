@@ -3039,7 +3039,7 @@ struct ProjectEditor: View {
     private func runLanguageAction(_ command: String, arguments: [String]) {
         guard !studio.busy, !languageContextChanging, !hasUnsavedSummaryEdits,
               segmentToEdit == nil, segmentBatchToEdit == nil else { return }
-        let changesLanguage = ["select-language", "select-section-language", "sync-section-languages", "assign-result-language"].contains(command)
+        let changesLanguage = ["select-section-language", "sync-section-languages", "assign-result-language"].contains(command)
         guard !changesLanguage || (tab == "summary" ? summaryEditMode : segmentEditMode) else { return }
         stopNarrationPreview()
         summaryReader.stop()

@@ -91,6 +91,96 @@ class LanguageResultsTests(unittest.TestCase):
             lr.produce(self.args('generate-summary'), self.root, self.p, self.core, generate)
             self.assertEqual(os.environ['VIDISTUDIO_OUTPUT_LANGUAGE'], 'fr')
 
+    def test_generation_target_does_not_retarget_view_or_edit_history(self):
+        self.p['sectionLanguages']['summary'] = 'hi'
+        made = lr.produce(self.args('generate-summary'), self.root, self.p, self.core,
+            lambda args, root, p: p.update(summary='Hindi alternative'))
+        self.assertEqual(self.p['summary'], 'Original summary')
+        self.p['summary'] = 'Edited viewed Auto summary'
+        lr.capture(self.p)
+        self.assertEqual(lr.active(self.p, 'summary')['payload']['summary'], 'Edited viewed Auto summary')
+        self.assertEqual(lr.find(self.p, made['summary'])['payload']['summary'], 'Hindi alternative')
+
+    def test_older_schema3_projection_does_not_overwrite_view_language(self):
+        p = copy.deepcopy(self.p)
+        hi = lr.record(p, 'summary', 'hi', dict(summary='Hindi saved text'))
+        p['languageResults'].append(hi)
+        p['sectionLanguages']['summary'] = 'hi'
+        p['summary'] = 'Hindi saved text'  # Projection from the previous section-target behavior.
+        p.pop('languageViewVersion', None)
+        lr.migrate(p); lr.capture(p)
+        self.assertEqual(p['summary'], 'Original summary')
+        self.assertEqual(lr.active(p, 'summary')['payload']['summary'], 'Original summary')
+        self.assertEqual(lr.find(p, hi['id'])['payload']['summary'], 'Hindi saved text')
+        before = copy.deepcopy(p); lr.migrate(p)
+        self.assertEqual(before, p)
+
+    def test_language_folders_move_files_and_web_assets_without_overwrite(self):
+        self.core.local = lambda root, relative: (root/relative).resolve()
+        (self.root/'exports').mkdir()
+        (self.root/'exports/old.txt').write_text('old')
+        (self.root/'exports/hi').mkdir()
+        (self.root/'exports/hi/old.txt').write_text('retained')
+        (self.root/'exports/web/video').mkdir(parents=True)
+        (self.root/'exports/web/index.m3u8').write_text('video/stream.m3u8')
+        (self.root/'exports/web/video/stream.m3u8').write_text('media')
+        self.p['exports'].append('exports/web')
+        self.p['exportResults'] = {'exports/old.txt': dict(language='hi'), 'exports/web': dict(language='hi')}
+        self.p['exportMediaInfo'] = {'exports/old.txt': dict(duration=2)}
+        self.p['exportAudioSources'] = {'exports/old.txt': dict(origin='original')}
+        lr.organize_exports(self.root, self.p, self.core)
+        self.assertEqual((self.root/'exports/hi/old.txt').read_text(), 'retained')
+        self.assertIn('exports/hi/old.txt', self.p['exports'])
+        self.assertEqual((self.root/'exports/hi/old (2).txt').read_text(), 'old')
+        self.assertEqual((self.root/'exports/hi/web/index.m3u8').read_text(), 'video/stream.m3u8')
+        self.assertTrue((self.root/'exports/hi/web/video/stream.m3u8').is_file())
+        self.assertIn('exports/hi/old (2).txt', self.p['exportResults'])
+        self.assertIn('exports/hi/old (2).txt', self.p['exportMediaInfo'])
+        self.assertIn('exports/hi/old (2).txt', self.p['exportAudioSources'])
+        before = copy.deepcopy(self.p); lr.organize_exports(self.root, self.p, self.core)
+        self.assertEqual(before, self.p)
+
+    def test_export_move_recovers_after_rename_before_manifest_save(self):
+        self.core.local = lambda root, relative: (root/relative).resolve()
+        (self.root/'exports/auto').mkdir(parents=True)
+        (self.root/'exports/auto/old.txt').write_text('kept')
+        (self.root/'exports/.language-folders.json').write_text(json.dumps({'exports/old.txt': 'exports/auto/old.txt'}))
+        lr.organize_exports(self.root, self.p, self.core, recover_only=True)
+        self.assertEqual(self.p['exports'], ['exports/auto/old.txt'])
+        self.assertFalse((self.root/'exports/.language-folders.json').exists())
+
+    def test_cleanup_preserves_nested_exports_and_all_web_package_assets(self):
+        import vidistudio_engine as engine
+        (self.root/'exports/hi/web/video').mkdir(parents=True)
+        (self.root/'exports/hi/keep.mp4').write_bytes(b'kept')
+        (self.root/'exports/hi/web/video/media.ts').write_bytes(b'kept media')
+        (self.root/'exports/hi/orphan.tmp').write_bytes(b'orphan')
+        project = dict(id='nested', schemaVersion=2, source='', transcript=[], summary='', cues=[], thumbnails=[], exports=['exports/hi/keep.mp4', 'exports/hi/web'])
+        engine.cleanup_project_storage(self.root, project)
+        self.assertTrue((self.root/'exports/hi/keep.mp4').is_file())
+        self.assertTrue((self.root/'exports/hi/web/video/media.ts').is_file())
+        self.assertFalse((self.root/'exports/hi/orphan.tmp').exists())
+
+    def test_combined_imported_audio_export_remains_tracked(self):
+        self.core.local = lambda root, relative: (root/relative).resolve()
+        self.core.cleanup_project_storage = lambda root, project: None
+        args = self.args('combine-imported-audio', language=None)
+        def combine(args, root, project):
+            project['exports'].append('exports/auto/combined.mp4')
+        lr.run(args, self.root, self.p, self.core, combine)
+        self.assertIn('exports/auto/combined.mp4', self.p['exports'])
+
+    def test_export_move_journal_cannot_move_project_source_files(self):
+        self.core.local = lambda root, relative: (root/relative).resolve()
+        (self.root/'exports').mkdir()
+        (self.root/'source').mkdir()
+        source = self.root/'source/video.mp4'; source.write_bytes(b'original')
+        (self.root/'exports/.language-folders.json').write_text(json.dumps({'exports/../source/video.mp4': 'exports/auto/video.mp4'}))
+        with self.assertRaisesRegex(ValueError, 'exports folder'):
+            lr.organize_exports(self.root, self.p, self.core, recover_only=True)
+        self.assertEqual(source.read_bytes(), b'original')
+        self.assertFalse((self.root/'exports/auto/video.mp4').exists())
+
     def test_container_language_is_never_assumed_english(self):
         with patch.object(lr, '_export_language', 'auto'): self.assertEqual(lr.track_language(), 'und')
         with patch.object(lr, '_export_language', 'hi'): self.assertEqual(lr.track_language(), 'hin')
@@ -152,6 +242,7 @@ class LanguageResultCLITests(unittest.TestCase):
         p = self.read()
         self.assertEqual(p['selectedLanguage'], 'auto')
         self.assertEqual(len(p['exports']), 2)
+        self.assertEqual({Path(path).parts[1] for path in p['exports']}, {'auto', 'hi'})
         self.assertEqual({v['language'] for v in p['exportResults'].values()}, {'auto', 'hi'})
         self.assertEqual({(self.root/path).read_text().strip() for path in p['exports']}, {'# Summary\n\nOriginal summary', '# Summary\n\nImported alternative'})
 
@@ -179,29 +270,26 @@ class LanguageResultCLITests(unittest.TestCase):
         self.cli('sync-section-languages')
         self.assertEqual(self.read()['summary'], 'Original summary')
 
-    def test_sections_override_project_language_and_return_to_sync(self):
+    def test_view_language_switches_content_without_changing_generation_targets(self):
         self.cli('import-summary', '--input', self.input, '--language', 'hi')
-        self.assertEqual(self.read()['selectedLanguage'], 'auto')
-        self.assertEqual(self.read()['sectionLanguages']['summary'], 'hi')
-        self.assertEqual(self.read()['summary'], 'Imported alternative')
+        self.assertEqual(self.read()['summary'], 'Original summary')
+        self.assertEqual(self.read()['sectionLanguages'], {})
+        self.cli('select-section-language', '--section', 'summary', '--language', 'hi')
         self.cli('select-section-language', '--section', 'transcript', '--language', 'en')
+        self.assertEqual(self.read()['transcript'][0]['text'], 'Original dialogue')
+        self.cli('select-language', '--language', 'hi')
+        self.assertEqual(self.read()['summary'], 'Imported alternative')
         self.assertEqual(self.read()['transcript'], [])
-        self.assertEqual(self.read()['summary'], 'Imported alternative')
         self.cli('select-language', '--language', 'ta')
-        self.assertEqual(self.read()['sectionLanguages'], dict(summary='hi', transcript='en'))
-        self.assertEqual(self.read()['summary'], 'Imported alternative')
-        self.cli('select-section-language', '--section', 'summary', '--follow-project')
-        self.assertNotIn('summary', self.read()['sectionLanguages'])
         self.assertEqual(self.read()['summary'], '')
+        self.assertEqual(self.read()['sectionLanguages'], dict(summary='hi', transcript='en'))
         self.cli('sync-section-languages')
         self.assertEqual(self.read()['sectionLanguages'], {})
         self.cli('select-language', '--language', 'auto')
         self.assertEqual(self.read()['summary'], 'Original summary')
-        self.assertEqual(self.read()['transcript'][0]['text'], 'Original dialogue')
         self.cli('select-section-language', '--section', 'summary', '--language', 'auto')
-        self.cli('select-result', '--result-id', self.read()['activeResultIDs']['auto']['summary'])
         self.cli('select-language', '--language', 'hi')
-        self.assertEqual(self.read()['summary'], 'Original summary')
+        self.assertEqual(self.read()['summary'], 'Imported alternative')
         self.assertEqual(self.read()['sectionLanguages']['summary'], 'auto')
 
     def test_edit_targets_captured_result_id(self):
@@ -227,8 +315,62 @@ class LanguageResultCLITests(unittest.TestCase):
         self.assertEqual(saved['sectionLanguages']['summary'], 'auto')
         self.assertEqual(saved['summary'], 'Original summary')
         self.assertEqual(next(r for r in saved['languageResults'] if r['id'] == draft['id'])['state'], 'saved')
-        self.cli('select-section-language', '--section', 'summary', '--language', 'hi')
+        self.cli('select-language', '--language', 'hi')
         self.assertEqual(json.loads(self.project.read_text())['summary'], 'Imported alternative')
+
+
+    def test_reopening_uses_saved_results_before_capturing_stale_projection(self):
+        p = self.read(); lr.migrate(p)
+        p['sectionLanguages']['summary'] = 'hi'
+        p['summary'] = 'Stale top-level text'
+        self.project.write_text(json.dumps(p))
+        self.cli('select-overview-language', '--language', 'project')
+        self.assertEqual(self.read()['summary'], 'Original summary')
+        self.assertEqual(next(r for r in self.read()['languageResults'] if r['kind'] == 'summary')['payload']['summary'], 'Original summary')
+
+    def test_shared_view_language_ignores_legacy_overview_override(self):
+        p = self.read(); p['overviewLanguage'] = 'hi'
+        self.project.write_text(json.dumps(p))
+        self.cli('select-language', '--language', 'auto')
+        self.assertNotIn('overviewLanguage', self.read())
+        self.assertEqual(self.read()['summary'], 'Original summary')
+        self.assertEqual(self.read()['sectionLanguages'], {})
+
+    def test_export_organizes_legacy_files_and_updates_metadata_links(self):
+        self.cli('select-language', '--language', 'auto')
+        p = self.read()
+        (self.root/'exports').mkdir(exist_ok=True)
+        (self.root/'exports/legacy.txt').write_text('older export')
+        p['exports'] = ['exports/legacy.txt']
+        p['exportResults'] = {'exports/legacy.txt': dict(language='hi', resultIDs={}, createdAt=1)}
+        p['exportMediaInfo'] = {'exports/legacy.txt': dict(duration=1)}
+        self.project.write_text(json.dumps(p))
+        rid = next(r['id'] for r in p['languageResults'] if r['kind'] == 'summary')
+        request = self.root/'export.json'
+        request.write_text(json.dumps(dict(jobs=[dict(language='auto', resultIDs=dict(summary=rid), command='export-subtitles', options=dict(content='summary', format='md'))])))
+        self.cli('export-batch', '--input', request)
+        saved = self.read()
+        self.assertFalse((self.root/'exports/legacy.txt').exists())
+        self.assertEqual((self.root/'exports/hi/legacy.txt').read_text(), 'older export')
+        self.assertIn('exports/hi/legacy.txt', saved['exportResults'])
+        self.assertIn('exports/hi/legacy.txt', saved['exportMediaInfo'])
+        self.assertEqual(saved['selectedLanguage'], 'auto')
+        self.assertFalse((self.root/'exports/.language-folders.json').exists())
+
+    def test_overview_results_use_shared_view_language_without_changing_targets(self):
+        p = self.read(); lr.migrate(p)
+        result = lr.record(p, 'descriptions', 'hi', dict(cues=[dict(id='h', start=2, end=3, text='Hindi scene')]))
+        p['languageResults'].append(result)
+        p['sectionLanguages']['descriptions'] = 'en'
+        self.project.write_text(json.dumps(p))
+        self.cli('select-language', '--language', 'hi')
+        self.cli('select-result', '--result-id', result['id'])
+        saved = self.read()
+        self.assertEqual(saved['cues'][0]['text'], 'Hindi scene')
+        self.assertEqual(saved['sectionLanguages']['descriptions'], 'en')
+        self.cli('select-language', '--language', 'auto')
+        self.assertEqual(self.read()['cues'], [])
+        self.cli('select-result', '--result-id', result['id'], succeeds=False)
 
 
 @unittest.skipUnless(sys.platform == 'darwin', 'AVFoundation metadata verification requires macOS')

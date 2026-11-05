@@ -32,7 +32,7 @@ class YouTubeAudio(unittest.TestCase):
             with patch.object(youtube_audio, 'soundtrack', soundtrack), \
                  patch.object(engine, 'exportable_narration_cues', side_effect=AssertionError('Narration not needed')):
                 engine.export_youtube_audio(root, project)
-                self.assertEqual(project['exports'], ['exports/YouTube Original - YouTube Audio Only.mp3'])
+                self.assertEqual(project['exports'], ['exports/auto/YouTube Original - YouTube Audio Only.mp3'])
                 output = root/project['exports'][0]
                 engine.validate_audio_export(output, 1.5)
                 pcm = subprocess.check_output([engine.tool('ffmpeg'), '-v', 'error', '-i', str(output),

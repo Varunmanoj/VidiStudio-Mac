@@ -3,7 +3,9 @@ import SwiftUI
 struct ADOverviewView: View {
     @Bindable var studio: StudioModel
     @Environment(\.openSettings) private var openSettings
-    let project: StudioProject
+    let sourceProject: StudioProject
+    init(studio: StudioModel, project: StudioProject) { self.studio = studio; self.sourceProject = project }
+    private var project: StudioProject { sourceProject.overviewProject }
     private func audioStatus(_ cue: Segment) -> SynchronizedAudioStatus {
         .resolve(cue: cue, project: project)
     }
@@ -22,7 +24,7 @@ struct ADOverviewView: View {
         return voiceReport.primaryVoiceLabel ?? selectedVoice
     }
     private var narrationControlsDisabled: Bool {
-        studio.busy || project.cues.isEmpty || (studio.settings.ttsMode == "gemini" && !studio.hasValidApiKey)
+        !sourceProject.overviewMatchesEditingResult || studio.busy || project.cues.isEmpty || (studio.settings.ttsMode == "gemini" && !studio.hasValidApiKey)
     }
     private var selectedVoice: String {
         if studio.settings.ttsMode == "gemini" { return studio.settings.geminiVoice }
@@ -51,6 +53,8 @@ struct ADOverviewView: View {
                 ) {
                     GroupBox("Audio description overview") {
                         VStack(alignment: .leading, spacing: 10) {
+                            statistic("Viewing language", value: OutputLanguage.title(sourceProject.overviewLanguageCode))
+                            Divider()
                             statistic("Description segments", value: String(project.cues.count))
                             Divider()
                             statistic("Narration audio ready", value: String(ready))
@@ -93,6 +97,9 @@ struct ADOverviewView: View {
                         }
                         .padding(.vertical, 4)
                     }
+                }
+                if !sourceProject.overviewMatchesEditingResult {
+                    Text("To generate narration for this overview language, choose the same language in View Project Language.").font(.callout).foregroundStyle(.secondary)
                 }
                 GroupBox("Create narration audio") {
                     VStack(alignment: .leading, spacing: 10) {

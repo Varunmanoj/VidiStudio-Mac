@@ -17,6 +17,9 @@ struct OutputLanguage: Identifiable, Hashable {
 }
 
 struct SavedLanguagePayload: Codable {
+    var descriptionTimingAudit: DescriptionTimingAudit?
+    var narrationEngine: String?
+    var narrationVoice: String?
     var transcript: [Segment]?
     var summary: String?
     var cues: [Segment]?
@@ -82,9 +85,28 @@ struct ExportResultProvenance: Codable {
 }
 
 extension StudioProject {
+    var overviewLanguageCode: String { languageCode }
+    var overviewProject: StudioProject {
+        var value = self
+        let code = overviewLanguageCode
+        func result(_ kind: String) -> SavedLanguageResult? {
+            savedLanguageResults.first { $0.id == activeLanguageResultID(kind, language: code) && $0.language == code && $0.state == "saved" }
+        }
+        let descriptions = result("descriptions")?.payload
+        value.cues = descriptions?.cues ?? []
+        value.transcript = result("transcript")?.payload.transcript ?? []
+        value.importedADTranscript = descriptions?.importedADTranscript
+        value.importedAudioDescription = result("adAudio")?.payload.importedAudioDescription
+        value.descriptionTimingAudit = descriptions?.descriptionTimingAudit
+        value.narrationEngine = descriptions?.narrationEngine
+        value.narrationVoice = descriptions?.narrationVoice
+        return value
+    }
+    var overviewMatchesEditingResult: Bool { overviewLanguageCode == languageCode }
     var languageCode: String { selectedLanguage ?? "auto" }
     func sectionLanguage(_ kind: String) -> String { sectionLanguages?[kind] ?? languageCode }
     func operationLanguage(_ command: String) -> String {
+        guard ["transcribe", "generate-summary", "generate-ad-cues", "import-transcript", "import-summary", "import-ad-transcript", "import-ad-audio"].contains(command) else { return languageCode }
         let kind: String?
         switch command {
         case "transcribe", "import-transcript", "reanalyze-transcript-segment", "undo-transcript", "redo-transcript": kind = "transcript"
@@ -110,11 +132,11 @@ extension StudioProject {
         return results
     }
     func languageResults(kind: String, language: String? = nil) -> [SavedLanguageResult] {
-        savedLanguageResults.filter { $0.kind == kind && $0.language == (language ?? sectionLanguage(kind)) && $0.state == "saved" }
+        savedLanguageResults.filter { $0.kind == kind && $0.language == (language ?? languageCode) && $0.state == "saved" }
             .sorted { $0.createdAt > $1.createdAt }
     }
     func activeLanguageResultID(_ kind: String, language: String? = nil) -> String {
-        let code = language ?? sectionLanguage(kind)
+        let code = language ?? languageCode
         return activeResultIDs?[code]?[kind] ?? languageResults(kind: kind, language: code).first?.id ?? ""
     }
     var resultLanguages: [String] { Array(Set(savedLanguageResults.map(\.language))).sorted() }
@@ -155,7 +177,7 @@ struct LanguageResultControls: View {
     }
     private func run(_ command: String, _ arguments: [String] = []) {
         guard editorActions.available, !editorActions.hasUnsavedSummaryEdits else { return }
-        if command != "select-result" && command != "review-result" {
+        if !["select-result", "review-result", "select-overview-language", "select-view-result", "select-language"].contains(command) {
             guard editorActions.canChangeLanguage else { return }
         }
         editorActions.languageAction?(command, arguments)
@@ -164,41 +186,45 @@ struct LanguageResultControls: View {
         InspectorSection("Language and Saved Results") {
             if !editorActions.segmentEditMode {
                 Text("Enter Edit mode to change language labels or generation targets.").font(.caption).foregroundStyle(.secondary)
-                Button("Enter Edit Mode") { editorActions.run("segment-edit-mode") }
-                    .disabled(!editorActions.canRun("segment-edit-mode"))
+                if editorActions.segmentEditingAvailable {
+                    Button("Enter Edit Mode") { editorActions.run("segment-edit-mode") }
+                        .disabled(!editorActions.canRun("segment-edit-mode"))
+                }
             }
             if editorActions.hasUnsavedSummaryEdits {
                 Text("Save or cancel summary edits before switching languages or saved results.").font(.caption).foregroundStyle(.secondary)
             }
-            OutputLanguagePicker(title: "Project Language", selection: Binding(get: { project.languageCode }, set: {
+            OutputLanguagePicker(title: "View Project Language", selection: Binding(get: { project.languageCode }, set: {
                 run("select-language", ["--language", $0])
-            })).disabled(!editorActions.canChangeLanguage)
-            Text("Sections can follow the project language or use their own choice. Auto keeps automatically detected content together.")
+            })).disabled(!editorActions.available || editorActions.hasUnsavedSummaryEdits)
+            Text("View Project Language switches saved content across the project. Generation targets can follow it or use their own choices in Edit mode.")
                 .font(.caption).foregroundStyle(.secondary)
             Button("Keep All Sections in Sync") { run("sync-section-languages") }
                 .help("Return every section to Follow Project Language; saved results are preserved")
                 .disabled(!editorActions.canChangeLanguage)
             ForEach(visibleKinds, id: \.self) { kind in
-                OutputLanguagePicker(title: "\(SavedLanguageResult.kindTitle(kind)) Language", selection: Binding(get: {
+                OutputLanguagePicker(title: "\(SavedLanguageResult.kindTitle(kind)) Generation Language", selection: Binding(get: {
                     project.sectionLanguages?[kind] ?? "project"
                 }, set: { code in
                     let arguments = code == "project" ? ["--section", kind, "--follow-project"] : ["--section", kind, "--language", code]
                     run("select-section-language", arguments)
                 }), includesFollowProject: true).disabled(!editorActions.canChangeLanguage)
-                let results = project.languageResults(kind: kind)
+                let overview = editorActions.activeSection == "ad-overview"
+                let code = overview ? project.overviewLanguageCode : project.languageCode
+                let results = project.languageResults(kind: kind, language: code)
                 if !results.isEmpty {
-                    Picker("\(SavedLanguageResult.kindTitle(kind)) Saved Result", selection: Binding(get: { project.activeLanguageResultID(kind) }, set: {
+                    Picker("\(SavedLanguageResult.kindTitle(kind)) Saved Result", selection: Binding(get: { project.activeLanguageResultID(kind, language: code) }, set: {
                         run("select-result", ["--result-id", $0])
                     })) {
                         ForEach(results) { Text($0.title).tag($0.id) }
                     }.pickerStyle(.menu).disabled(editorActions.hasUnsavedSummaryEdits || !editorActions.available)
-                    if editorActions.segmentEditMode, let selected = results.first(where: { $0.id == project.activeLanguageResultID(kind) }) {
+                    if editorActions.segmentEditMode, let selected = results.first(where: { $0.id == project.activeLanguageResultID(kind, language: code) }) {
                         Button("Assign Language to \(selected.kindTitle)…") { assigning = selected; assignment = selected.language }
                             .font(.caption)
                             .disabled(!editorActions.canChangeLanguage)
                     }
                 } else {
-                    Text("No saved \(SavedLanguageResult.kindTitle(kind).lowercased()) in \(OutputLanguage.title(project.sectionLanguage(kind))).")
+                    Text("No saved \(SavedLanguageResult.kindTitle(kind).lowercased()) in \(OutputLanguage.title(code)).")
                         .font(.caption).foregroundStyle(.secondary)
                 }
             }
@@ -360,7 +386,7 @@ struct ExportLanguageSelectionView: View {
                     }))
                 }
             }
-            Text("Creates a separate output for each selected language. Each output uses the saved results chosen here.")
+            Text("Creates outputs in exports/<language code>/, including auto. Each output uses the saved results chosen here. Existing tracked exports are organized into those folders when exporting.")
                 .font(.caption).foregroundStyle(.secondary)
         }
     }

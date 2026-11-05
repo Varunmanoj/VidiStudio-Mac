@@ -537,6 +537,7 @@ enum SectionProcessingState: Equatable {
 }
 
 struct StudioProject: Codable, Identifiable {
+    var overviewLanguage: String?
     var selectedLanguage: String?
     var sectionLanguages: [String: String]?
     var languageResults: [SavedLanguageResult]?
@@ -1980,11 +1981,30 @@ final class StudioModel {
         }
     }
 
+    private static func decodeViewingProject(_ data: Data) throws -> StudioProject {
+        guard var json = try JSONSerialization.jsonObject(with: data) as? [String: Any],
+              let records = json["languageResults"] as? [[String: Any]] else {
+            return try JSONDecoder().decode(StudioProject.self, from: data)
+        }
+        let code = json["selectedLanguage"] as? String ?? "auto"
+        let selections = (json["activeResultIDs"] as? [String: [String: String]])?[code] ?? [:]
+        for field in ["transcript", "transcriptGenerated", "transcriptUndoStack", "transcriptRedoStack", "transcriptAudioSource", "youtubeCaptionSource", "summary", "summaryGenerated", "summaryOrigin", "summaryOriginSource", "summaryOriginOverride", "cues", "descriptionsGenerated", "undoStack", "redoStack", "narrationEngine", "narrationVoice", "descriptionTimingAudit", "importedADTranscript", "importedAudioDescription"] { json.removeValue(forKey: field) }
+        for kind in ["transcript", "summary", "descriptions", "adAudio"] {
+            let choices = records.filter { ($0["language"] as? String) == code && ($0["kind"] as? String) == kind && ($0["state"] as? String) == "saved" }
+            let chosen = choices.first { ($0["id"] as? String) == selections[kind] } ?? choices.max { ($0["createdAt"] as? Double ?? 0) < ($1["createdAt"] as? Double ?? 0) }
+            for (key, value) in chosen?["payload"] as? [String: Any] ?? [:] { json[key] = value }
+        }
+        if json["transcript"] == nil { json["transcript"] = [] as [Any] }
+        if json["summary"] == nil { json["summary"] = "" }
+        if json["cues"] == nil { json["cues"] = [] as [Any] }
+        return try JSONDecoder().decode(StudioProject.self, from: JSONSerialization.data(withJSONObject: json))
+    }
+
     private static func loadProject(at folder: URL) -> StudioProject? {
         let folder = ProjectFolderIdentity.normalize(folder)
         let manifest = folder.appendingPathComponent("project.json")
         guard let data = try? Data(contentsOf: manifest), !data.isEmpty,
-              var project = try? JSONDecoder().decode(StudioProject.self, from: data) else {
+              var project = try? Self.decodeViewingProject(data) else {
             return nil
         }
         project.folder = folder
@@ -2400,7 +2420,7 @@ final class StudioModel {
         if panel.runModal() == .OK, let chosenFolder = panel.url {
             let folder = ProjectFolderIdentity.normalize(chosenFolder)
             do {
-                var p = try JSONDecoder().decode(StudioProject.self, from: Data(contentsOf: folder.appendingPathComponent("project.json")))
+                var p = try Self.decodeViewingProject(Data(contentsOf: folder.appendingPathComponent("project.json")))
                 p.folder = folder
                 var visibility = ProjectListVisibility()
                 visibility.restore(folder)
@@ -2507,7 +2527,7 @@ final class StudioModel {
         var current = project
         if let folder = project.folder {
             do {
-                current = try JSONDecoder().decode(StudioProject.self, from: Data(contentsOf: folder.appendingPathComponent("project.json")))
+                current = try Self.decodeViewingProject(Data(contentsOf: folder.appendingPathComponent("project.json")))
                 current.folder = folder
             } catch {
                 present(.projectRead, technicalDetails: error.localizedDescription, context: "Check existing project narration")
@@ -2590,7 +2610,7 @@ final class StudioModel {
         var current = project
         do {
             guard let folder = project.folder else { return false }
-            current = try JSONDecoder().decode(StudioProject.self, from: Data(contentsOf: folder.appendingPathComponent("project.json")))
+            current = try Self.decodeViewingProject(Data(contentsOf: folder.appendingPathComponent("project.json")))
             current.folder = folder
         } catch {
             present(.exportPreparation, technicalDetails: error.localizedDescription, context: "Prepare export")

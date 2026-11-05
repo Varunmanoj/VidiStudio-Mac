@@ -158,9 +158,9 @@ enum StudioExportAction: Hashable {
             ][audio] ?? "Audio"
             let folderName = Self.portableProjectName(project.name)
                 + " - Web Playback - " + audioName + captions.exportTypeSuffix
-            return "exports/\(folderName)"
+            return "exports/\(project.languageCode)/\(folderName)"
         }
-        return "exports/\(Self.portableProjectName(project.name)) - \(descriptor.type).\(descriptor.extension)"
+        return "exports/\(project.languageCode)/\(Self.portableProjectName(project.name)) - \(descriptor.type).\(descriptor.extension)"
     }
 
     private static func portableProjectName(_ rawName: String) -> String {
@@ -321,6 +321,7 @@ struct ExportDialog: View {
     var project: StudioProject {
         var value = sourceProject
         let code = exportLanguages.sorted().first ?? value.languageCode
+        value.selectedLanguage = code
         for kind in ["transcript", "summary", "descriptions", "adAudio"] {
             let rid = exportSelections[code]?[kind] ?? value.activeLanguageResultID(kind, language: code)
             let payload = value.savedLanguageResults.first { $0.id == rid }?.payload

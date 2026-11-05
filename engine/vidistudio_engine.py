@@ -227,7 +227,7 @@ def migrate_project_schema(root, project):
         path: value for path, value in (project.get('exportMediaInfo') or {}).items()
         if path in valid_exports and isinstance(value, dict)
     }
-    return language_results.migrate(project)
+    return language_results.project(language_results.migrate(project))
 
 
 def cleanup_project_storage(root, project):
@@ -295,9 +295,20 @@ def cleanup_project_storage(root, project):
 
     referenced_exports = {local(root, path) for path in project.get('exports', [])}
     exports_root = root/'exports'
+    if (exports_root / '.language-folders.json').exists():
+        language_results.organize_exports(root, project, sys.modules[__name__], recover_only=True)
+        referenced_exports = {local(root, path) for path in project.get('exports', [])}
+    def clean_export(path):
+        resolved = path.resolve()
+        if resolved in referenced_exports:
+            return  # A retained web package owns all of its relative assets.
+        if path.is_dir() and any(resolved in kept.parents for kept in referenced_exports):
+            for child in list(path.iterdir()): clean_export(child)
+            remove_empty_directory(path)
+        else:
+            remove(path)
     if exports_root.exists():
-        for path in list(exports_root.iterdir()):
-            if path.resolve() not in referenced_exports: remove(path)
+        for path in list(exports_root.iterdir()): clean_export(path)
         remove_empty_directory(exports_root)
 
     source_path = local(root, project['source']) if project.get('source') else None
@@ -1613,13 +1624,14 @@ def narration_audio_is_usable(root, cue):
 
 def export_relative_path(root, project, export_type, extension):
     """Return the stable portable path for one export configuration."""
-    (root/'exports').mkdir(parents=True, exist_ok=True)
+    folder = Path(language_results.export_folder(project))
+    local(root, folder.as_posix()).mkdir(parents=True, exist_ok=True)
     project_name = str(project.get('name') or 'Project').strip()
     project_name = re.sub(r'[<>:"/\\|?*\x00-\x1f]+', '-', project_name)
     project_name = re.sub(r'\s*-\s*', ' - ', project_name)
     project_name = re.sub(r'\s+', ' ', project_name).strip(' .-') or 'Project'
     project_name = project_name[:100].rstrip(' .-') or 'Project'
-    return (Path('exports') / f'{project_name} - {export_type}.{extension}').as_posix()
+    return (folder / f'{project_name} - {export_type}.{extension}').as_posix()
 
 
 def prepare_export_target(root, project, export_type, extension, replace_existing=False):
@@ -3084,7 +3096,7 @@ def main():
     import_assets.add_arguments(parser)
     audio_sources.add_arguments(parser)
     args=parser.parse_args()
-    if args.language:
+    if args.language and not (args.command == 'select-overview-language' and args.language == 'project'):
         os.environ['VIDISTUDIO_OUTPUT_LANGUAGE'] = language_results.language(args.language)
     if args.command == 'expire-youtube-cache':
         if not args.library: raise ValueError('Choose a project library.')

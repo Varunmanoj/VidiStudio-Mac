@@ -46,7 +46,7 @@ class ExportFormats(unittest.TestCase):
                     self.assertEqual(path.suffix, '.' + format)
                     engine.validate_audio_export(path, 2, format)
         self.assertEqual(len(self.project['exports']), 9)
-        output = self.root/'exports/Format Demo - Original Video Audio.wav'
+        output = self.root/'exports/auto/Format Demo - Original Video Audio.wav'
         before = output.read_bytes()
         with self.assertRaisesRegex(ValueError, 'Confirm replacement'):
             engine.export_program_audio(self.root, self.project, media_format='wav')
@@ -54,7 +54,7 @@ class ExportFormats(unittest.TestCase):
             with self.assertRaisesRegex(ValueError, 'encoder failed'):
                 engine.export_program_audio(self.root, self.project, media_format='wav', replace_existing=True)
         self.assertEqual(output.read_bytes(), before)
-        self.assertFalse(list((self.root/'exports').glob('.*generating*')))
+        self.assertFalse(list((self.root/'exports').rglob('.*generating*')))
 
     def test_youtube_original_and_combined_accept_every_audio_format(self):
         soundtrack_path = self.root/'soundtrack.wav'
