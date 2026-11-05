@@ -5,6 +5,12 @@ struct UserFacingIssue: Equatable {
     let title: String
     let message: String
 
+    func message(developerMode: Bool, technicalDetails: String?, apiKey: String) -> String {
+        guard developerMode, let technicalDetails, !technicalDetails.isEmpty else { return message }
+        let detail = apiKey.isEmpty ? technicalDetails : technicalDetails.replacingOccurrences(of: apiKey, with: "[redacted]")
+        return message + "\n\nTechnical details:\n" + detail
+    }
+
     static let settingsSave = UserFacingIssue(
         title: "Settings Couldn’t Be Saved",
         message: "Your changes could not be saved. Check that VidiStudio can write to its settings folder, then try again."
@@ -59,6 +65,10 @@ struct UserFacingIssue: Equatable {
     )
 
     static func forEngine(command: String, technicalDetails: String?) -> UserFacingIssue {
+        if command == "generate-summary" {
+            return UserFacingIssue(title: "Summary Couldn’t Be Created",
+                                   message: "The summary could not be created. Your transcript is safe. Please try again.")
+        }
         let detail = technicalDetails?.lowercased() ?? ""
         if command.hasPrefix("export-youtube-") {
             if detail.contains("duration") || detail.contains("timing") {
@@ -163,11 +173,6 @@ struct UserFacingIssue: Equatable {
             return UserFacingIssue(
                 title: "Transcript Couldn’t Be Created",
                 message: "Check your Gemini settings and internet connection, then try generating the transcript again."
-            )
-        case "generate-summary":
-            return UserFacingIssue(
-                title: "Summary Couldn’t Be Created",
-                message: "Your transcript is safe. Check your Gemini settings and try generating the summary again."
             )
         case "generate-ad-cues":
             return UserFacingIssue(

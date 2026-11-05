@@ -52,6 +52,7 @@ struct GeminiAPISettingsView: View {
     @Environment(\.openURL) private var openURL
     @State private var keyDebounceTask: Task<Void, Never>?
     @State private var showingDeleteConfirmation = false
+    @State private var advancedExpanded = false
     @State private var apiKey: String
 
     init(studio: StudioModel) {
@@ -313,6 +314,18 @@ struct GeminiAPISettingsView: View {
             Text("YouTube video")
         } footer: {
             Text("When Transcription source is YouTube video, transcription and Audio Descriptions automatically use the YouTube video model. When it is Imported audio, the two choices above are used and shared with Local video. Descriptions still analyze the YouTube picture and current transcript. Playback and export choices do not change the model. Summary and other task models remain shared. Changes apply to future requests.")
+        }
+        Section {
+            DisclosureGroup("Advanced", isExpanded: $advancedExpanded) {
+                Picker("Video processing", selection: $studio.settings.videoProcessing) {
+                    Text("Agentic").tag("agentic")
+                    Text("Static").tag("static")
+                }
+                .pickerStyle(.menu)
+                .accessibilityHint("Choose Static for fixed video sampling or Agentic for model-directed video analysis.")
+                Text("Applies to summaries and Audio Descriptions for local and YouTube videos, and YouTube screen-text requests. Transcription and selected-range analysis use Static. Availability depends on the selected model and your Gemini access.")
+                    .font(.caption).foregroundStyle(.secondary)
+            }
         }
     }
 

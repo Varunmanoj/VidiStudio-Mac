@@ -77,7 +77,19 @@ def audio_interaction(client, model, uri, mime, prompt, system=''):
     return text
 
 
+def video_processing(processing):
+    """Translate the legacy UI value before constructing a Gemini request."""
+    if processing == 'standard':
+        return 'static'
+    if processing is None or processing in ('', 'static', 'agentic'):
+        return processing
+    if isinstance(processing, dict) and processing.get('type') in ('static', 'agentic'):
+        return processing
+    raise ValueError('Choose a supported video processing mode: static or agentic.')
+
+
 def video_interaction(client,model,uri,mime,prompt,system='',schema=None,processing='agentic'):
+    processing = video_processing(processing)
     media={'type':'video','uri':uri}
     if mime: media['mime_type']=mime
     if processing: media['processing']=processing

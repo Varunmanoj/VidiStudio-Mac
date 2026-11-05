@@ -1807,7 +1807,7 @@ final class StudioModel {
 
     func present(_ issue: UserFacingIssue, technicalDetails: String? = nil, context: String = "VidiStudio") {
         errorTitle = issue.title
-        error = issue.message
+        error = issue.message(developerMode: settings.developerMode, technicalDetails: technicalDetails, apiKey: settings.apiKey)
         guard let technicalDetails, !technicalDetails.isEmpty else { return }
         UserFacingIssueReporter.record(technicalDetails, context: context)
         logs.append("\(context): \(technicalDetails)")
@@ -1847,6 +1847,8 @@ final class StudioModel {
         if let data = try? JSONSerialization.data(withJSONObject: merged), let decoded = try? JSONDecoder().decode(StudioSettings.self, from: data) {
             settings = decoded
         }
+        let migratedVideoProcessing = settings.videoProcessing == "standard"
+        if migratedVideoProcessing { settings.videoProcessing = "static" }
         var migratedLibrary = false
         if settings.libraryPath == StudioSettings.legacyDefaultLibraryURL.path {
             settings.libraryPath = StudioSettings.defaultLibraryURL.path
@@ -1879,7 +1881,7 @@ final class StudioModel {
         if let legacyApiKey, !legacyApiKey.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
             if KeychainStore.containsValue() || KeychainStore.write(legacyApiKey) { migratedApiKey = true }
         }
-        if migratedLibrary || seededCaptionDisplayMode || migratedSpeechEngine || migratedApiKey { persistSettings(reloadProjects: false) }
+        if migratedLibrary || seededCaptionDisplayMode || migratedSpeechEngine || migratedApiKey || migratedVideoProcessing { persistSettings(reloadProjects: false) }
         reload()
         selectedID = UserDefaults.standard.string(forKey: "lastProjectID")
     }
