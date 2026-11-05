@@ -409,9 +409,28 @@ def validate_transcript(segments, duration):
     return sorted(segments, key=lambda segment: segment['start'])
 
 
+def validate_authored_transcript(segments, previous, duration):
+    """Validate changed rows without making unrelated saved conflicts block deletion."""
+    existing = {segment['id']: segment for segment in previous}
+    ids = set()
+    for segment in segments:
+        segment.setdefault('id', str(uuid.uuid4()))
+        if segment['id'] in ids:
+            raise ValueError('Duplicate transcript segment identifier.')
+        ids.add(segment['id'])
+        old = existing.get(segment['id'])
+        if old is not None and all(segment.get(key) == old.get(key) for key in ('start', 'end', 'text')):
+            continue
+        validate_transcript([segment], duration)
+        if any(other is not segment and float(segment['start']) < float(other['end'])
+               and float(segment['end']) > float(other['start']) for other in segments):
+            raise ValueError('This transcript segment overlaps another transcript segment. Adjust its timing.')
+    return sorted(segments, key=lambda segment: segment['start'])
+
+
 def save_segments(p, transcript, cues):
     """Atomically replace editable transcript and AD rows in one project update."""
-    transcript = validate_transcript(transcript, p['duration'])
+    transcript = validate_authored_transcript(transcript, p.get('transcript', []), p['duration'])
     cues = validate_authored_cues(cues, p.get('cues', []), p['duration'], transcript)
     # Older narration has no timing snapshot. Preserve its pre-edit timing on
     # the first save, so later status checks can detect a timing-only change.
