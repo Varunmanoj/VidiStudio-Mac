@@ -64,7 +64,9 @@ struct GeminiAPISettingsView: View {
     ]
 
     private let youtubeVideoRows = [
-        GeminiModelRow(id: "youtube_transcript", label: "YouTube transcription"),
+        GeminiModelRow(id: "youtube_transcript", label: "YouTube video model"),
+        GeminiModelRow(id: "transcript", label: "Imported audio transcription"),
+        GeminiModelRow(id: "audio_descriptions", label: "Audio descriptions with imported audio"),
     ]
 
     var body: some View {
@@ -298,7 +300,7 @@ struct GeminiAPISettingsView: View {
         } header: {
             Text("YouTube video")
         } footer: {
-            Text("YouTube transcription uses its own model.")
+            Text("When Transcription source is YouTube video, transcription and Audio Descriptions automatically use the YouTube video model. When it is Imported audio, the two choices above are used and shared with Local video. Descriptions still analyze the YouTube picture and current transcript. Playback and export choices do not change the model. Summary and other task models remain shared. Changes apply to future requests.")
         }
     }
 

@@ -533,11 +533,20 @@ def validate_youtube_for_gemini(url):
         client.close()
 
 
-def client_and_model(kind):
+def client_and_model(kind, project=None):
     cfg = config()
     key = {'tts':'tts_audio','transcribe':'transcript','generate-summary':'summary','generate-ad-cues':'audio_descriptions'}.get(kind,kind)
+    # Keep one set of local-file choices, including imported YouTube audio.
+    if key.startswith('youtube_') and key != 'youtube_transcript':
+        key = key.removeprefix('youtube_')
+    if (project and project.get('sourceType') == 'youtube'
+            and key in ('transcript', 'audio_descriptions')
+            and audio_sources.preferences(project)['transcription'] == 'youtube'):
+        key = 'youtube_transcript'
     model = cfg['models'].get(key)
     if not model: raise ValueError('Choose a Gemini model in Settings first.')
+    if key == 'youtube_transcript' and any(token in model.lower() for token in ('transcribe', 'tts')):
+        raise ValueError('Choose a video model for YouTube in Settings > Gemini API > YouTube video model, such as Gemini Flash.')
     return gemini_client(), model
 
 
@@ -744,7 +753,7 @@ def reanalyze_segment(root,p,draft):
         'The userHint is optional guidance about what to inspect closely; follow it when supported by the video, '
         'but do not copy it into a description unless it is useful audience-facing visual information.\n'
         +json.dumps(context,ensure_ascii=False))
-    client,model=client_and_model('audio_descriptions')
+    client,model=client_and_model('audio_descriptions',p)
     try:
         if p.get('sourceType')=='youtube':
             uri=p['youtubeURL'];mime=None
@@ -930,7 +939,7 @@ def _ai_video_once(root, p, stage):
         'generate-ad-cues':('Creating Audio Descriptions','descriptions'),
     }[stage]
     emit(stage_message,processingSection=processing_section)
-    client,model=client_and_model(key)
+    client,model=client_and_model(key,p)
     uploaded=None
     try:
         if stage == 'transcribe' and imported_transcription:
