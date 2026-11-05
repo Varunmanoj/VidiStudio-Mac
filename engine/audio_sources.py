@@ -207,7 +207,7 @@ def execute(args, root, project, core):
             if result['status'] != 'matched' and not args.allow_audio_mismatch:
                 raise ValueError('Audio timing needs confirmation. ' + warning(result))
             if args.command == 'import-original-audio':
-                path = import_assets.copy_asset(root, args.input, core, created)
+                path = import_assets.copy_asset(root, args.input, core, created, language_specific=False)
                 if fingerprint(core.local(root, path)) != result['sha256']:
                     raise ValueError('The selected audio changed while importing. Choose it again.')
                 working['originalAudio'] = dict(path=path, sourceName=args.input.name,

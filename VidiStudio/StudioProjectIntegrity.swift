@@ -104,16 +104,19 @@ enum StudioProjectIntegrity {
 
 extension StudioProject {
     var integrityManifest: ProjectIntegrityManifest {
-        let allCues = cues + savedLanguageResults.flatMap { $0.payload.referencedSegments }
-        let narrationReferences = allCues.enumerated().compactMap { index, cue -> ProjectNarrationReference? in
-            guard let path = cue.audio?.trimmingCharacters(in: .whitespacesAndNewlines), !path.isEmpty else {
-                return nil
+        var narrationReferences: [ProjectNarrationReference] = []
+        func add(_ rows: [Segment], label: String, history: Bool = false) {
+            for (index, cue) in rows.enumerated() {
+                guard let path = cue.audio, !path.isEmpty else { continue }
+                narrationReferences.append(ProjectNarrationReference(path: path, segmentNumber: index + 1,
+                    timeRange: label + " · " + timecode(cue.start) + "–" + timecode(cue.end), historyOnly: history))
             }
-            return ProjectNarrationReference(
-                path: path,
-                segmentNumber: index + 1,
-                timeRange: "\(timecode(cue.start))–\(timecode(cue.end))"
-            )
+        }
+        add(cues, label: OutputLanguage.title(languageCode))
+        for result in savedLanguageResults {
+            let label = OutputLanguage.title(result.language) + " · " + result.title
+            add(result.payload.cues ?? [], label: label)
+            add((result.payload.undoStack ?? []).flatMap { $0 } + (result.payload.redoStack ?? []).flatMap { $0 }, label: label, history: true)
         }
         let importedPaths = ([importedAudioDescription?.path, importedADTranscript?.path, originalAudio?.path] + savedLanguageResults.flatMap { [$0.payload.importedAudioDescription?.path, $0.payload.importedADTranscript?.path, $0.sourceAsset?.path] })
             .compactMap { $0?.trimmingCharacters(in: .whitespacesAndNewlines) }

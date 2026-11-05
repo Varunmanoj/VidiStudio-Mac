@@ -363,7 +363,6 @@ struct ExportLanguageSelectionView: View {
     let project: StudioProject
     @Binding var languages: Set<String>
     @Binding var selections: [String: [String: String]]
-    @Binding var replacements: Set<String>
     var body: some View {
         Section("Languages and Saved Results") {
             ForEach(Array(Set(project.resultLanguages + [project.languageCode])).sorted(), id: \.self) { code in
@@ -381,9 +380,7 @@ struct ExportLanguageSelectionView: View {
                             }.pickerStyle(.menu)
                         }
                     }
-                    Toggle("Replace this language’s matching export if it exists", isOn: Binding(get: { replacements.contains(code) }, set: {
-                        if $0 { replacements.insert(code) } else { replacements.remove(code) }
-                    }))
+
                 }
             }
             Text("Creates outputs in exports/<language code>/, including auto. Each output uses the saved results chosen here. Existing tracked exports are organized into those folders when exporting.")

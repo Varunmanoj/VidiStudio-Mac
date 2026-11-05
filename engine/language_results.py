@@ -180,7 +180,7 @@ def checkpoint(root, working, write, force=False):
         if force or data != tx['original'][kind]:
             r = tx['drafts'].get(kind)
             if not r:
-                r = record(tx['base'], kind, tx['language'], data, 'draft')
+                r = record(tx['base'], kind, tx['language'], data, 'draft', result_id=tx['resultIDs'][kind])
                 old = active(tx['base'], kind, tx['language'])
                 r['replacesResultID'] = old['id'] if old else None
                 r['sourceResultIDs'] = copy.deepcopy(tx['sources'])
@@ -213,7 +213,7 @@ def produce(args, root, p, core, dispatch):
         working.pop('summaryOriginOverride', None)
     previous = _transaction
     tx = dict(base=p, working=working, command=args.command, kinds=kinds, language=target_language,
-              sources=sources, token=str(uuid.uuid4()), original={k: payload(working, k) for k in kinds}, drafts={})
+              sources=sources, token=str(uuid.uuid4()), original={k: payload(working, k) for k in kinds}, drafts={}, resultIDs={k: str(uuid.uuid4()) for k in kinds})
     _transaction = tx
     working['_resultTransaction'] = tx['token']
     local_args = copy.copy(args)
@@ -332,6 +332,7 @@ def _run(args, root, p, core, dispatch):
     migrate(p)
     capture(p)
     organize_exports(root, p, core, recover_only=True)
+    if core.local(root, "metadata/.language-assets.json").exists(): organize_assets(root, p, core)
     if (args.command.startswith('export-') and args.command != 'export-batch') or args.command == 'combine-imported-audio':
         organize_exports(root, p, core)
     code = getattr(args, 'language', None)
@@ -470,6 +471,7 @@ def _run(args, root, p, core, dispatch):
         if not command.startswith('export') and command not in ('delete-export', 'combine-imported-audio'):
             p.update(exports)
         capture(p)
+    organize_assets(root, p, core)
     p['status'] = 'Ready'
     p.pop('error', None)
     core.save(root, p)
@@ -543,12 +545,13 @@ def export_batch(args, root, p, core, dispatch):
         for key in ('exports', 'exportResults', 'exportMediaInfo', 'exportAudioSources'):
             view[key] = copy.deepcopy(p.get(key, [] if key == 'exports' else {}))
     failed = []
+    completed = skipped = 0
     for job, step, view in prepared:
         _export_language = view['selectedLanguage']
         original = {key: copy.deepcopy(view.get(key)) for key in ('exports', 'exportMediaInfo', 'exportAudioSources')}
         # Export helpers use a deterministic project-name suffix without changing the saved name.
         ids = '-'.join(sorted(rid[:8] for rid in job.get('resultIDs', {}).values()))
-        view['name'] = p['name'][:40] + ' [' + view['selectedLanguage'] + (' ' + ids.replace('-', '.') if ids else '') + ']'
+        view['name'] = str(job.get('projectName', p['name']))[:40] + ' [' + view['selectedLanguage'] + (' ' + ids.replace('-', '.') if ids else '') + ']'
         try:
             dispatch(step, root, view)
             for path in view.get('exports', []):
@@ -560,12 +563,26 @@ def export_batch(args, root, p, core, dispatch):
                             p.setdefault(field, {})[path] = view[field][path]
                     p['exportResults'][path] = dict(language=view['selectedLanguage'], resultIDs=job.get('resultIDs', {}), described=view['_exportDescribed'], createdAt=time.time())
             core.save(root, p)
+            completed += 1
             core.emit('Language export completed', exportLanguage=view['selectedLanguage'])
         except core.ProcessingCancelled:
             raise
+        except core.ExportAlreadyExists as exc:
+            if step.replace_existing:
+                raise
+            # Preserve even an existing destination not previously tracked by the app.
+            relative = exc.relative
+            if relative not in p['exports']:
+                path = core.local(root, relative)
+                p['exports'].append(relative)
+                p['exportResults'].setdefault(relative, dict(language=view['selectedLanguage'], resultIDs={}, createdAt=path.stat().st_mtime))
+            core.save(root, p)
+            skipped += 1
+            core.emit('Skipped existing export: ' + relative, exportLanguage=view['selectedLanguage'], exportSkipped=True, skippedExport=relative)
         except Exception as exc:
             failed.append(view['selectedLanguage'])
             core.emit(core.safe_error(exc), exportLanguage=view['selectedLanguage'], exportFailed=True)
+    core.emit(f'Export finished: {completed} created, {skipped} skipped, {len(failed)} failed.', exportSummary=dict(created=completed, skipped=skipped, failed=len(failed)))
     if failed:
         raise ValueError('Some exports could not be completed: ' + ', '.join(failed) + '. Completed exports are saved.')
 
@@ -661,3 +678,94 @@ def organize_exports(root, p, core, recover_only=False):
     core.save(root, p)
     journal.unlink()
     core.emit('Exports organized into language folders', movedExports=len(moves))
+
+
+def asset_folder(group, code, result_label=None):
+    """Readable portable folders; shared files remain one recording."""
+    if group not in ('audio-description', 'imports'):
+        raise ValueError('Unsupported language asset folder.')
+    if code == 'shared': label = 'Shared'
+    elif code == 'auto': label = 'Auto'
+    else: label = output_languages.options()[language(code)] + ' (' + code + ')'
+    return group + '/' + label + ('/' + result_label if result_label else '')
+
+
+def generation_asset_folder(group, code):
+    if not _transaction: return asset_folder(group, code)
+    kind = 'descriptions' if group == 'audio-description' else _transaction['kinds'][0]
+    rid = _transaction['resultIDs'][kind]
+    versions = [r.get('version', 0) for r in _transaction['base']['languageResults'] if r['kind'] == kind and r['language'] == code]
+    return asset_folder(group, code, result_folder_label(kind, max(versions, default=0) + 1, rid))
+
+
+def result_folder_label(kind, version, rid):
+    title = {'descriptions': 'Descriptions', 'adAudio': 'Imported AD Audio', 'transcript': 'Transcript', 'summary': 'Summary'}[kind]
+    # IDs loaded from portable projects cannot inject a folder traversal.
+    safe_id = ''.join(c for c in str(rid) if c.isascii() and (c.isalnum() or c in '-_'))[:100] or 'result'
+    return title + ' - Version ' + str(int(version)) + ' - ' + safe_id
+
+
+def organize_assets(root, p, core):
+    """Journal moves and rewrite every result/draft/history reference together."""
+    root = Path(root)
+    journal = core.local(root, 'metadata/.language-assets.json')
+    if journal.exists():
+        moves = json.loads(journal.read_text(encoding='utf-8'))['moves']
+    else:
+        owners = {}
+        def collect(node, owner):
+            if isinstance(node, dict):
+                for key, value in node.items():
+                    if key in ('audio', 'path') and isinstance(value, str) and value.startswith(('audio-description/', 'imports/')):
+                        owners.setdefault(value, set()).add(owner)
+                    else: collect(value, owner)
+            elif isinstance(node, list):
+                for value in node: collect(value, owner)
+        for result in p.get('languageResults', []):
+            collect(result, (language(result['language']), result_folder_label(result['kind'], result['version'], result['id'])))
+        # Original soundtrack is project-wide, never assigned a translation language.
+        original = (p.get('originalAudio') or {}).get('path')
+        moves = {}; reserved = set()
+        for old, result_owners in sorted(owners.items()):
+            if old == original: continue
+            source = core.local(root, old)
+            if not source.is_file(): continue  # Never guess a replacement for missing historical audio.
+            codes = {owner[0] for owner in result_owners}
+            code = next(iter(codes)) if len(codes) == 1 else 'shared'
+            label = next(iter(result_owners))[1] if len(result_owners) == 1 else 'Shared Results'
+            group = old.split('/')[0]
+            folder = Path(asset_folder(group, code, label))
+            target = folder / source.name
+            if target.as_posix() == old: continue
+            number = 2
+            while core.local(root, target.as_posix()).exists() or target.as_posix().casefold() in reserved:
+                target = folder / (source.stem + ' (' + str(number) + ')' + source.suffix); number += 1
+            moves[old] = target.as_posix(); reserved.add(target.as_posix().casefold())
+        if not moves: return
+        journal.parent.mkdir(parents=True, exist_ok=True)
+        core.atomic_json(journal, dict(moves=moves))
+    validated = []
+    for old, new in moves.items():
+        group = old.split('/')[0]
+        if group not in ('audio-description', 'imports') or not new.startswith(group + '/'):
+            raise ValueError('Invalid language asset organization journal.')
+        source, target = core.local(root, old), core.local(root, new)
+        base = core.local(root, group)
+        if not source.is_relative_to(base) or not target.is_relative_to(base) or source == base or target == base:
+            raise ValueError('Language asset move is outside its project folder.')
+        validated.append((source, target))
+    for source, target in validated:
+        if source.exists():
+            if target.exists(): raise ValueError('Language asset destination is occupied; both files were preserved.')
+            target.parent.mkdir(parents=True, exist_ok=True); source.rename(target)
+        elif not target.is_file():
+            raise ValueError('A language asset being organized is unavailable. Restore it and retry.')
+    def rewrite(node):
+        if isinstance(node, str): return moves.get(node, node)
+        if isinstance(node, dict): return {key: rewrite(value) for key, value in node.items()}
+        if isinstance(node, list): return [rewrite(value) for value in node]
+        return node
+    updated = rewrite(p); p.clear(); p.update(updated)
+    core.atomic_json(root / 'project.json', p)
+    journal.unlink()
+    core.emit('Language assets organized; saved results and edit history links updated', movedLanguageAssets=len(moves))

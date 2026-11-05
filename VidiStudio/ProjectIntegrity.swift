@@ -24,6 +24,7 @@ enum ProjectFileCategory: String, CaseIterable, Sendable {
     case metadata
     case thumbnails
     case narration
+    case narrationHistory
     case importedAssets
     case exports
     case significantLoss
@@ -34,6 +35,7 @@ enum ProjectFileCategory: String, CaseIterable, Sendable {
         case .source: return "Original Video"
         case .metadata: return "Video Details"
         case .thumbnails: return "Timeline Pictures"
+        case .narrationHistory: return "Narration in Edit History"
         case .narration: return "Narration Audio"
         case .importedAssets: return "Imported Assets"
         case .exports: return "Exports"
@@ -47,7 +49,7 @@ enum ProjectFileCategory: String, CaseIterable, Sendable {
         case .source: return "film"
         case .metadata: return "info.circle"
         case .thumbnails: return "photo.on.rectangle.angled"
-        case .narration: return "waveform"
+        case .narration, .narrationHistory: return "waveform"
         case .importedAssets: return "square.and.arrow.down"
         case .exports: return "square.and.arrow.up"
         case .significantLoss: return "externaldrive.badge.exclamationmark"
@@ -83,10 +85,11 @@ struct ProjectNarrationReference: Hashable, Sendable {
     let path: String
     let segmentNumber: Int
     let timeRange: String
+    var historyOnly: Bool = false
 
     var displayName: String {
         let range = timeRange.isEmpty ? "" : " · \(timeRange)"
-        return "\(path) (AD \(segmentNumber)\(range))"
+        return historyOnly ? "\(path) (Edit history\(range))" : "\(path) (AD \(segmentNumber)\(range))"
     }
 }
 
@@ -166,6 +169,7 @@ struct ProjectIntegrityReport: Equatable, Sendable {
         if isDamaged { return "Project Is Marked as Damaged" }
         if problems.count == 1, let problem = problems.first {
             switch problem.category {
+            case .narrationHistory: return "Edit History Audio Is Missing"
             case .narration: return "Narration Audio Is Missing"
             case .thumbnails: return "Timeline Pictures Are Missing"
             case .metadata: return "Video Details Are Missing"
@@ -197,6 +201,8 @@ struct ProjectIntegrityReport: Equatable, Sendable {
         }
         if problems.count == 1, let problem = problems.first {
             switch problem.category {
+            case .narrationHistory:
+                return "\(problem.missingCount) older narration recordings referenced only by edit history are missing. Saved description results and their current narration are unaffected."
             case .narration:
                 return "Narration audio is missing for \(problem.missingCount) AD segment\(problem.missingCount == 1 ? "" : "s"). The description text and timing are safe, and the missing audio can be regenerated."
             case .thumbnails:
@@ -382,7 +388,9 @@ enum ProjectIntegrityAuditor {
 
         // Referenced narration audio. Cues without an audio path have simply
         // not been narrated yet and are not damage.
-        let narrationReferences = uniqueNarrationReferences(manifest.narrationReferences)
+        let allNarration = uniqueNarrationReferences(manifest.narrationReferences.sorted { !$0.historyOnly && $1.historyOnly })
+        let narrationReferences = allNarration.filter { !$0.historyOnly }
+        let historyReferences = allNarration.filter { $0.historyOnly }
         var missingNarration: [ProjectMissingFile] = []
         for reference in narrationReferences {
             guard let url = resolve(reference.path, in: folder), fileState(url, allowDirectory: false) == .ok else {
@@ -406,6 +414,21 @@ enum ProjectIntegrityAuditor {
                 missingFiles: missingNarration,
                 expectedCount: narrationReferences.count
             ))
+        }
+
+        let missingHistory = historyReferences.filter { reference in
+            guard let url = resolve(reference.path, in: folder) else { return true }
+            return fileState(url, allowDirectory: false) != .ok
+        }.map { ProjectMissingFile(path: $0.path, displayName: $0.displayName) }
+        trackedFiles += historyReferences.count
+        if !missingHistory.isEmpty {
+            missingFiles += missingHistory.count
+            problems.append(ProjectFileProblem(category: .narrationHistory, severity: .warning,
+                title: "Older narration in edit history is missing",
+                detail: "\(missingHistory.count) older recordings referenced only by undo/redo history are missing or empty.",
+                impact: "Saved results and current playback are unaffected. Undoing to these older edits may require generating narration again.",
+                recovery: "Restore the original recordings from a backup, or regenerate narration after restoring an older edit. Moving current files cannot recreate older recordings.",
+                missingFiles: missingHistory, expectedCount: historyReferences.count))
         }
 
         // Imported assets are copied into the project and are never recreated by
@@ -617,7 +640,7 @@ enum ProjectIntegrityAuditor {
         return references.compactMap { reference in
             let path = reference.path.trimmingCharacters(in: .whitespacesAndNewlines)
             guard !path.isEmpty, seen.insert(path).inserted else { return nil }
-            return ProjectNarrationReference(path: path, segmentNumber: reference.segmentNumber, timeRange: reference.timeRange)
+            return ProjectNarrationReference(path: path, segmentNumber: reference.segmentNumber, timeRange: reference.timeRange, historyOnly: reference.historyOnly)
         }
     }
 }

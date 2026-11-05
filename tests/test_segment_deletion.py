@@ -138,10 +138,12 @@ class SegmentDeletion(unittest.TestCase):
             self.assertNotIn('song', [row['id'] for row in saved['transcript']])
             self.assertEqual([(row['id'], row['start'], row['end']) for row in saved['transcript']],
                              [(row['id'], row['start'], row['end']) for row in project['transcript'] if row['id'] != 'song'])
-            self.assertTrue((audio / 'song-ad.wav').exists())  # retained by undo history
-            self.assertTrue(any(row.get('audio') == 'audio-description/song-ad.wav' for snapshot in saved['undoStack'] for row in snapshot))
-            self.assertTrue((audio / 'opening-ad.wav').exists())
-            self.assertTrue((audio / 'conflicting-ad.wav').exists())
+            historical = next(row['audio'] for snapshot in saved['undoStack'] for row in snapshot if row['id'] == 'song-ad')
+            self.assertTrue((root/historical).is_file())
+            self.assertEqual((root/historical).read_bytes(), b'fixture audio')
+            self.assertIn('/Auto/', historical)
+            for name in ('opening-ad.wav', 'conflicting-ad.wav'):
+                self.assertTrue(any(path.is_file() for path in audio.rglob(name)))
             self.assertEqual(saved['status'], 'Ready')
 
 

@@ -17,6 +17,12 @@ from types import SimpleNamespace
 from pathlib import Path
 
 
+class ExportAlreadyExists(ValueError):
+    def __init__(self, relative):
+        self.relative = relative
+        super().__init__('An export with these options already exists. Confirm replacement to overwrite it.')
+
+
 class ProcessingCancelled(Exception):
     pass
 
@@ -280,18 +286,19 @@ def cleanup_project_storage(root, project):
             if path.resolve() not in referenced_thumbnails: remove(path)
         remove_empty_directory(thumbnail_root)
 
-    referenced_audio = {local(root, path) for path in language_results.referenced_paths(project)}
-    audio_root = root/'audio-description'
-    if audio_root.exists():
-        for path in list(audio_root.iterdir()):
-            if path.resolve() not in referenced_audio: remove(path)
-        remove_empty_directory(audio_root)
-
-    imports_root = root/'imports'
-    if imports_root.exists():
-        retained = {local(root, path) for path in language_results.referenced_paths(project)}
-        for path in list(imports_root.iterdir()):
-            if path.resolve() not in retained: remove(path)
+    retained_assets = {local(root, path) for path in language_results.referenced_paths(project)}
+    def clean_asset(path):
+        resolved = path.resolve()
+        if resolved in retained_assets: return
+        if path.is_dir() and not path.is_symlink() and any(resolved in kept.parents for kept in retained_assets):
+            for child in list(path.iterdir()): clean_asset(child)
+            remove_empty_directory(path)
+        else: remove(path)
+    for group in ('audio-description', 'imports'):
+        asset_root = root/group
+        if asset_root.exists():
+            for path in list(asset_root.iterdir()): clean_asset(path)
+            remove_empty_directory(asset_root)
 
     referenced_exports = {local(root, path) for path in project.get('exports', [])}
     exports_root = root/'exports'
@@ -1475,7 +1482,8 @@ def synthesize(root,p,segment=None,changed=False,regenerate_all=False,segments=N
     signature = narration_signature(cfg)
     engine_name = narration_engine(cfg)
     voice_name = narration_voice(cfg)
-    (root/'audio-description').mkdir(parents=True, exist_ok=True)
+    narration_folder = language_results.generation_asset_folder('audio-description', os.environ.get('VIDISTUDIO_OUTPUT_LANGUAGE', p.get('selectedLanguage', 'auto')))
+    local(root, narration_folder).mkdir(parents=True, exist_ok=True)
     had_prior_narration = any(bool(c.get('audio') and local(root, c['audio']).is_file()) for c in cues)
     if not had_prior_narration and not p.get('narrationVoice'):
         p['narrationEngine'] = engine_name
@@ -1519,7 +1527,7 @@ def synthesize(root,p,segment=None,changed=False,regenerate_all=False,segments=N
             narratingTotal=len(cues),
             narratingQueue=queued_ids[attempted-1:],
         )
-        name = 'audio-description/' + str(uuid.uuid4()) + '.mp3'
+        name = narration_folder + '/' + str(uuid.uuid4()) + '.mp3'
         output = root/name
         previous_audio = c.get('audio')
         raw = None
@@ -1639,7 +1647,7 @@ def prepare_export_target(root, project, export_type, extension, replace_existin
     relative = export_relative_path(root, project, export_type, extension)
     output = root / relative
     if output.exists() and not replace_existing:
-        raise ValueError('An export with these options already exists. Confirm replacement to overwrite it.')
+        raise ExportAlreadyExists(relative)
     temporary = output.with_name(f'.{output.stem}.generating-{uuid.uuid4().hex}{output.suffix}')
     return relative, output, temporary
 
@@ -2806,7 +2814,7 @@ def export_hls_web(root, project, audio='closed-description', captions='none', c
     relative = export_relative_path(root, project, export_type, 'folder').removesuffix('.folder')
     output = root / relative
     if output.exists() and not replace_existing:
-        raise ValueError('An export with these options already exists. Confirm replacement to overwrite it.')
+        raise ExportAlreadyExists(relative)
     temporary = output.with_name(f'.{output.name}.generating-{uuid.uuid4().hex}')
     try:
         (temporary / 'video').mkdir(parents=True)

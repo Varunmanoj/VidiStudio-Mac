@@ -186,6 +186,49 @@ class LanguageResultsTests(unittest.TestCase):
         with patch.object(lr, '_export_language', 'hi'): self.assertEqual(lr.track_language(), 'hin')
 
 
+class LanguageAssetStorageTests(unittest.TestCase):
+    def test_moves_all_result_history_and_draft_links_preserving_bytes(self):
+        import vidistudio_engine as core
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp); (root/'audio-description').mkdir()
+            old = 'audio-description/voice.mp3'; (root/old).write_bytes(b'original recording')
+            p = dict(id='assets', cues=[dict(id='a', start=0, end=1, text='Scene', audio=old)], undoStack=[[dict(audio=old)]], exports=[])
+            lr.migrate(p); result = lr.active(p, 'descriptions'); result['language'] = 'en'
+            p['activeResultIDs'] = {'en': {'descriptions': result['id']}}; p['selectedLanguage'] = 'en'; lr.project(p)
+            lr.organize_assets(root, p, core)
+            new = p['cues'][0]['audio']
+            self.assertTrue(new.startswith('audio-description/English (en)/Descriptions - Version 1 - '))
+            self.assertEqual((root/new).read_bytes(), b'original recording')
+            self.assertEqual(result['payload']['undoStack'][0][0]['audio'], old)  # detached pre-move object
+            self.assertEqual(lr.active(p, 'descriptions')['payload']['undoStack'][0][0]['audio'], new)
+            core.cleanup_project_storage(root, p)
+            self.assertTrue((root/new).is_file())
+            snapshot = copy.deepcopy(p); lr.organize_assets(root, p, core); self.assertEqual(snapshot, p)
+            # Assigning another language moves the result without losing history or audio.
+            lr.active(p, 'descriptions')['language'] = 'hi'
+            lr.organize_assets(root, p, core)
+            moved = lr.find(p, result['id'])['payload']['cues'][0]['audio']
+            self.assertIn('/Hindi (hi)/', moved); self.assertEqual((root/moved).read_bytes(), b'original recording')
+
+    def test_recovery_and_shared_files_keep_every_reference(self):
+        import vidistudio_engine as core
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp); (root/'audio-description').mkdir()
+            old = 'audio-description/shared.mp3'; (root/old).write_bytes(b'voice')
+            p = dict(id='assets', cues=[dict(audio=old)], exports=[]); lr.migrate(p)
+            other = lr.record(p, 'descriptions', 'hi', copy.deepcopy(lr.active(p, 'descriptions')['payload']), state='draft')
+            p['languageResults'].append(other); lr.organize_assets(root, p, core)
+            paths = lr.referenced_paths(p); self.assertEqual(len(paths), 1)
+            moved = next(iter(paths)); self.assertIn('/Shared/Shared Results/', moved)
+            target = 'audio-description/Shared/Shared Results/recovered.mp3'
+            (root/moved).rename(root/target)
+            (root/'metadata').mkdir(exist_ok=True)
+            core.atomic_json(root/'metadata/.language-assets.json', dict(moves={moved:target}))
+            lr.organize_assets(root, p, core)
+            self.assertEqual(lr.referenced_paths(p), {target}); self.assertTrue((root/target).is_file())
+            self.assertFalse((root/'metadata/.language-assets.json').exists())
+
+
 class LanguageResultCLITests(unittest.TestCase):
     def setUp(self):
         self.tmp = tempfile.TemporaryDirectory()
@@ -245,6 +288,44 @@ class LanguageResultCLITests(unittest.TestCase):
         self.assertEqual({Path(path).parts[1] for path in p['exports']}, {'auto', 'hi'})
         self.assertEqual({v['language'] for v in p['exportResults'].values()}, {'auto', 'hi'})
         self.assertEqual({(self.root/path).read_text().strip() for path in p['exports']}, {'# Summary\n\nOriginal summary', '# Summary\n\nImported alternative'})
+
+    def test_existing_batch_outputs_skip_or_replace_only_after_choice(self):
+        self.cli('select-language', '--language', 'auto')
+        p = self.read(); rid = next(r['id'] for r in p['languageResults'] if r['kind'] == 'summary')
+        job = dict(language='auto', resultIDs=dict(summary=rid), command='export-subtitles', options=dict(content='summary', format='md'))
+        request = self.root/'batch.json'; request.write_text(json.dumps(dict(jobs=[job])))
+        self.cli('export-batch', '--input', request)
+        p = self.read(); relative = p['exports'][0]; output = self.root/relative
+        output.write_bytes(b'Keep original bytes')
+        before = output.stat().st_mtime_ns; provenance = p['exportResults'][relative]
+        # An untracked matching filename also belongs to the user and must survive cleanup.
+        p['exports'] = []; p['exportResults'] = {}; self.project.write_text(json.dumps(p))
+        skipped = self.cli('export-batch', '--input', request)
+        self.assertEqual(output.read_bytes(), b'Keep original bytes')
+        self.assertEqual(output.stat().st_mtime_ns, before)
+        self.assertIn(relative, self.read()['exports'])
+        self.assertIn('"skipped": 1', skipped.stdout)
+        job['replaceExisting'] = True
+        request.write_text(json.dumps(dict(jobs=[job])))
+        replaced = self.cli('export-batch', '--input', request)
+        self.assertIn('Original summary', output.read_text())
+        self.assertIn('"created": 1', replaced.stdout)
+        self.assertEqual(self.read()['exportResults'][relative]['resultIDs'], provenance['resultIDs'])
+
+    def test_mixed_batch_skips_existing_and_creates_remaining_language(self):
+        self.cli('import-summary', '--input', self.input, '--language', 'hi')
+        p = self.read(); jobs = []
+        for code in ('auto', 'hi'):
+            rid = next(r['id'] for r in p['languageResults'] if r['kind'] == 'summary' and r['language'] == code)
+            jobs.append(dict(language=code, resultIDs=dict(summary=rid), command='export-subtitles', options=dict(content='summary', format='md')))
+        request = self.root/'batch.json'; request.write_text(json.dumps(dict(jobs=jobs[:1])))
+        self.cli('export-batch', '--input', request)
+        relative = self.read()['exports'][0]; before = (self.root/relative).read_bytes()
+        request.write_text(json.dumps(dict(jobs=jobs)))
+        result = self.cli('export-batch', '--input', request)
+        self.assertEqual((self.root/relative).read_bytes(), before)
+        self.assertEqual(len(self.read()['exports']), 2)
+        self.assertIn('"created": 1, "skipped": 1, "failed": 0', result.stdout)
 
     def test_invalid_batch_selection_writes_no_exports(self):
         self.cli('select-language', '--language', 'auto')

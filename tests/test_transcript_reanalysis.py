@@ -150,8 +150,9 @@ class TranscriptRangeTests(unittest.TestCase):
             for action in ['undo-transcript','redo-transcript']:
                 result=subprocess.run(command+[action,'--project',str(root)],capture_output=True,text=True)
                 self.assertEqual(result.returncode,0,result.stdout+result.stderr)
-                current=json.loads(project.read_text());self.assertEqual([{k:v for k,v in cue.items() if k!='audioOrigin'} for cue in current['cues']],p['cues'])
-                self.assertEqual(audio.read_bytes(),b'preserve narration')
+                current=json.loads(project.read_text())
+                self.assertEqual([{k:v for k,v in cue.items() if k not in ('audioOrigin','audio')} for cue in current['cues']], [{k:v for k,v in cue.items() if k!='audio'} for cue in p['cues']])
+                self.assertEqual((root/current['cues'][0]['audio']).read_bytes(),b'preserve narration')
             self.assertEqual(current['transcript'],p['transcript'])
             e.delete_generated_components(root,current,['history'])
             self.assertEqual(current['transcriptUndoStack'],[]);self.assertEqual(current['transcriptRedoStack'],[])

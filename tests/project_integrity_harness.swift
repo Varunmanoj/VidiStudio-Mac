@@ -42,6 +42,12 @@ struct ProjectIntegrityHarness {
         try write("imports/ad.wav")
         try write("exports/out.wav")
 
+        let historical = ProjectNarrationReference(path: "audio-description/older.mp3", segmentNumber: 0, timeRange: "Auto · Version 1", historyOnly: true)
+        let historyReport = ProjectIntegrityAuditor.audit(manifest(narration: [ProjectNarrationReference(path: "audio-description/one.mp3", segmentNumber: 1, timeRange: ""), historical]))
+        precondition(historyReport.problems.count == 1 && historyReport.problems[0].category == .narrationHistory)
+        precondition(!historyReport.canRegenerateNarration && historyReport.message.contains("unaffected"))
+        precondition(historyReport.problems[0].missingFiles[0].displayName.contains("Edit history"))
+
         let healthy = ProjectIntegrityAuditor.audit(manifest())
         precondition(healthy.level == .healthy, "healthy project should be healthy")
         precondition(healthy.isHealthy, "healthy project should report healthy")

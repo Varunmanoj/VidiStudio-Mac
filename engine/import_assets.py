@@ -267,8 +267,10 @@ def confirm_replacement(existing, replace):
         raise ValueError('This asset already exists. Confirm replacement and retry with --replace-existing.')
 
 
-def copy_asset(root, source, core, created, folder='imports'):
+def copy_asset(root, source, core, created, folder='imports', language_specific=True):
     source = Path(source)
+    import language_results, os
+    if language_specific: folder = language_results.generation_asset_folder(folder, os.environ.get('VIDISTUDIO_OUTPUT_LANGUAGE', 'auto'))
     relative = f'{folder}/{uuid.uuid4().hex}{source.suffix.lower()}'
     target = core.local(root, relative)
     target.parent.mkdir(parents=True, exist_ok=True)

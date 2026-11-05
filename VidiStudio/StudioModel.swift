@@ -2741,6 +2741,7 @@ final class StudioModel {
         }
         var completedExportPath: String?
         var completedExportPaths: [String] = []
+        var exportSummaryMessage: String?
         let canRecoverYouTubeAudio = target?.isYouTubeURLProject == true &&
             ["export-youtube-original-audio", "export-youtube-described-audio", "combine-imported-audio"].contains(command)
         var youtubeAudioUnavailable = false
@@ -2927,6 +2928,7 @@ final class StudioModel {
                                 failures: failures)
                         }
                     }
+                    if event["exportSummary"] != nil { exportSummaryMessage = event["message"] as? String }
                     if let path = event["export"] as? String { completedExportPath = path; completedExportPaths.append(path) }
                     if let raw = event["importReport"] as? [String: Any],
                        let data = try? JSONSerialization.data(withJSONObject: raw),
@@ -3036,6 +3038,7 @@ final class StudioModel {
                         technicalDetails: deferredExportError, context: "\(command) stopped")
             }
             if task.terminationStatus == 0 {
+                if let exportSummaryMessage { message = exportSummaryMessage }
                 if Self.isAICommand(command) { aiServiceIssue = nil }
                 self.errorTitle = StudioModel.defaultErrorTitle
             } else if isKeyCheck && !staleKeyCheck && !keyCheckGotVerdict {

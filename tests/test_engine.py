@@ -289,7 +289,7 @@ class Validation(unittest.TestCase):
             report = next(call.kwargs for call in emit.call_args_list if 'narrationFailures' in call.kwargs)
             self.assertEqual(report['narrationFailures'][0]['reason'], expected)
             self.assertEqual(report['narrationGenerated'], 0)
-            self.assertFalse(list((root/'audio-description').iterdir()))
+            self.assertFalse([path for path in (root/'audio-description').rglob('*') if path.is_file()])
 
     def test_one_failing_description_does_not_stop_the_rest(self):
         with tempfile.TemporaryDirectory(prefix='vidistudio-test-') as temp:
@@ -511,7 +511,7 @@ class Validation(unittest.TestCase):
                 with self.assertRaises(engine.ProcessingCancelled):
                     engine.synthesize(root, project, regenerate_all=True)
             self.assertEqual(json.loads((root/'project.json').read_text())['narrationVoice'], 'Puck')
-            self.assertFalse(list((root/'audio-description').iterdir()))
+            self.assertFalse([path for path in (root/'audio-description').rglob('*') if path.is_file()])
 
     @unittest.skipUnless(sys.platform == 'darwin', 'Requires macOS system speech.')
     def test_regenerate_all_cli_keeps_new_primary_voice_when_audio_does_not_fit(self):

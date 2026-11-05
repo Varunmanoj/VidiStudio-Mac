@@ -73,6 +73,8 @@ struct ProjectIntegrityBanner: View {
         }
         if report.problems.count == 1, let problem = report.problems.first {
             switch problem.category {
+            case .narrationHistory:
+                return "Older narration in edit history is missing. Current saved results are unaffected."
             case .narration:
                 return "Narration audio is missing for \(problem.missingCount) AD segment\(problem.missingCount == 1 ? "" : "s"). It can be regenerated."
             case .thumbnails:

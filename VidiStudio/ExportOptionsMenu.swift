@@ -1,4 +1,5 @@
 import SwiftUI
+import AppKit
 
 enum VideoCaptionOption: Hashable {
     case none
@@ -181,7 +182,7 @@ enum StudioExportAction: Hashable {
         let trimming = CharacterSet(charactersIn: " .-")
         name = name.trimmingCharacters(in: trimming)
         if name.isEmpty { name = "Project" }
-        name = String(name.prefix(100)).trimmingCharacters(in: trimming)
+        name = String(String.UnicodeScalarView(name.unicodeScalars.prefix(100))).trimmingCharacters(in: trimming)
         return name.isEmpty ? "Project" : name
     }
 }
@@ -338,7 +339,6 @@ struct ExportDialog: View {
     let perform: (StudioExportAction, Bool) -> Void
     @State private var exportLanguages: Set<String>
     @State private var exportSelections: [String: [String: String]] = [:]
-    @State private var replacementLanguages: Set<String> = []
     @State private var category: ExportCategory
     @State private var videoFormat = "mkv"
     @State private var audioFormat = "wav"
@@ -350,7 +350,6 @@ struct ExportDialog: View {
     @State private var textFormat: String
     @State private var webAudio = VideoAudioChoice.closedDescription
     @State private var webTranscript = VideoTranscriptChoice.none
-    @State private var replacementAction: StudioExportAction?
     @State private var openCaptionAction: StudioExportAction?
 
     private let textTypes: [(title: String, content: String)] = [
@@ -378,7 +377,6 @@ struct ExportDialog: View {
         _audioChoice = State(initialValue: project.isYouTubeURLProject ? .youtubeOriginal : narrationReady ? .described : .original)
         _textContent = State(initialValue: firstText)
         _textFormat = State(initialValue: firstText == "summary" ? "md" : "srt")
-        _replacementAction = State(initialValue: nil)
         _openCaptionAction = State(initialValue: nil)
     }
 
@@ -454,7 +452,7 @@ struct ExportDialog: View {
                 .padding(.top, 20)
                 .padding(.bottom, 8)
                 Form {
-                    ExportLanguageSelectionView(project: sourceProject, languages: $exportLanguages, selections: $exportSelections, replacements: $replacementLanguages)
+                    ExportLanguageSelectionView(project: sourceProject, languages: $exportLanguages, selections: $exportSelections)
                     switch category {
                     case .video:
                         Section {
@@ -599,26 +597,7 @@ struct ExportDialog: View {
                 Text("Open captions become a permanent part of the picture, so VidiStudio must create a new copy of the video. It keeps the same picture size and preserves HDR where possible, but some original quality or iPhone Dolby Vision information may change. For the closest match to the original, use closed captions instead.")
             }
         }
-        .alert(
-            "Replace Existing Export?",
-            isPresented: Binding(
-                get: { replacementAction != nil },
-                set: { if !$0 { replacementAction = nil } }
-            ),
-            presenting: replacementAction
-        ) { action in
-            Button("Cancel", role: .cancel) {
-                replacementAction = nil
-            }
-            Button("Replace Export", role: .destructive) {
-                replacementAction = nil
-                guard !busy, canPerform(action) else { return }
-                dismiss()
-                perform(action, true)
-            }
-        } message: { action in
-            Text("\(URL(fileURLWithPath: action.targetRelativePath(for: project)).lastPathComponent) already exists. Replacing it permanently deletes the current export and saves the new one in its place.")
-        }
+
     }
 
     private var hasGeneratedADSource: Bool { project.hasCompleteExportNarration() }
@@ -713,14 +692,52 @@ struct ExportDialog: View {
                 options[key] = action.arguments[index + 1]; index += 2
             } else { options[key] = true; index += 1 }
         }
-        let jobs: [[String: Any]] = exportLanguages.sorted().map { code in
+        var jobs: [[String: Any]] = exportLanguages.sorted().map { code in
             var ids: [String: String] = [:]
             for kind in ["transcript", "summary", "descriptions", "adAudio"] {
                 let rid = exportSelections[code]?[kind] ?? sourceProject.activeLanguageResultID(kind, language: code)
                 if !rid.isEmpty { ids[kind] = rid }
             }
             return ["language": code, "resultIDs": ids, "command": action.command,
-                    "options": options, "replaceExisting": replacementLanguages.contains(code)]
+                    "options": options, "projectName": sourceProject.name, "replaceExisting": false]
+        }
+        // Freeze names and result IDs before asking about existing destinations.
+        var collisions: [(Int, String)] = []
+        for (index, job) in jobs.enumerated() {
+            let code = job["language"] as! String
+            let ids = job["resultIDs"] as! [String: String]
+            var target = sourceProject
+            target.selectedLanguage = code
+            let prefix = String(String.UnicodeScalarView(sourceProject.name.unicodeScalars.prefix(40)))
+            let suffix = ids.values.map { String($0.prefix(8)) }.sorted().joined(separator: "-").replacingOccurrences(of: "-", with: ".")
+            target.name = prefix + " [" + code + (suffix.isEmpty ? "" : " " + suffix) + "]"
+            let path = action.targetRelativePath(for: target)
+            let legacyExists = sourceProject.exports.contains { old in
+                let oldCode = sourceProject.exportResults?[old]?.language ?? (old.split(separator: "/").count > 2 ? String(old.split(separator: "/")[1]) : "auto")
+                return oldCode == code && URL(fileURLWithPath: old).lastPathComponent == URL(fileURLWithPath: path).lastPathComponent && sourceProject.hasFile(old)
+            }
+            if sourceProject.hasFile(path) || legacyExists { collisions.append((index, path)) }
+        }
+        if !collisions.isEmpty {
+            let alert = NSAlert()
+            alert.messageText = collisions.count == 1 ? "Replace Existing Export?" : "Replace Existing Exports?"
+            alert.informativeText = "These outputs already exist. Replace Existing saves new exports in their place. Skip Existing preserves them and exports the remaining outputs. A Web Playback folder is treated as one output."
+            let scroll = NSScrollView(frame: NSRect(x: 0, y: 0, width: 480, height: min(200, 36 + collisions.count * 36)))
+            scroll.hasVerticalScroller = true
+            let list = NSTextView(frame: scroll.bounds)
+            list.isEditable = false
+            list.string = collisions.map { $0.1 }.joined(separator: "\n")
+            list.setAccessibilityLabel("Existing export destinations")
+            scroll.documentView = list
+            alert.accessoryView = scroll
+            alert.addButton(withTitle: "Replace Existing")
+            alert.addButton(withTitle: "Skip Existing")
+            alert.addButton(withTitle: "Cancel").keyEquivalent = "\u{1b}"
+            let choice = alert.runModal()
+            guard choice != .alertThirdButtonReturn else { return }
+            if choice == .alertFirstButtonReturn {
+                for (index, _) in collisions { jobs[index]["replaceExisting"] = true }
+            }
         }
         studio.executeResultRequest("export-batch", request: ["jobs": jobs], project: sourceProject)
         dismiss()
