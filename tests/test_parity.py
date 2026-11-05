@@ -15,7 +15,12 @@ class Parity(unittest.TestCase):
         self.assertEqual(transcript['system_instruction'], 'Transcript system.\n\nUnderstand every language.')
         self.assertEqual(transcript['user_prompt'], 'Transcript user.\n\nPreserve original scripts.')
         rewrite = parity.media_prompt_pair({'prompts': prompts}, 'text_rewrite')
-        self.assertEqual(rewrite, prompts['text_rewrite'])
+        self.assertIn('Rewrite system.', rewrite['system_instruction'])
+        self.assertIn('Rewrite user.', rewrite['user_prompt'])
+        self.assertNotIn('Understand every language.', rewrite['system_instruction'])
+        self.assertNotIn('Preserve original scripts.', rewrite['user_prompt'])
+        self.assertIn('Preserve the language of the supplied description.', rewrite['system_instruction'])
+        self.assertEqual(prompts['text_rewrite']['system_instruction'], 'Rewrite system.')
         self.assertEqual(parity.MULTILINGUAL_MEDIA_PROMPT_KEYS, {
             'transcript', 'youtube_transcript', 'summary', 'audio_descriptions', 'screen_text', 'youtube_screen_text'
         })

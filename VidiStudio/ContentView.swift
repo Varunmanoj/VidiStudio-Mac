@@ -1726,6 +1726,22 @@ struct ProjectEditor: View {
         studio.settings.captionDisplayMode = modes[(currentIndex + 1) % modes.count]
     }
 
+    @ViewBuilder
+    private var sectionGenerationButton: some View {
+        if let action = generationAction {
+            Button(action.title, systemImage: action.icon) { studio.execute(action.command) }
+                .accessibilityLabel(action.title)
+                .disabled(studio.busy || !studio.hasValidApiKey || (action.command == "generate-ad-cues" && !project.canGenerateDescriptions))
+                .help(action.title + ". " + (!studio.hasApiKey
+                    ? "Enter your Gemini API key in Settings → Gemini API to enable this feature"
+                    : studio.isApiKeyInvalid
+                        ? "Gemini API key is invalid — enter a valid key in Settings → Gemini API to enable this feature"
+                        : action.command == "generate-ad-cues" && !project.canGenerateDescriptions
+                            ? "Generate the transcript and summary first"
+                            : action.command == "prepare-video" ? "Read video details and create timeline pictures without using AI" : action.title.hasPrefix("Regenerate") ? "Regenerate the existing content after confirmation" : "Generate content for this section"))
+        }
+    }
+
     private var editorToolbar: some View {
         HStack(spacing: 10) {
             ScrollView(.horizontal, showsIndicators: false) {
@@ -1838,20 +1854,9 @@ struct ProjectEditor: View {
                     }
                 }
             }
-            if let action = generationAction, !inspectorVisible {
-                Button(action.title, systemImage: action.icon) { studio.execute(action.command) }
-                    .labelStyle(.iconOnly)
-                    .accessibilityLabel(action.title)
-                    .disabled(studio.busy || !studio.hasValidApiKey || (action.command == "generate-ad-cues" && !project.canGenerateDescriptions))
-                    .help(action.title + ". " + (!studio.hasApiKey
-                        ? "Enter your Gemini API key in Settings → Gemini API to enable this feature"
-                        : studio.isApiKeyInvalid
-                            ? "Gemini API key is invalid — enter a valid key in Settings → Gemini API to enable this feature"
-                            : action.command == "generate-ad-cues" && !project.canGenerateDescriptions
-                                ? "Generate the transcript and summary first"
-                                : action.command == "prepare-video" ? "Read video details and create timeline pictures without using AI" : action.title.hasPrefix("Regenerate") ? "Regenerate the existing content after confirmation" : "Generate content for this section"))
-                    .fixedSize()
-            }
+            sectionGenerationButton
+                .labelStyle(.iconOnly)
+                .fixedSize()
             if tab == "descriptions" || tab == "transcript" {
                 Menu {
                     Button(tab == "transcript" ? "Add Transcript Segment" : "Add Audio Description Segment", systemImage: "plus") {
@@ -2533,7 +2538,19 @@ struct ProjectEditor: View {
             } else {
                 let segments = transcriptRows
                 if segments.isEmpty {
-                    ContentUnavailableView(tab == "descriptions" ? "Describe what matters" : "Your transcript appears here", systemImage: tab == "descriptions" ? "text.below.photo" : "text.bubble", description: Text(tab == "descriptions" ? "Generate descriptions from the inspector or add a segment manually." : tab == "ad-transcript" ? "Transcribe the video or add audio descriptions to see them together here." : "Use Transcribe Video in the inspector to begin."))
+                    ContentUnavailableView {
+                        Label(tab == "descriptions" ? "Describe what matters" : "Your transcript appears here", systemImage: tab == "descriptions" ? "text.below.photo" : "text.bubble")
+                    } description: {
+                        Text(tab == "descriptions" ? "Generate descriptions, import existing descriptions, or add a segment manually." : tab == "ad-transcript" ? "Transcribe the video or add audio descriptions to see them together here." : "Generate a transcript or import an existing transcript to begin.")
+                    } actions: {
+                        if (tab == "transcript" && project.transcript.isEmpty) || (tab == "descriptions" && project.cues.isEmpty) {
+                            sectionGenerationButton
+                            Button(tab == "transcript" ? "Import Transcript…" : "Import Descriptions…", systemImage: "square.and.arrow.down") {
+                                importScope = tab == "transcript" ? .transcript : .descriptions
+                            }
+                            .disabled(studio.busy)
+                        }
+                    }
                 } else {
                     ScrollViewReader { reader in
                     List(segments) { row in
@@ -2964,6 +2981,7 @@ struct ProjectEditor: View {
         } description: {
             Text("Generate from a transcript, import an existing Markdown or TXT summary, or write one yourself. Importing and writing do not require a transcript or API key.")
         } actions: {
+            sectionGenerationButton
             Button("Import Summary…", systemImage: "square.and.arrow.down") { chooseSummaryToImport() }
                 .disabled(studio.busy)
                 .help("Import a Markdown or TXT summary without a transcript or API key")

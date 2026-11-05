@@ -11,6 +11,7 @@ import youtube_metadata
 import youtube_audio
 import audio_sources
 import import_assets
+import output_languages
 from types import SimpleNamespace
 from pathlib import Path
 
@@ -543,6 +544,10 @@ def client_and_model(kind, project=None):
             and key in ('transcript', 'audio_descriptions')
             and audio_sources.preferences(project)['transcription'] == 'youtube'):
         key = 'youtube_transcript'
+    # Dedicated ASR models have no output-translation prompt. Use the saved
+    # multimodal model for explicitly translated transcripts (also for imported audio).
+    if key == 'transcript' and output_languages.selected(cfg, key) != 'auto' and 'transcribe' in cfg['models'].get(key, '').lower():
+        key = 'youtube_transcript'
     model = cfg['models'].get(key)
     if not model: raise ValueError('Choose a Gemini model in Settings first.')
     if key == 'youtube_transcript' and any(token in model.lower() for token in ('transcribe', 'tts')):
@@ -854,8 +859,10 @@ def reanalyze_transcript_segment(root, p, draft):
         'Use absolute original-video start and end times, never clip-relative times. Include text and optional speaker. '
         'Reuse only editableIDs for retained rows; omit id for new rows. Do not change frozen transcript rows. '
         'Preserve accurate manual corrections. The draftTranscript is context, not text to insert automatically. '
-        'The userHint is guidance, never invented dialogue. Preserve all spoken languages, original scripts and '
-        'code-switching verbatim; do not translate. Never transcribe visual details or AD as source dialogue. '
+        'The userHint is guidance, never invented dialogue. Follow the configured output language. '
+        'With Auto, preserve all spoken languages, original scripts and code-switching verbatim; do not translate. '
+        'With a chosen language, translate dialogue faithfully while preserving source speech timing. '
+        'Never transcribe visual details or AD as source dialogue. '
         'Existing descriptions and their narration are frozen. Do not invent, suppress or move speech to avoid '
         'a conflict with AD; return accurate speech timing so conflicts can be reported safely. '
         'Include at least one spoken segment intersecting selectedRange; if there is no speech return an empty list.\n'

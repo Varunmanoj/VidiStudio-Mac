@@ -7,6 +7,7 @@ from urllib.parse import urlparse,parse_qs
 from urllib.request import urlopen as _urlopen
 import network_activity
 import gemini_adapter
+import output_languages
 import ssl
 import certifi
 COMMANDS=['import-youtube','prepare-video','validate-config','analyze','regenerate-all','capture-frame','rewrite-cue','export-subtitles','export-audio','rename-project','undo-cues','redo-cues','update-metadata','attach-video','delete-export','update-youtube-metadata','clear-youtube-data']
@@ -24,11 +25,14 @@ def urlopen(*args, **kwargs):
 def media_prompt_pair(cfg,key):
     """Add the shared multilingual guidance without changing task prompt defaults."""
     pair=dict(cfg['prompts'][key])
-    if key not in MULTILINGUAL_MEDIA_PROMPT_KEYS:return pair
-    shared=cfg.get('prompts',{}).get('multilingual_media',{}) or {}
+    shared=(cfg.get('prompts',{}).get('multilingual_media',{}) or {}) if key in MULTILINGUAL_MEDIA_PROMPT_KEYS else {}
     for field in ('system_instruction','user_prompt'):
         values=[str(value).strip() for value in (pair.get(field,''),shared.get(field,'')) if str(value).strip()]
         pair[field]='\n\n'.join(values)
+    language = output_languages.instruction(cfg, key)
+    if language:
+        for field in ('system_instruction', 'user_prompt'):
+            pair[field] = pair.get(field, '') + '\n\n' + language
     return pair
 
 def youtube_url(raw):
@@ -231,7 +235,7 @@ def execute(args,root,p,e):
     elif command=='rewrite-cue':
         cue=next((c for c in p['cues'] if c['id']==args.segment),None)
         if not cue:raise ValueError('Select a description to rewrite.')
-        client,model=e.client_and_model('text_rewrite');cfg=e.config();pair=cfg['prompts']['text_rewrite']
+        client,model=e.client_and_model('text_rewrite');cfg=e.config();pair=media_prompt_pair(cfg,'text_rewrite')
         try:
             result=client.interactions.create(model=model,input=render(pair['user_prompt'],p,text=cue['text'],target_duration=cue['end']-cue['start']),system_instruction=pair['system_instruction'])
             text=gemini_adapter.output_text(result).strip()

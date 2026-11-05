@@ -1151,6 +1151,7 @@ struct StudioSettings: Codable, Equatable {
     var geminiPlan = "free"
     var models: [String: String] = [:]
     var prompts: [String: [String: String]] = [:]
+    var outputLanguages: [String: String] = ["transcript": "auto", "summary": "auto", "audio_descriptions": "auto"]
     var apiVersion = "v1beta"
     var videoProcessing = "agentic"
 

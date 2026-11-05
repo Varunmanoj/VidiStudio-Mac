@@ -36,6 +36,17 @@ private struct GeminiModelMenuGroup: Identifiable {
     var id: GeminiModelGroup { group }
 }
 
+private enum GeminiOutputLanguages {
+    static let options: [GeminiModelRow] = {
+        guard let url = Bundle.main.resourceURL?.appendingPathComponent("Engine/_internal/ai-defaults.json"),
+              let data = try? Data(contentsOf: url),
+              let defaults = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+              let languages = defaults["outputLanguageOptions"] as? [String: String] else { return [] }
+        return languages.map { GeminiModelRow(id: $0.key, label: $0.value) }
+            .sorted { $0.label.localizedStandardCompare($1.label) == .orderedAscending }
+    }()
+}
+
 struct GeminiAPISettingsView: View {
     @Bindable var studio: StudioModel
     @Environment(\.openURL) private var openURL
@@ -70,6 +81,7 @@ struct GeminiAPISettingsView: View {
     ]
 
     var body: some View {
+        outputLanguageSections
         Section("Connect to Gemini") {
             if !hasApiKey {
                 HStack(alignment: .top, spacing: 10) {
@@ -301,6 +313,29 @@ struct GeminiAPISettingsView: View {
             Text("YouTube video")
         } footer: {
             Text("When Transcription source is YouTube video, transcription and Audio Descriptions automatically use the YouTube video model. When it is Imported audio, the two choices above are used and shared with Local video. Descriptions still analyze the YouTube picture and current transcript. Playback and export choices do not change the model. Summary and other task models remain shared. Changes apply to future requests.")
+        }
+    }
+
+    @ViewBuilder
+    private var outputLanguageSections: some View {
+        ForEach([GeminiModelRow(id: "transcript", label: "Transcript"),
+                 GeminiModelRow(id: "summary", label: "Summary"),
+                 GeminiModelRow(id: "audio_descriptions", label: "Descriptions")]) { row in
+            Section(row.label) {
+                Picker("Output language", selection: Binding(
+                    get: { studio.settings.outputLanguages[row.id] ?? "auto" },
+                    set: { studio.settings.outputLanguages[row.id] = $0 }
+                )) {
+                    Text("Auto (detect from video)").tag("auto")
+                    ForEach(GeminiOutputLanguages.options) { Text($0.label).tag($0.id) }
+                }
+                .accessibilityLabel("\(row.label) output language")
+                .accessibilityHint("Auto detects from the video. Choose a language to generate this section in that language.")
+                Text(row.id == "transcript"
+                    ? "Auto preserves every spoken language and original script. A chosen language translates dialogue while keeping speech timing. With a dedicated speech model selected, translation uses the YouTube video model for local and YouTube projects, including imported audio."
+                    : "Auto uses the primary language detected from the video; if none is identifiable, it uses English. Choose a language to generate this section in that language.")
+                    .font(.caption).foregroundStyle(.secondary)
+            }
         }
     }
 
