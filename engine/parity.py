@@ -7,6 +7,7 @@ from urllib.parse import urlparse,parse_qs
 from urllib.request import urlopen as _urlopen
 import network_activity
 import gemini_adapter
+import language_results
 import output_languages
 import ssl
 import certifi
@@ -182,6 +183,7 @@ def execute(args,root,p,e):
         p=dict(schemaVersion=2,id=str(uuid.uuid4()),name=name,source='',sourceType='youtube',youtubeURL=url,duration=args.duration or 0,width=0,height=0,hasAudio=True,createdAt=time.time(),updatedAt=time.time(),thumbnails=[thumbnail] if thumbnail else [],transcript=[],summary='',cues=[],exports=[],exportMediaInfo={},status='Imported')
         if details: p['youtubeMetadata']=details; p['duration']=details['duration']
         p['transcriptGenerated']=False;p['summaryGenerated']=False;p['descriptionsGenerated']=False
+        language_results.migrate(p, language_results.default_language(e.config() if hasattr(e, 'config') else {}))
         e.save(root,p);e.emit('YouTube project imported',project=str(root));return
     if command=='clear-youtube-data':
         removed=youtube_metadata.clear(root,p); e.save(root,p)
@@ -201,13 +203,7 @@ def execute(args,root,p,e):
         if command == 'analyze' and p.get('youtubeCaptionSource') and p.get('transcript') and args.start_stage == 'transcribe':
             args.start_stage = 'generate-summary'
         if args.start_stage not in stages:raise ValueError('Unknown analysis stage.')
-        if command == 'regenerate-all':
-            e.clear_generated(root,p)
-            e.save(root,p)
-            if p.get('source'):
-                e.atomic_json(root/'metadata/probe.json',e.probe(e.local(root,p['source'])))
-                e.thumbnails(root,p)
-            args.start_stage = 'transcribe'
+        if command == 'regenerate-all': args.start_stage = 'transcribe'
         p['hasProcessed'] = True
         for stage in stages[stages.index(args.start_stage):]:
             p['status']='Processing '+stage;e.save(root,p);e.ai_video(root,p,stage);e.save(root,p)

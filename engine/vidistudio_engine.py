@@ -12,6 +12,7 @@ import youtube_audio
 import audio_sources
 import import_assets
 import output_languages
+import language_results
 from types import SimpleNamespace
 from pathlib import Path
 
@@ -53,6 +54,9 @@ def config():
     env_key = (os.environ.get('VIDISTUDIO_API_KEY') or '').strip()
     if env_key:
         resolved['apiKey'] = env_key
+    selected_language = os.environ.get('VIDISTUDIO_OUTPUT_LANGUAGE')
+    if selected_language:
+        resolved['outputLanguages'] = {key: selected_language for key in ('transcript', 'summary', 'audio_descriptions')}
     return resolved
 
 
@@ -223,8 +227,7 @@ def migrate_project_schema(root, project):
         path: value for path, value in (project.get('exportMediaInfo') or {}).items()
         if path in valid_exports and isinstance(value, dict)
     }
-    project['schemaVersion'] = 2
-    return project
+    return language_results.migrate(project)
 
 
 def cleanup_project_storage(root, project):
@@ -264,6 +267,7 @@ def cleanup_project_storage(root, project):
         remove(root/'metadata'/duplicate)
     for pattern in ('ocr-*.json',):
         for path in (root/'metadata').glob(pattern): remove(path)
+    # Editable history and recoverable drafts live in result payloads in project.json.
     remove(root/'metadata/history')
     remove(root/'metadata/trash')
     for finder_file in root.rglob('.DS_Store'):
@@ -276,12 +280,18 @@ def cleanup_project_storage(root, project):
             if path.resolve() not in referenced_thumbnails: remove(path)
         remove_empty_directory(thumbnail_root)
 
-    referenced_audio = {local(root, cue['audio']) for cue in project.get('cues', []) if cue.get('audio')}
+    referenced_audio = {local(root, path) for path in language_results.referenced_paths(project)}
     audio_root = root/'audio-description'
     if audio_root.exists():
         for path in list(audio_root.iterdir()):
             if path.resolve() not in referenced_audio: remove(path)
         remove_empty_directory(audio_root)
+
+    imports_root = root/'imports'
+    if imports_root.exists():
+        retained = {local(root, path) for path in language_results.referenced_paths(project)}
+        for path in list(imports_root.iterdir()):
+            if path.resolve() not in retained: remove(path)
 
     referenced_exports = {local(root, path) for path in project.get('exports', [])}
     exports_root = root/'exports'
@@ -303,7 +313,8 @@ def cleanup_project_storage(root, project):
 
 
 def save(root, p):
-    p['schemaVersion'] = 2
+    if language_results.checkpoint(root, p, atomic_json): return
+    language_results.capture(p)
     import_assets.audit_timing(p)
     p['updatedAt'] = time.time()
     atomic_json(root / 'project.json', p)
@@ -662,6 +673,11 @@ def list_models():
 
 def delete_description_narration(root, project):
     """Remove saved narration while preserving the current description text and timing."""
+    if language_results._transaction:
+        for cue in project.get('cues', []):
+            for key in list(cue):
+                if key.startswith('audio'): cue.pop(key, None)
+        return False
     folder = root/'audio-description'
     if folder.is_symlink():
         raise ValueError('Cannot delete narration from a symbolic-link folder.')
@@ -1004,8 +1020,7 @@ def _ai_video_once(root, p, stage):
             prompt=parity.render(pair['user_prompt'],p)
             if stage=='generate-ad-cues':
                 prompt+=parity.description_context(p)
-                if delete_description_narration(root, p):
-                    emit('Preparing updated Audio Descriptions')
+                # Prior narration belongs to saved results and is retained until explicit deletion.
             raw=gemini_adapter.video_interaction(client,model,uri,mime,prompt,pair.get('system_instruction',''),processing=cfg.get('videoProcessing','agentic') if stage!='transcribe' else 'static')
             if stage=='generate-summary': data={'summary':raw}
             else: data=parity.parse_json(raw)
@@ -1538,7 +1553,7 @@ def synthesize(root,p,segment=None,changed=False,regenerate_all=False,segments=N
             c['audioStart'] = c['start']; c['audioEnd'] = c['end']; c.pop('audioError', None)
             p['cues'] = cues; save(root,p)
             generated += 1
-            if previous_audio and previous_audio != name and not any(item.get('audio') == previous_audio for item in cues):
+            if previous_audio and previous_audio != name and previous_audio not in language_results.referenced_paths(p) and not any(item.get('audio') == previous_audio for item in cues):
                 local(root, previous_audio).unlink(missing_ok=True)
             emit(
                 f'Completed narration for description {i+1} of {len(cues)}',
@@ -1984,10 +1999,10 @@ def audio_encoding_args(format):
 
 
 def video_audio_metadata(described=False, index=0, default=True):
-    title = 'English - Audio Description' if described else 'Original Audio'
+    title = f'{language_results.track_title()} - Audio Description' if described else 'Original Audio'
     disposition = ('default+' if default else '') + 'visual_impaired' if described else ('default' if default else '0')
     return [
-        f'-metadata:s:a:{index}', 'language=eng',
+        f'-metadata:s:a:{index}', f'language={language_results.track_language() if described else "und"}',
         f'-metadata:s:a:{index}', f'handler_name={title}',
         f'-metadata:s:a:{index}', f'title={title}',
         f'-disposition:a:{index}', disposition,
@@ -2004,15 +2019,15 @@ def caption_output_args(captions, path, input_index, content, format='mp4'):
         return ['-vf', f"ass=filename='{ffmpeg_filter_path(path)}'"]
     if captions not in ('closed', 'dual-closed'):
         return []
-    titles = (('English Transcript', 'English Descriptive Transcript') if captions == 'dual-closed'
-              else ('English AD Transcript' if content == 'combined' else 'English Transcript',))
+    titles = ((f'{language_results.track_title()} Transcript', f'{language_results.track_title()} Descriptive Transcript') if captions == 'dual-closed'
+              else (f'{language_results.track_title()} AD Transcript' if content == 'combined' else f'{language_results.track_title()} Transcript',))
     result = ['-c:s', 'subrip' if format == 'mkv' else 'mov_text']
     for stream_index, title in enumerate(titles):
         result += ['-map', f'{input_index + stream_index}:s:0']
         if format != 'mkv':
             result += [f'-tag:s:{stream_index}', 'tx3g']
         result += [
-            f'-metadata:s:s:{stream_index}', 'language=eng',
+            f'-metadata:s:s:{stream_index}', f'language={language_results.track_language()}',
             f'-metadata:s:s:{stream_index}', f'handler_name={title}',
             f'-metadata:s:s:{stream_index}', f'title={title}',
             f'-disposition:s:{stream_index}', 'descriptions' if ('Descriptive' in title or 'AD Transcript' in title) else '0',
@@ -2043,15 +2058,15 @@ def validate_video_caption_streams(info, captions):
                 raise ValueError('Video export is missing its Apple-compatible timed-text format.')
             if not is_matroska and (int(stream.get('width') or 0) < 1 or int(stream.get('height') or 0) < 1):
                 raise ValueError('Video export is missing the closed-caption presentation canvas.')
-            if stream.get('tags', {}).get('language') != 'eng':
+            if stream.get('tags', {}).get('language', 'und') != language_results.track_language():
                 raise ValueError('Video export is missing caption language metadata.')
             title = stream.get('tags', {}).get('title') or stream.get('tags', {}).get('name') or stream.get('tags', {}).get('handler_name')
-            if title not in ('English Transcript', 'English Descriptive Transcript', 'English AD Transcript'):
+            if title not in (f'{language_results.track_title()} Transcript', f'{language_results.track_title()} Descriptive Transcript', f'{language_results.track_title()} AD Transcript'):
                 raise ValueError('Video export is missing its transcript track title.')
-            if is_matroska and title != 'English Transcript' and stream.get('disposition', {}).get('descriptions') != 1:
+            if is_matroska and title != f'{language_results.track_title()} Transcript' and stream.get('disposition', {}).get('descriptions') != 1:
                 raise ValueError('Video export is missing its descriptive-transcript flag.')
         if captions == 'dual-closed':
-            expected_titles = ('English Transcript', 'English Descriptive Transcript')
+            expected_titles = (f'{language_results.track_title()} Transcript', f'{language_results.track_title()} Descriptive Transcript')
             actual_titles = tuple(
                 stream.get('tags', {}).get('title') or stream.get('tags', {}).get('name') or stream.get('tags', {}).get('handler_name')
                 for stream in subtitles
@@ -2189,11 +2204,11 @@ def validate_closed_audio_description_export(output, expected_duration, captions
         raise ValueError('Closed Audio Description export has incorrect default audio-track ordering.')
     if 'matroska' in info.get('format', {}).get('format_name', '') and audio[-1].get('disposition', {}).get('visual_impaired') != 1:
         raise ValueError('Closed Audio Description export is missing its accessibility audio flag.')
-    expected = ([('Original Audio', 'eng')] if has_original else []) + [('English - Audio Description', 'eng')]
+    expected = ([('Original Audio', 'und')] if has_original else []) + [(f'{language_results.track_title()} - Audio Description', language_results.track_language())]
     for stream, (title, language) in zip(audio, expected):
         tags = stream.get('tags', {})
         actual_title = tags.get('title') or tags.get('name') or tags.get('handler_name')
-        if actual_title != title or tags.get('language') != language:
+        if actual_title != title or tags.get('language', 'und') != language:
             raise ValueError('Closed Audio Description export is missing audio-track titles or language metadata.')
         start = float(stream.get('start_time', 0))
         duration = float(stream.get('duration', info.get('format', {}).get('duration', 0)))
@@ -2648,18 +2663,18 @@ def hls_attribute(value):
 def write_hls_master(project, destination, renditions, audio, captions, content):
     lines = ['#EXTM3U', '#EXT-X-VERSION:3', '#EXT-X-INDEPENDENT-SEGMENTS']
     lines.append(
-        '#EXT-X-MEDIA:TYPE=AUDIO,GROUP-ID="audio",NAME="Original Audio",LANGUAGE="en",CHANNELS="2",'
+        '#EXT-X-MEDIA:TYPE=AUDIO,GROUP-ID="audio",NAME="Original Audio",LANGUAGE="und",CHANNELS="2",'
         'DEFAULT=YES,AUTOSELECT=YES,URI="audio/original.m3u8"'
     )
     if audio == 'closed-description':
         lines.append(
-            '#EXT-X-MEDIA:TYPE=AUDIO,GROUP-ID="audio",NAME="English - Audio Description",LANGUAGE="en",CHANNELS="2",'
+            f'#EXT-X-MEDIA:TYPE=AUDIO,GROUP-ID="audio",NAME="{hls_attribute(language_results.track_title())} - Audio Description",LANGUAGE="{language_results._export_language if language_results._export_language != "auto" else "und"}",CHANNELS="2",'
             'DEFAULT=NO,AUTOSELECT=YES,CHARACTERISTICS="public.accessibility.describes-video",'
             'URI="audio/described.m3u8"'
         )
     elif audio == 'open-description':
         lines[-1] = (
-            '#EXT-X-MEDIA:TYPE=AUDIO,GROUP-ID="audio",NAME="English - Audio Description",LANGUAGE="en",CHANNELS="2",'
+            f'#EXT-X-MEDIA:TYPE=AUDIO,GROUP-ID="audio",NAME="{hls_attribute(language_results.track_title())} - Audio Description",LANGUAGE="{language_results._export_language if language_results._export_language != "auto" else "und"}",CHANNELS="2",'
             'DEFAULT=YES,AUTOSELECT=YES,CHARACTERISTICS="public.accessibility.describes-video",'
             'URI="audio/described.m3u8"'
         )
@@ -2667,20 +2682,20 @@ def write_hls_master(project, destination, renditions, audio, captions, content)
     subtitle_tracks = []
     if captions == 'dual-closed':
         subtitle_tracks = [
-            ('transcript', 'English Transcript', 'transcript'),
-            ('ad-transcript', 'English Descriptive Transcript', 'combined'),
+            ('transcript', f'{language_results.track_title()} Transcript', 'transcript'),
+            ('ad-transcript', f'{language_results.track_title()} Descriptive Transcript', 'combined'),
         ]
     elif captions == 'closed':
         subtitle_tracks = [
-            ('ad-transcript', 'English Descriptive Transcript', 'combined')
+            ('ad-transcript', f'{language_results.track_title()} Descriptive Transcript', 'combined')
             if content == 'combined'
-            else ('transcript', 'English Transcript', 'transcript')
+            else ('transcript', f'{language_results.track_title()} Transcript', 'transcript')
         ]
     for name, title, track_content in subtitle_tracks:
         autoselect = 'NO' if track_content == 'combined' else 'YES'
         lines.append(
             '#EXT-X-MEDIA:TYPE=SUBTITLES,GROUP-ID="subtitles",'
-            f'NAME="{hls_attribute(title)}",LANGUAGE="en",DEFAULT=NO,AUTOSELECT={autoselect},FORCED=NO,'
+            f'NAME="{hls_attribute(title)}",LANGUAGE="{language_results._export_language if language_results._export_language != "auto" else "und"}",DEFAULT=NO,AUTOSELECT={autoselect},FORCED=NO,'
             'CHARACTERISTICS="public.accessibility.transcribes-spoken-dialog",'
             f'URI="subtitles/{name}.m3u8"'
         )
@@ -2942,7 +2957,10 @@ def delete_segment_audio(root, p, segment_id):
         candidate.get('id') != segment_id and candidate.get('audio') == audio
         for candidate in p.get('cues', [])
     )
-    if not shared:
+    retained = dict(p)
+    retained['cues'] = [c for c in p.get('cues', []) if c.get('id') != segment_id]
+    retained['languageResults'] = [r for r in p.get('languageResults', []) if r.get('id') != p.get('activeResultIDs', {}).get(language_results.effective_language(p, 'descriptions'), {}).get('descriptions')]
+    if not shared and audio not in language_results.referenced_paths(retained):
         if audio_path.is_dir() and not audio_path.is_symlink():
             raise ValueError('The segment audio path is not an audio file.')
         audio_path.unlink(missing_ok=True)
@@ -2960,9 +2978,88 @@ def validate_analysis_prerequisites(command, root, project):
     if command == 'generate-ad-cues' and not project['summary'].strip():
         raise ValueError('Generate the summary first.')
 
+def dispatch_project(args, root, p):
+    core = SimpleNamespace(**globals())
+    if args.command in audio_sources.COMMANDS:
+        return audio_sources.execute(args, root, p, core)
+    if args.command in import_assets.COMMANDS:
+        return import_assets.execute(args, root, p, core)
+    if args.command=='cleanup-project':
+        result=cleanup_project_storage(root,p);emit('Project cleanup complete',removedFiles=result['files'],removedBytes=result['bytes'])
+    elif args.command in ('undo-transcript', 'redo-transcript'):
+        restore_transcript(p, redo=args.command == 'redo-transcript')
+    elif args.command=='reanalyze-transcript-segment':
+        if not args.input: raise ValueError('Choose a transcript range to analyze.')
+        reanalyze_transcript_segment(root,p,json.loads(args.input.read_text(encoding='utf-8')))
+    elif args.command=='reanalyze-segment':
+        if not args.input: raise ValueError('Choose a segment to analyze.')
+        reanalyze_segment(root,p,json.loads(args.input.read_text(encoding='utf-8')))
+    elif args.command in ('prepare-analysis-video','check-video-availability'):
+        if p.get('sourceType') == 'youtube' or not p.get('source'):
+            raise ValueError('YouTube videos are accessed directly; no preparation is needed.')
+        client=gemini_client()
+        try:
+            if args.command=='prepare-analysis-video': reusable_video(root,p,client)
+            else: remote_video_status(root,p,client)
+        finally: client.close()
+    elif args.command=='clear-generated': clear_generated(root,p)
+    elif args.command=='delete-generated': delete_generated_components(root,p,args.component)
+    elif args.command=='delete-segment-audio': delete_segment_audio(root,p,args.segment)
+    elif args.command=='probe-video': atomic_json(root/'metadata/probe.json',probe(local(root,p['source'])))
+    elif args.command=='generate-thumbnails': thumbnails(root,p)
+    elif args.command in ('transcribe','generate-summary','generate-ad-cues'):
+        validate_analysis_prerequisites(args.command, root, p)
+        ai_video(root,p,args.command)
+    elif args.command=='synthesize-tts': synthesize(root,p,args.segment,args.changed,args.regenerate_all,args.segments)
+    elif args.command in ('export-final-video','export-open-audio-description-video'):
+        export(root,p,allow_incomplete=args.allow_incomplete_narration,captions=args.captions,content=args.content,replace_existing=args.replace_existing,media_format=args.media_format)
+    elif args.command in ('export-selectable-video','export-closed-audio-description-video'):
+        export(root,p,allow_incomplete=args.allow_incomplete_narration,selectable=True,captions=args.captions,content=args.content,replace_existing=args.replace_existing,media_format=args.media_format)
+    elif args.command=='export-closed-caption-video': export_captioned_video(root,p,content=args.content,replace_existing=args.replace_existing,media_format=args.media_format)
+    elif args.command=='export-dual-closed-caption-video': export_captioned_video(root,p,dual_closed=True,replace_existing=args.replace_existing,media_format=args.media_format)
+    elif args.command=='export-open-caption-video': export_captioned_video(root,p,open_captions=True,content=args.content,replace_existing=args.replace_existing,media_format=args.media_format)
+    elif args.command=='export-original-audio': export_program_audio(root,p,replace_existing=args.replace_existing,media_format=args.media_format)
+    elif args.command=='export-described-audio': export_program_audio(root,p,described=True,allow_incomplete=args.allow_incomplete_narration,replace_existing=args.replace_existing,media_format=args.media_format)
+    elif args.command=='export-youtube-described-audio': export_youtube_described_audio(root,p,replace_existing=args.replace_existing,media_format=args.media_format,ad_source=args.ad_source)
+    elif args.command=='export-youtube-original-audio': export_youtube_audio(root,p,replace_existing=args.replace_existing,media_format=args.media_format)
+    elif args.command=='export-hls':
+        export_hls_web(
+            root,p,audio=args.web_audio,captions=args.captions,content=args.content,
+            allow_incomplete=args.allow_incomplete_narration,replace_existing=args.replace_existing,
+        )
+    elif args.command=='save-cues':
+        if not args.input: raise ValueError('--input is required.')
+        cues=validate_authored_cues(json.loads(args.input.read_text(encoding='utf-8')),p['cues'],p['duration'],p['transcript'])
+        track_cue_origins(cues,p['cues']);parity.remember(p);p['cues']=cues
+        p['descriptionsGenerated']=True
+        p['exports']=[]
+        p['exportMediaInfo']={}
+    elif args.command=='save-segments':
+        if not args.input: raise ValueError('--input is required.')
+        payload=json.loads(args.input.read_text(encoding='utf-8'))
+        if not isinstance(payload,dict) or not isinstance(payload.get('transcript'),list) or not isinstance(payload.get('cues'),list):
+            raise ValueError('Editable segments input must contain transcript and cues lists.')
+        save_segments(p,payload['transcript'],payload['cues'])
+    elif args.command=='save-summary':
+        origin = None
+        if args.input:
+            text = args.input.read_text(encoding='utf-8')
+            try:
+                payload = json.loads(text)
+                if isinstance(payload, dict) and 'summary' in payload:
+                    text, origin = payload['summary'], payload.get('summaryOrigin')
+            except json.JSONDecodeError:
+                pass
+        elif args.text is not None:
+            text = args.text
+        else:
+            raise ValueError('Summary text or --input file is required.')
+        import_assets.save_summary(p, text, origin)
+    elif args.command in parity.COMMANDS: parity.execute(args,root,p,core)
+
 def main():
     parser=argparse.ArgumentParser(description=__doc__)
-    parser.add_argument('command',choices=['check-api-key','reanalyze-transcript-segment','undo-transcript','redo-transcript','reanalyze-segment','prepare-analysis-video','check-video-availability','cleanup-project','clear-generated','delete-generated','delete-segment-audio','list-models','list-voices','preview-tts','synthesize-speech','import-video','probe-video','generate-thumbnails','transcribe','generate-summary','generate-ad-cues','synthesize-tts','export-final-video','export-selectable-video','export-closed-audio-description-video','export-open-audio-description-video','export-closed-caption-video','export-dual-closed-caption-video','export-open-caption-video','export-original-audio','export-described-audio','export-youtube-described-audio','export-youtube-original-audio','download-youtube-audio','export-hls','save-cues','save-segments','save-summary','doctor','read-youtube-metadata','expire-youtube-cache',*parity.COMMANDS,*import_assets.COMMANDS,*audio_sources.COMMANDS])
+    parser.add_argument('command',choices=['check-api-key','reanalyze-transcript-segment','undo-transcript','redo-transcript','reanalyze-segment','prepare-analysis-video','check-video-availability','cleanup-project','clear-generated','delete-generated','delete-segment-audio','list-models','list-voices','preview-tts','synthesize-speech','import-video','probe-video','generate-thumbnails','transcribe','generate-summary','generate-ad-cues','synthesize-tts','export-final-video','export-selectable-video','export-closed-audio-description-video','export-open-audio-description-video','export-closed-caption-video','export-dual-closed-caption-video','export-open-caption-video','export-original-audio','export-described-audio','export-youtube-described-audio','export-youtube-original-audio','download-youtube-audio','export-hls','save-cues','save-segments','save-summary','doctor','read-youtube-metadata','expire-youtube-cache',*parity.COMMANDS,*import_assets.COMMANDS,*audio_sources.COMMANDS,*language_results.COMMANDS])
     parser.add_argument('--project',type=Path); parser.add_argument('--video',type=Path); parser.add_argument('--library',type=Path); parser.add_argument('--input',type=Path)
     parser.add_argument('--media-format', choices=VIDEO_EXPORT_FORMATS + AUDIO_EXPORT_FORMATS)
     parser.add_argument('--content',choices=['transcript','summary','descriptions','combined'],default='descriptions'); parser.add_argument('--url'); parser.add_argument('--name'); parser.add_argument('--timestamp',type=float,default=0); parser.add_argument('--duration',type=float); parser.add_argument('--segment'); parser.add_argument('--segments', action='append'); parser.add_argument('--format',choices=['srt','vtt','txt','json','md'],default='srt'); parser.add_argument('--changed',action='store_true'); parser.add_argument('--start-stage',default='transcribe')
@@ -2975,9 +3072,20 @@ def main():
     parser.add_argument('--replace-existing',action='store_true',help='Replace the existing export for the same configuration after explicit confirmation.')
     parser.add_argument('--captions', choices=['none','closed','open','dual-closed'], default='none', help='Add no transcript, one switchable caption track, two switchable transcript tracks, or permanently rendered captions to an Audio Description video.')
     parser.add_argument('--web-audio', choices=['original','closed-description','open-description'], default='closed-description', help='Choose the audio presentation for a Web Playback HLS package.')
+    parser.add_argument('--language')
+    parser.add_argument('--result-id')
+    parser.add_argument('--section', choices=['transcript', 'summary', 'descriptions', 'adAudio'])
+    parser.add_argument('--follow-project', action='store_true')
+    parser.add_argument('--source-transcript-id')
+    parser.add_argument('--source-summary-id')
+    for kind in ('transcript', 'summary', 'descriptions', 'ad-audio'):
+        parser.add_argument('--selected-' + kind + '-id')
+    parser.add_argument('--disposition', choices=['keep', 'replace', 'discard'], default='keep')
     import_assets.add_arguments(parser)
     audio_sources.add_arguments(parser)
     args=parser.parse_args()
+    if args.language:
+        os.environ['VIDISTUDIO_OUTPUT_LANGUAGE'] = language_results.language(args.language)
     if args.command == 'expire-youtube-cache':
         if not args.library: raise ValueError('Choose a project library.')
         for project_file in args.library.glob('*/project.json'):
@@ -3030,6 +3138,7 @@ def main():
         emit('Copying source video into local project')
         shutil.copy2(args.video,root/source)
         p=dict(schemaVersion=2,id=str(uuid.uuid4()),name=args.video.stem,source=source,duration=duration,width=video.get('width',0),height=video.get('height',0),hasAudio=any(s['codec_type']=='audio' for s in streams),createdAt=time.time(),updatedAt=time.time(),thumbnails=[],transcript=[],summary='',cues=[],exports=[],exportMediaInfo={},status='Imported',transcriptGenerated=False,summaryGenerated=False,descriptionsGenerated=False)
+        language_results.migrate(p, language_results.default_language(config()))
         atomic_json(root/'metadata/probe.json',info); save(root,p)
         emit('Project imported',project=str(root))
         with project_lock(root): thumbnails(root,p);cleanup_project_storage(root,p);save(root,p)
@@ -3040,85 +3149,11 @@ def main():
         p=migrate_project_schema(root,json.loads((root/'project.json').read_text()))
         if args.command not in ('clear-youtube-data', 'update-youtube-metadata'):
             youtube_metadata.guard(p)
-        if args.command in audio_sources.COMMANDS:
-            audio_sources.execute(args, root, p, SimpleNamespace(**globals()))
-            emit('Complete', project=str(root), progress=1); return
-        if args.command in import_assets.COMMANDS:
-            import_assets.execute(args, root, p, SimpleNamespace(**globals()))
-            emit('Complete', project=str(root), progress=1); return
-        p['status']='Processing '+args.command; save(root,p)
         try:
-            if args.command in ('analyze', 'transcribe', 'generate-summary', 'generate-ad-cues', 'synthesize-tts'):
-                p['hasProcessed'] = True
-            if args.command=='cleanup-project':
-                result=cleanup_project_storage(root,p);emit('Project cleanup complete',removedFiles=result['files'],removedBytes=result['bytes'])
-            elif args.command in ('undo-transcript', 'redo-transcript'):
-                restore_transcript(p, redo=args.command == 'redo-transcript')
-            elif args.command=='reanalyze-transcript-segment':
-                if not args.input: raise ValueError('Choose a transcript range to analyze.')
-                reanalyze_transcript_segment(root,p,json.loads(args.input.read_text()))
-            elif args.command=='reanalyze-segment':
-                if not args.input: raise ValueError('Choose a segment to analyze.')
-                reanalyze_segment(root,p,json.loads(args.input.read_text()))
-            elif args.command in ('prepare-analysis-video','check-video-availability'):
-                if p.get('sourceType') == 'youtube' or not p.get('source'):
-                    raise ValueError('YouTube videos are accessed directly; no preparation is needed.')
-                client=gemini_client()
-                try:
-                    if args.command=='prepare-analysis-video': reusable_video(root,p,client)
-                    else: remote_video_status(root,p,client)
-                finally: client.close()
-            elif args.command=='clear-generated': clear_generated(root,p)
-            elif args.command=='delete-generated': delete_generated_components(root,p,args.component)
-            elif args.command=='delete-segment-audio': delete_segment_audio(root,p,args.segment)
-            elif args.command=='probe-video': atomic_json(root/'metadata/probe.json',probe(local(root,p['source'])))
-            elif args.command=='generate-thumbnails': thumbnails(root,p)
-            elif args.command in ('transcribe','generate-summary','generate-ad-cues'):
-                validate_analysis_prerequisites(args.command, root, p)
-                ai_video(root,p,args.command)
-            elif args.command=='synthesize-tts': synthesize(root,p,args.segment,args.changed,args.regenerate_all,args.segments)
-            elif args.command in ('export-final-video','export-open-audio-description-video'):
-                export(root,p,allow_incomplete=args.allow_incomplete_narration,captions=args.captions,content=args.content,replace_existing=args.replace_existing,media_format=args.media_format)
-            elif args.command in ('export-selectable-video','export-closed-audio-description-video'):
-                export(root,p,allow_incomplete=args.allow_incomplete_narration,selectable=True,captions=args.captions,content=args.content,replace_existing=args.replace_existing,media_format=args.media_format)
-            elif args.command=='export-closed-caption-video': export_captioned_video(root,p,content=args.content,replace_existing=args.replace_existing,media_format=args.media_format)
-            elif args.command=='export-dual-closed-caption-video': export_captioned_video(root,p,dual_closed=True,replace_existing=args.replace_existing,media_format=args.media_format)
-            elif args.command=='export-open-caption-video': export_captioned_video(root,p,open_captions=True,content=args.content,replace_existing=args.replace_existing,media_format=args.media_format)
-            elif args.command=='export-original-audio': export_program_audio(root,p,replace_existing=args.replace_existing,media_format=args.media_format)
-            elif args.command=='export-described-audio': export_program_audio(root,p,described=True,allow_incomplete=args.allow_incomplete_narration,replace_existing=args.replace_existing,media_format=args.media_format)
-            elif args.command=='export-youtube-described-audio': export_youtube_described_audio(root,p,replace_existing=args.replace_existing,media_format=args.media_format,ad_source=args.ad_source)
-            elif args.command=='export-youtube-original-audio': export_youtube_audio(root,p,replace_existing=args.replace_existing,media_format=args.media_format)
-            elif args.command=='export-hls':
-                export_hls_web(
-                    root,p,audio=args.web_audio,captions=args.captions,content=args.content,
-                    allow_incomplete=args.allow_incomplete_narration,replace_existing=args.replace_existing,
-                )
-            elif args.command=='save-cues':
-                if not args.input: raise ValueError('--input is required.')
-                cues=validate_authored_cues(json.loads(args.input.read_text()),p['cues'],p['duration'],p['transcript'])
-                track_cue_origins(cues,p['cues']);parity.remember(p);p['cues']=cues
-                p['descriptionsGenerated']=True
-                p['exports']=[]
-                p['exportMediaInfo']={}
-            elif args.command=='save-segments':
-                if not args.input: raise ValueError('--input is required.')
-                payload=json.loads(args.input.read_text())
-                if not isinstance(payload,dict) or not isinstance(payload.get('transcript'),list) or not isinstance(payload.get('cues'),list):
-                    raise ValueError('Editable segments input must contain transcript and cues lists.')
-                save_segments(p,payload['transcript'],payload['cues'])
-            elif args.command=='save-summary':
-                if not args.input: raise ValueError('--input is required.')
-                try:
-                    payload = json.loads(args.input.read_text(encoding='utf-8'))
-                    text = payload['summary'] if isinstance(payload, dict) and 'summary' in payload else str(payload)
-                except (json.JSONDecodeError, UnicodeDecodeError):
-                    text = args.input.read_text(encoding='utf-8')
-                import_assets.save_summary(p, text, payload.get('summaryOrigin') if isinstance(payload, dict) else None)
-            elif args.command in parity.COMMANDS: parity.execute(args,root,p,core)
-            cleanup_project_storage(root,p)
-            p['status']='Ready'; p.pop('error',None); save(root,p)
-        except Exception as e:
-            p['status']='Needs attention'; p['error']=safe_error(e); save(root,p); raise
+            language_results.run(args, root, p, core, dispatch_project)
+        except BaseException as exc:
+            p['status'] = 'Needs attention'; p['error'] = safe_error(exc); save(root, p)
+            raise
     emit('Complete',project=str(root),progress=1)
 
 if __name__=='__main__':

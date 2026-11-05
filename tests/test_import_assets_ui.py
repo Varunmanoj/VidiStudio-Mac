@@ -145,7 +145,7 @@ class ImportAssetsUI(unittest.TestCase):
         self.assertIn('importedMixedVideo', EXPORT)
         self.assertIn('importedDescribedAudio', EXPORT)
         self.assertIn('Audio Description source', EXPORT)
-        self.assertIn('Closed Audio Description creates Original Audio and English - Audio Description tracks', EXPORT)
+        self.assertIn('Closed Audio Description creates Original Audio and language-labelled Audio Description tracks', EXPORT)
 
 
 if __name__ == '__main__':

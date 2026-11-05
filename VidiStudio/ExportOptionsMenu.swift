@@ -317,9 +317,27 @@ struct ExportDialog: View {
     @Environment(\.dismiss) private var dismiss
     private let initialProject: StudioProject
     let studio: StudioModel?
-    var project: StudioProject { studio?.projects.first(where: { $0.id == initialProject.id }) ?? initialProject }
+    var sourceProject: StudioProject { studio?.projects.first(where: { $0.id == initialProject.id }) ?? initialProject }
+    var project: StudioProject {
+        var value = sourceProject
+        let code = exportLanguages.sorted().first ?? value.languageCode
+        for kind in ["transcript", "summary", "descriptions", "adAudio"] {
+            let rid = exportSelections[code]?[kind] ?? value.activeLanguageResultID(kind, language: code)
+            let payload = value.savedLanguageResults.first { $0.id == rid }?.payload
+            switch kind {
+            case "transcript": value.transcript = payload?.transcript ?? []
+            case "summary": value.summary = payload?.summary ?? ""
+            case "descriptions": value.cues = payload?.cues ?? []
+            default: value.importedAudioDescription = payload?.importedAudioDescription
+            }
+        }
+        return value
+    }
     let busy: Bool
     let perform: (StudioExportAction, Bool) -> Void
+    @State private var exportLanguages: Set<String>
+    @State private var exportSelections: [String: [String: String]] = [:]
+    @State private var replacementLanguages: Set<String> = []
     @State private var category: ExportCategory
     @State private var videoFormat = "mkv"
     @State private var audioFormat = "wav"
@@ -342,6 +360,7 @@ struct ExportDialog: View {
     ]
 
     init(project: StudioProject, busy: Bool, studio: StudioModel? = nil, perform: @escaping (StudioExportAction, Bool) -> Void) {
+        _exportLanguages = State(initialValue: [project.languageCode])
         self.initialProject = project
         self.studio = studio
         self.busy = busy
@@ -407,7 +426,7 @@ struct ExportDialog: View {
     }
 
     private var canSave: Bool {
-        guard !busy, let selectedAction else { return false }
+        guard !busy, !exportLanguages.isEmpty, let selectedAction else { return false }
         return canPerform(selectedAction)
     }
 
@@ -434,6 +453,7 @@ struct ExportDialog: View {
                 .padding(.top, 20)
                 .padding(.bottom, 8)
                 Form {
+                    ExportLanguageSelectionView(project: sourceProject, languages: $exportLanguages, selections: $exportSelections, replacements: $replacementLanguages)
                     switch category {
                     case .video:
                         Section {
@@ -613,7 +633,7 @@ struct ExportDialog: View {
             }
             .pickerStyle(.menu)
             .help("Choose whether the described track uses generated narration or the imported AD audio")
-            Text(project.isYouTubeURLProject ? "Narration is combined with the selected original audio. An imported full AD mix is used directly." : "Closed Audio Description creates Original Audio and English - Audio Description tracks that viewers can switch between. Open Audio Description creates one described mix.")
+            Text(project.isYouTubeURLProject ? "Narration is combined with the selected original audio. An imported full AD mix is used directly." : "Closed Audio Description creates Original Audio and language-labelled Audio Description tracks that viewers can switch between. Open Audio Description creates one described mix.")
                 .font(.caption).foregroundStyle(.secondary)
         } else if hasImportedADSource {
             Label("Using imported AD audio (\(project.importedADAudioModeLabel))", systemImage: "square.and.arrow.down")
@@ -681,14 +701,28 @@ struct ExportDialog: View {
     }
 
     private func continueSaving(_ action: StudioExportAction) {
-        guard !busy, canPerform(action) else { return }
-        let relative = action.targetRelativePath(for: project)
-        if let target = project.url(relative), FileManager.default.fileExists(atPath: target.path) {
-            replacementAction = action
-            return
+        guard !busy, canPerform(action), !exportLanguages.isEmpty else { return }
+        guard let studio else { dismiss(); perform(action, false); return }
+        var options: [String: Any] = [:]
+        var index = 0
+        while index < action.arguments.count {
+            let argument = action.arguments[index]
+            let key = String(argument.dropFirst(2)).replacingOccurrences(of: "-", with: "_")
+            if index + 1 < action.arguments.count && !action.arguments[index + 1].hasPrefix("--") {
+                options[key] = action.arguments[index + 1]; index += 2
+            } else { options[key] = true; index += 1 }
         }
+        let jobs: [[String: Any]] = exportLanguages.sorted().map { code in
+            var ids: [String: String] = [:]
+            for kind in ["transcript", "summary", "descriptions", "adAudio"] {
+                let rid = exportSelections[code]?[kind] ?? sourceProject.activeLanguageResultID(kind, language: code)
+                if !rid.isEmpty { ids[kind] = rid }
+            }
+            return ["language": code, "resultIDs": ids, "command": action.command,
+                    "options": options, "replaceExisting": replacementLanguages.contains(code)]
+        }
+        studio.executeResultRequest("export-batch", request: ["jobs": jobs], project: sourceProject)
         dismiss()
-        perform(action, false)
     }
 
     private func preferClosedCaptions() {

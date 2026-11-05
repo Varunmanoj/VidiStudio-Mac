@@ -50,6 +50,7 @@ struct ProjectBrowserPage: View {
     let studio: StudioModel
     let projects: [StudioProject]
     @Binding var search: String
+    @State private var languageFilter = "all"
     @Binding var sourceFilter: ProjectSourceFilter
     @Binding var grid: Bool
     @Binding var gridItemSize: Double
@@ -74,12 +75,12 @@ struct ProjectBrowserPage: View {
 
     private var filteredProjects: [StudioProject] {
         projects.filter {
-            (search.isEmpty || $0.name.localizedStandardContains(search)) && sourceFilter.matches($0)
+            (search.isEmpty || $0.name.localizedStandardContains(search)) && sourceFilter.matches($0) && $0.matchesLanguage(languageFilter)
         }
     }
 
     private var isFiltering: Bool {
-        !search.isEmpty || sourceFilter != .all
+        !search.isEmpty || sourceFilter != .all || languageFilter != "all"
     }
 
     private var selectedProjectFolder: URL? {
@@ -170,6 +171,7 @@ struct ProjectBrowserPage: View {
                         Button(sourceFilter == .all ? "Clear Search" : "Clear Search & Filters") {
                             search = ""
                             sourceFilter = .all
+                            languageFilter = "all"
                         }
                     }
                 }
@@ -270,6 +272,7 @@ struct ProjectBrowserPage: View {
         .searchable(text: $search, placement: .toolbar, prompt: "Search projects")
         .toolbar {
             ToolbarItemGroup(placement: .primaryAction) {
+                OutputLanguagePicker(title: "Project language filter", selection: $languageFilter, includesAll: true)
                 Picker("Project source", selection: $sourceFilter) {
                     ForEach(ProjectSourceFilter.allCases) { filter in
                         Label(filter.title, systemImage: filter.iconName)

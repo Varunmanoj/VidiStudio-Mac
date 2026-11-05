@@ -537,6 +537,11 @@ enum SectionProcessingState: Equatable {
 }
 
 struct StudioProject: Codable, Identifiable {
+    var selectedLanguage: String?
+    var sectionLanguages: [String: String]?
+    var languageResults: [SavedLanguageResult]?
+    var activeResultIDs: [String: [String: String]]?
+    var exportResults: [String: ExportResultProvenance]?
     var schemaVersion: Int
     var id: String
     var name: String
@@ -596,7 +601,7 @@ struct StudioProject: Codable, Identifiable {
         hasProcessed == true || !transcript.isEmpty || !summary.isEmpty || !cues.isEmpty || !exports.isEmpty
     }
     var hasGeneratedContent: Bool {
-        canReprocess || !thumbnails.isEmpty
+        !savedLanguageResults.isEmpty || canReprocess || !thumbnails.isEmpty
             || directoryHasContent("audio-description")
             || directoryHasContent("exports")
             || !(undoStack ?? []).isEmpty
@@ -655,7 +660,7 @@ struct StudioProject: Codable, Identifiable {
     }
 
     var canGenerateDescriptions: Bool {
-        hasGeneratedTranscript && !summary.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+        savedLanguageResults.contains { $0.kind == "transcript" && $0.state == "saved" } && savedLanguageResults.contains { $0.kind == "summary" && $0.state == "saved" }
     }
     func canExportText(_ content: String) -> Bool {
         switch content {
@@ -906,6 +911,7 @@ struct OriginalAudioInspection: Decodable {
 }
 
 struct ImportAssetSelection {
+    var language: String?
     var originalAudio: URL?
     var originalAudioPlayback = false
     var originalAudioTranscription = false
@@ -1151,6 +1157,7 @@ struct StudioSettings: Codable, Equatable {
     var geminiPlan = "free"
     var models: [String: String] = [:]
     var prompts: [String: [String: String]] = [:]
+    var defaultOutputLanguage: String?
     var outputLanguages: [String: String] = ["transcript": "auto", "summary": "auto", "audio_descriptions": "auto"]
     var apiVersion = "v1beta"
     var videoProcessing = "agentic"
@@ -1476,6 +1483,9 @@ struct ProjectManagementRequest: Identifiable {
 
 @MainActor @Observable
 final class StudioModel {
+    var languageDeletionProject: StudioProject?
+    var languageDeletionComponent: GeneratedContentComponent?
+
     var showingYouTubeBrowser = false
     var showingYouTubeDetails = false
     var youtubeDetailAction = "youtube-details"
@@ -2278,32 +2288,12 @@ final class StudioModel {
     }
     @discardableResult
     func confirmDeleteGeneratedContent(_ project: StudioProject, components: Set<GeneratedContentComponent>) -> Bool {
-        let available = components.filter { $0.hasContent(in: project) }
-        guard !busy, !available.isEmpty else { return false }
-        let sorted = available.sorted { $0.title.localizedStandardCompare($1.title) == .orderedAscending }
-        let title: String
-        let message: String
-        let actionTitle: String
-        if let component = sorted.first, sorted.count == 1 {
-            title = "Delete \(component.title.lowercased()) from “\(project.name)”?"
-            message = component.explanation + " The project and original video or YouTube link are kept. This cannot be undone."
-            actionTitle = "Delete \(component.title)"
-        } else {
-            title = "Delete selected components from “\(project.name)”?"
-            message = "This permanently deletes: \(sorted.map(\.title).joined(separator: ", ")). The project and original video or YouTube link are kept. This cannot be undone."
-            actionTitle = "Delete Selected"
-        }
-        guard confirmDeletion(title: title, message: message, actionTitle: actionTitle) else { return false }
-        if available.contains(.narration) || available.contains(.descriptions) {
-            NotificationCenter.default.post(
-                name: .vidiStudioNarrationAudioWillDelete,
-                object: self,
-                userInfo: ["projectID": project.id]
-            )
-        }
-        deleteGeneratedContent(project, components: Set(available))
-        return true
+        guard !busy else { return false }
+        languageDeletionComponent = components.count == 1 ? components.first : nil
+        languageDeletionProject = project
+        return false
     }
+
     func confirmDeleteExport(_ project: StudioProject, path: String) {
         guard !busy, project.exports.contains(path) else { return }
         let name = URL(fileURLWithPath: path).lastPathComponent
@@ -2509,51 +2499,7 @@ final class StudioModel {
         }
     }
     private func confirmAnalysisReplacement(_ command: String, project: StudioProject) -> Bool {
-        guard ["analyze", "regenerate-all", "transcribe", "generate-summary", "generate-ad-cues"].contains(command) else { return true }
-        // Read the saved project too, so results written since the last UI refresh are protected.
-        var current = project
-        if let folder = project.folder {
-            do {
-                current = try JSONDecoder().decode(StudioProject.self, from: Data(contentsOf: folder.appendingPathComponent("project.json")))
-                current.folder = folder
-            } catch {
-                present(.projectRead, technicalDetails: error.localizedDescription, context: "Check existing project content")
-                return false
-            }
-        }
-        var existing: [String] = []
-        let all = command == "analyze" || command == "regenerate-all"
-        if (all || command == "transcribe"), !current.transcript.isEmpty { existing.append("transcription") }
-        if (all || command == "generate-summary"), !current.summary.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty { existing.append("summary") }
-        if (all || command == "generate-ad-cues"), !current.cues.isEmpty { existing.append("audio description segments") }
-        if (all || command == "generate-ad-cues"), current.cues.contains(where: { $0.audio != nil }) { existing.append("narration audio") }
-        let subtitleExtensions: Set<String> = ["srt", "vtt"]
-        let savedSubtitles = current.exports.contains { subtitleExtensions.contains(URL(fileURLWithPath: $0).pathExtension.lowercased()) }
-        let exportFiles = current.url("exports").flatMap { try? FileManager.default.contentsOfDirectory(at: $0, includingPropertiesForKeys: nil) } ?? []
-        if all && (savedSubtitles || exportFiles.contains(where: { subtitleExtensions.contains($0.pathExtension.lowercased()) })) {
-            existing.append("subtitles")
-        }
-        guard !existing.isEmpty || command == "regenerate-all" else { return true }
-        let impact: String
-        switch command {
-        case "regenerate-all": impact = "All generated content, including transcripts, summaries, AD segments, narration, subtitles, exports, thumbnails, and edit history, will be deleted. The transcript, summary, and AD segments will then be recreated. Your original video and project are kept. Generate narration and exports separately afterward. If analysis fails, deleted content will not be restored."
-        case "generate-summary": impact = "Only the summary will be regenerated. Other content will be kept."
-        case "generate-ad-cues": impact = "The Audio Description segments and their rows in AD Transcript will be regenerated. Any generated narration audio for those descriptions will be deleted immediately before description generation starts. Other project content and existing exports will be kept. New narration is not generated automatically. If description generation then fails, deleted narration audio will not be restored. If you only want to add or improve descriptions for particular sections, choose Cancel, open Add Segment in Descriptions, set the section's time range, and use Re-Analyze This Segment instead of regenerating every Audio Description."
-        case "transcribe": impact = "The entire transcript and its dialogue rows in AD Transcript will be regenerated, replacing manual transcript edits and clearing transcript edit history. The multilingual settings apply to every spoken language. Existing summaries, Audio Description segments, narration audio, and exports will be kept; review description timing against the new dialogue afterward. If you only want to add or improve dialogue for particular sections, choose Cancel, open Add Segment in Transcript edit mode, set the section's time range, and use Re-Analyze This Segment instead of regenerating the entire transcript."
-        default: impact = "The transcript, summary, Audio Description segments, and AD Transcript rows will be regenerated. Any generated narration audio for the current descriptions will be deleted immediately before the description stage starts. Existing exports will be kept, and new narration is not generated automatically. If description generation then fails, deleted narration audio will not be restored."
-        }
-        let alert = NSAlert()
-        switch command {
-        case "transcribe": alert.messageText = "Regenerate transcript in “\(current.name)”?"
-        case "generate-summary": alert.messageText = "Regenerate summary in “\(current.name)”?"
-        case "generate-ad-cues": alert.messageText = "Regenerate Audio Descriptions in “\(current.name)”?"
-        default: alert.messageText = "Reanalyze “\(current.name)”?"
-        }
-        alert.informativeText = (existing.isEmpty ? "" : "This project already contains \(existing.joined(separator: ", ")). ") + impact + " Do you want to continue?"
-        alert.alertStyle = .warning
-        alert.addButton(withTitle: "Cancel")
-        alert.addButton(withTitle: command == "analyze" ? "Reanalyze" : "Regenerate")
-        return alert.runModal() == .alertSecondButtonReturn
+        return true // Results are generated as recoverable alternatives and reviewed afterward.
     }
 
     private func confirmNarrationVoiceChange(_ command: String, extra: [String], project: StudioProject) -> Bool {
@@ -2573,7 +2519,7 @@ final class StudioModel {
             guard current.hasNarrationAudio else { return true }
             let alert = NSAlert()
             alert.messageText = "Regenerate all AD audio in “\(current.name)”?"
-            alert.informativeText = "All generated narration audio will be replaced by newly generated audio for every Audio Description segment using the currently selected voice: \(settings.currentNarrationSummary). This becomes the project's primary narration voice as soon as generation starts. Description text and timing will be kept. Existing audio is replaced only after each segment is generated successfully; if generation fails or is canceled, some old audio may remain. Do you want to continue?"
+            alert.informativeText = "A new narration alternative will be created using \(settings.currentNarrationSummary). Existing narration stays available. Review the result afterward to keep both, replace the selected result, or discard the new result."
             alert.alertStyle = .warning
             alert.addButton(withTitle: "Cancel")
             alert.addButton(withTitle: "Regenerate All AD Audio")
@@ -2668,7 +2614,7 @@ final class StudioModel {
     ) {
         guard !busy else { return }
         youtubeAudioExportRecovery = nil
-        let extra = command == "synthesize-tts" && !extra.contains("--segment") && !extra.contains("--changed") && !extra.contains("--regenerate-all")
+        var extra = command == "synthesize-tts" && !extra.contains("--segment") && !extra.contains("--changed") && !extra.contains("--regenerate-all")
             ? extra + ["--regenerate-all"] : extra
         errorTitle = StudioModel.defaultErrorTitle
         if command == "doctor" {
@@ -2692,10 +2638,20 @@ final class StudioModel {
             error = "This project uses a YouTube link, so its original soundtrack is not stored on this Mac. You can still export narration-only audio or text."
             return
         }
-        if command == "generate-ad-cues", let target, !target.canGenerateDescriptions {
-            errorTitle = "More Project Content Is Needed"
-            error = "Generate the transcript and summary before generating descriptions."
-            return
+        if let target {
+            if !extra.contains("--language") { extra += ["--language", target.operationLanguage(command)] }
+            let explicitLanguage = extra.firstIndex(of: "--language").flatMap { extra.indices.contains($0 + 1) ? extra[$0 + 1] : nil }
+            if (explicitLanguage == nil || explicitLanguage == target.operationLanguage(command)) && !["select-language", "select-section-language", "sync-section-languages", "select-result", "assign-result-language", "review-result", "delete-results", "preview-delete-results", "export-batch"].contains(command) {
+                for kind in ["transcript", "summary", "descriptions", "adAudio"] {
+                    let rid = target.activeLanguageResultID(kind)
+                    if !rid.isEmpty { extra += ["--selected-\(kind == "adAudio" ? "ad-audio" : kind)-id", rid] }
+                }
+            }
+            if let context = sourceResultArguments(command, project: target) { extra += context }
+            else { return }
+        }
+        if let target, ["select-language", "select-section-language", "sync-section-languages", "select-result", "assign-result-language", "review-result"].contains(command) {
+            NotificationCenter.default.post(name: .vidiStudioNarrationAudioWillDelete, object: self, userInfo: ["projectID": target.id])
         }
         if let target, !confirmAnalysisReplacement(command, project: target) { return }
         if let target, !confirmNarrationVoiceChange(command, extra: extra, project: target) { return }
@@ -2764,6 +2720,7 @@ final class StudioModel {
             narratingQueueIDs = []
         }
         var completedExportPath: String?
+        var completedExportPaths: [String] = []
         let canRecoverYouTubeAudio = target?.isYouTubeURLProject == true &&
             ["export-youtube-original-audio", "export-youtube-described-audio", "combine-imported-audio"].contains(command)
         var youtubeAudioUnavailable = false
@@ -2950,7 +2907,7 @@ final class StudioModel {
                                 failures: failures)
                         }
                     }
-                    if let path = event["export"] as? String { completedExportPath = path }
+                    if let path = event["export"] as? String { completedExportPath = path; completedExportPaths.append(path) }
                     if let raw = event["importReport"] as? [String: Any],
                        let data = try? JSONSerialization.data(withJSONObject: raw),
                        let report = try? JSONDecoder().decode(ImportReport.self, from: data),
@@ -3011,18 +2968,20 @@ final class StudioModel {
             if let cleanupURL { try? FileManager.default.removeItem(at: cleanupURL) }
             if let temporaryExecutionDirectory { try? FileManager.default.removeItem(at: temporaryExecutionDirectory) }
             reload()
-            if task.terminationStatus == 0, Self.isExportCommand(command), let folder = target?.folder,
-               let path = completedExportPath, URL(fileURLWithPath: path).pathExtension.lowercased() == "mov" {
-                do {
-                    let described = ["export-selectable-video", "export-closed-audio-description-video",
-                                     "export-final-video", "export-open-audio-description-video",
-                                     "combine-imported-audio"].contains(command)
-                    exportActivity?.status = "Finishing accessibility information"
-                    exportActivity?.update(fraction: 0.99)
-                    try await AppleAccessibilityMetadataWriter().finalizeVideoTracks(at: folder.appendingPathComponent(path), described: described)
-                    message = "Video export complete"
-                } catch {
-                    present(.exportMetadata, technicalDetails: error.localizedDescription, context: "Finish export accessibility information")
+            if Self.isExportCommand(command), let folder = target?.folder {
+                var finalized: Set<String> = []
+                for path in completedExportPaths where URL(fileURLWithPath: path).pathExtension.lowercased() == "mov" && finalized.insert(path).inserted {
+                    do {
+                        let record = projects.first(where: { $0.id == target?.id })?.exportResults?[path]
+                        let described = record?.described ?? ["export-selectable-video", "export-closed-audio-description-video", "export-final-video", "export-open-audio-description-video", "combine-imported-audio"].contains(command)
+                        exportActivity?.status = "Finishing accessibility information"
+                        exportActivity?.update(fraction: 0.99)
+                        let code = record?.language ?? target?.operationLanguage(command) ?? "auto"
+                        try await AppleAccessibilityMetadataWriter().finalizeVideoTracks(at: folder.appendingPathComponent(path), described: described, languageCode: code, languageName: OutputLanguage.title(code))
+                        message = "Video export complete"
+                    } catch {
+                        present(.exportMetadata, technicalDetails: error.localizedDescription, context: "Finish export accessibility information")
+                    }
                 }
             }
             let staleKeyCheck = isKeyCheck && checkedKey != settings.apiKey.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -3265,6 +3224,7 @@ final class StudioModel {
         if let audio = selection.adAudio {
             steps.append(("import-ad-audio", ["--input", audio.path, "--audio-mode", selection.adAudioMode.rawValue]))
         }
+        steps = steps.map { (command: $0.command, arguments: $0.arguments + ["--language", selection.language ?? project.languageCode]) }
         if replaceExisting {
             steps = steps.map { (command: $0.command, arguments: $0.arguments + ["--replace-existing"]) }
         }

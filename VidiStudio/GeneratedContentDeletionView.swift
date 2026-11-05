@@ -61,102 +61,82 @@ struct GeneratedContentDeletionView: View {
     @Environment(\.dismiss) private var dismiss
     @Bindable var studio: StudioModel
     let project: StudioProject
-    @State private var selection: Set<GeneratedContentComponent> = []
-
-    private var available: Set<GeneratedContentComponent> {
-        Set(GeneratedContentComponent.allCases.filter { $0.hasContent(in: project) })
+    @State private var language = "all"
+    @State private var selection: Set<String> = []
+    @State private var components: Set<String> = []
+    @State private var exportPaths: Set<String> = []
+    @State private var preview: ResultDeletionPreview?
+    @State private var confirming = false
+    private var results: [SavedLanguageResult] {
+        project.savedLanguageResults.filter { language == "all" || $0.language == language }
     }
-
-    private var effectiveSelection: Set<GeneratedContentComponent> {
-        guard selection.contains(.descriptions), available.contains(.narration) else { return selection }
-        return selection.union([.narration])
+    private var exports: [String] {
+        project.exports.filter { language == "all" || (project.exportResults?[$0]?.language ?? "auto") == language }
     }
-
-    private var selectAll: Binding<Bool> {
-        Binding(
-            get: { !available.isEmpty && effectiveSelection == available },
-            set: { selection = $0 ? available : [] }
-        )
+    private var request: [String: Any] {
+        ["resultIDs": Array(selection), "components": Array(components), "exportPaths": Array(exportPaths)]
     }
-
-    private func selectionBinding(for component: GeneratedContentComponent) -> Binding<Bool> {
-        Binding(
-            get: { effectiveSelection.contains(component) },
-            set: { selected in
-                if selected { selection.insert(component) }
-                else { selection.remove(component) }
-            }
-        )
-    }
-
-    private func explanation(for component: GeneratedContentComponent) -> String {
-        if component == .narration, selection.contains(.descriptions), available.contains(.narration) {
-            return "Included automatically because deleting AD Descriptions also removes their narration audio."
-        }
-        return component.explanation
-    }
-
-    private func isDisabled(_ component: GeneratedContentComponent) -> Bool {
-        !available.contains(component)
-            || (component == .narration && selection.contains(.descriptions))
-    }
-
-    private func accessibilityHint(for component: GeneratedContentComponent) -> String {
-        if component == .narration, selection.contains(.descriptions), available.contains(.narration) {
-            return "Selected automatically and cannot be changed while AD Descriptions is selected."
-        }
-        return available.contains(component)
-            ? component.explanation
-            : "This project has no \(component.title.lowercased()) to delete."
-    }
-
     var body: some View {
-        VStack(alignment: .leading, spacing: 18) {
-            Text("Delete Generated Content")
-                .font(.title2.bold())
-                .accessibilityAddTraits(.isHeader)
-            Text("Choose what to delete from “\(project.name)”. The project and original video or YouTube link are always kept.")
-                .foregroundStyle(.secondary)
-
-            Toggle("Select All", isOn: selectAll)
-                .fontWeight(.semibold)
-                .disabled(available.isEmpty)
-
-            Divider()
-
-            VStack(alignment: .leading, spacing: 12) {
-                ForEach(GeneratedContentComponent.allCases) { component in
-                    Toggle(isOn: selectionBinding(for: component)) {
-                        VStack(alignment: .leading, spacing: 3) {
-                            Text(component.title)
-                            Text(explanation(for: component))
-                                .font(.caption)
-                                .foregroundStyle(.secondary)
-                        }
+        VStack(alignment: .leading, spacing: 16) {
+            Text("Delete Content by Language").font(.title2.bold())
+            Text("Choose languages, content types, saved results, and optional exports. The project and original source are kept.")
+            OutputLanguagePicker(title: "Language filter", selection: $language, includesAll: true)
+            ScrollView {
+                VStack(alignment: .leading, spacing: 10) {
+                    Text("Content types").font(.headline)
+                    ForEach(["transcript", "summary", "descriptions", "adAudio", "narration", "history", "thumbnails"], id: \.self) { kind in
+                        Toggle(kind == "narration" ? "Narration Audio Only" : kind == "history" ? "Segment Undo History Only" : kind == "thumbnails" ? "Thumbnails (Entire Project)" : SavedLanguageResult.kindTitle(kind), isOn: membership(kind, in: $components))
                     }
-                    .disabled(isDisabled(component))
-                    .accessibilityHint(accessibilityHint(for: component))
+                    Divider()
+                    HStack {
+                        Text("Saved results").font(.headline)
+                        Spacer()
+                        Button("Select Visible Results") { selection.formUnion(results.map(\.id)) }
+                    }
+                    ForEach(results) { result in
+                        Toggle("\(OutputLanguage.title(result.language)) · \(result.kindTitle) · \(result.title)\(result.state == "draft" ? " · Review draft" : "")", isOn: membership(result.id, in: $selection))
+                    }
+                    Divider()
+                    Text("Optional exports").font(.headline)
+                    ForEach(exports, id: \.self) { path in
+                        Toggle(URL(fileURLWithPath: path).lastPathComponent, isOn: membership(path, in: $exportPaths))
+                    }
                 }
             }
-
-            Text("Deleting selected content cannot be undone.")
-                .font(.caption)
-                .foregroundStyle(.secondary)
-
+            Text("Selected: \(selection.count) results, \(exportPaths.count) exports. Deleting descriptions also removes their associated narration when no retained result uses it.")
+                .font(.caption).foregroundStyle(.secondary)
             HStack {
                 Button("Cancel", role: .cancel) { dismiss() }
-                    .keyboardShortcut(.cancelAction)
                 Spacer()
-                Button("Delete Selected…", systemImage: "trash", role: .destructive) {
-                    if studio.confirmDeleteGeneratedContent(project, components: effectiveSelection) {
-                        dismiss()
-                    }
+                Button("Delete Selected…", role: .destructive) {
+                    studio.previewResultDeletion(request: request, project: project) { preview = $0; confirming = true }
                 }
-                .keyboardShortcut(.defaultAction)
-                .disabled(effectiveSelection.isEmpty || studio.busy)
+                    .disabled(studio.busy || ((selection.isEmpty || components.isEmpty) && exportPaths.isEmpty && !components.contains("thumbnails")))
+            }
+        }.padding(24).frame(width: 680, height: 650)
+        .onAppear {
+            if let component = studio.languageDeletionComponent {
+                components = [component.rawValue]
+                let kind = component == .narration || component == .history ? "descriptions" : component.rawValue
+                language = component == .thumbnails || component == .exports ? "all" : project.sectionLanguage(kind)
+                if component == .exports { exportPaths = Set(project.exports) }
+                let id = project.activeLanguageResultID(kind)
+                if !id.isEmpty { selection = [id] }
             }
         }
-        .padding(24)
-        .frame(width: 570)
+        .confirmationDialog("Delete selected content permanently?", isPresented: $confirming, titleVisibility: .visible) {
+            Button("Delete Selected", role: .destructive) {
+                studio.executeResultRequest("delete-results", request: request, project: project)
+                dismiss()
+            }
+            Button("Cancel", role: .cancel) {}
+        } message: {
+            Text((preview?.text ?? "") + "\nContent types: " + components.sorted().joined(separator: ", ") + ". This cannot be undone.")
+        }
+    }
+    private func membership(_ value: String, in values: Binding<Set<String>>) -> Binding<Bool> {
+        Binding(get: { values.wrappedValue.contains(value) }, set: {
+            if $0 { values.wrappedValue.insert(value) } else { values.wrappedValue.remove(value) }
+        })
     }
 }

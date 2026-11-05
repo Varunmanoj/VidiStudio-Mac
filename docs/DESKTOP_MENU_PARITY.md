@@ -119,3 +119,11 @@ File has adjacent Settings… and Open Project Settings… commands. Open Projec
 ## Settings shortcuts (1.0.211)
 
 File > Settings… shows Cmd/Ctrl+Comma. File > Open Project Settings… shows Cmd/Ctrl+Shift+Comma and uses the existing guarded project-settings command for the active editor. The shared Settings window selects that editor project in Projects. The Mac application-menu Settings entry retains the native Cmd+Comma action.
+
+Project > Language and Saved Results… is first in the Project menu on both desktops. It has no keyboard shortcut and uses the shared command guard. It opens the same language/result controls as the inspector; Filter Segments includes those controls too. Section deletion actions open Delete Content by Language, prefilled with the active result. Auto is a content category; All Languages is a filter only.
+
+Language and Saved Results follows the active editor tab on both desktops. Project Language is shared; section targets and Assign Language require Edit mode. Saved versions in the current language remain selectable in view mode. Edit is available even for an empty Transcript or Descriptions section so its initial target language can be chosen. Pending summary edits must be saved or cancelled before language/result context switches.
+
+Manual editing of existing segments requires Edit mode on both desktops: row pencils/context Edit, double-click editing, and bulk editing. Add Segment, generation/regeneration, and deletion remain available in view mode. Context menus never automatically enter Edit mode. Playback/navigation remain available in view mode.
+
+Read Frame Text remains available for review without segment editing. Mac offers Add as Description and Windows can open a new description draft in view mode; manually editing existing descriptions still requires Edit mode.

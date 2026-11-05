@@ -19,6 +19,11 @@ class DesktopMenuParity(unittest.TestCase):
         windows_root = Path(os.environ.get('VIDISTUDIO_WINDOWS_ROOT', root / 'Vidi-Studio-Windows'))
         cls.windows = (windows_root / 'Vidi Studio Windows/MainWindow.Menus.cs').read_text(encoding='utf-8')
 
+    def test_language_results_command_is_shared_and_guarded(self):
+        self.assertIn('editor?.run("language-results")', self.mac)
+        self.assertIn('Command("language-results")', self.windows)
+        self.assertIn('"language-results" => "Language and Saved Results…"', self.windows)
+
     def test_remove_from_list_context_action_matches_on_both_desktops(self):
         root = Path(os.environ.get('VIDISTUDIO_DESKTOP_WORKSPACE', Path(__file__).resolve().parents[2]))
         browser = (root/'VidiStudio Mac/VidiStudio/ProjectBrowserPage.swift').read_text()

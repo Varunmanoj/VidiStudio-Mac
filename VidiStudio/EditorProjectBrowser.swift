@@ -13,10 +13,11 @@ struct EditorProjectBrowser: View {
     let openSettings: (StudioProject) -> Void
     @State private var search = ""
     @State private var source = "all"
+    @State private var languageFilter = "all"
 
     private var filtered: [StudioProject] {
         projects.filter { (search.isEmpty || $0.name.localizedCaseInsensitiveContains(search)) &&
-            (source == "all" || $0.isYouTubeURLProject == (source == "youtube")) }
+            (source == "all" || $0.isYouTubeURLProject == (source == "youtube")) && $0.matchesLanguage(languageFilter) }
     }
     private var selected: StudioProject? { projects.first { $0.id == selectedID } }
 
@@ -29,6 +30,7 @@ struct EditorProjectBrowser: View {
                 Text("Local videos").tag("local")
                 Text("YouTube videos").tag("youtube")
             }.labelsHidden()
+            OutputLanguagePicker(title: "Project language filter", selection: $languageFilter, includesAll: true)
             if summaryEditing {
                 Text("Finish editing the summary to switch projects.")
                     .font(.caption).foregroundStyle(.secondary)

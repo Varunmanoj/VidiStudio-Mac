@@ -190,7 +190,7 @@ private struct NewProjectView: View {
                             .pickerStyle(.radioGroup)
                             Text(assets.adAudioMode.detail).font(.caption).foregroundStyle(.secondary)
                         }
-                        Text(source == .youtube ? "Combining creates described audio using the selected original soundtrack." : "Combining creates Original Audio and English - Audio Description tracks that viewers can switch between.")
+                        Text(source == .youtube ? "Combining creates described audio using the selected original soundtrack." : "Combining creates Original Audio and language-labelled Audio Description tracks that viewers can switch between.")
                             .font(.caption).foregroundStyle(.secondary)
                     Text("Accepted: SRT, VTT, TXT for text; Markdown or TXT for summaries; WAV, MP3, M4A, AAC, or FLAC for audio. TXT timing is reviewed after the project is created.")
                         .font(.caption2).foregroundStyle(.secondary)
@@ -705,6 +705,9 @@ struct ProjectEditorWindow: View {
         }
         }
         .navigationSplitViewStyle(.balanced)
+        .sheet(item: $studio.languageDeletionProject) { project in
+            GeneratedContentDeletionView(studio: studio, project: project)
+        }
         .inspector(isPresented: $showInspector) {
             ProcessingInspector(
                 studio: studio,
@@ -951,6 +954,7 @@ struct ProcessingInspector: View {
             if let project = studio.selected {
                 HStack(alignment: .top, spacing: 8) {
                     VStack(alignment: .leading, spacing: 10) {
+                        LanguageResultControls(studio: studio, project: project, editorActions: editorActions)
                         ProjectVideoInformationView(project: project)
                         if project.isYouTubeURLProject { YouTubeInspectorInformationView(studio: studio, project: project) }
                     }
@@ -1565,6 +1569,7 @@ struct ProjectEditor: View {
     @State private var followTranscript = true
     @State private var summaryReader = SummaryReadbackModel()
     @State private var summaryEditMode = false
+    @State private var languageContextChanging = false
     @State private var summaryDraftText = ""
     @State private var summaryDraftOrigin: SummaryOrigin = .unknown
     @State private var showingImportAssets = false
@@ -1572,6 +1577,7 @@ struct ProjectEditor: View {
     @State private var importScope: ImportScope?
     @State private var showingTranscriptTimingEditor = false
     @State private var showingBulkShift = false
+    @State private var showingLanguageResults = false
     @State private var showingSegmentFilter = false
     @State private var segmentFilter = SegmentFilter()
     @State private var segmentSort: SegmentSort = .start
@@ -1626,7 +1632,7 @@ struct ProjectEditor: View {
     }
 
     private var segmentEditingAvailable: Bool {
-        captionControlsAvailable && !transcriptRows.isEmpty
+        captionControlsAvailable
     }
 
     private var segmentSectionTitle: String {
@@ -1862,7 +1868,7 @@ struct ProjectEditor: View {
                     Button(tab == "transcript" ? "Add Transcript Segment" : "Add Audio Description Segment", systemImage: "plus") {
                         presentNewSegment(isDescription: tab == "descriptions")
                     }
-                    .disabled(tab == "descriptions" && project.transcript.isEmpty)
+                    .disabled(!canCreateSegment || (tab == "descriptions" && project.transcript.isEmpty))
                     Divider()
                     Button(tab == "transcript" ? "Import Transcript…" : "Import Descriptions…", systemImage: "square.and.arrow.down") {
                         importScope = tab == "transcript" ? .transcript : .descriptions
@@ -2091,13 +2097,13 @@ struct ProjectEditor: View {
                     .help("Close the screen text review without changing the project")
                 Spacer()
                 Button("Add as Description", systemImage: "text.badge.plus") {
-                    segmentToEdit = TranscriptRow(
+                    presentSegmentEditor(TranscriptRow(
                         segment: Segment(id: UUID().uuidString, start: studio.screenTimestamp, end: min(project.duration, studio.screenTimestamp + 3), text: studio.screenText ?? "", origin: "ai", aiOriginalText: studio.screenText),
                         isDescription: true
-                    )
+                    ), adding: true)
                     studio.screenText = nil
                 }
-                .disabled(studio.screenText?.isEmpty != false)
+                .disabled(!canCreateSegment || studio.screenText?.isEmpty != false)
                 .help("Create an Audio Description segment from the text found in this frame")
             }
         }
@@ -2129,6 +2135,8 @@ struct ProjectEditor: View {
     }
 
     private func saveEditedRows(_ updatedRows: [TranscriptRow]) {
+        let editsExisting = updatedRows.contains { row in (row.isDescription ? project.cues : project.transcript).contains { $0.id == row.segment.id } }
+        guard canCreateSegment, !editsExisting || segmentEditMode else { return }
         let transcriptUpdates = Dictionary(uniqueKeysWithValues: updatedRows.filter { !$0.isDescription }.map { ($0.segment.id, $0.segment) })
         let descriptionUpdates = Dictionary(uniqueKeysWithValues: updatedRows.filter(\.isDescription).map { ($0.segment.id, $0.segment) })
         var transcript = project.transcript.map { transcriptUpdates[$0.id] ?? $0 }
@@ -2229,10 +2237,23 @@ struct ProjectEditor: View {
         )
     }
 
+    private var canCreateSegment: Bool { captionControlsAvailable && !studio.busy }
+    private var canOpenSegmentEditor: Bool { segmentEditMode && canCreateSegment }
+
+    private func presentSegmentEditor(_ row: TranscriptRow, adding: Bool = false) {
+        guard adding ? canCreateSegment : canOpenSegmentEditor else { return }
+        playback.pauseAndCaptureTime { _ in
+            guard adding ? canCreateSegment : canOpenSegmentEditor else { return }
+            segmentToEdit = row
+        }
+    }
+
     private func presentBulkSegmentEditor() {
+        guard canOpenSegmentEditor else { return }
         let selected = transcriptRows.filter { selectedSegmentIDs.contains($0.id) }
         guard !selected.isEmpty else { return }
         playback.pauseAndCaptureTime { _ in
+            guard canOpenSegmentEditor else { return }
             segmentBatchToEdit = SegmentEditBatch(rows: selected)
         }
     }
@@ -2521,7 +2542,7 @@ struct ProjectEditor: View {
                             summaryEditMode = false
                             refreshEditorShortcutActions()
                         }
-                    )
+                    ).disabled(languageContextChanging)
                 } else if project.summary.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
                     summaryEmptyState
                 } else {
@@ -2668,7 +2689,7 @@ struct ProjectEditor: View {
                             }
                             if segmentEditMode {
                                 Button("Edit \(row.kind) Segment", systemImage: "pencil") {
-                                    playback.pauseAndCaptureTime { _ in segmentToEdit = row }
+                                    presentSegmentEditor(row)
                                 }
                                 .labelStyle(.iconOnly)
                                 .disabled(studio.busy)
@@ -2710,7 +2731,7 @@ struct ProjectEditor: View {
                                 } else {
                                     SegmentActionsMenu(actions: [
                                         .init(title: "Edit Segment…", systemImage: "pencil") {
-                                            playback.pauseAndCaptureTime { _ in segmentToEdit = row }
+                                            presentSegmentEditor(row)
                                         },
                                         .init(title: "Re-Analyze This Segment…", systemImage: "sparkles", enabled: studio.hasValidApiKey) {
                                             studio.reanalyzeSegment(cue, hint: "", isDescription: false)
@@ -2728,7 +2749,7 @@ struct ProjectEditor: View {
                             .id(row.id)
                             .contentShape(Rectangle())
                             .onTapGesture(count: 2) {
-                                playback.pauseAndCaptureTime { _ in segmentToEdit = row }
+                                presentSegmentEditor(row)
                             }
                             .listRowBackground(
                                 isNarratingCue
@@ -2737,10 +2758,10 @@ struct ProjectEditor: View {
                             )
                             .contextMenu {
                                 Button("Edit \(row.kind) Segment…", systemImage: "pencil") {
-                                    playback.pauseAndCaptureTime { _ in segmentToEdit = row }
+                                    presentSegmentEditor(row)
                                 }
-                                .disabled(studio.busy)
-                                .help("Edit \(row.kind.lowercased()) text and timing in a dialog")
+                                .disabled(!canOpenSegmentEditor)
+                                .help(segmentEditMode ? "Edit \(row.kind.lowercased()) text and timing in a dialog" : "Enter Edit mode to edit segment text and timing")
                                 .accessibilityLabel("Edit \(row.kind.lowercased()) segment starting at \(timecode(cue.start))")
 
                                 Button("Play from \(row.kind)", systemImage: "play.fill") {
@@ -2926,6 +2947,7 @@ struct ProjectEditor: View {
             selectedSegmentIDs.removeAll()
             refreshEditorShortcutActions()
         case "segment-edit-selected": presentBulkSegmentEditor()
+        case "language-results": showingLanguageResults = true
         case "filter-segments": if filterableTab { showingSegmentFilter = true }
         case "sort-start": segmentSort = .start; refreshEditorShortcutActions()
         case "sort-duration-asc": segmentSort = .durationAscending; refreshEditorShortcutActions()
@@ -3009,6 +3031,29 @@ struct ProjectEditor: View {
         refreshEditorShortcutActions()
     }
 
+    private var hasUnsavedSummaryEdits: Bool {
+        summaryEditMode && (summaryDraftText.trimmingCharacters(in: .whitespacesAndNewlines) != project.summary.trimmingCharacters(in: .whitespacesAndNewlines)
+            || summaryDraftOrigin != project.summaryOriginLabel)
+    }
+
+    private func runLanguageAction(_ command: String, arguments: [String]) {
+        guard !studio.busy, !languageContextChanging, !hasUnsavedSummaryEdits,
+              segmentToEdit == nil, segmentBatchToEdit == nil else { return }
+        let changesLanguage = ["select-language", "select-section-language", "sync-section-languages", "assign-result-language"].contains(command)
+        guard !changesLanguage || (tab == "summary" ? summaryEditMode : segmentEditMode) else { return }
+        stopNarrationPreview()
+        summaryReader.stop()
+        languageContextChanging = true
+        studio.execute(command, extra: arguments, project: project) { updated in
+            if let updated, summaryEditMode {
+                summaryDraftText = updated.summary
+                summaryDraftOrigin = updated.summaryOriginLabel
+            }
+            languageContextChanging = false
+            refreshEditorShortcutActions()
+        }
+    }
+
     private func commitSummaryEdits() {
         let trimmed = summaryDraftText.trimmingCharacters(in: .whitespacesAndNewlines)
         let originChanged = summaryDraftOrigin != project.summaryOriginLabel
@@ -3031,7 +3076,9 @@ struct ProjectEditor: View {
         if updateHandler {
             shortcutActions.handler = { action in runEditorShortcut(action) }
             shortcutActions.exportHandler = showExportDialog
+            shortcutActions.languageAction = { command, arguments in runLanguageAction(command, arguments: arguments) }
         }
+        shortcutActions.hasUnsavedSummaryEdits = hasUnsavedSummaryEdits
         shortcutActions.previewHidden = previewHidden
         shortcutActions.isVideoFullScreen = playback.isVideoFullScreen
         shortcutActions.timelineVisible = timelineVisible
@@ -3168,7 +3215,13 @@ struct ProjectEditor: View {
             }
             refreshEditorShortcutActions()
         }
+        .onChange(of: segmentEditMode) { _, editing in
+            if !editing { segmentToEdit = nil; segmentBatchToEdit = nil }
+            refreshEditorShortcutActions()
+        }
         .onChange(of: summaryEditMode) { _, _ in refreshEditorShortcutActions() }
+        .onChange(of: summaryDraftText) { _, _ in refreshEditorShortcutActions() }
+        .onChange(of: summaryDraftOrigin) { _, _ in refreshEditorShortcutActions() }
         .onChange(of: summaryReader.isReading) { _, _ in refreshEditorShortcutActions() }
         .onChange(of: summaryReader.isPaused) { _, _ in refreshEditorShortcutActions() }
         .onChange(of: summaryReader.currentIndex) { _, _ in refreshEditorShortcutActions() }
@@ -3283,8 +3336,13 @@ struct ProjectEditor: View {
         .sheet(isPresented: $showingBulkShift) {
             BulkShiftTimingView(count: selectedRows.count, duration: project.duration, apply: shiftSelectedSegments)
         }
+        .sheet(isPresented: $showingLanguageResults) {
+            ScrollView { LanguageResultControls(studio: studio, project: project, editorActions: shortcutActions).padding(24) }.frame(width: 520, height: 600)
+        }
         .sheet(isPresented: $showingSegmentFilter) {
-            SegmentFilterView(
+            VStack {
+                LanguageResultControls(studio: studio, project: project, editorActions: shortcutActions)
+                SegmentFilterView(
                 title: segmentFilterTitle.replacingOccurrences(of: "…", with: ""),
                 origins: availableOrigins,
                 showsAudio: tab != "transcript",
@@ -3295,18 +3353,20 @@ struct ProjectEditor: View {
                     refreshEditorShortcutActions()
                 }
             )
+            }
         }
         .alert("Generate narration for selected descriptions?", isPresented: $confirmBulkNarration) {
             Button("Generate", role: .destructive) { generateNarrationForSelectedDescriptions() }
             Button("Cancel", role: .cancel) { }
         } message: {
-            Text("\(bulkNarrationLabel), one after another, using the currently selected narration voice. \(bulkNarrationCounts.existing) existing audio file\(bulkNarrationCounts.existing == 1 ? "" : "s") will be replaced; \(bulkNarrationCounts.new) new audio file\(bulkNarrationCounts.new == 1 ? "" : "s") will be created.")
+            Text("\(bulkNarrationLabel), one after another, using the selected narration voice. A new narration alternative is saved for review. Existing narration remains available until you choose to replace it.")
         }
     }
 
     private func presentNewSegment(isDescription: Bool) {
-        guard !(isDescription && project.transcript.isEmpty) else { return }
+        guard canCreateSegment, !(isDescription && project.transcript.isEmpty) else { return }
         playback.pauseAndCaptureTime { capturedTime in
+            guard canCreateSegment else { return }
             let latestStart = max(0, project.duration - 0.1)
             let start = max(0, min(capturedTime, latestStart))
             segmentToEdit = TranscriptRow(
@@ -3338,7 +3398,7 @@ struct ProjectEditor: View {
         if cue.audio != nil {
             let alert = NSAlert()
             alert.messageText = "Replace this segment's narration audio?"
-            alert.informativeText = "The existing narration file will be replaced after the imported audio passes validation."
+            alert.informativeText = "The imported audio will be saved as an alternative after validation. Review it afterward to keep both, replace the selected result, or discard the new result."
             alert.alertStyle = .warning
             alert.addButton(withTitle: "Cancel")
             alert.addButton(withTitle: "Replace")

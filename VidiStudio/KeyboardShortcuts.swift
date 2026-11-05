@@ -19,6 +19,9 @@ final class EditorShortcutActions {
     var addSegmentTitle = "Add Segment"
     var segmentEditingAvailable = false
     var segmentEditMode = false
+    var hasUnsavedSummaryEdits = false
+    var languageAction: ((String, [String]) -> Void)?
+    var canChangeLanguage: Bool { available && segmentEditMode && ["transcript", "summary", "descriptions", "ad-transcript"].contains(activeSection) && !hasUnsavedSummaryEdits }
     var segmentEditModeTitle = "Edit Segments"
     var filterTitle = "Filter Segments…"
     var sortTitle = "Sort Segments…"
@@ -137,7 +140,7 @@ final class EditorShortcutActions {
         if ["play", "back", "forward"].contains(action), youtubeProject, !ConnectivityService.shared.available(.youtube) { return false }
         if action.hasPrefix("summary-") { return canRunSummary(action) }
         switch action {
-        case "rename-project", "trash-project", "import-assets", "import-transcript", "import-summary", "import-descriptions", "import-ad-audio": return true
+        case "language-results", "rename-project", "trash-project", "import-assets", "import-transcript", "import-summary", "import-descriptions", "import-ad-audio": return true
         case "import-original-audio": return canImportOriginalAudio
         case "filter-segments", "sort-start", "sort-duration-asc", "sort-duration-desc", "sort-origin":
             return ["transcript", "descriptions", "ad-transcript"].contains(activeSection)
@@ -151,7 +154,8 @@ final class EditorShortcutActions {
             return activeSection == "transcript" || (activeSection == "descriptions" && canGenerateDescriptions)
         case "segment-edit-mode": return segmentEditingAvailable
         case "segment-select-all": return segmentEditMode && segmentCount > 0 && selectedSegmentCount < segmentCount
-        case "segment-deselect-all", "segment-edit-selected", "segment-delete-selected":
+        case "segment-delete-selected": return selectedSegmentCount > 0
+        case "segment-deselect-all", "segment-edit-selected":
             return segmentEditMode && selectedSegmentCount > 0
         case "caption-cycle": return captionControlsAvailable && (hasTranscriptText || hasDescriptions)
         case "caption-off": return captionControlsAvailable
@@ -440,6 +444,9 @@ struct StudioCommands: Commands {
             .disabled(editor?.summaryActive != true)
         }
         CommandMenu("Project") {
+            Button("Language and Saved Results…", systemImage: "translate") { editor?.run("language-results") }
+                .disabled(editor?.canRun("language-results") != true)
+
             Menu("Editor Sections", systemImage: "rectangle.split.3x1") {
                 shortcutEntries(StudioShortcut.editor.filter { ["transcript", "summary", "descriptions", "ad-overview", "ad-transcript"].contains($0.id) })
             }

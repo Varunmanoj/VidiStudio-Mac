@@ -1,0 +1,550 @@
+"""Portable language results. Only the engine writes this project schema.
+
+Top-level editable fields are a projection; result payloads own their histories and
+files. Generation runs on a copy, with recoverable checkpoints, never on a saved
+result. Auto is a category, not an alias for English or for all languages.
+"""
+import copy
+import json
+import os
+import time
+import uuid
+from pathlib import Path
+
+import output_languages
+
+COMMANDS = ['select-language', 'select-result', 'assign-result-language',
+            'review-result', 'delete-results', 'preview-delete-results', 'export-batch', 'select-section-language', 'sync-section-languages']
+FIELDS = {
+    'transcript': ['transcript', 'transcriptGenerated', 'transcriptUndoStack',
+                   'transcriptRedoStack', 'transcriptAudioSource', 'youtubeCaptionSource'],
+    'summary': ['summary', 'summaryGenerated', 'summaryOrigin', 'summaryOriginSource', 'summaryOriginOverride'],
+    'descriptions': ['cues', 'descriptionsGenerated', 'undoStack', 'redoStack',
+                     'narrationEngine', 'narrationVoice', 'descriptionTimingAudit', 'importedADTranscript'],
+    'adAudio': ['importedAudioDescription'],
+}
+PRIMARY = {'transcript': 'transcript', 'summary': 'summary', 'descriptions': 'cues',
+           'adAudio': 'importedAudioDescription'}
+PRODUCERS = {'transcribe': ['transcript'], 'generate-summary': ['summary'],
+             'generate-ad-cues': ['descriptions'], 'synthesize-tts': ['descriptions'],
+             'reanalyze-transcript-segment': ['transcript'], 'reanalyze-segment': ['descriptions'],
+             'rewrite-cue': ['descriptions'], 'import-transcript': ['transcript'],
+             'import-summary': ['summary'], 'import-ad-transcript': ['descriptions'],
+             'import-ad-audio': ['adAudio'], 'import-segment-narration': ['descriptions']}
+EDIT_KINDS = {'save-summary': 'summary', 'save-cues': 'descriptions', 'undo-cues': 'descriptions',
+              'redo-cues': 'descriptions', 'undo-transcript': 'transcript', 'redo-transcript': 'transcript',
+              'delete-segment-audio': 'descriptions'}
+_transaction = None
+_export_language = 'auto'
+
+
+def language(code):
+    if code != 'auto' and code not in output_languages.options():
+        raise ValueError('Choose Auto or a supported language.')
+    return code
+
+
+def default_language(cfg):
+    if cfg.get('defaultOutputLanguage') is not None:
+        return language(cfg['defaultOutputLanguage'])
+    choices = cfg.get('outputLanguages') or {}
+    values = {choices.get(k, 'auto') for k in ('transcript', 'summary', 'audio_descriptions')}
+    return language(next(iter(values))) if len(values) == 1 else 'auto'
+
+
+def payload(p, kind):
+    return {key: copy.deepcopy(p[key]) for key in FIELDS[kind] if key in p}
+
+
+def record(p, kind, code, data, state='saved', result_id=None):
+    now = time.time()
+    versions = [r.get('version', 0) for r in p['languageResults'] if r['kind'] == kind and r['language'] == code]
+    primary = data.get(PRIMARY[kind])
+    origin = data.get('summaryOrigin') if kind == 'summary' else None
+    if isinstance(primary, list) and primary and isinstance(primary[0], dict):
+        origins = {row.get('origin', 'unknown') for row in primary if isinstance(row, dict)}
+        origin = next(iter(origins)) if len(origins) == 1 else 'mixed'
+    return dict(id=result_id or str(uuid.uuid4()), kind=kind, language=code,
+                version=max(versions, default=0) + 1, createdAt=now, updatedAt=now,
+                origin=origin or ('imported' if kind == 'adAudio' else 'unknown'),
+                state=state, payload=data, sourceResultIDs={})
+
+
+def migrate(p, initial_language='auto'):
+    if int(p.get('schemaVersion', 1)) > 3:
+        raise ValueError('This project requires a newer version of VidiStudio.')
+    if 'languageResults' not in p:
+        p['languageResults'] = []
+        p['selectedLanguage'] = initial_language if not any(p.get(k) for k in PRIMARY.values()) else 'auto'
+        p['activeResultIDs'] = {}
+        for kind in FIELDS:
+            if p.get(PRIMARY[kind]) or p.get({'transcript': 'transcriptGenerated', 'summary': 'summaryGenerated', 'descriptions': 'descriptionsGenerated'}.get(kind, '')):
+                r = record(p, kind, 'auto', payload(p, kind), result_id=str(p.get('id', 'project')) + '-legacy-' + kind)
+                r['createdAt'] = p.get('updatedAt', p.get('createdAt', r['createdAt']))
+                r['updatedAt'] = r['createdAt']
+                asset_key = {'transcript': 'transcript', 'summary': 'summary', 'descriptions': 'combined' if (p.get('importedADTranscript') or {}).get('mode') == 'combined' else 'narration'}.get(kind)
+                if asset_key and (p.get('importedAssets') or {}).get(asset_key):
+                    r['sourceAsset'] = copy.deepcopy(p['importedAssets'][asset_key])
+                p['languageResults'].append(r)
+                p['activeResultIDs'].setdefault('auto', {})[kind] = r['id']
+    p.setdefault('selectedLanguage', 'auto')
+    p.setdefault('activeResultIDs', {})
+    p.setdefault('sectionLanguages', {})
+    p.setdefault('exportResults', {})
+    p['schemaVersion'] = 3
+    return p
+
+
+def find(p, result_id, kind=None, saved_only=False):
+    result = next((r for r in p['languageResults'] if r['id'] == result_id), None)
+    if result is None or (kind and result['kind'] != kind) or (saved_only and result['state'] != 'saved'):
+        raise ValueError('The selected saved result is unavailable. Refresh and choose another result.')
+    return result
+
+
+def effective_language(p, kind):
+    return p.get('sectionLanguages', {}).get(kind, p['selectedLanguage'])
+
+
+def active(p, kind, code=None):
+    code = code or effective_language(p, kind)
+    rid = p['activeResultIDs'].get(code, {}).get(kind)
+    selected = next((r for r in p['languageResults'] if r['id'] == rid and r['state'] == 'saved' and r['language'] == code and r['kind'] == kind), None)
+    if selected is None:
+        choices = [r for r in p['languageResults'] if r['state'] == 'saved' and r['language'] == code and r['kind'] == kind]
+        if choices:
+            selected = max(choices, key=lambda r: r['createdAt'])
+            p['activeResultIDs'].setdefault(code, {})[kind] = selected['id']
+    return selected
+
+
+def project(p):
+    for kind in FIELDS:
+        for key in FIELDS[kind]:
+            p.pop(key, None)
+        r = active(p, kind)
+        if r:
+            p.update(copy.deepcopy(r['payload']))
+    p.setdefault('transcript', [])
+    p.setdefault('summary', '')
+    p.setdefault('cues', [])
+    return p
+
+
+def capture(p):
+    migrate(p)
+    for kind in FIELDS:
+        r = active(p, kind)
+        data = payload(p, kind)
+        if r:
+            if r['payload'] != data:
+                r.update(payload=data, updatedAt=time.time())
+        elif p.get(PRIMARY[kind]):
+            r = record(p, kind, effective_language(p, kind), data)
+            p['languageResults'].append(r)
+            p['activeResultIDs'].setdefault(effective_language(p, kind), {})[kind] = r['id']
+
+
+def referenced_paths(p):
+    paths = set()
+    def walk(value):
+        if isinstance(value, dict):
+            for k, v in value.items():
+                if k in ('audio', 'path') and isinstance(v, str):
+                    paths.add(v)
+                else:
+                    walk(v)
+        elif isinstance(value, list):
+            for item in value:
+                walk(item)
+    walk(p.get('languageResults', []))
+    for key in ('cues', 'undoStack', 'redoStack', 'importedAudioDescription', 'importedADTranscript', 'originalAudio'):
+        walk(p.get(key))
+    if _transaction:
+        walk(_transaction['base'].get('languageResults', []))
+    return paths
+
+
+def checkpoint(root, working, write, force=False):
+    """Return True when an internal generation save was redirected to a draft."""
+    if working.get('_exportView'): return True
+    if not _transaction or working.get('_resultTransaction') != _transaction['token']:
+        return False
+    tx = _transaction
+    for kind in tx['kinds']:
+        data = payload(working, kind)
+        if force or data != tx['original'][kind]:
+            r = tx['drafts'].get(kind)
+            if not r:
+                r = record(tx['base'], kind, tx['language'], data, 'draft')
+                old = active(tx['base'], kind, tx['language'])
+                r['replacesResultID'] = old['id'] if old else None
+                r['sourceResultIDs'] = copy.deepcopy(tx['sources'])
+                if tx['command'].startswith('import-'):
+                    asset_key = {'transcript': 'transcript', 'summary': 'summary', 'descriptions': 'combined' if (working.get('importedADTranscript') or {}).get('mode') == 'combined' else 'narration'}.get(kind)
+                    if asset_key and (working.get('importedAssets') or {}).get(asset_key):
+                        r['sourceAsset'] = copy.deepcopy(working['importedAssets'][asset_key])
+                tx['drafts'][kind] = r
+                tx['base']['languageResults'].append(r)
+            r.update(payload=data, updatedAt=time.time())
+    write(Path(root) / 'project.json', tx['base'])
+    return True
+
+
+def produce(args, root, p, core, dispatch):
+    global _transaction
+    kinds = PRODUCERS[args.command]
+    working = copy.deepcopy(p)
+    sources = {kind: r['id'] for kind in FIELDS if (r := active(p, kind)) is not None}
+    target_language = effective_language(p, kinds[0])
+    previous_language = os.environ.get('VIDISTUDIO_OUTPUT_LANGUAGE')
+    os.environ['VIDISTUDIO_OUTPUT_LANGUAGE'] = target_language
+    for kind in ('transcript', 'summary'):
+        rid = getattr(args, 'source_' + kind + '_id', None)
+        if rid:
+            r = find(p, rid, kind)
+            working.update(copy.deepcopy(r['payload']))
+            sources[kind] = rid
+    if args.command == 'generate-summary':
+        working.pop('summaryOriginOverride', None)
+    previous = _transaction
+    tx = dict(base=p, working=working, command=args.command, kinds=kinds, language=target_language,
+              sources=sources, token=str(uuid.uuid4()), original={k: payload(working, k) for k in kinds}, drafts={})
+    _transaction = tx
+    working['_resultTransaction'] = tx['token']
+    local_args = copy.copy(args)
+    local_args.replace_existing = True  # only the isolated working copy is changed
+    try:
+        dispatch(local_args, root, working)
+        checkpoint(root, working, core.atomic_json, force=True)
+        for kind, r in tx['drafts'].items():
+            # A first result has nothing to replace; alternatives need review.
+            first_narration = args.command in ('synthesize-tts', 'import-segment-narration') and not any(cue.get('audio') for cue in tx['original']['descriptions'].get('cues', []))
+            if first_narration or not any(x['id'] != r['id'] and x['kind'] == kind and x['language'] == r['language'] and x['state'] == 'saved' for x in p['languageResults']):
+                r['state'] = 'saved'
+                if first_narration: r['replacesResultID'] = None
+                p['activeResultIDs'].setdefault(r['language'], {})[kind] = r['id']
+            core.emit('Result saved' if r['state'] == 'saved' else 'New result ready to review', resultID=r['id'], resultKind=kind, resultLanguage=r['language'], reviewRequired=r['state'] == 'draft')
+        for key in ('hasProcessed', 'geminiVideo', 'importReports', 'lastImportReport'):
+            if key in working:
+                p[key] = copy.deepcopy(working[key])
+    except BaseException:
+        checkpoint(root, working, core.atomic_json)
+        raise
+    finally:
+        if previous_language is None:
+            os.environ.pop('VIDISTUDIO_OUTPUT_LANGUAGE', None)
+        else:
+            os.environ['VIDISTUDIO_OUTPUT_LANGUAGE'] = previous_language
+        _transaction = previous
+        project(p)
+        core.save(root, p)
+    return {k: r['id'] for k, r in tx['drafts'].items()}
+
+
+def deletion_preview(root, p, request, core):
+    proposed = copy.deepcopy(p)
+    delete(proposed, request)
+    removed = referenced_paths(p) - referenced_paths(proposed)
+    for relative in request.get('exportPaths', []):
+        if relative not in p.get('exports', []):
+            raise ValueError('Choose an existing export.')
+        path = core.local(root, relative)
+        if path.is_dir():
+            removed.update(child.relative_to(root).as_posix() for child in path.rglob('*') if child.is_file())
+        else:
+            removed.add(relative)
+    if 'thumbnails' in request.get('components', []):
+        removed.update(p.get('thumbnails', []))
+    for relative in removed:
+        if not relative.startswith(('audio-description/', 'imports/', 'exports/', 'thumbnails/')) or (p.get('source') and core.local(root, relative) == core.local(root, p['source'])):
+            raise ValueError('Cannot delete a saved asset outside the project content folders.')
+    files = [path for path in sorted(removed) if core.local(root, path).is_file()]
+    proposed_records = {r['id']: r for r in proposed['languageResults']}
+    removed_ids = {r['id'] for r in p['languageResults']} - set(proposed_records)
+    affected_ids = {r['id'] for r in p['languageResults'] if r['id'] not in proposed_records or r != proposed_records[r['id']]}
+    return dict(resultCount=len(removed_ids), selectedResultCount=len(affected_ids),
+                exportCount=len(request.get('exportPaths', [])), fileCount=len(files), files=files,
+                results=[dict(id=r['id'], language=r['language'], kind=r['kind'], version=r['version'])
+                         for r in p['languageResults'] if r['id'] in affected_ids])
+
+
+def delete(p, request):
+    ids = set(request.get('resultIDs', []))
+    for rid in ids:
+        find(p, rid)
+    components = set(request.get('components', []))
+    if not components.issubset({'transcript', 'summary', 'descriptions', 'adAudio', 'narration', 'history', 'exports', 'thumbnails'}):
+        raise ValueError('Choose valid content types to delete.')
+    for r in p['languageResults']:
+        if r['id'] in ids and r['kind'] in components:
+            continue
+        if r['id'] in ids and r['kind'] == 'descriptions' and 'narration' in components:
+            for cue in r['payload'].get('cues', []):
+                for key in list(cue):
+                    if key.startswith('audio'):
+                        cue.pop(key)
+            r['payload'].pop('narrationVoice', None)
+            r['payload'].pop('narrationEngine', None)
+        if r['id'] in ids and 'history' in components:
+            for key in ('undoStack', 'redoStack', 'transcriptUndoStack', 'transcriptRedoStack'):
+                r['payload'].pop(key, None)
+    p['languageResults'] = [r for r in p['languageResults'] if not (r['id'] in ids and r['kind'] in components)]
+    # A deleted active result falls back only within its own language/category.
+    for code, selections in p['activeResultIDs'].items():
+        for kind, rid in list(selections.items()):
+            if not any(r['id'] == rid for r in p['languageResults']):
+                choices = [r for r in p['languageResults'] if r['kind'] == kind and r['language'] == code and r['state'] == 'saved']
+                selections[kind] = max(choices, key=lambda r: r['createdAt'])['id'] if choices else ''
+    project(p)
+
+
+def track_language():
+    """ISO-639-2 tags for containers; Auto is undetermined, never English."""
+    if _export_language == 'auto':
+        return 'und'
+    pairs = 'af:afr sq:sqi am:amh ar:ara hy:hye as:asm az:aze eu:eus be:bel bn:ben bs:bos bg:bul ca:cat zh:zho co:cos hr:hrv cs:ces da:dan dv:div nl:nld en:eng eo:epo et:est fi:fin fr:fra fy:fry gl:glg ka:kat de:deu el:ell gu:guj ht:hat ha:hau he:heb iw:heb hi:hin hu:hun is:isl ig:ibo id:ind ga:gle it:ita ja:jpn jv:jav kn:kan kk:kaz km:khm ko:kor ku:kur ky:kir lo:lao la:lat lv:lav lt:lit lb:ltz mk:mkd mg:mlg ms:msa ml:mal mt:mlt mi:mri mr:mar mn:mon my:mya ne:nep no:nor ny:nya or:ori ps:pus fa:fas pl:pol pt:por pa:pan ro:ron ru:rus sm:smo gd:gla sr:srp st:sot sn:sna sd:snd si:sin sk:slk sl:slv so:som es:spa su:sun sw:swa sv:swe tg:tgk ta:tam te:tel th:tha tr:tur uk:ukr ur:urd ug:uig uz:uzb vi:vie cy:cym xh:xho yi:yid yo:yor zu:zul'
+    code = _export_language.split('-')[0]
+    return dict(pair.split(':') for pair in pairs.split()).get(code, code if len(code) == 3 else 'und')
+
+
+def track_title():
+    return 'Auto' if _export_language == 'auto' else output_languages.options()[_export_language]
+
+
+def run(args, root, p, core, dispatch):
+    previous_language = os.environ.get('VIDISTUDIO_OUTPUT_LANGUAGE')
+    try:
+        return _run(args, root, p, core, dispatch)
+    finally:
+        if previous_language is None:
+            os.environ.pop('VIDISTUDIO_OUTPUT_LANGUAGE', None)
+        else:
+            os.environ['VIDISTUDIO_OUTPUT_LANGUAGE'] = previous_language
+
+
+def _run(args, root, p, core, dispatch):
+    global _export_language
+    migrate(p)
+    capture(p)
+    code = getattr(args, 'language', None)
+    target_kind = PRODUCERS.get(args.command, [EDIT_KINDS.get(args.command)])[0]
+    if args.command == 'select-language' and code:
+        p['selectedLanguage'] = language(code)
+    elif args.command not in COMMANDS and target_kind and code and code != effective_language(p, target_kind):
+        p['sectionLanguages'][target_kind] = language(code)
+    project(p)
+    if args.command not in COMMANDS:
+        for kind in FIELDS:
+            rid = getattr(args, 'selected_' + ('ad_audio' if kind == 'adAudio' else kind) + '_id', None)
+            if rid:
+                chosen = find(p, rid, kind, saved_only=True)
+                if chosen['language'] != effective_language(p, kind):
+                    # An explicit import language can intentionally target another category.
+                    if args.command.startswith('import-'): continue
+                    raise ValueError('The captured result does not match the section language.')
+                p['activeResultIDs'].setdefault(effective_language(p, kind), {})[kind] = rid
+        project(p)
+    os.environ['VIDISTUDIO_OUTPUT_LANGUAGE'] = effective_language(p, target_kind) if target_kind else p['selectedLanguage']
+    command = args.command
+    if command == 'preview-delete-results':
+        preview = deletion_preview(root, p, json.loads(args.input.read_text(encoding='utf-8')), core)
+        if args.output:
+            core.atomic_json(args.output, preview)
+        core.emit('Deletion preview ready', deletionPreview=preview)
+        return
+    if command in ('analyze', 'regenerate-all'):
+        stages = ['transcribe', 'generate-summary', 'generate-ad-cues']
+        start = 'transcribe' if command == 'regenerate-all' else args.start_stage
+        for stage in stages[stages.index(start):]:
+            step = copy.copy(args)
+            step.command = stage
+            made = produce(step, root, p, core, dispatch)
+            for kind in ('transcript', 'summary'):
+                if kind in made:
+                    setattr(args, 'source_' + kind + '_id', made[kind])
+    elif command in PRODUCERS:
+        produce(args, root, p, core, dispatch)
+    elif command == 'select-language':
+        project(p)
+    elif command == 'select-section-language':
+        if args.section not in FIELDS: raise ValueError('Choose a content section.')
+        if args.follow_project:
+            p['sectionLanguages'].pop(args.section, None)
+        else:
+            p['sectionLanguages'][args.section] = language(args.language)
+        project(p)
+    elif command == 'sync-section-languages':
+        p['sectionLanguages'] = {}
+        project(p)
+    elif command == 'select-result':
+        r = find(p, args.result_id, saved_only=True)
+        if r['language'] != effective_language(p, r['kind']): p['sectionLanguages'][r['kind']] = r['language']
+        p['activeResultIDs'].setdefault(r['language'], {})[r['kind']] = r['id']
+        project(p)
+    elif command == 'assign-result-language':
+        r = find(p, args.result_id, saved_only=True)
+        previous_language = r['language']
+        r['language'] = language(args.language)
+        if previous_language != r['language']:
+            r['version'] = max((x.get('version', 0) for x in p['languageResults'] if x['id'] != r['id'] and x['kind'] == r['kind'] and x['language'] == r['language']), default=0) + 1
+        r['updatedAt'] = time.time()
+        for selections in p['activeResultIDs'].values():
+            if selections.get(r['kind']) == r['id']:
+                selections.pop(r['kind'])
+        p['activeResultIDs'].setdefault(r['language'], {})[r['kind']] = r['id']
+        if r['language'] != effective_language(p, r['kind']): p['sectionLanguages'][r['kind']] = r['language']
+        project(p)
+    elif command == 'review-result':
+        r = find(p, args.result_id)
+        if r['state'] != 'draft':
+            raise ValueError('This result has already been reviewed.')
+        if args.disposition == 'discard':
+            p['languageResults'].remove(r)
+        else:
+            if args.disposition == 'replace':
+                target = r.get('replacesResultID')
+                if not target:
+                    raise ValueError('There is no selected result to replace. Choose Keep Both.')
+                find(p, target, r['kind'], saved_only=True)
+                p['languageResults'] = [x for x in p['languageResults'] if x['id'] != target]
+            r['state'] = 'saved'
+            p['activeResultIDs'].setdefault(r['language'], {})[r['kind']] = r['id']
+        project(p)
+    elif command in ('delete-results', 'delete-generated', 'clear-generated'):
+        if command == 'delete-results':
+            request = json.loads(args.input.read_text(encoding='utf-8'))
+        else:
+            components = list(FIELDS) + ['narration', 'history', 'exports', 'thumbnails'] if command == 'clear-generated' else args.component
+            request = dict(resultIDs=[r['id'] for r in p['languageResults'] if r['language'] == p['selectedLanguage']], components=components,
+                           exportPaths=[path for path in p.get('exports', []) if 'exports' in components and p.get('exportResults', {}).get(path, {}).get('language', 'auto') == p['selectedLanguage']])
+        preview = deletion_preview(root, p, request, core)
+        proposed = copy.deepcopy(p)
+        delete(proposed, request)
+        for path in request.get('exportPaths', []):
+            if path not in p.get('exports', []):
+                raise ValueError('Choose an existing export.')
+        for path in request.get('exportPaths', []):
+            target = core.local(root, path)
+            if target.is_dir() and not target.is_symlink():
+                core.shutil.rmtree(target)
+            else:
+                target.unlink(missing_ok=True)
+            p['exports'].remove(path)
+            for field in ('exportResults', 'exportMediaInfo', 'exportAudioSources'):
+                p.get(field, {}).pop(path, None)
+        proposed['exports'] = p['exports']
+        for field in ('exportResults', 'exportMediaInfo', 'exportAudioSources'):
+            proposed[field] = p.get(field, {})
+        p.clear()
+        p.update(proposed)
+        # Manifest first; cleanup subsequently removes only unreferenced files.
+        core.save(root, p)
+        for relative in preview['files']:
+            if relative not in referenced_paths(p):
+                core.local(root, relative).unlink(missing_ok=True)
+        if 'thumbnails' in request.get('components', []):
+            p['thumbnails'] = []
+    elif command == 'export-batch':
+        export_batch(args, root, p, core, dispatch)
+    else:
+        exports = {k: copy.deepcopy(p.get(k, {} if k != 'exports' else [])) for k in ('exports', 'exportMediaInfo', 'exportResults', 'exportAudioSources')}
+        _export_language = p['selectedLanguage']
+        dispatch(args, root, p)
+        if not command.startswith('export') and command not in ('delete-export',):
+            p.update(exports)
+        capture(p)
+    p['status'] = 'Ready'
+    p.pop('error', None)
+    core.save(root, p)
+    core.cleanup_project_storage(root, p)
+    core.save(root, p)
+
+
+def export_batch(args, root, p, core, dispatch):
+    global _export_language
+    request = json.loads(args.input.read_text(encoding='utf-8'))
+    jobs = request.get('jobs', [])
+    if not jobs:
+        raise ValueError('Choose at least one language and saved result to export.')
+    prepared = []
+    for job in jobs:
+        view = copy.deepcopy(p)
+        view['_exportView'] = True
+        code = language(job['language'])
+        view['selectedLanguage'] = code
+        view['sectionLanguages'] = {}
+        for kind, rid in job.get('resultIDs', {}).items():
+            r = find(p, rid, kind, saved_only=True)
+            if r['language'] != code:
+                raise ValueError('Every export result must match its chosen language.')
+            view['activeResultIDs'].setdefault(code, {})[kind] = rid
+        project(view)
+        command = job['command']
+        if command not in ('export-subtitles', 'export-audio', 'export-final-video', 'export-selectable-video',
+                           'export-closed-audio-description-video', 'export-open-audio-description-video',
+                           'export-closed-caption-video', 'export-dual-closed-caption-video', 'export-open-caption-video',
+                           'export-original-audio', 'export-described-audio', 'export-youtube-original-audio',
+                           'export-youtube-described-audio', 'export-hls', 'combine-imported-audio'):
+            raise ValueError('Choose a supported export operation.')
+        step = copy.copy(args)
+        step.command = command
+        for key, value in job.get('options', {}).items():
+            if key not in ('content', 'format', 'media_format', 'captions', 'web_audio', 'audio_only', 'audio_presentation', 'ad_source', 'allow_incomplete_narration'):
+                raise ValueError('Unsupported export option.')
+            setattr(step, key, value)
+        step.replace_existing = bool(job.get('replaceExisting', False))
+        # Validate every job before writing any output.
+        required = set()
+        if command == 'export-subtitles':
+            required.update(('transcript', 'descriptions') if step.content == 'combined' else [step.content])
+        if command in ('export-closed-caption-video', 'export-open-caption-video', 'export-dual-closed-caption-video') or step.captions != 'none':
+            required.add('transcript')
+            if step.content == 'combined' or command == 'export-dual-closed-caption-video' or step.captions == 'dual-closed':
+                required.add('descriptions')
+        narration = command in ('export-audio', 'export-final-video', 'export-selectable-video', 'export-closed-audio-description-video',
+                                'export-open-audio-description-video', 'export-described-audio', 'export-youtube-described-audio') or (command == 'export-hls' and step.web_audio != 'original')
+        if narration:
+            required.add('descriptions')
+            if not view['cues'] or any(not core.narration_audio_is_usable(root, cue) for cue in view['cues']):
+                raise ValueError('Generate current narration for every selected description before exporting ' + code + '.')
+            core.validate_cues(view['cues'], view['duration'], view['transcript'])
+        if command == 'combine-imported-audio':
+            required.add('adAudio')
+            audio = view.get('importedAudioDescription') or {}
+            if not audio.get('path') or not core.local(root, audio['path']).is_file():
+                raise ValueError('Choose available imported AD audio for ' + code + '.')
+        if not required.issubset(job.get('resultIDs', {})):
+            raise ValueError('Choose saved results for ' + code + ': ' + ', '.join(sorted(required)) + '.')
+        if command == 'export-subtitles' and not view.get({'summary': 'summary', 'transcript': 'transcript', 'descriptions': 'cues', 'combined': 'transcript'}[step.content]):
+            raise ValueError('The selected language has no content for this export.')
+        if step.content == 'combined' or getattr(step, 'captions', 'none') != 'none':
+            core.validate_cues(view['cues'], view['duration'], view['transcript'])
+        view['_exportDescribed'] = narration or command == 'combine-imported-audio'
+        prepared.append((job, step, view))
+    failed = []
+    for job, step, view in prepared:
+        _export_language = view['selectedLanguage']
+        original = {key: copy.deepcopy(view.get(key)) for key in ('exports', 'exportMediaInfo', 'exportAudioSources')}
+        # Export helpers use a deterministic project-name suffix without changing the saved name.
+        ids = '-'.join(sorted(rid[:8] for rid in job.get('resultIDs', {}).values()))
+        view['name'] = p['name'][:40] + ' [' + view['selectedLanguage'] + (' ' + ids.replace('-', '.') if ids else '') + ']'
+        try:
+            dispatch(step, root, view)
+            for path in view.get('exports', []):
+                if path not in original['exports'] or step.replace_existing:
+                    if path not in p['exports']:
+                        p['exports'].append(path)
+                    for field in ('exportMediaInfo', 'exportAudioSources'):
+                        if path in view.get(field, {}):
+                            p.setdefault(field, {})[path] = view[field][path]
+                    p['exportResults'][path] = dict(language=view['selectedLanguage'], resultIDs=job.get('resultIDs', {}), described=view['_exportDescribed'], createdAt=time.time())
+            core.save(root, p)
+            core.emit('Language export completed', exportLanguage=view['selectedLanguage'])
+        except core.ProcessingCancelled:
+            raise
+        except Exception as exc:
+            failed.append(view['selectedLanguage'])
+            core.emit(core.safe_error(exc), exportLanguage=view['selectedLanguage'], exportFailed=True)
+    if failed:
+        raise ValueError('Some exports could not be completed: ' + ', '.join(failed) + '. Completed exports are saved.')

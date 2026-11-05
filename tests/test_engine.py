@@ -600,7 +600,7 @@ class Validation(unittest.TestCase):
             emit.assert_called_once_with('Frame text extracted', screenText='Last frame', timestamp=9.9)
             client.close.assert_called_once()
 
-    def test_regenerate_all_clears_then_recreates_analysis(self):
+    def test_regenerate_all_preserves_existing_files_while_recreating_analysis(self):
         with tempfile.TemporaryDirectory() as temp:
             root=Path(temp)
             for folder in ('metadata','thumbnails','transcript','audio-description','exports'):
@@ -612,12 +612,12 @@ class Validation(unittest.TestCase):
             def generate(root,p,stage):
                 stages.append(stage)
                 if stage=='transcribe':
-                    self.assertEqual(p['transcript'],[])
-                    self.assertEqual(p['summary'],'')
-                    self.assertEqual(p['cues'],[])
-                    self.assertEqual(p['exports'],[])
-                    self.assertEqual(p['undoStack'],[])
-                    self.assertFalse((root/'exports/old').exists())
+                    self.assertEqual(p['transcript'],[1])
+                    self.assertEqual(p['summary'],'old')
+                    self.assertEqual(p['cues'],[2])
+                    self.assertEqual(p['exports'],['old'])
+                    self.assertEqual(p['undoStack'],[3])
+                    self.assertTrue((root/'exports/old').exists())
                     p['transcript']=['new transcript']
                 elif stage=='generate-summary': p['summary']='new summary'
                 else: p['cues']=['new AD']
@@ -652,12 +652,12 @@ class Validation(unittest.TestCase):
                         self.assertEqual(p[key], original[key], key)
                 self.assertEqual((root/'exports/old.srt').read_text(),'saved subtitles')
                 if stage == 'generate-ad-cues':
-                    self.assertFalse((root/'audio-description/old.wav').exists())
+                    self.assertTrue((root/'audio-description/old.wav').exists())
                     self.assertNotIn('audio', p['cues'][0])
                 else:
                     self.assertEqual((root/'audio-description/old.wav').read_bytes(),b'saved narration')
 
-    def test_description_reanalysis_deletes_narration_before_generation(self):
+    def test_description_generation_failure_preserves_prior_narration(self):
         with tempfile.TemporaryDirectory() as temp:
             root = Path(temp)
             for folder in ('transcript', 'metadata', 'audio-description', 'exports'):
@@ -679,11 +679,11 @@ class Validation(unittest.TestCase):
                  patch.object(engine.gemini_adapter, 'video_interaction', side_effect=RuntimeError('generation failed')):
                 with self.assertRaisesRegex(ValueError, 'generation failed'):
                     engine.ai_video(root, project, 'generate-ad-cues', max_attempts=1)
-            self.assertFalse(narration.exists())
+            self.assertTrue(narration.exists())
             self.assertEqual(project['cues'][0]['text'], 'Old description')
-            self.assertNotIn('audio', project['cues'][0])
-            self.assertNotIn('audioText', project['cues'][0])
-            self.assertNotIn('audioSettings', project['cues'][0])
+            self.assertEqual(project['cues'][0]['audio'], 'audio-description/old.wav')
+            self.assertEqual(project['cues'][0]['audioText'], 'Old description')
+            self.assertIn('audioSettings', project['cues'][0])
 
     def test_clear_generated_preserves_source(self):
         with tempfile.TemporaryDirectory() as temp:
@@ -801,7 +801,7 @@ class Validation(unittest.TestCase):
             result = engine.cleanup_project_storage(root, project)
 
             self.assertGreater(result['bytes'], 0)
-            self.assertEqual(project['schemaVersion'], 2)
+            self.assertEqual(project['schemaVersion'], 3)
             self.assertTrue(project['transcriptGenerated'])
             self.assertTrue(project['summaryGenerated'])
             self.assertTrue(project['descriptionsGenerated'])
@@ -874,7 +874,8 @@ class Validation(unittest.TestCase):
 
             self.assertEqual(project['transcript'][0]['text'], 'Edited dialogue')
             self.assertEqual([cue['id'] for cue in project['cues']], ['kept'])
-            self.assertFalse(deleted_audio.exists())
+            self.assertTrue(deleted_audio.exists())  # retained by the description undo history
+            self.assertTrue(any(row.get('audio') == 'audio-description/deleted.wav' for snapshot in project['undoStack'] for row in snapshot))
             self.assertTrue(kept_audio.exists())
             self.assertEqual(project['exports'], [])
             self.assertEqual(len(project['undoStack']), 1)
@@ -1044,7 +1045,7 @@ class Validation(unittest.TestCase):
             self.assertEqual(closed_subtitles[0]['codec_name'], 'mov_text')
             self.assertEqual(closed_subtitles[0]['codec_tag_string'], 'tx3g')
             self.assertEqual((closed_subtitles[0]['width'], closed_subtitles[0]['height']), (320, 180))
-            self.assertEqual(closed_subtitles[0]['tags']['language'], 'eng')
+            self.assertEqual(closed_subtitles[0]['tags'].get('language', 'und'), 'und')
 
             self.assertEqual(
                 project['exports'][1],
@@ -1056,12 +1057,12 @@ class Validation(unittest.TestCase):
             self.assertEqual(len(dual_subtitles), 2)
             self.assertEqual(
                 tuple(stream['tags']['handler_name'] for stream in dual_subtitles),
-                ('English Transcript', 'English Descriptive Transcript'),
+                ('Auto Transcript', 'Auto Descriptive Transcript'),
             )
             for stream in dual_subtitles:
                 self.assertEqual(stream['codec_tag_string'], 'tx3g')
                 self.assertEqual((stream['width'], stream['height']), (320, 180))
-                self.assertEqual(stream['tags']['language'], 'eng')
+                self.assertEqual(stream['tags'].get('language', 'und'), 'und')
             normal_srt = root/'normal-track.srt'
             descriptive_srt = root/'descriptive-track.srt'
             engine.run([engine.tool('ffmpeg'), '-y', '-v', 'error', '-i', dual_output, '-map', '0:s:0', normal_srt])
@@ -1134,11 +1135,11 @@ class Validation(unittest.TestCase):
                                 self.assertEqual(subtitle['codec_name'], 'mov_text')
                                 self.assertEqual(subtitle['codec_tag_string'], 'tx3g')
                                 self.assertEqual((subtitle['width'], subtitle['height']), (320, 180))
-                                self.assertEqual(subtitle['tags']['language'], 'eng')
+                                self.assertEqual(subtitle['tags'].get('language', 'und'), 'und')
                         if captions == 'dual-closed':
                             self.assertEqual(
                                 tuple(subtitle['tags']['handler_name'] for subtitle in subtitles),
-                                ('English Transcript', 'English Descriptive Transcript'),
+                                ('Auto Transcript', 'Auto Descriptive Transcript'),
                             )
                         expected_extension = '.mov' if selectable else '.mp4'
                         self.assertTrue(output.name.endswith(expected_extension), output)
@@ -1324,7 +1325,7 @@ class Validation(unittest.TestCase):
             # A silent source has no original track to preserve; the described
             # mix becomes the only, default track.
             self.assertEqual(len(audio), 1)
-            self.assertEqual(audio[0]['tags']['handler_name'], 'English - Audio Description')
+            self.assertEqual(audio[0]['tags']['handler_name'], 'Auto - Audio Description')
     def test_path_escape(self):
         with self.assertRaises(ValueError): engine.local(Path('/tmp/project'),'../../etc/passwd')
     def test_pipeline(self):
@@ -1362,9 +1363,12 @@ class Validation(unittest.TestCase):
             self.assertEqual(project()['cues'][0]['audioEngine'], 'system')
             self.assertTrue(project()['cues'][0].get('audioVoice'))
             cli('synthesize-tts','--project',folder,'--regenerate-all')
+            self.assertEqual(folder/project()['cues'][0]['audio'], generated_audio)
+            draft = next(row for row in project()['languageResults'] if row['state'] == 'draft')
+            cli('review-result', '--project', folder, '--result-id', draft['id'], '--disposition', 'keep')
             replacement_audio = folder/project()['cues'][0]['audio']
             self.assertNotEqual(replacement_audio, generated_audio)
-            self.assertFalse(generated_audio.exists())
+            self.assertTrue(generated_audio.exists())  # Keep Both retains the earlier narration
             self.assertTrue(replacement_audio.exists())
             generated_audio = replacement_audio
             editable_segments = project()
@@ -1411,10 +1415,10 @@ class Validation(unittest.TestCase):
             self.assertEqual(len(selectable_audio),2)
             self.assertEqual(selectable_audio[0]['disposition']['default'],1)
             self.assertEqual(selectable_audio[1]['disposition']['default'],0)
-            self.assertEqual(selectable_audio[0]['tags']['language'],'eng')
-            self.assertEqual(selectable_audio[1]['tags']['language'],'eng')
+            self.assertEqual(selectable_audio[0]['tags'].get('language', 'und'),'und')
+            self.assertEqual(selectable_audio[1]['tags'].get('language', 'und'),'und')
             self.assertEqual(selectable_audio[0]['tags']['handler_name'],'Original Audio')
-            self.assertEqual(selectable_audio[1]['tags']['handler_name'],'English - Audio Description')
+            self.assertEqual(selectable_audio[1]['tags']['handler_name'],'Auto - Audio Description')
             selectable_subtitles=[s for s in selectable_info['streams'] if s['codec_type']=='subtitle']
             self.assertEqual(len(selectable_subtitles),1)
             self.assertEqual(selectable_subtitles[0]['codec_name'],'mov_text')
@@ -1436,7 +1440,7 @@ class Validation(unittest.TestCase):
             self.assertEqual(len(dual_closed_subtitles),2)
             self.assertEqual(
                 tuple(s['tags']['handler_name'] for s in dual_closed_subtitles),
-                ('English Transcript','English Descriptive Transcript'),
+                ('Auto Transcript','Auto Descriptive Transcript'),
             )
             cli('export-open-caption-video','--project',folder,'--content','combined')
             open_caption=folder/project()['exports'][4]

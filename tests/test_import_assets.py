@@ -687,7 +687,7 @@ class RealCombineTests(unittest.TestCase):
         audio = [stream for stream in info['streams'] if stream.get('codec_type') == 'audio']
         self.assertEqual(len(audio), 2)
         self.assertEqual(audio[0]['tags'].get('title') or audio[0]['tags'].get('handler_name'), 'Original Audio')
-        self.assertEqual(audio[1]['tags'].get('title') or audio[1]['tags'].get('handler_name'), 'English - Audio Description')
+        self.assertEqual(audio[1]['tags'].get('title') or audio[1]['tags'].get('handler_name'), 'Auto - Audio Description')
         self.assertEqual(audio[0]['disposition'].get('default'), 1)
         self.assertEqual(audio[1]['disposition'].get('default'), 0)
         self.assertEqual(audio[1]['disposition'].get('visual_impaired'), 1)
@@ -698,7 +698,7 @@ class RealCombineTests(unittest.TestCase):
         info = self.engine.probe(self.root / relative)
         audio = [stream for stream in info['streams'] if stream.get('codec_type') == 'audio']
         self.assertEqual(len(audio), 1)
-        self.assertEqual(audio[0]['tags'].get('title') or audio[0]['tags'].get('handler_name'), 'English - Audio Description')
+        self.assertEqual(audio[0]['tags'].get('title') or audio[0]['tags'].get('handler_name'), 'Auto - Audio Description')
 
 
 if __name__ == '__main__':

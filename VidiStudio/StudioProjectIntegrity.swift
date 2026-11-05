@@ -104,7 +104,8 @@ enum StudioProjectIntegrity {
 
 extension StudioProject {
     var integrityManifest: ProjectIntegrityManifest {
-        let narrationReferences = cues.enumerated().compactMap { index, cue -> ProjectNarrationReference? in
+        let allCues = cues + savedLanguageResults.flatMap { $0.payload.referencedSegments }
+        let narrationReferences = allCues.enumerated().compactMap { index, cue -> ProjectNarrationReference? in
             guard let path = cue.audio?.trimmingCharacters(in: .whitespacesAndNewlines), !path.isEmpty else {
                 return nil
             }
@@ -114,7 +115,7 @@ extension StudioProject {
                 timeRange: "\(timecode(cue.start))–\(timecode(cue.end))"
             )
         }
-        let importedPaths = [importedAudioDescription?.path, importedADTranscript?.path, originalAudio?.path]
+        let importedPaths = ([importedAudioDescription?.path, importedADTranscript?.path, originalAudio?.path] + savedLanguageResults.flatMap { [$0.payload.importedAudioDescription?.path, $0.payload.importedADTranscript?.path, $0.sourceAsset?.path] })
             .compactMap { $0?.trimmingCharacters(in: .whitespacesAndNewlines) }
             .filter { !$0.isEmpty }
         let manifestDecodable = folder.map { StudioProjectIntegrity.isProjectManifestDecodable(at: $0) } ?? false

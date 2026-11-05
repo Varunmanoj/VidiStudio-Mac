@@ -36,7 +36,7 @@ struct AppleAccessibilityMetadataWriter: AccessibilityMetadataWriting {
         try await finalizeVideoTracks(at: url, described: true)
     }
 
-    func finalizeVideoTracks(at url: URL, described: Bool) async throws {
+    func finalizeVideoTracks(at url: URL, described: Bool, languageCode: String? = nil, languageName: String? = nil) async throws {
         let movie = AVMutableMovie(
             url: url,
             options: [AVURLAssetPreferPreciseDurationAndTimingKey: true]
@@ -46,9 +46,16 @@ struct AppleAccessibilityMetadataWriter: AccessibilityMetadataWriting {
             throw AccessibilityMetadataWriterError.wrongAudioTrackCount(audioTracks.count)
         }
         let describedIndex = described ? audioTracks.count - 1 : nil
-        let audioNames = audioTracks.indices.map { $0 == describedIndex ? "English - Audio Description" : "Original Audio" }
-        for track in audioTracks {
-            track.extendedLanguageTag = "en"
+        let legible = movie.tracks(withMediaType: .subtitle) + movie.tracks(withMediaType: .text)
+        func knownLanguage(_ track: AVMutableMovieTrack) -> String? {
+            [track.extendedLanguageTag, track.languageCode].compactMap { $0 }.first { !$0.isEmpty && $0 != "und" }
+        }
+        let inferred = describedIndex.flatMap { knownLanguage(audioTracks[$0]) } ?? legible.first.flatMap(knownLanguage) ?? "und"
+        let code = languageCode.map { $0 == "auto" ? "und" : $0 } ?? inferred
+        let name = languageName ?? (code == "und" ? "Auto" : Locale(identifier: "en").localizedString(forIdentifier: code) ?? code)
+        let audioNames = audioTracks.indices.map { $0 == describedIndex ? "\(name) - Audio Description" : "Original Audio" }
+        for (index, track) in audioTracks.enumerated() {
+            track.extendedLanguageTag = index == describedIndex ? code : knownLanguage(track) ?? "und"
             track.alternateGroupID = audioTracks.count > 1 ? 1 : 0
             track.isEnabled = true
         }
@@ -101,7 +108,7 @@ struct AppleAccessibilityMetadataWriter: AccessibilityMetadataWriting {
         }
         let legibleTracks = subtitleTracks + textTracks
         for (index, track) in legibleTracks.enumerated() {
-            track.extendedLanguageTag = "en"
+            track.extendedLanguageTag = knownLanguage(track) ?? code
             track.alternateGroupID = 2
             track.isEnabled = true
             track.metadata = track.metadata + [characteristicMetadata(.transcribesSpokenDialogForAccessibility)]
@@ -117,7 +124,11 @@ struct AppleAccessibilityMetadataWriter: AccessibilityMetadataWriting {
         )
         try restorePortableHandlerNames(
             at: url,
-            audioNames: audioNames.map { $0 == "Original Audio" ? $0 : "English AD" },
+            audioNames: audioNames.map { value in
+                guard value != "Original Audio" else { return value }
+                let title = "\(name) AD"
+                return title.utf8.count <= "Core Media Audio".utf8.count ? title : "\(code.prefix(10)) AD"
+            },
             subtitleNames: subtitleHandlerNames,
             textNames: textHandlerNames
         )

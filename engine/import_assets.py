@@ -589,7 +589,7 @@ def execute(args, root, project, core):
     project.update(working)
     referenced = {row.get('audio') for row in working.get('cues', [])}
     for previous in superseded:
-        if previous not in referenced:
+        if previous not in referenced and previous not in core.language_results.referenced_paths(working):
             try:
                 path = core.local(root, previous)
                 if path.parent == core.local(root, 'audio-description'):

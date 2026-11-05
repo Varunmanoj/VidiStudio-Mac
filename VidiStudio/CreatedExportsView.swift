@@ -3,6 +3,8 @@ import SwiftUI
 struct CreatedExportsView: View {
     @Bindable var studio: StudioModel
     let project: StudioProject
+    @State private var languageFilter = "all"
+    @State private var resultFilter = "all"
     @State private var selectedExport: ExportSelection?
 
     var body: some View {
@@ -11,8 +13,15 @@ struct CreatedExportsView: View {
                 .font(.headline)
                 .accessibilityAddTraits(.isHeader)
 
+            OutputLanguagePicker(title: "Export language filter", selection: $languageFilter, includesAll: true)
+            Picker("Saved result filter", selection: $resultFilter) {
+                Text("All Saved Results").tag("all")
+                ForEach(project.savedLanguageResults.filter { languageFilter == "all" || $0.language == languageFilter }) { result in
+                    Text("\(OutputLanguage.title(result.language)) · \(result.kindTitle) · \(result.title)").tag(result.id)
+                }
+            }.pickerStyle(.menu)
             ForEach(ExportCategory.allCases) { kind in
-                let paths = project.exports.filter { ExportCategory.resolve(path: $0) == kind }
+                let paths = project.exports.filter { ExportCategory.resolve(path: $0) == kind && (languageFilter == "all" || (project.exportResults?[$0]?.language ?? "auto") == languageFilter) && (resultFilter == "all" || project.exportResults?[$0]?.resultIDs.values.contains(resultFilter) == true) }
                 if !paths.isEmpty {
                     VStack(alignment: .leading, spacing: 6) {
                         Label(kind == .text ? "Text and Subtitles" : kind.title, systemImage: kind.icon)

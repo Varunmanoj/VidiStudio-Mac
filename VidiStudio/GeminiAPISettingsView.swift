@@ -331,24 +331,13 @@ struct GeminiAPISettingsView: View {
 
     @ViewBuilder
     private var outputLanguageSections: some View {
-        ForEach([GeminiModelRow(id: "transcript", label: "Transcript"),
-                 GeminiModelRow(id: "summary", label: "Summary"),
-                 GeminiModelRow(id: "audio_descriptions", label: "Descriptions")]) { row in
-            Section(row.label) {
-                Picker("Output language", selection: Binding(
-                    get: { studio.settings.outputLanguages[row.id] ?? "auto" },
-                    set: { studio.settings.outputLanguages[row.id] = $0 }
-                )) {
-                    Text("Auto (detect from video)").tag("auto")
-                    ForEach(GeminiOutputLanguages.options) { Text($0.label).tag($0.id) }
-                }
-                .accessibilityLabel("\(row.label) output language")
-                .accessibilityHint("Auto detects from the video. Choose a language to generate this section in that language.")
-                Text(row.id == "transcript"
-                    ? "Auto preserves every spoken language and original script. A chosen language translates dialogue while keeping speech timing. With a dedicated speech model selected, translation uses the YouTube video model for local and YouTube projects, including imported audio."
-                    : "Auto uses the primary language detected from the video; if none is identifiable, it uses English. Choose a language to generate this section in that language.")
-                    .font(.caption).foregroundStyle(.secondary)
-            }
+        Section("Language") {
+            OutputLanguagePicker(title: "Default Language for New Projects", selection: Binding(get: {
+                if let value = studio.settings.defaultOutputLanguage { return value }
+                let values = Set(["transcript", "summary", "audio_descriptions"].map { studio.settings.outputLanguages[$0] ?? "auto" })
+                return values.count == 1 ? values.first! : "auto"
+            }, set: { studio.settings.defaultOutputLanguage = $0 }))
+            Text("Each project has one shared language picker in the right inspector. Existing projects start in Auto; saved results can be assigned a language without changing their text.").font(.caption).foregroundStyle(.secondary)
         }
     }
 

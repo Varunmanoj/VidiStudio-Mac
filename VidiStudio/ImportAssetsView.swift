@@ -223,6 +223,10 @@ struct ImportExistingAssetsView: View {
                 .font(.callout).foregroundStyle(.secondary)
                 .padding(.horizontal, 20).padding(.bottom, 10)
             Form {
+                Section("Language") {
+                    OutputLanguagePicker(selection: Binding(get: { selection.language ?? project.languageCode }, set: { selection.language = $0 }))
+                    Text("Assigns a language label without translating the supplied text. Existing results are kept for review.").font(.caption).foregroundStyle(.secondary)
+                }
                 if project.isYouTubeURLProject && (scope == .all || scope == .originalAudio) {
                     Section("Original audio") {
                         OriginalAudioImportFields(selection: $selection)
@@ -278,7 +282,7 @@ struct ImportExistingAssetsView: View {
                             .help("Choose narration-only audio or a full AD mix.")
                             Text(selection.adAudioMode.detail).font(.caption).foregroundStyle(.secondary)
                         }
-                        Text(project.isYouTubeURLProject ? "Import & Combine creates described audio using the selected original soundtrack. A full AD mix is used directly." : "Create Project & Combine creates Original Audio and English - Audio Description tracks. Viewers can switch between them.")
+                        Text(project.isYouTubeURLProject ? "Import & Combine creates described audio using the selected original soundtrack. A full AD mix is used directly." : "Create Project & Combine creates Original Audio and language-labelled Audio Description tracks. Viewers can switch between them.")
                             .font(.caption).foregroundStyle(.secondary)
                 }
                 }
@@ -453,8 +457,7 @@ struct ImportExistingAssetsView: View {
             return
         }
         pendingCombine = combine
-        if replacementNames.isEmpty { performImport() }
-        else { confirmReplacements = true }
+        performImport()
     }
 
     /// Preflight validation for every text type. SRT/VTT keep their times and
