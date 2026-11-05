@@ -68,7 +68,11 @@ struct GeneratedContentDeletionView: View {
     @State private var preview: ResultDeletionPreview?
     @State private var confirming = false
     private var results: [SavedLanguageResult] {
-        project.savedLanguageResults.filter { language == "all" || $0.language == language }
+        project.savedLanguageResults.filter { result in
+            (language == "all" || result.language == language) && (components.contains(result.kind)
+                || (components.contains("narration") && result.kind == "descriptions")
+                || (components.contains("history") && ["transcript", "descriptions"].contains(result.kind)))
+        }
     }
     private var exports: [String] {
         project.exports.filter { language == "all" || (project.exportResults?[$0]?.language ?? "auto") == language }
@@ -85,7 +89,12 @@ struct GeneratedContentDeletionView: View {
                 VStack(alignment: .leading, spacing: 10) {
                     Text("Content types").font(.headline)
                     ForEach(["transcript", "summary", "descriptions", "adAudio", "narration", "history", "thumbnails"], id: \.self) { kind in
-                        Toggle(kind == "narration" ? "Narration Audio Only" : kind == "history" ? "Segment Undo History Only" : kind == "thumbnails" ? "Thumbnails (Entire Project)" : SavedLanguageResult.kindTitle(kind), isOn: membership(kind, in: $components))
+                        Toggle(deletionTitle(kind), isOn: componentMembership(kind))
+                        if kind == "descriptions" {
+                            Text("Deletes the selected description results, including their segments and associated audio. Shared files used by retained results or history are kept.").font(.caption).foregroundStyle(.secondary)
+                        } else if kind == "narration" {
+                            Text("Removes narration from the selected description results. Keeps description text, timing, and undo history. Shared files used by retained results or history are kept.").font(.caption).foregroundStyle(.secondary)
+                        }
                     }
                     Divider()
                     HStack {
@@ -103,7 +112,7 @@ struct GeneratedContentDeletionView: View {
                     }
                 }
             }
-            Text("Selected: \(selection.count) results, \(exportPaths.count) exports. Deleting descriptions also removes their associated narration when no retained result uses it.")
+            Text("Selected: \(selection.count) results, \(exportPaths.count) exports. " + (components.contains("narration") ? "Description text and timing will be kept." : components.contains("descriptions") ? "Selected description segments and their audio will be deleted." : "Review the exact affected content before confirming."))
                 .font(.caption).foregroundStyle(.secondary)
             HStack {
                 Button("Cancel", role: .cancel) { dismiss() }
@@ -124,6 +133,8 @@ struct GeneratedContentDeletionView: View {
                 if !id.isEmpty { selection = [id] }
             }
         }
+        .onChange(of: components) { _, _ in selection.formIntersection(results.map(\.id)) }
+        .onChange(of: language) { _, _ in selection.formIntersection(results.map(\.id)) }
         .confirmationDialog("Delete selected content permanently?", isPresented: $confirming, titleVisibility: .visible) {
             Button("Delete Selected", role: .destructive) {
                 studio.executeResultRequest("delete-results", request: request, project: project)
@@ -131,8 +142,26 @@ struct GeneratedContentDeletionView: View {
             }
             Button("Cancel", role: .cancel) {}
         } message: {
-            Text((preview?.text ?? "") + "\nContent types: " + components.sorted().joined(separator: ", ") + ". This cannot be undone.")
+            Text((preview?.text ?? "") + "\nContent types: " + components.sorted().map(deletionTitle).joined(separator: ", ") + ". This cannot be undone.")
         }
+    }
+    private func deletionTitle(_ kind: String) -> String {
+        switch kind {
+        case "descriptions": "Description Segments and Audio"
+        case "narration": "Description Audio Only (Keep Segments)"
+        case "history": "Segment Undo History Only"
+        case "thumbnails": "Thumbnails (Entire Project)"
+        default: SavedLanguageResult.kindTitle(kind)
+        }
+    }
+    private func componentMembership(_ kind: String) -> Binding<Bool> {
+        Binding(get: { components.contains(kind) }, set: { enabled in
+            if enabled {
+                if kind == "descriptions" { components.remove("narration") }
+                if kind == "narration" { components.remove("descriptions") }
+                components.insert(kind)
+            } else { components.remove(kind) }
+        })
     }
     private func membership(_ value: String, in values: Binding<Set<String>>) -> Binding<Bool> {
         Binding(get: { values.wrappedValue.contains(value) }, set: {

@@ -186,6 +186,46 @@ class LanguageResultsTests(unittest.TestCase):
         with patch.object(lr, '_export_language', 'hi'): self.assertEqual(lr.track_language(), 'hin')
 
 
+class HistoricalNarrationRepairTests(unittest.TestCase):
+    def test_relinks_exact_audio_and_keeps_unmatched_edits_without_dangling_paths(self):
+        import vidistudio_engine as core
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp); (root/'audio-description').mkdir()
+            good = 'audio-description/current.mp3'; (root/good).write_bytes(b'usable recording')
+            current = dict(id='cue', start=1, end=3, text='Current words', audio=good, audioText='Current words', audioDuration=1, audioStart=1, audioEnd=3, audioVoice='New voice')
+            old = dict(current, audio='audio-description/lost.mp3', audioVoice='Old voice')
+            changed = dict(old, text='Earlier words', audio='audio-description/earlier.mp3')
+            p = dict(id='history', cues=[current], undoStack=[[old,changed]], redoStack=[[dict(old)]], exports=[])
+            lr.migrate(p); before = copy.deepcopy(p['cues'])
+            self.assertEqual(lr.repair_missing_history_audio(root,p,core),dict(relinked=1,needsNarration=1))
+            self.assertEqual(p['cues'],before)
+            rows = p['undoStack'][0]
+            self.assertEqual(rows[0]['audio'],good); self.assertEqual(rows[0]['audioVoice'],'New voice')
+            self.assertEqual(rows[0]['historyNarrationRepair']['previousVoice'],'Old voice')
+            self.assertEqual(rows[1]['text'],'Earlier words'); self.assertEqual(rows[1]['start'],1)
+            self.assertNotIn('audio',rows[1]); self.assertEqual(rows[1]['historyNarrationRepair']['disposition'],'needsNarration')
+            self.assertEqual(p['redoStack'][0][0]['audio'],good)
+            self.assertEqual(lr.referenced_paths(p),{good})
+            snapshot=copy.deepcopy(p); lr.repair_missing_history_audio(root,p,core); self.assertEqual(p,snapshot)
+
+    def test_repair_does_not_use_other_languages_drafts_wrong_timing_or_empty_audio(self):
+        import vidistudio_engine as core
+        with tempfile.TemporaryDirectory() as temp:
+            root=Path(temp); (root/'audio-description').mkdir()
+            good='audio-description/hi.mp3'; (root/good).write_bytes(b'voice')
+            row=dict(id='cue',start=1,end=3,text='Same text',audio=good,audioText='Same text',audioDuration=1)
+            missing=dict(row,audio='audio-description/missing.mp3')
+            p=dict(id='history',cues=[missing],undoStack=[[dict(missing)]],exports=[]);lr.migrate(p)
+            for code,state,cue in [('hi','saved',row),('auto','draft',row),('auto','saved',dict(row,start=2)),('auto','saved',dict(row,audio='audio-description/empty.mp3'))]:
+                p['languageResults'].append(lr.record(p,'descriptions',code,dict(cues=[cue]),state))
+            (root/'audio-description/empty.mp3').touch()
+            before=copy.deepcopy(lr.active(p,'descriptions')['payload']['cues'])
+            self.assertEqual(lr.repair_missing_history_audio(root,p,core,{'auto'}),dict(relinked=0,needsNarration=1))
+            self.assertEqual(p['cues'],before)  # A missing saved-result recording is still a real issue.
+            self.assertNotIn('audio',p['undoStack'][0][0])
+            self.assertEqual(len(p['languageResults']),5)
+
+
 class LanguageAssetStorageTests(unittest.TestCase):
     def test_moves_all_result_history_and_draft_links_preserving_bytes(self):
         import vidistudio_engine as core
@@ -288,6 +328,36 @@ class LanguageResultCLITests(unittest.TestCase):
         self.assertEqual({Path(path).parts[1] for path in p['exports']}, {'auto', 'hi'})
         self.assertEqual({v['language'] for v in p['exportResults'].values()}, {'auto', 'hi'})
         self.assertEqual({(self.root/path).read_text().strip() for path in p['exports']}, {'# Summary\n\nOriginal summary', '# Summary\n\nImported alternative'})
+
+    def test_audio_only_and_segments_with_audio_delete_have_distinct_effects(self):
+        p=self.read(); audio='audio-description/voice.mp3'; (self.root/'audio-description').mkdir(); (self.root/audio).write_bytes(b'preserved recording')
+        cue=dict(id='ad',start=2,end=4,text='Keep this description',audio=audio,audioText='Keep this description',audioDuration=1)
+        p.update(cues=[cue],undoStack=[[dict(cue,text='Older description')]])
+        self.project.write_text(json.dumps(p)); self.cli('select-language','--language','auto')
+        p=self.read(); rid=next(r['id'] for r in p['languageResults'] if r['kind']=='descriptions')
+        request=self.root/'delete.json'; request.write_text(json.dumps(dict(resultIDs=[rid],components=['narration'])))
+        self.cli('delete-results','--input',request)
+        p=self.read(); self.assertEqual(p['cues'][0]['text'],'Keep this description'); self.assertNotIn('audio',p['cues'][0])
+        self.assertTrue(any(r['id']==rid for r in p['languageResults']))
+        history_path=p['undoStack'][0][0]['audio']; self.assertEqual((self.root/history_path).read_bytes(),b'preserved recording')
+        request.write_text(json.dumps(dict(resultIDs=[rid],components=['descriptions'])))
+        self.cli('delete-results','--input',request)
+        p=self.read(); self.assertEqual(p['cues'],[]); self.assertFalse(any(r['id']==rid for r in p['languageResults']))
+        self.assertFalse((self.root/history_path).exists())
+
+    def test_cleanup_repairs_missing_history_audio_without_erasing_undo_steps(self):
+        p=self.read(); folder=self.root/'audio-description'; folder.mkdir()
+        audio='audio-description/current.mp3'; (self.root/audio).write_bytes(b'preserved audio')
+        cue=dict(id='ad',start=2,end=4,text='Scene',audio=audio,audioText='Scene',audioDuration=1)
+        p.update(cues=[cue],undoStack=[[dict(cue,audio='audio-description/lost.mp3'),dict(cue,text='Older scene',audio='audio-description/older.mp3')]])
+        self.project.write_text(json.dumps(p))
+        self.cli('cleanup-project')
+        saved=self.read(); rows=saved['undoStack'][0]
+        self.assertEqual(len(rows),2); self.assertEqual(rows[0]['audio'],saved['cues'][0]['audio'])
+        self.assertEqual((self.root/rows[0]['audio']).read_bytes(),b'preserved audio')
+        self.assertEqual(rows[1]['text'],'Older scene'); self.assertNotIn('audio',rows[1])
+        before=copy.deepcopy(saved['languageResults'])
+        self.cli('cleanup-project'); self.assertEqual(self.read()['languageResults'],before)
 
     def test_existing_batch_outputs_skip_or_replace_only_after_choice(self):
         self.cli('select-language', '--language', 'auto')

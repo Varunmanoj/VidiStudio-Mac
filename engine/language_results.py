@@ -471,6 +471,8 @@ def _run(args, root, p, core, dispatch):
         if not command.startswith('export') and command not in ('delete-export', 'combine-imported-audio'):
             p.update(exports)
         capture(p)
+    if command in ('synthesize-tts', 'cleanup-project'):
+        repair_missing_history_audio(root, p, core, None if command == 'cleanup-project' else {p['selectedLanguage']})
     organize_assets(root, p, core)
     p['status'] = 'Ready'
     p.pop('error', None)
@@ -769,3 +771,50 @@ def organize_assets(root, p, core):
     core.atomic_json(root / 'project.json', p)
     journal.unlink()
     core.emit('Language assets organized; saved results and edit history links updated', movedLanguageAssets=len(moves))
+
+
+def repair_missing_history_audio(root, p, core, languages=None):
+    """Repair dangling history narration, preserving every text/timing undo step.
+
+    A matching usable saved recording can be shared. Otherwise a restored edit
+    needs narration, rather than retaining a path to a nonexistent recording.
+    Saved results and review drafts are never substituted or approved here.
+    """
+    candidates = {}
+    for result in sorted(p.get('languageResults', []), key=lambda r: r.get('updatedAt', 0), reverse=True):
+        if result['kind'] != 'descriptions' or result['state'] != 'saved': continue
+        for cue in result['payload'].get('cues', []):
+            if core.narration_audio_is_usable(root, cue):
+                path = core.local(root, cue['audio'])
+                if path.stat().st_size > 0:
+                    key = (result['language'], cue.get('text'), cue.get('start'), cue.get('end'))
+                    candidates.setdefault(key, (cue, result['id']))
+    repaired = set(); reset = set()
+    for result in p.get('languageResults', []):
+        if result['kind'] != 'descriptions' or languages is not None and result['language'] not in languages: continue
+        for field in ('undoStack', 'redoStack'):
+            for snapshot in result['payload'].get(field, []):
+                for cue in snapshot:
+                    previous = cue.get('audio')
+                    if not previous: continue
+                    path = core.local(root, previous)
+                    if path.is_file() and path.stat().st_size > 0: continue
+                    candidate = candidates.get((result['language'], cue.get('text'), cue.get('start'), cue.get('end')))
+                    audit = dict(unavailableRecording=previous, repairedAt=time.time(),
+                                 previousVoice=cue.get('audioVoice'), previousSettings=cue.get('audioSettings'))
+                    for key in list(cue):
+                        if key.startswith('audio'): cue.pop(key, None)
+                    if candidate:
+                        recording, rid = candidate
+                        cue.update({key: copy.deepcopy(value) for key, value in recording.items() if key.startswith('audio')})
+                        audit.update(disposition='relinked', sourceResultID=rid)
+                        repaired.add((result['language'], previous))
+                    else:
+                        audit['disposition'] = 'needsNarration'
+                        reset.add((result['language'], previous))
+                    cue['historyNarrationRepair'] = audit
+    if repaired or reset:
+        project(p)
+        core.emit('Repaired unavailable narration references in edit history; text and timing edits preserved',
+                  historyNarrationRelinked=len(repaired), historyNarrationNeedsGeneration=len(reset))
+    return dict(relinked=len(repaired), needsNarration=len(reset))
