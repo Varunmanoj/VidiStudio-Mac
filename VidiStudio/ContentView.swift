@@ -1074,6 +1074,18 @@ struct ProcessingInspector: View {
                         if ["descriptions", "ad-transcript"].contains(editorActions.activeSection) {
                             InspectorSection("Narration Audio") {
                                 VStack(alignment: .leading, spacing: 8) {
+                                    VStack(alignment: .leading, spacing: 8) {
+                                        LabeledContent("Engine") {
+                                            Text(NarrationVoiceFormatting.engineDisplayName(studio.settings.currentNarrationEngine))
+                                                .multilineTextAlignment(.trailing)
+                                        }
+                                        LabeledContent("Voice") {
+                                            Text(NarrationVoiceFormatting.voiceDisplayName(studio.settings.currentNarrationVoice))
+                                                .multilineTextAlignment(.trailing)
+                                        }
+                                    }
+                                    .accessibilityElement(children: .ignore)
+                                    .accessibilityLabel("Engine: \(NarrationVoiceFormatting.engineDisplayName(studio.settings.currentNarrationEngine)), Voice: \(NarrationVoiceFormatting.voiceDisplayName(studio.settings.currentNarrationVoice))")
                                     if studio.settings.ttsMode == "gemini" {
                                         if !studio.hasApiKey {
                                             HStack(spacing: 6) {
