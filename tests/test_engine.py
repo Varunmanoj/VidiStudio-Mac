@@ -1362,12 +1362,10 @@ class Validation(unittest.TestCase):
             self.assertEqual(project()['cues'][0]['audioEngine'], 'system')
             self.assertTrue(project()['cues'][0].get('audioVoice'))
             cli('synthesize-tts','--project',folder,'--regenerate-all')
-            self.assertEqual(folder/project()['cues'][0]['audio'], generated_audio)
-            draft = next(row for row in project()['languageResults'] if row['state'] == 'draft')
-            cli('review-result', '--project', folder, '--result-id', draft['id'], '--disposition', 'keep')
+            self.assertFalse(any(row['state'] == 'draft' for row in project()['languageResults']))
             replacement_audio = folder/project()['cues'][0]['audio']
             self.assertNotEqual(replacement_audio, generated_audio)
-            self.assertTrue(generated_audio.exists())  # Keep Both retains the earlier narration
+            self.assertTrue(generated_audio.exists())  # Previous saved narration remains available
             self.assertTrue(replacement_audio.exists())
             generated_audio = replacement_audio
             editable_segments = project()

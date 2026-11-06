@@ -59,6 +59,54 @@ class LanguageResultsTests(unittest.TestCase):
         self.p['selectedLanguage'] = 'auto'; lr.project(self.p)
         self.assertEqual(self.p['summary'], 'Original summary')
 
+    def test_narration_regeneration_activates_audio_and_preserves_previous_result(self):
+        for flags in ({'segment': 'b'}, {'changed': True}, {'regenerate_all': True}):
+            with self.subTest(flags=flags):
+                p = copy.deepcopy(self.p)
+                p['cues'].append(dict(id='b', start=5, end=7, text='Edited title', audioError='Old fit error'))
+                lr.capture(p)
+                previous = copy.deepcopy(lr.active(p, 'descriptions'))
+                def generate(args, root, working):
+                    cue = working['cues'][1]
+                    cue.update(audio='audio-description/new.mp3', audioText=cue['text'],
+                               audioDuration=1.5, audioStart=5, audioEnd=7)
+                    cue.pop('audioError', None)
+                    self.core.save(root, working)
+                made = lr.produce(self.args('synthesize-tts', **flags), self.root, p, self.core, generate)
+                current = lr.active(p, 'descriptions')
+                self.assertEqual(current['id'], made['descriptions'])
+                self.assertEqual(current['state'], 'saved')
+                self.assertEqual(lr.find(p, previous['id']), previous)
+                self.assertEqual(p['cues'][1]['audio'], 'audio-description/new.mp3')
+                self.assertNotIn('audioError', p['cues'][1])
+                reopened = json.loads((self.root/'project.json').read_text())
+                lr.project(reopened)
+                self.assertEqual(reopened['cues'], p['cues'])
+
+    def test_partial_narration_run_activates_successes_and_remaining_issues(self):
+        previous = copy.deepcopy(lr.active(self.p, 'descriptions'))
+        def generate(args, root, working):
+            working['cues'][0].update(audio='audio-description/new.mp3', audioText='Scene')
+            working['cues'].append(dict(id='b', start=5, end=7, text='Long text', audioError='Does not fit'))
+            self.core.save(root, working)
+        lr.produce(self.args('synthesize-tts'), self.root, self.p, self.core, generate)
+        self.assertEqual(self.p['cues'][0]['audio'], 'audio-description/new.mp3')
+        self.assertEqual(self.p['cues'][1]['audioError'], 'Does not fit')
+        self.assertEqual(lr.active(self.p, 'descriptions')['state'], 'saved')
+        self.assertEqual(lr.find(self.p, previous['id']), previous)
+
+    def test_interrupted_narration_keeps_selected_audio_and_recoverable_draft(self):
+        previous = copy.deepcopy(lr.active(self.p, 'descriptions'))
+        def interrupt(args, root, working):
+            working['cues'][0]['audio'] = 'audio-description/partial.mp3'
+            self.core.save(root, working)
+            raise KeyboardInterrupt()
+        with self.assertRaises(KeyboardInterrupt):
+            lr.produce(self.args('synthesize-tts'), self.root, self.p, self.core, interrupt)
+        self.assertEqual(lr.active(self.p, 'descriptions'), previous)
+        draft = next(r for r in self.p['languageResults'] if r['state'] == 'draft')
+        self.assertEqual(draft['payload']['cues'][0]['audio'], 'audio-description/partial.mp3')
+
     def test_generation_failure_never_changes_saved_result(self):
         def fail(args, root, p):
             p['summary'] = 'Partial'; self.core.save(root, p)
