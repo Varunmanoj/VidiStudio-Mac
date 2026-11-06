@@ -1,4 +1,4 @@
-"""Temporary public YouTube soundtrack retrieval for described-audio exports."""
+"""Bounded YouTube retrieval; audio_sources retains verified project soundtracks."""
 import contextlib
 import json
 import math

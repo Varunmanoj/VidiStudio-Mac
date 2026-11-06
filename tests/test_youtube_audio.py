@@ -2,19 +2,101 @@ import array
 import contextlib
 import math
 import os
+import shutil
 import subprocess
 import sys
 import tempfile
 import unittest
 from pathlib import Path
 from unittest.mock import Mock, patch
+from types import SimpleNamespace
 
 from test_engine import engine
 import youtube_audio
+import audio_sources
 from yt_dlp.utils import DownloadError
 
 
 class YouTubeAudio(unittest.TestCase):
+    def test_saved_extraction_is_reused_after_reopen_move_cleanup_and_failed_mix(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp) / 'project'
+            root.mkdir()
+            source = Path(temp) / 'download.wav'
+            engine.run([engine.tool('ffmpeg'), '-y', '-v', 'error', '-f', 'lavfi',
+                        '-i', 'sine=frequency=440', '-t', '1.5', source])
+            project = dict(name='Cached', sourceType='youtube', youtubeURL='https://youtu.be/abcdefghijk',
+                           duration=1.5, transcript=[], cues=[], exports=[])
+            calls = Mock()
+
+            @contextlib.contextmanager
+            def download(*args):
+                calls()
+                yield source
+
+            with patch.object(youtube_audio, 'soundtrack', download):
+                with patch.object(engine, 'run_export', side_effect=ValueError('encoder failed')):
+                    with self.assertRaisesRegex(ValueError, 'encoder failed'):
+                        engine.export_youtube_audio(root, project)
+                source.unlink()  # The temporary download is no longer available.
+                engine.cleanup_project_storage(root, project)
+                engine.save(root, project)
+                moved = Path(temp) / 'moved'
+                shutil.move(root, moved)
+                import json
+                reopened = json.loads((moved / 'project.json').read_text())
+                # Equivalent links refer to the same saved extraction.
+                reopened['youtubeURL'] = 'https://www.youtube.com/watch?v=abcdefghijk'
+                engine.export_youtube_audio(moved, reopened)
+                engine.export_youtube_audio(moved, reopened, replace_existing=True, media_format='wav')
+                engine.validate_audio_export(moved / reopened['exports'][-1], 1.5, 'wav')
+            calls.assert_called_once()
+
+    def test_missing_corrupt_or_different_video_audio_is_downloaded_again(self):
+        for damage in ('missing', 'corrupt', 'manifest', 'different-video'):
+            with self.subTest(damage=damage), tempfile.TemporaryDirectory() as temp:
+                root = Path(temp)
+                source = root / 'download.wav'
+                engine.run([engine.tool('ffmpeg'), '-y', '-v', 'error', '-f', 'lavfi',
+                            '-i', 'sine=frequency=440', '-t', '0.5', source])
+                project = dict(youtubeURL='https://youtu.be/abcdefghijk')
+                core = SimpleNamespace(**vars(engine))
+                calls = Mock()
+
+                @contextlib.contextmanager
+                def download(*args):
+                    calls()
+                    yield source
+
+                with patch.object(youtube_audio, 'soundtrack', download):
+                    with audio_sources.youtube_soundtrack(root, project, core) as saved:
+                        self.assertNotEqual(saved, source)
+                    if damage == 'missing': saved.unlink()
+                    elif damage == 'corrupt': saved.write_bytes(b'broken')
+                    elif damage == 'manifest': saved.with_suffix('.json').write_text('{}')
+                    else: project['youtubeURL'] = 'https://youtu.be/01234567890'
+                    with audio_sources.youtube_soundtrack(root, project, core) as repaired:
+                        self.assertEqual(repaired.read_bytes(), source.read_bytes())
+                self.assertEqual(calls.call_count, 2)
+
+    def test_invalid_or_cancelled_extraction_is_never_cached(self):
+        for cancelled in (False, True):
+            with self.subTest(cancelled=cancelled), tempfile.TemporaryDirectory() as temp:
+                root = Path(temp)
+                source = root / 'bad.wav'
+                source.write_bytes(b'not audio')
+
+                @contextlib.contextmanager
+                def download(*args):
+                    if cancelled: raise engine.ProcessingCancelled('Cancelled')
+                    yield source
+
+                with patch.object(youtube_audio, 'soundtrack', download):
+                    with self.assertRaises(engine.ProcessingCancelled if cancelled else ValueError):
+                        with audio_sources.youtube_soundtrack(root, dict(youtubeURL='https://youtu.be/abcdefghijk'), SimpleNamespace(**vars(engine))):
+                            self.fail('Invalid extraction must not be used')
+                self.assertFalse(list(root.glob('youtube-audio/**/soundtrack.json')))
+
     def test_youtube_audio_only_needs_no_narration_or_generated_duration(self):
         with tempfile.TemporaryDirectory() as temp:
             root = Path(temp)
@@ -212,9 +294,11 @@ class YouTubeAudio(unittest.TestCase):
                            youtubeURL='https://youtu.be/abcdefghijk', duration=3, hasAudio=True,
                            transcript=[], exports=[], cues=[dict(id='ad', start=1, end=1.6,
                            text='A shape appears.', audio='audio-description/cue.wav', audioText='A shape appears.')])
+            downloads = Mock()
 
             @contextlib.contextmanager
             def soundtrack(*args):
+                downloads()
                 yield source
 
             with patch.object(youtube_audio, 'soundtrack', soundtrack):
@@ -237,6 +321,13 @@ class YouTubeAudio(unittest.TestCase):
                 self.assertAlmostEqual(original_during/original_before, .2, delta=.05)
                 self.assertGreater(amplitude(880, 1.1, 1.4), .08)
                 self.assertLess(amplitude(880, .2, .7), .002)
+                # Narration can be regenerated and exported in another format
+                # using the same project soundtrack, without another extraction.
+                engine.run([engine.tool('ffmpeg'), '-y', '-v', 'error', '-f', 'lavfi',
+                            '-i', 'sine=frequency=990:sample_rate=48000', '-t', '0.5', narration])
+                engine.export_youtube_described_audio(root, project, media_format='wav')
+                engine.validate_audio_export(root/project['exports'][-1], 3, 'wav')
+                downloads.assert_called_once()
                 before = output.read_bytes()
                 with self.assertRaisesRegex(ValueError, 'Confirm replacement'):
                     engine.export_youtube_described_audio(root, project)

@@ -25,7 +25,7 @@ class AudioExportRecovery(unittest.TestCase):
             finally:
                 cleaned()
 
-        with patch.object(audio_sources.youtube_audio, 'soundtrack', failed):
+        with patch.object(audio_sources, 'youtube_soundtrack', failed):
             with self.assertRaises(audio_sources.YouTubeAudioUnavailable) as error:
                 with audio_sources.soundtrack(Path('.'), self.project, self.core):
                     self.fail('No soundtrack should be yielded')
@@ -33,7 +33,7 @@ class AudioExportRecovery(unittest.TestCase):
         self.assertEqual(audio_sources.error_metadata(error.exception), {'recovery': 'choose-original-audio'})
 
     def test_worker_start_failure_offers_replacement(self):
-        with patch.object(audio_sources.youtube_audio, 'soundtrack', side_effect=OSError('cannot start worker')):
+        with patch.object(audio_sources, 'youtube_soundtrack', side_effect=OSError('cannot start worker')):
             with self.assertRaises(audio_sources.YouTubeAudioUnavailable):
                 with audio_sources.soundtrack(Path('.'), self.project, self.core):
                     self.fail('No soundtrack should be yielded')
@@ -48,7 +48,7 @@ class AudioExportRecovery(unittest.TestCase):
             finally:
                 cleaned()
 
-        with patch.object(audio_sources.youtube_audio, 'soundtrack', downloaded):
+        with patch.object(audio_sources, 'youtube_soundtrack', downloaded):
             with self.assertRaises(ValueError) as error:
                 with audio_sources.soundtrack(Path('.'), self.project, self.core):
                     raise ValueError('encoder failed')
@@ -57,7 +57,7 @@ class AudioExportRecovery(unittest.TestCase):
 
     def test_cancellation_has_no_recovery_action(self):
         for cancelled in (engine.ProcessingCancelled('Cancelled'), RuntimeError('Processing cancelled.')):
-            with self.subTest(type=type(cancelled)), patch.object(audio_sources.youtube_audio, 'soundtrack', side_effect=cancelled):
+            with self.subTest(type=type(cancelled)), patch.object(audio_sources, 'youtube_soundtrack', side_effect=cancelled):
                 with self.assertRaises(type(cancelled)) as error:
                     with audio_sources.soundtrack(Path('.'), self.project, self.core):
                         self.fail('Cancelled download must not continue')
@@ -66,7 +66,7 @@ class AudioExportRecovery(unittest.TestCase):
     def test_imported_source_does_not_download_or_offer_download_recovery(self):
         self.project['audioSources'] = dict(export='imported')
         with patch.object(audio_sources, 'original_path', return_value=Path('creator.wav')), \
-             patch.object(audio_sources.youtube_audio, 'soundtrack') as download:
+             patch.object(audio_sources, 'youtube_soundtrack') as download:
             with audio_sources.soundtrack(Path('.'), self.project, self.core) as source:
                 self.assertEqual(source, Path('creator.wav'))
             download.assert_not_called()

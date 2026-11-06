@@ -7,13 +7,16 @@ from __future__ import annotations
 import contextlib
 import copy
 import hashlib
+import json
 import math
 import os
+import shutil
 import tempfile
 from pathlib import Path
 
 import import_assets
 import youtube_audio
+import parity
 
 COMMANDS = ['inspect-original-audio', 'import-original-audio', 'set-audio-sources',
             'confirm-original-audio', 'remove-original-audio']
@@ -96,13 +99,63 @@ def transcript_source_summary(rows):
 
 
 @contextlib.contextmanager
+def youtube_soundtrack(root, project, core):
+    """Persist one verified extraction per video under the caller's project lock.
+
+    The sidecar is independent of project.json so completed downloads survive
+    failed exports and interrupted project saves. All paths remain portable.
+    """
+    url = parity.youtube_url(project.get('youtubeURL', ''))
+    directory = core.local(root, 'youtube-audio/' + url.rsplit('=', 1)[-1])
+    manifest = directory / 'soundtrack.json'
+    try:
+        asset = json.loads(manifest.read_text(encoding='utf-8'))
+        source = core.local(directory, asset['path'])
+        if (asset['youtubeURL'] == url and source.is_file()
+                and 0 < source.stat().st_size <= youtube_audio.MAX_AUDIO_BYTES
+                and fingerprint(source) == asset['sha256']):
+            core.emit('Using saved YouTube audio', exportProgress=0.25)
+            yield_source = source
+        else:
+            yield_source = None
+    except (OSError, ValueError, KeyError, TypeError):
+        yield_source = None
+    if yield_source is not None:
+        yield yield_source
+        return
+
+    with youtube_audio.soundtrack(url, core.emit) as downloaded:
+        info = core.probe(downloaded)
+        streams = info.get('streams', [])
+        duration = float(info.get('format', {}).get('duration', 0))
+        if (sum(item.get('codec_type') == 'audio' for item in streams) != 1
+                or any(item.get('codec_type') == 'video' for item in streams)
+                or not math.isfinite(duration) or duration <= 0):
+            raise ValueError('The extracted YouTube soundtrack could not be read.')
+        directory.mkdir(parents=True, exist_ok=True)
+        source = core.local(directory, 'soundtrack' + downloaded.suffix)
+        # Copy within the project and publish atomically; incomplete files never
+        # become reusable. Do this before encoding so retries reuse the download.
+        with tempfile.NamedTemporaryFile(dir=directory, suffix='.part', delete=False) as stream:
+            temporary = Path(stream.name)
+        try:
+            shutil.copyfile(downloaded, temporary)
+            digest = fingerprint(temporary)
+            temporary.replace(source)
+            core.atomic_json(manifest, dict(youtubeURL=url, path=source.name, sha256=digest))
+        finally:
+            temporary.unlink(missing_ok=True)
+    yield source
+
+
+@contextlib.contextmanager
 def soundtrack(root, project, core):
     if preferences(project)['export'] == 'imported':
         yield original_path(root, project, core)
     else:
         with contextlib.ExitStack() as cleanup:
             try:
-                source = cleanup.enter_context(youtube_audio.soundtrack(project.get('youtubeURL', ''), core.emit))
+                source = cleanup.enter_context(youtube_soundtrack(root, project, core))
             except (ValueError, OSError) as error:
                 # Mark only context entry failures. Mixing/encoding errors after
                 # yield and cancellation must not offer a soundtrack replacement.
