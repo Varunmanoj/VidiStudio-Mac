@@ -279,13 +279,7 @@ struct ExportMediaInformation: Codable, Hashable {
 
     var durationDescription: String {
         guard let duration, duration.isFinite, duration > 0 else { return "Not available" }
-        let seconds = Int(duration.rounded())
-        let hours = seconds / 3_600
-        let minutes = seconds / 60 % 60
-        let remainder = seconds % 60
-        return hours > 0
-            ? String(format: "%d:%02d:%02d", hours, minutes, remainder)
-            : String(format: "%d:%02d", minutes, remainder)
+        return NarrationTimeFormat.timestamp(duration)
     }
 
     var frameRateDescription: String {
@@ -1077,13 +1071,7 @@ struct ProjectVideoInformation {
 
     private static func duration(_ value: Double?) -> String {
         guard let value, value.isFinite, value > 0 else { return "Not available" }
-        let seconds = Int(value.rounded())
-        let hours = seconds / 3_600
-        let minutes = seconds / 60 % 60
-        let remainder = seconds % 60
-        return hours > 0
-            ? String(format: "%d:%02d:%02d", hours, minutes, remainder)
-            : String(format: "%d:%02d", minutes, remainder)
+        return NarrationTimeFormat.timestamp(value)
     }
 
     private static func codecDescription(_ stream: [String: Any]?) -> String? {

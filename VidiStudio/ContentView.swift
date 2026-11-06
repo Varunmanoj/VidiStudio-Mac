@@ -3517,15 +3517,7 @@ struct TimelineView: View {
     }
 
     private func preciseTimecode(_ seconds: Double) -> String {
-        guard seconds.isFinite else { return "00:00.000" }
-        let milliseconds = Int((max(0, seconds) * 1000).rounded())
-        let hours = milliseconds / 3_600_000
-        let minutes = (milliseconds / 60_000) % 60
-        let wholeSeconds = (milliseconds / 1_000) % 60
-        let remainder = milliseconds % 1_000
-        return hours > 0
-            ? String(format: "%02d:%02d:%02d.%03d", hours, minutes, wholeSeconds, remainder)
-            : String(format: "%02d:%02d.%03d", minutes, wholeSeconds, remainder)
+        NarrationTimeFormat.timestamp(seconds)
     }
 
     private func seek(at x: CGFloat, in width: CGFloat) {
@@ -3773,7 +3765,6 @@ private struct DownwardTriangle: Shape {
 private struct TimecodeInput: View {
     let label: String
     @Binding var value: Double
-    let range: ClosedRange<Double>
 
     private func componentBinding(
         divisor: Double,
@@ -3787,7 +3778,7 @@ private struct TimecodeInput: View {
             let oldComponent = modulus.map { Int(max(0, value) / divisor) % $0 }
                 ?? Int(max(0, value) / divisor)
             let clamped = min(max(newValue, allowed.lowerBound), allowed.upperBound)
-            value = min(max(value + Double(clamped - oldComponent) * divisor, range.lowerBound), range.upperBound)
+            value = max(0, value + Double(clamped - oldComponent) * divisor)
         }
     }
 
@@ -3797,7 +3788,7 @@ private struct TimecodeInput: View {
         } set: { newValue in
             let old = Int((max(0, value) * 1000).rounded()) % 1000
             let clamped = min(max(newValue, 0), 999)
-            value = min(max(value + Double(clamped - old) / 1000, range.lowerBound), range.upperBound)
+            value = max(0, value + Double(clamped - old) / 1000)
         }
     }
 
@@ -3883,8 +3874,8 @@ private func segmentValidationErrors(for row: TranscriptRow, among rows: [Transc
     var errors: [String] = []
     if !segment.start.isFinite || !segment.end.isFinite {
         errors.append("Start and end times must be valid numbers.")
-    } else if segment.start < 0 || segment.end > duration {
-        errors.append("The segment must remain inside the video duration.")
+    } else if segment.start < 0 || segment.end < 0 || segment.start > duration || segment.end > duration {
+        errors.append("Start and end times must be within \(preciseSegmentTimecode(duration)) (video duration).")
     } else if segment.end <= segment.start {
         errors.append("End time must be after start time.")
     }
@@ -3997,7 +3988,7 @@ private struct SegmentEditor: View {
             Form {
             Section {
                 VStack(alignment: .leading, spacing: 22) {
-                    TimecodeInput(label: "Start time", value: $row.segment.start, range: 0...max(0, duration))
+                    TimecodeInput(label: "Start time", value: $row.segment.start)
                     HStack {
                         Spacer()
                         Text("Duration \(segmentDuration)")
@@ -4006,7 +3997,7 @@ private struct SegmentEditor: View {
                             .foregroundStyle(.secondary)
                             .accessibilityLabel("Segment duration: \(segmentDuration)")
                     }
-                    TimecodeInput(label: "End time", value: $row.segment.end, range: 0...max(0, duration))
+                    TimecodeInput(label: "End time", value: $row.segment.end)
                     if !timingErrors.isEmpty {
                         SegmentTimingValidationView(errors: timingErrors, isDescription: row.isDescription)
                     }
@@ -4115,7 +4106,7 @@ private struct SegmentEditor: View {
             HStack {
                 Spacer()
                 Button("Cancel", role: .cancel) { dismiss() }.keyboardShortcut(.cancelAction)
-                Button("Save Segment", systemImage: "checkmark") { save(row); dismiss() }.keyboardShortcut(.defaultAction)
+                Button("Save Segment", systemImage: "checkmark") { guard !saveDisabled else { return }; save(row); dismiss() }.keyboardShortcut(.defaultAction)
                     .disabled(saveDisabled)
                     .help(saveDisabled && !timingErrors.isEmpty ? "Resolve timing errors before saving this segment" : "Save this \(row.kind.lowercased()) segment")
             }.padding(.horizontal, 20).padding(.vertical, 14)
@@ -4200,7 +4191,7 @@ private struct BulkSegmentEditor: View {
                     Form {
                         Section("Timing") {
                             VStack(alignment: .leading, spacing: 22) {
-                                TimecodeInput(label: "Start time", value: $rows[index].segment.start, range: 0...max(0, duration))
+                                TimecodeInput(label: "Start time", value: $rows[index].segment.start)
                                 HStack {
                                     Spacer()
                                     Text("Duration \(String(format: "%.3f seconds", max(0, rows[index].segment.end - rows[index].segment.start)))")
@@ -4208,7 +4199,7 @@ private struct BulkSegmentEditor: View {
                                         .monospacedDigit()
                                         .foregroundStyle(.secondary)
                                 }
-                                TimecodeInput(label: "End time", value: $rows[index].segment.end, range: 0...max(0, duration))
+                                TimecodeInput(label: "End time", value: $rows[index].segment.end)
                                 if !timingErrors.isEmpty {
                                     SegmentTimingValidationView(errors: timingErrors, isDescription: rows[index].isDescription)
                                 }
@@ -4235,6 +4226,7 @@ private struct BulkSegmentEditor: View {
                 Spacer()
                 Button("Cancel", role: .cancel) { dismiss() }.keyboardShortcut(.cancelAction)
                 Button("Save All", systemImage: "checkmark") {
+                    guard !saveDisabled else { return }
                     save(rows)
                     dismiss()
                 }

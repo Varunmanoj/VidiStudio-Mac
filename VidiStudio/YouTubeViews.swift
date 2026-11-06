@@ -246,7 +246,7 @@ private struct YouTubeLoadingIndicator: View {
             TableColumn("Title", value: \.title).width(min: 180, ideal: 260)
             TableColumn("Channel", value: \.channelTitle).width(min: 100, ideal: 150)
             TableColumn("Visibility") { Text($0.visibility.capitalized) }.width(85)
-            TableColumn("Duration") { Text($0.durationLabel) }.width(85)
+            TableColumn("Duration") { Text($0.durationLabel).monospacedDigit() }.width(120)
             TableColumn("Published") { Text($0.publishedLabel) }.width(min: 100, ideal: 140)
             TableColumn("Views") { Text($0.viewCount ?? "Unavailable") }.width(85)
             TableColumn("Likes") { Text($0.likeCount ?? "Unavailable") }.width(85)

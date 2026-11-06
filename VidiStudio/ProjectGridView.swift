@@ -38,7 +38,7 @@ struct ProjectGridView: View {
                                     .foregroundStyle(project.isYouTubeURLProject ? .red : .secondary)
                                     .help(project.sourceTitle)
                                     .accessibilityLabel(project.sourceTitle)
-                                Text("\(timecode(project.duration)) · \(project.cues.count) descriptions")
+                                Text("\(NarrationTimeFormat.timestamp(project.duration)) · \(project.cues.count) descriptions")
                                     .font(.caption).foregroundStyle(.secondary)
                             }
                             if let report = integrity[project.id], !report.isHealthy {
@@ -50,7 +50,7 @@ struct ProjectGridView: View {
                     }
                     .buttonStyle(.plain)
                     .simultaneousGesture(TapGesture(count: 2).onEnded { open(project) })
-                    .accessibilityLabel("\(project.name), \(project.sourceTitle), duration \(timecode(project.duration)), \(project.projectBrowserAccessibilityLabel)\(integrity[project.id].flatMap { $0.isHealthy ? nil : ", \($0.accessibilityLabel)" } ?? "")")
+                    .accessibilityLabel("\(project.name), \(project.sourceTitle), duration \(NarrationTimeFormat.timestamp(project.duration)), \(project.projectBrowserAccessibilityLabel)\(integrity[project.id].flatMap { $0.isHealthy ? nil : ", \($0.accessibilityLabel)" } ?? "")")
                     .accessibilityHint("Double-click to open this project in a new window")
                     .accessibilityAction(named: "Open Project") { open(project) }
                     .accessibilityAddTraits(selection == project.id ? [.isSelected] : [])

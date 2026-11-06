@@ -222,11 +222,11 @@ struct ProjectBrowserPage: View {
                     }
                     .width(min: 92, ideal: 108, max: 140)
                     TableColumn("Duration") { project in
-                        Text(timecode(project.duration))
+                        Text(NarrationTimeFormat.timestamp(project.duration))
                             .monospacedDigit()
-                            .accessibilityLabel("Duration: \(timecode(project.duration))")
+                            .accessibilityLabel("Duration: \(NarrationTimeFormat.timestamp(project.duration))")
                     }
-                    .width(min: 75, ideal: 90, max: 110)
+                    .width(min: 112, ideal: 125, max: 150)
                     TableColumn("AD Segments") { project in
                         Text(project.cues.count, format: .number)
                             .monospacedDigit()

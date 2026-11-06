@@ -83,7 +83,7 @@ struct EditorProjectBrowser: View {
                         .frame(height: 76).frame(maxWidth: .infinity).clipped()
                 }
                 Text(project.name).lineLimit(2)
-                if thumbnail { Text(timecode(project.duration)).font(.caption).foregroundStyle(.secondary) }
+                if thumbnail { Text(NarrationTimeFormat.timestamp(project.duration)).font(.caption).foregroundStyle(.secondary) }
             }
             .padding(8).frame(maxWidth: .infinity, alignment: .leading)
             .background(thumbnail && project.id == selectedID ? Color.accentColor.opacity(0.18) : Color.clear,

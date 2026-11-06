@@ -31,12 +31,12 @@ struct YouTubeVideo: Codable, Identifiable, Hashable {
     var playlistLookupStatus: String?
     var id: String { videoID }
     var url: String { "https://www.youtube.com/watch?v=\(videoID)" }
-    var durationLabel: String { String(format: "%d:%02d:%02d", Int(duration) / 3600, Int(duration) / 60 % 60, Int(duration) % 60) }
+    var durationLabel: String { NarrationTimeFormat.timestamp(duration) }
     var publishedLabel: String {
         let parser = ISO8601DateFormatter(); parser.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
         return (parser.date(from: publishedAt) ?? ISO8601DateFormatter().date(from: publishedAt))?.formatted(date: .abbreviated, time: .omitted) ?? publishedAt
     }
-    var detail: String { "\(visibility.capitalized) · \(Int(duration) / 60):\(String(format: "%02d", Int(duration) % 60)) · \(channelTitle)" }
+    var detail: String { "\(visibility.capitalized) · \(durationLabel) · \(channelTitle)" }
     func requireAvailable() throws {
         if visibility == "private" { throw YouTubeFailure("Private Video Cannot Be Opened. Signing in to Google does not give Gemini access to this private video. Choose a public or unlisted video, or import your original local video.") }
         if ["live", "upcoming"].contains(liveStatus ?? "") || duration <= 0 || ["failed", "rejected", "deleted", "uploaded"].contains(uploadStatus ?? "") {
