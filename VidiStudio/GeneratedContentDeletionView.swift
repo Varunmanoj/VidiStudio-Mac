@@ -75,7 +75,7 @@ struct GeneratedContentDeletionView: View {
         }
     }
     private var exports: [String] {
-        project.exports.filter { language == "all" || (project.exportResults?[$0]?.language ?? "auto") == language }
+        project.exports.filter { language == "all" || (project.exportResults?[$0]?.matches(language) ?? (language == "auto")) }
     }
     private var request: [String: Any] {
         ["resultIDs": Array(selection), "components": Array(components), "exportPaths": Array(exportPaths)]

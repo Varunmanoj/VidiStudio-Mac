@@ -3007,8 +3007,7 @@ final class StudioModel {
                         let described = record?.described ?? ["export-selectable-video", "export-closed-audio-description-video", "export-final-video", "export-open-audio-description-video", "combine-imported-audio"].contains(command)
                         exportActivity?.status = "Finishing accessibility information"
                         exportActivity?.update(fraction: 0.99)
-                        let code = record?.language ?? target?.operationLanguage(command) ?? "auto"
-                        try await AppleAccessibilityMetadataWriter().finalizeVideoTracks(at: folder.appendingPathComponent(path), described: described, languageCode: code, languageName: OutputLanguage.title(code))
+                        try await AppleAccessibilityMetadataWriter().verifyVideoTracks(at: folder.appendingPathComponent(path), requiresDescription: described)
                         message = "Video export complete"
                     } catch {
                         present(.exportMetadata, technicalDetails: error.localizedDescription, context: "Finish export accessibility information")

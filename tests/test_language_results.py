@@ -597,10 +597,13 @@ class AppleLanguageExportTests(unittest.TestCase):
                     audioText='दृश्य', audioDuration=.3, audioSettings='imported', audioOrigin='imported')])
             engine.export(root, p, selectable=True, captions='closed', content='transcript', media_format='mov')
             output = root/p['exports'][0]
+            original_bytes = output.read_bytes()
             inspected = subprocess.run([str(helper), str(output), '--finalize', '--described'], capture_output=True, text=True)
             self.assertEqual(inspected.returncode, 0, inspected.stdout + inspected.stderr)
             data = json.loads(inspected.stdout)
             self.assertTrue(data['playable'])
+            self.assertEqual(output.read_bytes(), original_bytes)
+            self.assertIn('Original Audio', data['groups']['audio'][0]['displayName'])
             self.assertIn(data['tracks']['audio'][-1]['language'], ('hi', 'hin'))
             self.assertTrue(data['tracks']['audio'][-1]['describesVideo'])
             self.assertIn(data['tracks']['subtitles'][0]['language'], ('hi', 'hin'))

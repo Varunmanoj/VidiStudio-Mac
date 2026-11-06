@@ -87,6 +87,8 @@ struct SavedSourceAsset: Codable {
 
 struct ExportResultProvenance: Codable {
     var described: Bool?
+    var languages: [String]?
+    func matches(_ code: String) -> Bool { code == "all" || (languages ?? [language]).contains(code) }
     var language: String
     var resultIDs: [String: String]
     var createdAt: Double

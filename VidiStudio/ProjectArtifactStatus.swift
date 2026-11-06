@@ -89,7 +89,7 @@ private struct ProjectArtifactState {
                     : "Video export not generated"
             }
         case .narrationAudio:
-            let audioExtensions = Set(["m4a", "aac", "mp3", "wav"])
+            let audioExtensions = Set(["m4a", "mka", "aac", "mp3", "wav"])
             count = project.exports.filter { audioExtensions.contains(URL(fileURLWithPath: $0).pathExtension.lowercased()) }.count
             availability = count > 0 ? .generated : .notGenerated
             accessibilityLabel = count > 0

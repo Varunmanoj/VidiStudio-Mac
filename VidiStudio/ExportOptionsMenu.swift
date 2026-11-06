@@ -164,7 +164,7 @@ enum StudioExportAction: Hashable {
         return "exports/\(project.languageCode)/\(Self.portableProjectName(project.name)) - \(descriptor.type).\(descriptor.extension)"
     }
 
-    private static func portableProjectName(_ rawName: String) -> String {
+    static func portableProjectName(_ rawName: String) -> String {
         let illegal = CharacterSet(charactersIn: "<>:\"/\\|?*").union(.controlCharacters)
         var name = ""
         var replacingIllegalRun = false
@@ -212,7 +212,7 @@ enum ExportCategory: String, CaseIterable, Identifiable {
     static func resolve(path: String) -> Self {
         let fileExtension = URL(fileURLWithPath: path).pathExtension.lowercased()
         if ["mkv", "mp4", "mov", "m4v"].contains(fileExtension) { return .video }
-        if ["m4a", "aac", "mp3", "wav"].contains(fileExtension) { return .audio }
+        if ["m4a", "mka", "aac", "mp3", "wav"].contains(fileExtension) { return .audio }
         if fileExtension.isEmpty { return .webPlayback }
         return .text
     }
@@ -337,6 +337,10 @@ struct ExportDialog: View {
     }
     let busy: Bool
     let perform: (StudioExportAction, Bool) -> Void
+    @State private var combineTracks = false
+    @State private var trackSelection = MediaTrackSelection()
+    @State private var trackAudioFormat = "m4a"
+    private var selectingTracks: Bool { combineTracks && (category == .video || category == .audio) }
     @State private var exportLanguages: Set<String>
     @State private var exportSelections: [String: [String: String]] = [:]
     @State private var category: ExportCategory
@@ -425,6 +429,7 @@ struct ExportDialog: View {
     }
 
     private var canSave: Bool {
+        if selectingTracks { return !busy && trackSelection.valid(media: category == .video ? "video" : "audio") }
         guard !busy, !exportLanguages.isEmpty, let selectedAction else { return false }
         return canPerform(selectedAction)
     }
@@ -452,6 +457,21 @@ struct ExportDialog: View {
                 .padding(.top, 20)
                 .padding(.bottom, 8)
                 Form {
+                    if category == .video || category == .audio {
+                        Section {
+                            Toggle("One File with Selected Tracks", isOn: $combineTracks)
+                        }
+                    }
+                    if selectingTracks {
+                        Section {
+                            if category == .video {
+                                Picker("Format", selection: $videoFormat) { ForEach(["mkv", "mp4", "mov", "m4v"], id: \.self) { Text($0.uppercased()).tag($0) } }
+                            } else {
+                                Picker("Format", selection: $trackAudioFormat) { ForEach(["m4a", "mka"], id: \.self) { Text($0.uppercased()).tag($0) } }
+                            }
+                        }
+                        MediaTrackSelectionView(project: sourceProject, media: category == .video ? "video" : "audio", selection: $trackSelection)
+                    } else {
                     ExportLanguageSelectionView(project: sourceProject, languages: $exportLanguages, selections: $exportSelections)
                     switch category {
                     case .video:
@@ -538,6 +558,7 @@ struct ExportDialog: View {
                                 selection: $webTranscript
                             )
                         }
+                    }
                     }
                 }
                 .formStyle(.grouped)
@@ -664,6 +685,7 @@ struct ExportDialog: View {
 
     private func save() {
         if let action = selectedAction, let studio, !studio.requireInternet(action.command, project: project, extra: action.arguments) { return }
+        if selectingTracks { saveSelectedTracks(); return }
         guard canSave, let selectedAction else { return }
         let selectedTranscript = category == .webPlayback ? webTranscript : videoTranscript
         if (category == .video || category == .webPlayback) && selectedTranscript.rendersIntoVideo {
@@ -671,6 +693,28 @@ struct ExportDialog: View {
             return
         }
         continueSaving(selectedAction)
+    }
+
+    private func saveSelectedTracks() {
+        guard canSave, let studio else { return }
+        let media = category == .video ? "video" : "audio"
+        let format = category == .video ? videoFormat : trackAudioFormat
+        let plan = trackSelection.plan(media: media, format: format)
+        let path = trackSelection.path(project: sourceProject, media: media, format: format)
+        var replace = false
+        if sourceProject.hasFile(path) {
+            let alert = NSAlert()
+            alert.messageText = "Replace Existing Export?"
+            alert.informativeText = URL(fileURLWithPath: path).lastPathComponent
+            alert.addButton(withTitle: "Replace Existing")
+            alert.addButton(withTitle: "Skip Existing")
+            alert.addButton(withTitle: "Cancel")
+            let choice = alert.runModal()
+            if choice == .alertThirdButtonReturn { return }
+            replace = choice == .alertFirstButtonReturn
+        }
+        studio.executeResultRequest("export-batch", request: ["jobs": [["command": "export-selected-tracks", "trackPlan": plan, "replaceExisting": replace]]], project: sourceProject)
+        dismiss()
     }
 
     private func continueSaving(_ action: StudioExportAction) {
@@ -703,7 +747,7 @@ struct ExportDialog: View {
             target.selectedLanguage = code
             let prefix = String(String.UnicodeScalarView(sourceProject.name.unicodeScalars.prefix(40)))
             let suffix = ids.values.map { String($0.prefix(8)) }.sorted().joined(separator: "-").replacingOccurrences(of: "-", with: ".")
-            target.name = prefix + " [" + code + (suffix.isEmpty ? "" : " " + suffix) + "]"
+            target.name = prefix + " [" + OutputLanguage.title(code) + (suffix.isEmpty ? "" : " " + suffix) + "]"
             let path = action.targetRelativePath(for: target)
             let legacyExists = sourceProject.exports.contains { old in
                 let oldCode = sourceProject.exportResults?[old]?.language ?? (old.split(separator: "/").count > 2 ? String(old.split(separator: "/")[1]) : "auto")

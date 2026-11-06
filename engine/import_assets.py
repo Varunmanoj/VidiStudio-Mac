@@ -466,9 +466,9 @@ def combine_audio(args, root, project, core):
                 command += core.video_render_args(source) if args.captions == 'open' else ['-c:v', 'copy']
             original = selectable and bool(project.get('hasAudio'))
             if original:
-                command += ['-map', '0:a:0', *core.video_audio_metadata()]
+                command += ['-map', '0:a:0', *core.video_audio_metadata(source=source)]
             command += ['-map', '[mix]']
-            command += core.audio_encoding_args(format) if audio_only else [
+            command += (core.audio_encoding_args(format) + core.video_audio_metadata(described=True)) if audio_only else [
                 '-c:a', 'aac', '-b:a', '256k', *core.video_audio_metadata(described=True, index=1 if original else 0, default=not original),
                 *core.video_container_args(format)]
             command += ['-t', str(project['duration']), temporary]

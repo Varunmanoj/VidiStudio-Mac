@@ -523,7 +523,7 @@ class CombineTests(unittest.TestCase):
             def video_container_args(self, fmt):
                 return ['-f', 'mov']
 
-            def video_audio_metadata(self, described=False, index=0, default=True):
+            def video_audio_metadata(self, described=False, index=0, default=True, source=None):
                 title = 'English - Audio Description' if described else 'Original Audio'
                 return [f'-metadata:s:a:{index}', f'title={title}']
 

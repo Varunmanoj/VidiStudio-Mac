@@ -21,7 +21,7 @@ struct CreatedExportsView: View {
                 }
             }.pickerStyle(.menu)
             ForEach(ExportCategory.allCases) { kind in
-                let paths = project.exports.filter { ExportCategory.resolve(path: $0) == kind && (languageFilter == "all" || (project.exportResults?[$0]?.language ?? "auto") == languageFilter) && (resultFilter == "all" || project.exportResults?[$0]?.resultIDs.values.contains(resultFilter) == true) }
+                let paths = project.exports.filter { ExportCategory.resolve(path: $0) == kind && (languageFilter == "all" || (project.exportResults?[$0]?.matches(languageFilter) ?? (languageFilter == "auto"))) && (resultFilter == "all" || project.exportResults?[$0]?.resultIDs.values.contains(resultFilter) == true) }
                 if !paths.isEmpty {
                     VStack(alignment: .leading, spacing: 6) {
                         Label(kind == .text ? "Text and Subtitles" : kind.title, systemImage: kind.icon)

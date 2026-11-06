@@ -307,17 +307,19 @@ def delete(p, request):
     project(p)
 
 
-def track_language():
+def track_language(code=None):
+    code = code or _export_language
     """ISO-639-2 tags for containers; Auto is undetermined, never English."""
-    if _export_language == 'auto':
+    if code == 'auto':
         return 'und'
     pairs = 'af:afr sq:sqi am:amh ar:ara hy:hye as:asm az:aze eu:eus be:bel bn:ben bs:bos bg:bul ca:cat zh:zho co:cos hr:hrv cs:ces da:dan dv:div nl:nld en:eng eo:epo et:est fi:fin fr:fra fy:fry gl:glg ka:kat de:deu el:ell gu:guj ht:hat ha:hau he:heb iw:heb hi:hin hu:hun is:isl ig:ibo id:ind ga:gle it:ita ja:jpn jv:jav kn:kan kk:kaz km:khm ko:kor ku:kur ky:kir lo:lao la:lat lv:lav lt:lit lb:ltz mk:mkd mg:mlg ms:msa ml:mal mt:mlt mi:mri mr:mar mn:mon my:mya ne:nep no:nor ny:nya or:ori ps:pus fa:fas pl:pol pt:por pa:pan ro:ron ru:rus sm:smo gd:gla sr:srp st:sot sn:sna sd:snd si:sin sk:slk sl:slv so:som es:spa su:sun sw:swa sv:swe tg:tgk ta:tam te:tel th:tha tr:tur uk:ukr ur:urd ug:uig uz:uzb vi:vie cy:cym xh:xho yi:yid yo:yor zu:zul'
-    code = _export_language.split('-')[0]
+    code = code.split('-')[0]
     return dict(pair.split(':') for pair in pairs.split()).get(code, code if len(code) == 3 else 'und')
 
 
-def track_title():
-    return 'Auto' if _export_language == 'auto' else output_languages.options()[_export_language]
+def track_title(code=None):
+    code = code or _export_language
+    return 'Auto' if code == 'auto' else output_languages.options()[code]
 
 
 def run(args, root, p, core, dispatch):
@@ -491,8 +493,23 @@ def export_batch(args, root, p, core, dispatch):
     jobs = request.get('jobs', [])
     if not jobs:
         raise ValueError('Choose at least one language and saved result to export.')
+    import multitrack_exports
     prepared = []
     for job in jobs:
+        if job.get('command') == 'export-selected-tracks':
+            plan = multitrack_exports.validate(root, p, job['trackPlan'], core)
+            step = copy.copy(args)
+            step.command = 'export-selected-tracks'
+            step.replace_existing = bool(job.get('replaceExisting', False))
+            view = copy.deepcopy(p)
+            view['_exportView'] = True
+            view['_trackPlan'] = plan
+            view['selectedLanguage'] = plan['languages'][0]
+            view['_exportLanguages'] = plan['languages']
+            view['_exportDescribed'] = bool(plan.get('audio'))
+            job = dict(job, resultIDs=plan['resultIDs'])
+            prepared.append((job, step, view))
+            continue
         view = copy.deepcopy(p)
         view['_exportView'] = True
         code = language(job['language'])
@@ -557,17 +574,21 @@ def export_batch(args, root, p, core, dispatch):
         original = {key: copy.deepcopy(view.get(key)) for key in ('exports', 'exportMediaInfo', 'exportAudioSources')}
         # Export helpers use a deterministic project-name suffix without changing the saved name.
         ids = '-'.join(sorted(rid[:8] for rid in job.get('resultIDs', {}).values()))
-        view['name'] = str(job.get('projectName', p['name']))[:40] + ' [' + view['selectedLanguage'] + (' ' + ids.replace('-', '.') if ids else '') + ']'
+        view['name'] = str(job.get('projectName', p['name']))[:40] + ' [' + track_title(view['selectedLanguage']) + (' ' + ids.replace('-', '.') if ids else '') + ']'
         try:
-            dispatch(step, root, view)
+            if step.command == 'export-selected-tracks':
+                view['name'] = p['name']
+                multitrack_exports.execute(root, view, view['_trackPlan'], core, step.replace_existing)
+            else:
+                dispatch(step, root, view)
             for path in view.get('exports', []):
-                if path not in original['exports'] or step.replace_existing:
+                if path not in original['exports'] or step.replace_existing and path == view.get('_lastCreatedExport'):
                     if path not in p['exports']:
                         p['exports'].append(path)
                     for field in ('exportMediaInfo', 'exportAudioSources'):
                         if path in view.get(field, {}):
                             p.setdefault(field, {})[path] = view[field][path]
-                    p['exportResults'][path] = dict(language=view['selectedLanguage'], resultIDs=job.get('resultIDs', {}), described=view['_exportDescribed'], createdAt=time.time())
+                    p['exportResults'][path] = dict(language=view['selectedLanguage'], languages=view.get('_exportLanguages', [view['selectedLanguage']]), resultIDs=job.get('resultIDs', {}), trackPlan=job.get('trackPlan'), described=view['_exportDescribed'], createdAt=time.time())
             core.save(root, p)
             completed += 1
             core.emit('Language export completed', exportLanguage=view['selectedLanguage'])
@@ -581,7 +602,7 @@ def export_batch(args, root, p, core, dispatch):
             if relative not in p['exports']:
                 path = core.local(root, relative)
                 p['exports'].append(relative)
-                p['exportResults'].setdefault(relative, dict(language=view['selectedLanguage'], resultIDs={}, createdAt=path.stat().st_mtime))
+                p['exportResults'].setdefault(relative, dict(language=view['selectedLanguage'], languages=view.get('_exportLanguages', [view['selectedLanguage']]), resultIDs={}, createdAt=path.stat().st_mtime))
             core.save(root, p)
             skipped += 1
             core.emit('Skipped existing export: ' + relative, exportLanguage=view['selectedLanguage'], exportSkipped=True, skippedExport=relative)
@@ -594,7 +615,7 @@ def export_batch(args, root, p, core, dispatch):
 
 
 def export_folder(p):
-    return 'exports/' + language(p.get('selectedLanguage', 'auto'))
+    return 'exports/' + '+'.join(p['_exportLanguages']) if p.get('_exportLanguages') else 'exports/' + language(p.get('selectedLanguage', 'auto'))
 
 
 def organize_exports(root, p, core, recover_only=False):
@@ -623,7 +644,7 @@ def organize_exports(root, p, core, recover_only=False):
             provenance = p.get('exportResults', {}).get(relative, {})
             parts = Path(relative).parts
             candidate = provenance.get('language', parts[1] if len(parts) >= 3 else 'auto')
-            code = candidate if candidate == 'auto' or candidate in output_languages.options() else 'auto'
+            code = '+'.join(provenance['languages']) if provenance.get('languages') else (candidate if candidate == 'auto' or candidate in output_languages.options() else 'auto')
             if len(parts) >= 3 and parts[1] == code:
                 continue
             target = Path('exports') / code / old.name
