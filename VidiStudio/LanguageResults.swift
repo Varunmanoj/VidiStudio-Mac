@@ -167,12 +167,13 @@ struct OutputLanguagePicker: View {
     var title = "Language"
     @Binding var selection: String
     var includesAll = false
+    var includesAuto = true
     var includesFollowProject = false
     var body: some View {
         Picker(title, selection: $selection) {
             if includesAll { Text("All Languages").tag("all") }
             if includesFollowProject { Text("Follow Project Language").tag("project") }
-            ForEach(OutputLanguage.options) { option in Text(option.title).tag(option.id) }
+            ForEach(OutputLanguage.options.filter { includesAuto || $0.id != "auto" }) { option in Text(option.title).tag(option.id) }
         }.pickerStyle(.menu)
             .accessibilityLabel(title)
     }
@@ -183,8 +184,10 @@ struct LanguageResultControls: View {
     let project: StudioProject
     @Bindable var editorActions: EditorShortcutActions
     var showsSection = true
+    var showsCopyControls = true
     var kindsOverride: [String]? = nil
     var editModeToggle: (() -> Void)? = nil
+    @State private var copySelection: LanguageCopySelection?
     @State private var review: SavedLanguageResult?
     @State private var assigning: SavedLanguageResult?
     @State private var assignment = "auto"
@@ -212,6 +215,9 @@ struct LanguageResultControls: View {
             else { controls }
         }
         .disabled(studio.busy)
+        .sheet(item: $copySelection) { selection in
+            LanguageCopyView(studio: studio, project: project, selection: selection, canCopy: { editorActions.canRun("copy-to") })
+        }
         .sheet(item: $review) { result in LanguageResultReview(studio: studio, project: project, result: result, resolveAction: { run("review-result", $0) }) }
         .sheet(item: $assigning) { result in
             VStack(alignment: .leading, spacing: 18) {
@@ -231,6 +237,10 @@ struct LanguageResultControls: View {
     }
     @ViewBuilder private var controls: some View {
 
+            if showsCopyControls {
+                Button("Copy to…", systemImage: "doc.on.doc") { copySelection = LanguageCopySelection() }
+                    .disabled(!editorActions.canRun("copy-to"))
+            }
             if let editModeToggle {
                 Button(editorActions.segmentEditMode ? "Finish Editing Languages" : "Edit Languages", action: editModeToggle)
                     .disabled(!editorActions.available || editorActions.hasUnsavedSummaryEdits)
@@ -270,6 +280,10 @@ struct LanguageResultControls: View {
                     })) {
                         ForEach(results) { Text($0.title).tag($0.id) }
                     }.pickerStyle(.menu).disabled(editorActions.hasUnsavedSummaryEdits || !editorActions.available)
+                    if showsCopyControls && ["transcript", "summary", "descriptions"].contains(kind) {
+                        Button("Copy \(SavedLanguageResult.kindTitle(kind)) to…") { copySelection = LanguageCopySelection(kinds: [kind]) }
+                            .disabled(!editorActions.canRun("copy-to"))
+                    }
                     if editorActions.segmentEditMode, let selected = results.first(where: { $0.id == project.activeLanguageResultID(kind, language: code) }) {
                         Button("Assign Language to \(selected.kindTitle)…") { assigning = selected; assignment = selected.language }
                             .font(.caption)
@@ -418,5 +432,99 @@ struct ExportLanguageSelectionView: View {
                 }
             }
         }
+    }
+}
+
+
+struct LanguageCopySelection: Identifiable {
+    let id = UUID()
+    var kinds = ["transcript", "summary", "descriptions"]
+    var segmentIDs: [String: [String]] = [:]
+}
+
+struct LanguageCopyView: View {
+    @Bindable var studio: StudioModel
+    let project: StudioProject
+    let selection: LanguageCopySelection
+    let canCopy: () -> Bool
+    @Environment(\.dismiss) private var dismiss
+    @State private var source: String
+    @State private var target: String
+    @State private var kinds: Set<String>
+    @State private var versions: [String: String] = [:]
+    @State private var selectedOnly: Bool
+    @State private var translateText = true
+    private let copyKinds = ["transcript", "summary", "descriptions"]
+
+    init(studio: StudioModel, project: StudioProject, selection: LanguageCopySelection, canCopy: @escaping () -> Bool) {
+        self.studio = studio; self.project = project; self.selection = selection; self.canCopy = canCopy
+        _source = State(initialValue: project.languageCode)
+        _target = State(initialValue: project.languageCode == "auto" ? "en" : project.languageCode)
+        _kinds = State(initialValue: Set(selection.kinds))
+        _selectedOnly = State(initialValue: !selection.segmentIDs.isEmpty)
+    }
+    private func results(_ kind: String) -> [SavedLanguageResult] {
+        project.languageResults(kind: kind, language: source).filter { $0.hasContent }
+    }
+    private func selectedID(_ kind: String) -> String {
+        let rows = results(kind)
+        let id = versions[kind] ?? project.activeLanguageResultID(kind, language: source)
+        return rows.first { $0.id == id }?.id ?? rows.first?.id ?? ""
+    }
+    private var included: [String] { copyKinds.filter { kinds.contains($0) && !results($0).isEmpty && (!selectedOnly || selection.segmentIDs[$0] != nil) } }
+    var body: some View {
+        VStack(alignment: .leading, spacing: 18) {
+            Text("Copy to").font(.title2.bold())
+            OutputLanguagePicker(title: "Source Language", selection: $source)
+                .disabled(selectedOnly)
+                .onChange(of: source) { versions = [:] }
+            Toggle("Translate Text", isOn: $translateText)
+                .onChange(of: translateText) { if translateText && target == "auto" { target = "en" } }
+            OutputLanguagePicker(title: "Target Language", selection: $target, includesAuto: !translateText)
+            if translateText && !studio.hasValidApiKey {
+                Text(studio.hasApiKey ? "Gemini is unavailable. Check connection and API key." : "Add a Gemini API key in Settings.").font(.caption).foregroundStyle(.secondary)
+            }
+            if !selection.segmentIDs.isEmpty { Toggle("Selected Segments Only", isOn: $selectedOnly).onChange(of: selectedOnly) { if selectedOnly { source = project.languageCode; versions = [:] } } }
+            HStack {
+                Text("Content").font(.headline)
+                Spacer()
+                Button("Select All") { kinds = Set(copyKinds); selectedOnly = false }
+            }
+            ForEach(copyKinds, id: \.self) { kind in
+                Toggle(SavedLanguageResult.kindTitle(kind), isOn: Binding(get: { kinds.contains(kind) }, set: {
+                    if $0 { kinds.insert(kind) } else { kinds.remove(kind) }
+                })).disabled(results(kind).isEmpty || (selectedOnly && selection.segmentIDs[kind] == nil))
+                if included.contains(kind) {
+                    if selectedOnly { Text("\(selection.segmentIDs[kind]?.count ?? 0) selected segments").font(.caption) }
+                    else {
+                        Picker("\(SavedLanguageResult.kindTitle(kind)) Saved Result", selection: Binding(get: { selectedID(kind) }, set: { versions[kind] = $0 })) {
+                            ForEach(results(kind)) { Text($0.title).tag($0.id) }
+                        }.pickerStyle(.menu)
+                    }
+                }
+            }
+            HStack {
+                Button("Cancel") { dismiss() }.keyboardShortcut(.cancelAction)
+                Spacer()
+                Button(translateText ? "Translate and Copy" : "Copy") {
+                    guard canCopy(), !included.isEmpty, !translateText || (studio.hasValidApiKey && target != "auto") else { return }
+                    let ids = Dictionary(uniqueKeysWithValues: included.map { ($0, selectedID($0)) })
+                    let segments = selectedOnly ? selection.segmentIDs.filter { included.contains($0.key) } : [:]
+                    studio.copyLanguageResults(request: ["sourceLanguage": source, "targetLanguage": target,
+                        "kinds": included, "resultIDs": ids, "segmentIDs": segments], project: project, translating: translateText)
+                    dismiss()
+                }.keyboardShortcut(.defaultAction).disabled(!canCopy() || included.isEmpty || (translateText && (!studio.hasValidApiKey || target == "auto")))
+            }
+        }.padding(24).frame(width: 520).disabled(studio.busy)
+    }
+}
+
+extension StudioModel {
+    func copyLanguageResults(request: [String: Any], project: StudioProject, translating: Bool) {
+        let input = FileManager.default.temporaryDirectory.appendingPathComponent("vidistudio-copy-\(UUID().uuidString).json")
+        do {
+            try JSONSerialization.data(withJSONObject: request).write(to: input, options: .atomic)
+            execute(translating ? "translate-results" : "copy-results", extra: ["--input", input.path], project: project) { _ in try? FileManager.default.removeItem(at: input) }
+        } catch { self.error = error.localizedDescription }
     }
 }

@@ -32,6 +32,75 @@ class LanguageResultsTests(unittest.TestCase):
         return SimpleNamespace(command=command, replace_existing=False, source_transcript_id=None,
                                source_summary_id=None, **kwargs)
 
+    def test_copy_all_creates_independent_versions_and_preserves_source(self):
+        before = copy.deepcopy(self.p)
+        ids = lr.copy_results(self.p, dict(sourceLanguage='auto', targetLanguage='hi', kinds=['transcript', 'summary', 'descriptions']))
+        self.assertEqual(len(ids), 3)
+        self.assertEqual(self.p['selectedLanguage'], 'auto')
+        for kind in ('transcript', 'summary', 'descriptions'):
+            self.assertEqual(lr.active(self.p, kind, 'auto'), lr.active(before, kind, 'auto'))
+            new = lr.active(self.p, kind, 'hi')
+            self.assertEqual(new['payload'], lr.active(before, kind, 'auto')['payload'])
+            self.assertNotEqual(new['id'], lr.active(before, kind, 'auto')['id'])
+        lr.active(self.p, 'transcript', 'hi')['payload']['transcript'][0]['text'] = 'Edited copy'
+        self.assertEqual(lr.active(self.p, 'transcript', 'auto')['payload']['transcript'][0]['text'], 'Original')
+        self.assertIn('audio-description/history.mp3', lr.referenced_paths(self.p))
+
+    def test_copy_to_existing_or_same_language_keeps_all_previous_versions(self):
+        previous = copy.deepcopy(lr.active(self.p, 'summary'))
+        for code in ('hi', 'hi', 'auto'):
+            lr.copy_results(self.p, dict(sourceLanguage='auto', targetLanguage=code, kinds=['summary']))
+        self.assertEqual(lr.find(self.p, previous['id']), previous)
+        self.assertEqual(lr.active(self.p, 'summary', 'auto')['version'], 2)
+        self.assertEqual(lr.active(self.p, 'summary', 'hi')['version'], 2)
+        self.assertEqual(len([r for r in self.p['languageResults'] if r['kind'] == 'summary']), 4)
+
+    def test_copy_selected_segments_retains_timing_audio_without_unselected_history(self):
+        self.p['cues'].append(dict(id='b', start=6, end=8, text='Other'))
+        lr.capture(self.p)
+        lr.copy_results(self.p, dict(sourceLanguage='auto', targetLanguage='en', kinds=['descriptions'], segmentIDs={'descriptions': ['a']}))
+        new = lr.active(self.p, 'descriptions', 'en')['payload']
+        self.assertEqual(new['cues'], [self.p['cues'][0]])
+        self.assertNotIn('undoStack', new)
+        self.assertEqual(len(self.p['cues']), 2)
+
+    def test_copy_rejects_invalid_sources_without_partial_changes(self):
+        for overrides in (dict(targetLanguage='unsupported'), dict(kinds=['summary', 'adAudio']),
+                          dict(segmentIDs={'transcript': ['missing']}), dict(resultIDs={'summary': 'missing'}),
+                          dict(sourceLanguage='hi'), dict(kinds=[]), dict(kinds=['summary', 'summary'])):
+            with self.subTest(overrides=overrides):
+                before = copy.deepcopy(self.p)
+                request = dict(sourceLanguage='auto', targetLanguage='en', kinds=['summary', 'transcript'])
+                request.update(overrides)
+                with self.assertRaises(ValueError): lr.copy_results(self.p, request)
+                self.assertEqual(before, self.p)
+
+    def test_copy_explicit_saved_version_and_reject_draft_or_wrong_language(self):
+        original = lr.active(self.p, 'summary')['id']
+        latest = lr.record(self.p, 'summary', 'auto', dict(summary='Later'))
+        self.p['languageResults'].append(latest)
+        self.p['activeResultIDs']['auto']['summary'] = latest['id']
+        lr.project(self.p)
+        request = dict(sourceLanguage='auto', targetLanguage='en', kinds=['summary'], resultIDs={'summary': original})
+        lr.copy_results(self.p, request)
+        self.assertEqual(lr.active(self.p, 'summary', 'en')['payload']['summary'], 'Original summary')
+        for changes in (dict(state='draft'), dict(state='saved', language='hi')):
+            lr.find(self.p, original).update(changes)
+            before = copy.deepcopy(self.p)
+            with self.assertRaises(ValueError): lr.copy_results(self.p, request)
+            self.assertEqual(self.p, before)
+
+    def test_copy_command_saves_and_reopens_without_ai(self):
+        self.core.local = lambda root, relative: (root / relative).resolve()
+        self.core.cleanup_project_storage = lambda root, project: None
+        request = self.root / 'copy.json'
+        request.write_text(json.dumps(dict(sourceLanguage='auto', targetLanguage='en', kinds=['summary'])))
+        lr.run(self.args('copy-results', input=request, language=None), self.root, self.p, self.core,
+               lambda *args: self.fail('Copy must not dispatch an AI or media operation'))
+        reopened = json.loads((self.root / 'project.json').read_text())
+        self.assertEqual(lr.active(reopened, 'summary', 'en')['payload']['summary'], 'Original summary')
+        self.assertEqual(lr.active(reopened, 'summary', 'auto')['payload']['summary'], 'Original summary')
+
     def test_migration_is_idempotent_and_keeps_history(self):
         first = copy.deepcopy(self.p)
         lr.migrate(self.p)
@@ -346,6 +415,49 @@ class LanguageResultCLITests(unittest.TestCase):
 
     def read(self):
         return json.loads(self.project.read_text())
+
+    def test_translate_cli_rejects_auto_target_without_requesting_ai(self):
+        request = self.root / 'translate.json'
+        request.write_text(json.dumps(dict(sourceLanguage='auto', targetLanguage='auto', kinds=['summary'])))
+        result = self.cli('translate-results', '--input', request, succeeds=False)
+        self.assertIn('Choose a specific target language', result.stdout + result.stderr)
+        p = self.read()
+        self.assertEqual(p['summary'], 'Original summary')
+        self.assertEqual(p['transcript'][0]['text'], 'Original dialogue')
+        self.assertFalse(any(r.get('origin') == 'ai' for r in p.get('languageResults', [])))
+
+    def test_copy_cli_preserves_sources_existing_targets_and_shared_audio(self):
+        p = self.read()
+        audio = self.root / 'audio-description' / 'scene.mp3'
+        audio.parent.mkdir(); audio.write_bytes(b'original recording')
+        p['cues'] = [dict(id='a', start=2, end=4, text='Scene', audio='audio-description/scene.mp3')]
+        self.project.write_text(json.dumps(p))
+        request = self.root / 'copy.json'
+        request.write_text(json.dumps(dict(sourceLanguage='auto', targetLanguage='hi', kinds=['transcript', 'summary', 'descriptions'])))
+        self.cli('copy-results', '--input', request)
+        original = self.read()
+        self.cli('copy-results', '--input', request)
+        result = self.read()
+        self.assertEqual(len(result['languageResults']), 9)
+        self.assertEqual(result['selectedLanguage'], 'auto')
+        for kind in ('transcript', 'summary', 'descriptions'):
+            self.assertEqual(lr.active(original, kind, 'auto')['payload'], lr.active(result, kind, 'hi')['payload'])
+            self.assertEqual(lr.active(result, kind, 'hi')['version'], 2)
+        path = lr.active(result, 'descriptions', 'hi')['payload']['cues'][0]['audio']
+        self.assertEqual((self.root / path).read_bytes(), b'original recording')
+        request.write_text(json.dumps(dict(sourceLanguage='auto', targetLanguage='en', kinds=['summary', 'transcript'], segmentIDs={'transcript': ['missing']})))
+        before = self.read()
+        self.cli('copy-results', '--input', request, succeeds=False)
+        after = self.read()
+        for key in ('languageResults', 'activeResultIDs', 'selectedLanguage', 'transcript', 'summary', 'cues', 'exports'):
+            self.assertEqual(before[key], after[key])
+        source = lr.active(after, 'descriptions', 'auto')['id']
+        request.write_text(json.dumps(dict(resultIDs=[source], components=['descriptions'], exportPaths=[])))
+        self.cli('delete-results', '--input', request)
+        retained = self.read()
+        self.assertIsNone(lr.active(retained, 'descriptions', 'auto'))
+        remaining = lr.active(retained, 'descriptions', 'hi')['payload']['cues'][0]['audio']
+        self.assertEqual((self.root / remaining).read_bytes(), b'original recording')
 
     def test_import_review_keep_replace_discard_and_reopen(self):
         for disposition in ('keep', 'replace', 'discard'):

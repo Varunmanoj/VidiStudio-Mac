@@ -22,7 +22,7 @@ struct ProjectSourcesSettingsView: View {
             if let project {
                 let info = ProjectVideoInformation(project: project)
                 Section("Language and Saved Results") {
-                    LanguageResultControls(studio: model, project: project, editorActions: languageActions, showsSection: false,
+                    LanguageResultControls(studio: model, project: project, editorActions: languageActions, showsSection: false, showsCopyControls: false,
                         kindsOverride: ["transcript", "summary", "descriptions", "adAudio"], editModeToggle: {
                             languageActions.segmentEditMode.toggle()
                         })

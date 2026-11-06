@@ -19,6 +19,12 @@ class DesktopMenuParity(unittest.TestCase):
         windows_root = Path(os.environ.get('VIDISTUDIO_WINDOWS_ROOT', root / 'Vidi-Studio-Windows'))
         cls.windows = (windows_root / 'Vidi Studio Windows/MainWindow.Menus.cs').read_text(encoding='utf-8')
 
+    def test_copy_to_edit_menu_cannot_be_omitted_on_either_platform(self):
+        self.checker.compare_sources(self.mac, self.app, self.windows)
+        for mac, windows in ((self.mac.replace('editor?.run("copy-to")', 'editor?.run("missing-copy")'), self.windows),
+                             (self.mac, self.windows.replace('Menu("Edit", Command("copy-to"))', 'Menu("Edit")'))):
+            with self.assertRaises(ValueError): self.checker.compare_sources(mac, self.app, windows)
+
     def test_language_results_command_is_shared_and_guarded(self):
         self.assertIn('editor?.run("language-results")', self.mac)
         self.assertIn('Command("language-results")', self.windows)

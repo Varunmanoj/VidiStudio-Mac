@@ -10,6 +10,7 @@ final class EditorShortcutActions {
     var available = false
     var activeSection = "transcript"
     var captionDisplayMode = "off"
+    var hasCopyableResults = false
     var hasTranscriptText = false
     var canToggleNarration = false
     var canToggleFollow = false
@@ -141,6 +142,7 @@ final class EditorShortcutActions {
         if ["play", "back", "forward"].contains(action), youtubeProject, !ConnectivityService.shared.available(.youtube) { return false }
         if action.hasPrefix("summary-") { return canRunSummary(action) }
         switch action {
+        case "copy-to": return hasCopyableResults && !hasUnsavedSummaryEdits
         case "language-results", "rename-project", "trash-project", "import-assets", "import-transcript", "import-summary", "import-descriptions", "import-ad-audio": return true
         case "import-original-audio": return canImportOriginalAudio
         case "filter-segments", "sort-start", "sort-duration-asc", "sort-duration-desc", "sort-origin":
@@ -409,6 +411,11 @@ struct StudioCommands: Commands {
                 SettingsSectionRequest.request("About")
                 openSettings()
             }
+        }
+        CommandGroup(after: .pasteboard) {
+            Button("Copy to…", systemImage: "doc.on.doc") { editor?.run("copy-to") }
+                .accessibilityIdentifier("copy-to")
+                .disabled(editor?.canRun("copy-to") != true)
         }
         CommandGroup(replacing: .textEditing) { }
         CommandGroup(replacing: .textFormatting) { }

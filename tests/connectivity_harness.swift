@@ -22,6 +22,8 @@ struct StudioProject {
         }
         for command in ["import-video", "prepare-video", "save-summary", "export-audio", "export-subtitles", "doctor", "synthesize-tts"] { precondition(needs(command).isEmpty, command) }
         for command in OnlineRequirements.geminiCommands { precondition(needs(command) == [.gemini], command) }
+        precondition(needs("translate-results") == [.gemini])
+        precondition(needs("copy-results").isEmpty)
         settings.ttsMode = "gemini"; precondition(needs("synthesize-tts") == [.gemini])
         settings.ttsMode = "piper"; precondition(needs("synthesize-tts").isEmpty)
         project.isYouTubeURLProject = true
