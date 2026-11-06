@@ -63,7 +63,7 @@ class NarrationPlaybackOptions(unittest.TestCase):
         self.assertIn('if (Get("ttsMode") == "azure")', source)
         self.assertIn('Data["ttsMode"] = "windows-core";', source)
 
-    def test_windows_overview_refreshes_after_settings_close(self):
+    def test_windows_overview_refreshes_as_settings_apply(self):
         presentation = (ROOT/'Vidi-Studio-Windows/Vidi Studio Windows/MainWindow.Presentation.cs').read_text()
         window = (ROOT/'Vidi-Studio-Windows/Vidi Studio Windows/MainWindow.xaml.cs').read_text()
         self.assertIn('private static string EngineTitle(string mode)', presentation)
@@ -72,7 +72,10 @@ class NarrationPlaybackOptions(unittest.TestCase):
         self.assertIn('"piper" => "Piper Voices"', presentation)
         self.assertIn('_ => "Windows OneCore"', presentation)
         self.assertIn('"Speech engine: " + EngineTitle(Model.Settings.Get("ttsMode", "windows-core"))', presentation)
-        self.assertIn('finally { if (openSettings == settings) openSettings = null; if (ready) { ApplyTheme(); Model.Reload(); UpdateApiKeyUi(); UpdateSectionPresentation(); } }', window)
+        apply = window[window.index('    internal void ApplySettingsChanges('):window.index('    private async Task ShowSettingsSectionAsync(')]
+        self.assertIn('Model.Settings.Reload();', apply)
+        self.assertIn('UpdateCaptions();', apply)
+        self.assertIn('UpdateSectionPresentation();', apply)
 
     def test_windows_bundles_piper_and_removes_the_natural_voice_bridge_promotion(self):
         dialog = (ROOT/'Vidi-Studio-Windows/Vidi Studio Windows/Views/SettingsDialog.cs').read_text()
