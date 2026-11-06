@@ -4,7 +4,7 @@ Mac is the reference layout. Windows' shared menus follow this order:
 
 - **File:** New Project, Open Project Folder, Export. Native Windows additions: Open Editor in New Window, Settings, Close Window.
 - **Edit:** Copy to… (`copy-to`) opens the same source/target-language translation and duplication dialog on both platforms. No new shortcut; native text-copy shortcuts keep their normal behavior. The command is also available in the language inspector, editor context menu, and each transcript/description row action menu. Selected rows preselect Selected Segments Only; whole results can be copied individually or together. It works in viewing mode, requires saved nonempty content and an idle app, and is blocked by pending summary edits. Translate Text defaults on; Translate and Copy requires Gemini access and a specific target language. Turning Translate Text off enables local duplication, including Auto/same-language targets. Translations preserve timing and source results but need new narration.
-- **View:** Preview, Timeline; Project List visibility, Inspector visibility; Project List View, Project Grid View.
+- **View:** Project Language (dynamic checked saved-language choices), separator; Preview, Timeline; Project List visibility, Inspector visibility; Project List View, Project Grid View.
 - **Playback:** Preview, Full-Screen Video, Play/Pause, Stop Video, Rewind/Fast Forward 5 Seconds, Toggle Narration.
   - **Transcript Overlay:** Cycle; Off, Transcript, AD Transcript.
   - **Summary Reading:** Play/Resume, Pause, Stop; Previous/Next Sentence; Previous/Next Paragraph; Read from Start, Read from Selection, Read Selected Text.
@@ -130,3 +130,8 @@ Manual editing of existing segments requires Edit mode on both desktops: row pen
 Read Frame Text remains available for review without segment editing. Mac offers Add as Description and Windows can open a new description draft in view mode; manually editing existing descriptions still requires Edit mode.
 
 Every tab, including AD Overview, uses the single View Project Language picker. Saved-result selectors use that language. Viewing actions preserve section targets; language assignment and target changes retain their Edit-mode guards. There is no separate overview viewing-language override.
+
+
+## Project Language submenu
+
+View > Project Language uses stable parent ID `project-language` and option IDs `project-language-<code>` on both desktops. Choices and titles match the inspector: supported categories with saved nonempty content only; Auto stays distinct. Exactly the current available viewing language is checked. Selecting an option dispatches the guarded `select-language` action without Edit mode; busy operation, missing editor/project, unsupported/unavailable categories and pending summary edits block selection. Re-selecting the current language keeps it selected and performs no project write. No shortcut is added. Speech inspector metadata uses Engine, project viewing Language, Voice on Summary, Descriptions, AD Overview and AD Transcript.

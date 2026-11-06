@@ -9,6 +9,8 @@ final class EditorShortcutActions {
     var timelineVisible = true
     var available = false
     var activeSection = "transcript"
+    var viewingLanguage = "auto"
+    var viewingLanguages: [OutputLanguage] = []
     var captionDisplayMode = "off"
     var hasCopyableResults = false
     var hasTranscriptText = false
@@ -131,6 +133,11 @@ final class EditorShortcutActions {
         }
     }
 
+    func selectProjectLanguage(_ code: String) {
+        guard canRun("project-language"), viewingLanguages.contains(where: { $0.id == code }), code != viewingLanguage else { return }
+        languageAction?("select-language", ["--language", code])
+    }
+
     func run(_ action: String) {
         if ["youtube-details", "youtube-refresh", "youtube-captions"].contains(action) { if available && youtubeProject { youtubeHandler?(action) }; return }
         guard canRun(action) else { return }
@@ -142,6 +149,7 @@ final class EditorShortcutActions {
         if ["play", "back", "forward"].contains(action), youtubeProject, !ConnectivityService.shared.available(.youtube) { return false }
         if action.hasPrefix("summary-") { return canRunSummary(action) }
         switch action {
+        case "project-language": return !hasUnsavedSummaryEdits && !viewingLanguages.isEmpty
         case "copy-to": return hasCopyableResults && !hasUnsavedSummaryEdits
         case "language-results", "rename-project", "trash-project", "import-assets", "import-transcript", "import-summary", "import-descriptions", "import-ad-audio": return true
         case "import-original-audio": return canImportOriginalAudio
@@ -330,6 +338,19 @@ struct StudioCommands: Commands {
     @FocusedValue(\.editorShortcuts) private var editor
     @Environment(\.openWindow) private var openWindow
     @Environment(\.openSettings) private var openSettings
+    @ViewBuilder private func projectLanguageMenu() -> some View {
+        Menu("Project Language") {
+            ForEach(editor?.viewingLanguages ?? []) { language in
+                Toggle(language.title, isOn: Binding(get: { editor?.viewingLanguage == language.id }, set: { selected in
+                    if selected { editor?.selectProjectLanguage(language.id) }
+                }))
+                .accessibilityIdentifier("project-language-" + language.id)
+            }
+        }
+        .accessibilityIdentifier("project-language")
+        .disabled(editor?.canRun("project-language") != true)
+    }
+
     var body: some Commands {
         CommandGroup(after: .newItem) {
             Button("My YouTube Videos…", systemImage: "play.rectangle") { studio.runYouTube("youtube-browser"); openWindow(id: "youtube-browser") }.keyboardShortcut("y", modifiers: [.command, .option]).disabled(studio.busy)
@@ -356,6 +377,8 @@ struct StudioCommands: Commands {
 
         }
         CommandGroup(after: .sidebar) {
+            projectLanguageMenu()
+            Divider()
             Button(editor?.previewHidden == true ? "Show Preview" : "Hide Preview", systemImage: editor?.previewHidden == true ? "video" : "video.slash") {
                 editor?.run("preview")
             }

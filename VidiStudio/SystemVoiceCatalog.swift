@@ -58,6 +58,24 @@ enum SystemSpeechVoiceResolver {
         return AVSpeechSynthesisVoice(identifier: identifier)
     }
 
+    static func selectedVoice(named requested: String) -> AVSpeechSynthesisVoice? {
+        let requested = requested.trimmingCharacters(in: .whitespacesAndNewlines)
+        if requested.isEmpty { return defaultVoice ?? AVSpeechSynthesisVoice(language: nil) }
+        let voices = AVSpeechSynthesisVoice.speechVoices()
+        let normalized = requested.lowercased()
+        let quality: AVSpeechSynthesisVoiceQuality? = normalized.hasSuffix(" (premium)") ? .premium
+            : normalized.hasSuffix(" (enhanced)") ? .enhanced : nil
+        let baseName = requested
+            .replacingOccurrences(of: " (Enhanced)", with: "", options: .caseInsensitive)
+            .replacingOccurrences(of: " (Premium)", with: "", options: .caseInsensitive)
+        return voices.first { $0.identifier == requested }
+            ?? voices.first {
+                ($0.name.caseInsensitiveCompare(requested) == .orderedSame
+                 || $0.name.caseInsensitiveCompare(baseName) == .orderedSame)
+                && (quality == nil || $0.quality == quality)
+            }
+    }
+
     static var defaultVoiceDisplayName: String? {
         guard let voice = defaultVoice else { return nil }
         if voice.name.localizedCaseInsensitiveContains("enhanced")

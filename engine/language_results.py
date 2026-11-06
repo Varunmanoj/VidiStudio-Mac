@@ -241,7 +241,8 @@ def translate_payloads(sources, source, target, core):
                 if batch and size + len(entry[1]) > 16000: break
                 batch.append(entry); size += len(entry[1])
             contents = json.dumps([dict(index=i, text=text) for i, (_, text) in enumerate(batch)], ensure_ascii=False)
-            core.emit('Translating content', translationCompleted=offset, translationTotal=len(entries))
+            core.emit('Translating content', translationCompleted=offset, translationTotal=len(entries),
+                      contentTransferProgress=0.05 + 0.85 * offset / len(entries))
             for attempt in range(3):
                 try:
                     response = client.models.generate_content(model=model, contents=contents, config={
@@ -266,6 +267,8 @@ def translate_payloads(sources, source, target, core):
                     time.sleep(0.5 * (attempt + 1))
             for i, (field, _) in enumerate(batch): translated[field].append(by_index[i])
             offset += len(batch)
+            core.emit('Translating content', translationCompleted=offset, translationTotal=len(entries),
+                      contentTransferProgress=0.05 + 0.85 * offset / len(entries))
     finally:
         client.close()
     for (row, key, _), chunks in zip(fields, translated):
@@ -540,9 +543,10 @@ def _run(args, root, p, core, dispatch):
         p['activeResultIDs'].setdefault(r['language'], {})[r['kind']] = r['id']
         project(p)
     elif command in ('copy-results', 'translate-results'):
+        core.emit('Translating content' if command == 'translate-results' else 'Copying content', contentTransferProgress=0.0)
         translator = (lambda sources, source, target: translate_payloads(sources, source, target, core)) if command == 'translate-results' else None
         made = copy_results(p, json.loads(args.input.read_text(encoding='utf-8')), translator=translator)
-        core.emit('Content translated' if translator else 'Content copied', copiedResultIDs=made)
+        core.emit('Saving translated content' if translator else 'Saving copied content', copiedResultIDs=made, contentTransferProgress=0.95)
     elif command == 'assign-result-language':
         r = find(p, args.result_id, saved_only=True)
         previous_language = r['language']
@@ -622,6 +626,8 @@ def _run(args, root, p, core, dispatch):
     core.save(root, p)
     core.cleanup_project_storage(root, p)
     core.save(root, p)
+    if command in ('copy-results', 'translate-results'):
+        core.emit('Content translated' if command == 'translate-results' else 'Content copied', contentTransferProgress=1.0)
 
 
 def export_batch(args, root, p, core, dispatch):

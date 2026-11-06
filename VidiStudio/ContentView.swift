@@ -1073,12 +1073,16 @@ struct ProcessingInspector: View {
                             }
                             }
                         }
-                        if ["descriptions", "ad-transcript"].contains(editorActions.activeSection) {
+                        if ["summary", "descriptions", "ad-overview", "ad-transcript"].contains(editorActions.activeSection) {
                             InspectorSection("Narration Audio") {
                                 VStack(alignment: .leading, spacing: 8) {
                                     VStack(alignment: .leading, spacing: 8) {
                                         LabeledContent("Engine") {
                                             Text(NarrationVoiceFormatting.engineDisplayName(studio.settings.currentNarrationEngine))
+                                                .multilineTextAlignment(.trailing)
+                                        }
+                                        LabeledContent("Language") {
+                                            Text(studio.settings.currentNarrationLanguage)
                                                 .multilineTextAlignment(.trailing)
                                         }
                                         LabeledContent("Voice") {
@@ -1087,7 +1091,8 @@ struct ProcessingInspector: View {
                                         }
                                     }
                                     .accessibilityElement(children: .ignore)
-                                    .accessibilityLabel("Engine: \(NarrationVoiceFormatting.engineDisplayName(studio.settings.currentNarrationEngine)), Voice: \(NarrationVoiceFormatting.voiceDisplayName(studio.settings.currentNarrationVoice))")
+                                    .accessibilityLabel("Engine: \(NarrationVoiceFormatting.engineDisplayName(studio.settings.currentNarrationEngine)), Language: \(studio.settings.currentNarrationLanguage), Voice: \(NarrationVoiceFormatting.voiceDisplayName(studio.settings.currentNarrationVoice))")
+                                    if ["descriptions", "ad-transcript"].contains(editorActions.activeSection) {
                                     if studio.settings.ttsMode == "gemini" {
                                         if !studio.hasApiKey {
                                             HStack(spacing: 6) {
@@ -1164,6 +1169,7 @@ struct ProcessingInspector: View {
                                             ? "Gemini API key is invalid — enter a valid key in Settings → Gemini API to synthesize changed segments"
                                             : "Generate missing audio and replace audio with text, timing, or generation issues; keep current audio")
                                     .requiresInternet(studio.settings.ttsMode == "gemini" ? .gemini : nil)
+                                    }
                                 }
                             }
                         }
@@ -1791,6 +1797,11 @@ struct ProjectEditor: View {
                     .pickerStyle(.menu)
                     .labelsHidden()
                     .frame(maxWidth: 200)
+                    if currentProcessingState.isProcessing {
+                        ProgressView().controlSize(.small)
+                            .accessibilityLabel("\(studio.processingStageTitle) in this section")
+                            .accessibilityIdentifier("editor-section-processing")
+                    }
                     if tab == "descriptions" || tab == "ad-transcript" {
                         let origins = Set(project.cues.map(\.provenance))
                         if origins.count > 1 {
@@ -2063,9 +2074,17 @@ struct ProjectEditor: View {
                         .font(.caption)
                         .foregroundStyle(.secondary)
                         .lineLimit(2)
+                    if studio.contentTransferCommand != nil {
+                        if let fraction = studio.contentTransferProgress {
+                            ProgressView(value: fraction).progressViewStyle(.linear)
+                                .accessibilityLabel(studio.processingStageTitle)
+                                .accessibilityValue("\(Int(fraction * 100)) percent")
+                        } else { ProgressView().progressViewStyle(.linear).accessibilityLabel(studio.processingStageTitle) }
+                    }
                 }
                 .accessibilityElement(children: .ignore)
                 .accessibilityLabel("\(studio.processingStageTitle). \(studio.message)")
+                .accessibilityValue(studio.contentTransferProgress.map { "\(Int($0 * 100)) percent" } ?? "")
                 Spacer(minLength: 12)
                 Button {
                     studio.cancelCurrentOperation()
@@ -2537,7 +2556,7 @@ struct ProjectEditor: View {
             Divider()
             if currentProcessingState.isProcessing {
                 SectionProcessingIndicator(
-                    title: currentProcessingState == .queued ? "Waiting to generate \(sectionProcessingName)" : studio.processingStageTitle,
+                    title: currentProcessingState == .queued ? "Waiting to process \(sectionProcessingName)" : studio.processingStageTitle,
                     detail: currentProcessingState == .queued
                         ? "This section updates automatically when its turn arrives. You can keep working in other sections."
                         : studio.message
@@ -3115,6 +3134,9 @@ struct ProjectEditor: View {
         shortcutActions.timelineVisible = timelineVisible
         shortcutActions.available = !shortcutsBlocked && !studio.busy && segmentToEdit == nil && segmentBatchToEdit == nil && studio.screenText == nil
         shortcutActions.activeSection = tab
+        shortcutActions.viewingLanguage = project.languageCode
+        shortcutActions.viewingLanguages = OutputLanguage.options.filter { project.availableViewingLanguages.contains($0.id) }
+            .map { OutputLanguage(id: $0.id, title: project.viewingLanguageTitle($0.id)) }
         shortcutActions.canImportOriginalAudio = project.isYouTubeURLProject
         shortcutActions.captionDisplayMode = studio.settings.captionDisplayMode
         shortcutActions.hasTranscriptText = !project.transcript.isEmpty
@@ -3914,6 +3936,7 @@ private struct SegmentEditor: View {
     @State private var row: TranscriptRow
     @State private var frameTextStatus: String?
     @State private var reanalysisHint = ""
+    @State private var dialogSize = CGSize(width: 780, height: 580)
     let duration: Double
     let transcript: [Segment]
     let descriptions: [Segment]
@@ -3958,8 +3981,20 @@ private struct SegmentEditor: View {
         row.segment.text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || !timingErrors.isEmpty
     }
 
+    private var editorTitle: String {
+        row.segment.text.isEmpty
+            ? (row.isDescription ? "Add Audio Description Segment" : "Add Transcript Segment")
+            : "Edit \(row.kind) Segment"
+    }
+
     var body: some View {
-        Form {
+        VStack(spacing: 0) {
+            Text(editorTitle).font(.title2.bold())
+                .accessibilityAddTraits(.isHeader)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .padding(.horizontal, 20).padding(.vertical, 16)
+            Divider()
+            Form {
             Section {
                 VStack(alignment: .leading, spacing: 22) {
                     TimecodeInput(label: "Start time", value: $row.segment.start, range: 0...max(0, duration))
@@ -3993,8 +4028,6 @@ private struct SegmentEditor: View {
                 }
                 .pickerStyle(.menu)
                 .help("Choose a provenance label. The manual choice persists and is never guessed from the text.")
-                Text("Base labels move to their modified state when text or timing changes. Unknown is editable.")
-                    .font(.caption).foregroundStyle(.secondary)
             }
             Section {
                 TextEditor(text: $row.segment.text)
@@ -4049,10 +4082,6 @@ private struct SegmentEditor: View {
                                 .foregroundStyle(.secondary)
                         }
                     }
-                    Text(row.isDescription ? "Optionally tell Gemini what to examine more closely. It may adjust descriptions in this range and its immediate neighbors to fit around dialogue. You can undo the result." : "Generate one or more transcript segments for this range and reconcile its immediate neighbors. All spoken languages and original scripts are preserved. Existing Audio Descriptions and narration are kept; conflicting speech timing is rejected. You can undo the result.")
-                        .font(.callout)
-                        .foregroundStyle(.secondary)
-                        .fixedSize(horizontal: false, vertical: true)
                     TextEditor(text: $reanalysisHint)
                         .frame(minHeight: 120)
                         .accessibilityLabel("Hint for Gemini")
@@ -4078,17 +4107,19 @@ private struct SegmentEditor: View {
                     Text("Hint for Gemini (Optional)")
                 }
             }
-            Section {
-                HStack {
-                    Spacer()
-                    Button("Cancel", role: .cancel) { dismiss() }.keyboardShortcut(.cancelAction)
-                    Button("Save Segment", systemImage: "checkmark") { save(row); dismiss() }.keyboardShortcut(.defaultAction)
-                        .disabled(saveDisabled)
-                        .help(saveDisabled && !timingErrors.isEmpty ? "Resolve timing errors before saving this segment" : "Save this \(row.kind.lowercased()) segment")
-                }
             }
+            .formStyle(.grouped)
+            .defaultScrollAnchor(.top)
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
+            Divider()
+            HStack {
+                Spacer()
+                Button("Cancel", role: .cancel) { dismiss() }.keyboardShortcut(.cancelAction)
+                Button("Save Segment", systemImage: "checkmark") { save(row); dismiss() }.keyboardShortcut(.defaultAction)
+                    .disabled(saveDisabled)
+                    .help(saveDisabled && !timingErrors.isEmpty ? "Resolve timing errors before saving this segment" : "Save this \(row.kind.lowercased()) segment")
+            }.padding(.horizontal, 20).padding(.vertical, 14)
         }
-        .formStyle(.grouped)
         .onChange(of: capturedScreenText) { _, text in
             guard let text else { return }
             if text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
@@ -4101,10 +4132,9 @@ private struct SegmentEditor: View {
             }
             capturedScreenText = nil
         }
-        .navigationTitle(row.segment.text.isEmpty
-            ? (row.isDescription ? "Add Audio Description Segment" : "Add Transcript Segment")
-            : "Edit \(row.kind) Segment")
-        .frame(width: 780, height: 820)
+        .navigationTitle(editorTitle)
+        .frame(width: dialogSize.width, height: dialogSize.height)
+        .background(SegmentDialogViewport(size: $dialogSize).frame(width: 0, height: 0))
     }
 }
 

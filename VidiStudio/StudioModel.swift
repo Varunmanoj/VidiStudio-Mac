@@ -1,4 +1,5 @@
 import Foundation
+import AVFoundation
 import SwiftUI
 import AppKit
 import MediaAccessibility
@@ -1243,6 +1244,15 @@ struct StudioSettings: Codable, Equatable {
         return "System default"
     }
 
+    @MainActor var currentNarrationLanguage: String {
+        if ttsMode == "gemini" { return "Multilingual" }
+        if ttsMode == "piper" {
+            return PiperVoiceManager.shared.voice(id: piperVoiceSignature)?.languageLabel ?? "Unknown"
+        }
+        guard let voice = SystemSpeechVoiceResolver.selectedVoice(named: systemVoice) else { return "Unknown" }
+        return Locale.current.localizedString(forIdentifier: voice.language) ?? voice.language
+    }
+
     var currentNarrationSummary: String {
         NarrationVoiceFormatting.combinedLabel(voice: currentNarrationVoice, engine: currentNarrationEngine)
     }
@@ -1534,6 +1544,8 @@ final class StudioModel {
     var settingsSection = "Appearance"
     var busy = false
     var processingSection: String?
+    var contentTransferCommand: String?
+    var contentTransferProgress: Double?
     /// Ordered analysis stages for the run in progress (for example
     /// `["transcript", "summary", "descriptions"]` for Analyze Video). Empty for
     /// commands that do not process a section.
@@ -2721,6 +2733,8 @@ final class StudioModel {
             videoPreparationActivity = VideoPreparationActivity(
                 projectID: target.id, message: "Checking video availability")
         }
+        contentTransferCommand = ["copy-results", "translate-results"].contains(command) ? command : nil
+        contentTransferProgress = nil
         processingSection = Self.initialProcessingSection(for: command)
         processingPlan = Self.analysisSections(for: command, extra: extra)
         if command == "synthesize-tts", let target {
@@ -2805,6 +2819,8 @@ final class StudioModel {
             videoPreparationActivity = nil
             processingSection = nil
             processingPlan = []
+            contentTransferCommand = nil
+            contentTransferProgress = nil
             isSynthesizingNarration = false
             narratingSegmentID = nil
             narratingSegmentIndex = nil
@@ -2879,6 +2895,9 @@ final class StudioModel {
                     }
                     if event.keys.contains("exportProgress") {
                         exportActivity?.update(fraction: event["exportProgress"] as? Double)
+                    }
+                    if contentTransferCommand != nil, let value = event["contentTransferProgress"] as? Double, value.isFinite {
+                        contentTransferProgress = max(contentTransferProgress ?? 0, min(1, max(0, value)))
                     }
                     if let section = event["processingSection"] as? String {
                         processingSection = section
@@ -3022,6 +3041,8 @@ final class StudioModel {
             cancellationRequested = false
             processingSection = nil
             processingPlan = []
+            contentTransferCommand = nil
+            contentTransferProgress = nil
             isSynthesizingNarration = false
             narratingSegmentID = nil
             narratingSegmentIndex = nil
@@ -3084,10 +3105,16 @@ final class StudioModel {
         }
     }
 
-    /// The ordered analysis stages a command processes. Only commands that emit
-    /// a `processingSection` event are listed so the per-section spinner never
-    /// waits on a stage that will not report progress.
+    /// Ordered generation stages, or the selected copy/translation content types.
+    /// Transfers process all selected types together and finish after saving.
     private static func analysisSections(for command: String, extra: [String]) -> [String] {
+        if ["copy-results", "translate-results"].contains(command) {
+            guard let flag = extra.firstIndex(of: "--input"), extra.indices.contains(flag + 1),
+                  let data = try? Data(contentsOf: URL(fileURLWithPath: extra[flag + 1])),
+                  let request = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+                  let kinds = request["kinds"] as? [String] else { return [] }
+            return ["transcript", "summary", "descriptions"].filter(kinds.contains)
+        }
         let stages: [String]
         switch command {
         case "analyze", "regenerate-all": stages = ["transcript", "summary", "descriptions"]
@@ -3106,6 +3133,7 @@ final class StudioModel {
     /// more than one stage, such as the AD Transcript list).
     func sectionProcessingState(for sections: [String]) -> SectionProcessingState {
         guard busy, exportActivity == nil, !processingPlan.isEmpty, !sections.isEmpty else { return .idle }
+        if contentTransferCommand != nil { return sections.contains(where: processingPlan.contains) ? .active : .idle }
         let current = processingSection ?? processingPlan.first ?? ""
         guard let currentIndex = processingPlan.firstIndex(of: current) else { return .idle }
         if sections.contains(current) { return .active }
@@ -3120,6 +3148,8 @@ final class StudioModel {
     /// section is processed. Video preparation takes precedence so the Files API
     /// upload step is called out before the stage name.
     var processingStageTitle: String {
+        if contentTransferCommand == "translate-results" { return "Translating content" }
+        if contentTransferCommand == "copy-results" { return "Copying content" }
         if let activity = videoPreparationActivity { return activity.message }
         switch processingSection {
         case "transcript": return "Generating transcript"

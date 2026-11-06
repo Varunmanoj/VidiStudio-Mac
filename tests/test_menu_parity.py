@@ -25,6 +25,17 @@ class DesktopMenuParity(unittest.TestCase):
                              (self.mac, self.windows.replace('Menu("Edit", Command("copy-to"))', 'Menu("Edit")'))):
             with self.assertRaises(ValueError): self.checker.compare_sources(mac, self.app, windows)
 
+    def test_project_language_menu_checks_choices_state_and_guard_contract(self):
+        self.checker.compare_sources(self.mac, self.app, self.windows)
+        for mac, windows in (
+            (self.mac.replace('projectLanguageMenu()\n            Divider()', 'Divider()', 1), self.windows),
+            (self.mac.replace('editor?.viewingLanguage == language.id', 'editor?.viewingLanguage != language.id', 1), self.windows),
+            (self.mac, self.windows.replace('ProjectLanguageMenu(), Separator()', 'Separator()', 1)),
+            (self.mac, self.windows.replace('IsChecked = choice.Id == project.SelectedLanguage', 'IsChecked = false', 1)),
+            (self.mac, self.windows.replace('!HasUnsavedLanguageSummary && p.AvailableViewingLanguages.Count > 0', 'true', 1)),
+        ):
+            with self.assertRaises(ValueError): self.checker.compare_sources(mac, self.app, windows)
+
     def test_language_results_command_is_shared_and_guarded(self):
         self.assertIn('editor?.run("language-results")', self.mac)
         self.assertIn('Command("language-results")', self.windows)

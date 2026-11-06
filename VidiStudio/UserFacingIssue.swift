@@ -250,6 +250,8 @@ enum UserFacingIssueReporter {
 enum UserFacingProgress {
     static func message(for command: String) -> String {
         switch command {
+        case "copy-results": return "Copying content…"
+        case "translate-results": return "Translating content…"
         case "import-video": return "Adding the video to your project…"
         case "import-youtube": return "Adding the YouTube video…"
         case "prepare-video", "probe-video": return "Reading video details…"
