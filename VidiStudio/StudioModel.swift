@@ -1296,6 +1296,8 @@ extension Notification.Name {
     static let vidiStudioSettingsDidChange = Notification.Name("VidiStudioSettingsDidChange")
     static let vidiStudioProjectNarrationDidChange = Notification.Name("VidiStudioProjectNarrationDidChange")
     static let vidiStudioProjectFollowDidChange = Notification.Name("VidiStudioProjectFollowDidChange")
+    static let vidiStudioLanguageWillChange = Notification.Name("VidiStudioLanguageWillChange")
+    static let vidiStudioLanguageDidChange = Notification.Name("VidiStudioLanguageDidChange")
     static let vidiStudioNarrationAudioWillDelete = Notification.Name("VidiStudioNarrationAudioWillDelete")
 }
 
@@ -1455,9 +1457,10 @@ struct OpenProjectReference: Identifiable, Equatable {
 final class OpenProjectRegistry {
     private(set) var projects: [OpenProjectReference] = []
     private var owners: [String: Set<UUID>] = [:]
+    private var languageEditors: [UUID: EditorShortcutActions] = [:]
 
-    func open(_ id: String, name: String, folder: URL? = nil, owner: UUID? = nil) {
-        if let owner { owners[id, default: []].insert(owner) }
+    func open(_ id: String, name: String, folder: URL? = nil, owner: UUID? = nil, actions: EditorShortcutActions? = nil) {
+        if let owner { owners[id, default: []].insert(owner); if let actions { languageEditors[owner] = actions } }
         if let index = projects.firstIndex(where: { $0.id == id }) {
             if projects[index].name != name { projects[index].name = name }
             if let folder, projects[index].folder != folder { projects[index].folder = folder }
@@ -1466,8 +1469,14 @@ final class OpenProjectRegistry {
         }
     }
 
+    func languageEditors(for id: String) -> [EditorShortcutActions] { (owners[id] ?? []).compactMap { languageEditors[$0] } }
+    func languageSettingsAvailable(for id: String) -> Bool {
+        languageEditors(for: id).allSatisfy { $0.available && !$0.hasUnsavedSummaryEdits }
+    }
+
     func close(_ id: String, owner: UUID? = nil) {
         if let owner {
+            languageEditors[owner] = nil
             owners[id]?.remove(owner)
             if owners[id]?.isEmpty == false { return }
         }
@@ -2000,7 +2009,7 @@ final class StudioModel {
         return try JSONDecoder().decode(StudioProject.self, from: JSONSerialization.data(withJSONObject: json))
     }
 
-    private static func loadProject(at folder: URL) -> StudioProject? {
+    static func loadProject(at folder: URL) -> StudioProject? {
         let folder = ProjectFolderIdentity.normalize(folder)
         let manifest = folder.appendingPathComponent("project.json")
         guard let data = try? Data(contentsOf: manifest), !data.isEmpty,

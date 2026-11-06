@@ -14,7 +14,15 @@ struct EditorProjectRegistryHarness {
         precondition(ProjectEditorWindowValue.projectID(from: "vidistudio-editor:invalid") == "vidistudio-editor:invalid")
         let registry = OpenProjectRegistry()
         let first = UUID(), second = UUID()
-        registry.open("alpha", name: "Alpha", owner: first)
+        let alpha = EditorShortcutActions(), beta = EditorShortcutActions()
+        registry.open("alpha", name: "Alpha", owner: first, actions: alpha)
+        registry.open("beta", name: "Beta", owner: second, actions: beta)
+        precondition(registry.languageSettingsAvailable(for: "alpha"))
+        alpha.hasUnsavedSummaryEdits = true
+        precondition(!registry.languageSettingsAvailable(for: "alpha") && registry.languageSettingsAvailable(for: "beta"))
+        alpha.hasUnsavedSummaryEdits = false; alpha.available = false
+        precondition(!registry.languageSettingsAvailable(for: "alpha"))
+        alpha.available = true
         registry.open("beta", name: "Beta", owner: second)
         registry.close("alpha", owner: first)
         registry.open("beta", name: "Beta", owner: first)
@@ -22,6 +30,7 @@ struct EditorProjectRegistryHarness {
         registry.close("beta", owner: first)
         precondition(registry.projects.map(\.id) == ["beta"], "Another window still owns Beta")
         registry.close("beta", owner: second)
+        precondition(registry.languageEditors(for: "beta").isEmpty)
         precondition(registry.projects.isEmpty, "The final window must release its project")
         print("PASS: new windows have distinct identities, switching preserves identity, legacy values decode, and shared project-window ownership stays consistent.")
     }

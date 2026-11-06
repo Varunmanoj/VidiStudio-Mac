@@ -7,7 +7,7 @@ BUILD = ROOT / 'build/editor-project-registry-test'
 BUILD.mkdir(parents=True, exist_ok=True)
 source = (ROOT/'VidiStudio/StudioModel.swift').read_text()
 registry = source[source.index('struct OpenProjectReference:'):source.index('struct ProjectManagementRequest:')]
-(BUILD/'Registry.swift').write_text('import Foundation\nimport Observation\n' + registry)
+(BUILD/'Registry.swift').write_text('import Foundation\nimport Observation\n@MainActor final class EditorShortcutActions { var available = true; var hasUnsavedSummaryEdits = false }\n' + registry)
 env = os.environ | {'DEVELOPER_DIR': '/Applications/Xcode.app/Contents/Developer'}
 subprocess.run(['xcrun', 'swiftc', '-parse-as-library', '-module-cache-path', str(BUILD/'modules'),
                 str(BUILD/'Registry.swift'), str(ROOT/'VidiStudio/ProjectEditorWindowValue.swift'),

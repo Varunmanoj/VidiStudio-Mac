@@ -48,7 +48,6 @@ private struct YouTubeLoadingIndicator: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
             HStack { Text("YouTube Accounts").font(.title2); Spacer(); if showsDone { Button("Done") { dismiss() }.keyboardShortcut(.cancelAction) } }
-            Text("Connect Google accounts to browse uploaded videos, playlists, and caption tracks. Your Google profile and YouTube channel may have different names.")
             ForEach(service.connections) { connection in
                 HStack {
                     AsyncImage(url: URL(string: connection.photo)) { image in image.resizable().scaledToFit() } placeholder: { Image(systemName: "person.circle") }.frame(width: 40, height: 40).accessibilityLabel("Google profile photo")

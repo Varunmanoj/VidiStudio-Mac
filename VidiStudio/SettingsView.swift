@@ -156,7 +156,6 @@ struct SettingsView: View {
                         Picker("Project settings for", selection: $selectedSettingsProjectID) {
                             ForEach(settingsProjects) { Text($0.name).tag($0.id) }
                         }
-                        Text("Choose an open editor project. Opening Project Settings from a project selects it here.").font(.caption).foregroundStyle(.secondary)
                     }
                     if let project = settingsProjects.first(where: { $0.id == selectedSettingsProjectID }) ?? settingsProjects.first {
                         Section(project.name) {
@@ -167,7 +166,7 @@ struct SettingsView: View {
                             )
                             .id("\(project.id)-\(project.folder?.path ?? "")")
                         }
-                        ProjectSourcesSettingsView(reference: project, appSettings: studio.settings).id(project.id)
+                        ProjectSourcesSettingsView(reference: project, appSettings: studio.settings, openProjects: openProjects).id(project.id)
                     }
                 }
             }
@@ -214,10 +213,6 @@ struct SettingsView: View {
                     SystemVoiceBrowser(settings: $studio.settings)
                 }
                 Section("Summary readback") {
-                    Text("Reads the summary aloud and highlights the active sentence and word.")
-                    .font(.caption).foregroundStyle(.secondary)
-                    Text("Uses the selected Apple or Piper voice and the speech controls above.")
-                    .font(.caption).foregroundStyle(.secondary)
                     ColorPicker("Sentence highlight", selection: summaryColorBinding(\.summarySentenceHighlight))
                     .accessibilityLabel("Sentence highlight background color")
                     .accessibilityHint("Background color used for the summary text being read")
@@ -257,9 +252,6 @@ struct SettingsView: View {
                         .disabled(studio.busy)
                     }
                 }
-                Text("New projects are created here and added to the project list.")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
                 HStack(spacing: 10) {
                     Button("Finder Extension Settings", systemImage: "puzzlepiece.extension") {
                         FIFinderSyncController.showExtensionManagementInterface()
@@ -271,9 +263,6 @@ struct SettingsView: View {
                     )
                     .foregroundStyle(finderExtensionEnabled ? .green : .orange)
                 }
-                Text("Enable Vidi Studio under Finder Extensions to add Describe with Vidi Studio to the Finder context menu.")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
                 if studio.settings.developerMode {
                     LabeledContent("FFmpeg") {
                         HStack {
@@ -291,9 +280,6 @@ struct SettingsView: View {
                                 .disabled(studio.busy)
                         }
                     }
-                    Text("Leave these paths empty to use the media tools included with VidiStudio.")
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
                 }
                 HStack(spacing: 10) {
                     Button("Check VidiStudio", systemImage: "checkmark.shield") { studio.checkEngine() }.disabled(studio.busy)
@@ -320,7 +306,6 @@ struct SettingsView: View {
             }
             }
             if section == "Gemini API" {
-                Text("Your Gemini key is stored securely in your macOS Keychain and is never saved inside a project.").font(.caption).foregroundStyle(.secondary)
             }
         }
         .lineLimit(nil)
@@ -409,7 +394,6 @@ struct SettingsView: View {
         } header: {
             Text("Appearance and playback")
         } footer: {
-            Text("Uses this project's transcript. macOS Captions preference can turn it on automatically.")
         }
         Section("Caption appearance") {
             LabeledContent("Text size") {
@@ -467,7 +451,6 @@ struct SettingsView: View {
         } header: {
             Text("Advanced")
         } footer: {
-            Text("Shows project configuration controls, Developer prompts, and advanced executable-path overrides in Narration and Storage.")
         }
     }
 

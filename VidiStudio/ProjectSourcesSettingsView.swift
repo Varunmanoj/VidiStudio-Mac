@@ -5,6 +5,10 @@ import AppKit
 struct ProjectSourcesSettingsView: View {
     let reference: OpenProjectReference
     let appSettings: StudioSettings
+    @Bindable var openProjects: OpenProjectRegistry
+    @State private var languageActions = EditorShortcutActions()
+    private var languageAvailable: Bool { !model.busy && openProjects.languageSettingsAvailable(for: reference.id) }
+    private var pendingSummary: Bool { openProjects.languageEditors(for: reference.id).contains { $0.hasUnsavedSummaryEdits } }
     @Environment(\.openWindow) private var openWindow
     @State private var model = StudioModel(persistSelection: false)
     @State private var importScope: ImportScope?
@@ -17,6 +21,12 @@ struct ProjectSourcesSettingsView: View {
         Group {
             if let project {
                 let info = ProjectVideoInformation(project: project)
+                Section("Language and Saved Results") {
+                    LanguageResultControls(studio: model, project: project, editorActions: languageActions, showsSection: false,
+                        kindsOverride: ["transcript", "summary", "descriptions", "adAudio"], editModeToggle: {
+                            languageActions.segmentEditMode.toggle()
+                        })
+                }
                 Section("Project and media details") {
                 DisclosureGroup("Show media details") {
                     InspectorInformationRow(label: "Name", value: project.name)
@@ -61,10 +71,6 @@ struct ProjectSourcesSettingsView: View {
                             importButton("Import Existing Assets…", scope: .all)
                             if project.isYouTubeURLProject { importButton("Import Original Audio…", scope: .originalAudio) }
                         }
-                        if project.isYouTubeURLProject {
-                            Text("Import Transcript and Import Existing Assets also offer Download YouTube Captions. Caption downloads require video-edit permission.")
-                                .font(.caption).foregroundStyle(.secondary)
-                        }
                     }.disabled(model.busy)
                 }
                 Section("Project actions") {
@@ -76,15 +82,18 @@ struct ProjectSourcesSettingsView: View {
                     Button("Open Project Folder", systemImage: "folder") { if let folder = project.folder { NSWorkspace.shared.open(folder) } }
                     Button("Rename…", systemImage: "pencil.line") { rename(project) }
                 }.disabled(model.busy)
-                Text("Project source choices and imports are saved immediately. Narration engine and voice choices are managed in the Narration tab.")
-                    .font(.caption).foregroundStyle(.secondary)
                 }
                 if model.busy {
                     HStack { ProgressView().controlSize(.small); Text(model.message); Button("Cancel") { model.cancelCurrentOperation() } }
                 }
             } else { Text("This project is unavailable. Open its folder again from All Projects.").foregroundStyle(.secondary) }
         }
-        .task(id: reference.id) { load() }
+        .task(id: reference.id) { load(); configureLanguages() }
+        .onChange(of: languageAvailable) { _, _ in configureLanguages() }
+        .onChange(of: pendingSummary) { _, _ in configureLanguages() }
+        .onReceive(NotificationCenter.default.publisher(for: .vidiStudioLanguageDidChange)) { note in
+            if note.userInfo?["projectID"] as? String == reference.id { load(); configureLanguages() }
+        }
         .onChange(of: appSettings) { _, value in model.applyExternalSettings(value) }
         .onReceive(NotificationCenter.default.publisher(for: NSWindow.didBecomeKeyNotification)) { _ in if !model.busy { load() } }
         .sheet(item: $importScope) { scope in
@@ -114,12 +123,26 @@ struct ProjectSourcesSettingsView: View {
     private func load() {
         model.applyExternalSettings(appSettings)
         model.reload()
-        if project == nil, let folder = reference.folder,
-           let data = try? Data(contentsOf: folder.appendingPathComponent("project.json")),
-           var value = try? JSONDecoder().decode(StudioProject.self, from: data) {
-            value.folder = folder; model.projects.append(value)
-        }
+        if project == nil, let folder = reference.folder, let value = StudioModel.loadProject(at: folder) { model.projects.append(value) }
         model.selectedID = reference.id
+    }
+    private func configureLanguages() {
+        languageActions.available = languageAvailable
+        languageActions.hasUnsavedSummaryEdits = pendingSummary
+        languageActions.activeSection = "descriptions"
+        languageActions.languageAction = { command, arguments in
+            guard languageAvailable, !pendingSummary, let project else { return }
+            let editing = ["select-section-language", "sync-section-languages", "assign-result-language"].contains(command)
+            guard !editing || languageActions.segmentEditMode else { return }
+            NotificationCenter.default.post(name: .vidiStudioLanguageWillChange, object: nil, userInfo: ["projectID": project.id])
+            if let editor = openProjects.languageEditors(for: project.id).first, let action = editor.settingsLanguageAction {
+                action(command, arguments, languageActions.segmentEditMode)
+            } else {
+                model.execute(command, extra: arguments, project: project) { _ in
+                    NotificationCenter.default.post(name: .vidiStudioLanguageDidChange, object: nil, userInfo: ["projectID": project.id])
+                }
+            }
+        }
     }
     private func rename(_ project: StudioProject) {
         let dialog = NSAlert(); dialog.messageText = "Rename project"

@@ -61,6 +61,14 @@ struct SavedLanguageResult: Codable, Identifiable {
         let date = Date(timeIntervalSince1970: createdAt).formatted(date: .abbreviated, time: .shortened)
         return "Version \(version) · \(origin.capitalized) · \(date)"
     }
+    var hasContent: Bool {
+        switch kind {
+        case "transcript": !(payload.transcript ?? []).isEmpty
+        case "summary": !(payload.summary ?? "").trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+        case "descriptions": !(payload.cues ?? []).isEmpty || !(payload.importedADTranscript?.segments ?? []).isEmpty
+        default: !(payload.importedAudioDescription?.path ?? "").isEmpty
+        }
+    }
     var kindTitle: String { Self.kindTitle(kind) }
     static func kindTitle(_ kind: String) -> String {
         switch kind {
@@ -139,6 +147,16 @@ extension StudioProject {
         let code = language ?? languageCode
         return activeResultIDs?[code]?[kind] ?? languageResults(kind: kind, language: code).first?.id ?? ""
     }
+    var availableViewingLanguages: [String] {
+        Array(Set(savedLanguageResults.filter { $0.state == "saved" && $0.hasContent }.map(\.language))).sorted()
+    }
+    func viewingLanguageTitle(_ code: String) -> String {
+        let kinds = Set(savedLanguageResults.filter { $0.language == code && $0.state == "saved" && $0.hasContent }.map(\.kind))
+        let names = ["transcript", "summary", "descriptions", "adAudio"].filter(kinds.contains).map { kind in
+            ["transcript": "Transcript", "summary": "Summary", "descriptions": "Descriptions", "adAudio": "AD Audio"][kind]!
+        }
+        return OutputLanguage.title(code) + (names.isEmpty ? "" : " (" + names.joined(separator: ", ") + ")")
+    }
     var resultLanguages: [String] { Array(Set(savedLanguageResults.map(\.language))).sorted() }
     func matchesLanguage(_ code: String) -> Bool { code == "all" || savedLanguageResults.contains { $0.language == code } }
 }
@@ -162,12 +180,16 @@ struct LanguageResultControls: View {
     @Bindable var studio: StudioModel
     let project: StudioProject
     @Bindable var editorActions: EditorShortcutActions
+    var showsSection = true
+    var kindsOverride: [String]? = nil
+    var editModeToggle: (() -> Void)? = nil
     @State private var review: SavedLanguageResult?
     @State private var assigning: SavedLanguageResult?
     @State private var assignment = "auto"
     @State private var resultFilter = "all"
     private var visibleKinds: [String] {
-        switch editorActions.activeSection {
+        if let kindsOverride { return kindsOverride }
+        return switch editorActions.activeSection {
         case "transcript": ["transcript"]
         case "summary": ["summary"]
         case "descriptions", "ad-overview": ["descriptions", "adAudio"]
@@ -183,22 +205,50 @@ struct LanguageResultControls: View {
         editorActions.languageAction?(command, arguments)
     }
     var body: some View {
-        InspectorSection("Language and Saved Results") {
-            if !editorActions.segmentEditMode {
-                Text("Enter Edit mode to change language labels or generation targets.").font(.caption).foregroundStyle(.secondary)
-                if editorActions.segmentEditingAvailable {
-                    Button("Enter Edit Mode") { editorActions.run("segment-edit-mode") }
-                        .disabled(!editorActions.canRun("segment-edit-mode"))
+        Group {
+            if showsSection { InspectorSection("Language and Saved Results") { controls } }
+            else { controls }
+        }
+        .disabled(studio.busy)
+        .sheet(item: $review) { result in LanguageResultReview(studio: studio, project: project, result: result, resolveAction: { run("review-result", $0) }) }
+        .sheet(item: $assigning) { result in
+            VStack(alignment: .leading, spacing: 18) {
+                Text("Assign Language").font(.title2.bold())
+                Text("\(result.kindTitle) · \(result.title)")
+                OutputLanguagePicker(selection: $assignment)
+                HStack {
+                    Button("Cancel") { assigning = nil }
+                    Spacer()
+                    Button("Assign Language") {
+                        run("assign-result-language", ["--language", assignment, "--result-id", result.id])
+                        assigning = nil
+                    }.keyboardShortcut(.defaultAction).disabled(!editorActions.canChangeLanguage)
                 }
+            }.padding(24).frame(width: 480)
+        }
+    }
+    @ViewBuilder private var controls: some View {
+
+            if let editModeToggle {
+                Button(editorActions.segmentEditMode ? "Finish Editing Languages" : "Edit Languages", action: editModeToggle)
+                    .disabled(!editorActions.available || editorActions.hasUnsavedSummaryEdits)
+            } else if !editorActions.segmentEditMode && editorActions.segmentEditingAvailable {
+                Button("Enter Edit Mode") { editorActions.run("segment-edit-mode") }
+                    .disabled(!editorActions.canRun("segment-edit-mode"))
             }
             if editorActions.hasUnsavedSummaryEdits {
-                Text("Save or cancel summary edits before switching languages or saved results.").font(.caption).foregroundStyle(.secondary)
+                Text("Save or cancel summary edits first.").font(.caption).foregroundStyle(.secondary)
             }
-            OutputLanguagePicker(title: "View Project Language", selection: Binding(get: { project.languageCode }, set: {
-                run("select-language", ["--language", $0])
-            })).disabled(!editorActions.available || editorActions.hasUnsavedSummaryEdits)
-            Text("View Project Language switches saved content across the project. Generation targets can follow it or use their own choices in Edit mode.")
-                .font(.caption).foregroundStyle(.secondary)
+            Picker(editorActions.segmentEditMode ? "Edit Project Language" : "View Project Language", selection: Binding(get: {
+                editorActions.segmentEditMode || project.availableViewingLanguages.contains(project.languageCode) ? project.languageCode : "unavailable"
+            }, set: { code in if code != "unavailable" { run("select-language", ["--language", code]) } })) {
+                if !editorActions.segmentEditMode && !project.availableViewingLanguages.contains(project.languageCode) {
+                    Text("No saved content selected").tag("unavailable")
+                }
+                ForEach(OutputLanguage.options.filter { editorActions.segmentEditMode || project.availableViewingLanguages.contains($0.id) }) { option in
+                    Text(project.viewingLanguageTitle(option.id)).tag(option.id)
+                }
+            }.pickerStyle(.menu).disabled(!editorActions.available || editorActions.hasUnsavedSummaryEdits || (!editorActions.segmentEditMode && project.availableViewingLanguages.isEmpty))
             Button("Keep All Sections in Sync") { run("sync-section-languages") }
                 .help("Return every section to Follow Project Language; saved results are preserved")
                 .disabled(!editorActions.canChangeLanguage)
@@ -236,26 +286,9 @@ struct LanguageResultControls: View {
                         .disabled(editorActions.hasUnsavedSummaryEdits || !editorActions.available)
                 }
             }
-        }
-        .disabled(studio.busy)
-        .sheet(item: $review) { result in LanguageResultReview(studio: studio, project: project, result: result, resolveAction: { run("review-result", $0) }) }
-        .sheet(item: $assigning) { result in
-            VStack(alignment: .leading, spacing: 18) {
-                Text("Assign Language").font(.title2.bold())
-                Text("\(result.kindTitle) · \(result.title)")
-                OutputLanguagePicker(selection: $assignment)
-                Text("Changes the language label. The text and audio are preserved.")
-                HStack {
-                    Button("Cancel") { assigning = nil }
-                    Spacer()
-                    Button("Assign Language") {
-                        run("assign-result-language", ["--language", assignment, "--result-id", result.id])
-                        assigning = nil
-                    }.keyboardShortcut(.defaultAction).disabled(!editorActions.canChangeLanguage)
-                }
-            }.padding(24).frame(width: 480)
-        }
+
     }
+
 }
 
 private struct LanguageResultReview: View {
@@ -268,7 +301,6 @@ private struct LanguageResultReview: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 16) {
             Text("Review \(OutputLanguage.title(result.language)) \(result.kindTitle)").font(.title2.bold())
-            Text("Choose which results to retain. Your saved result stays available until you choose Replace Selected.")
             HStack(alignment: .top) {
                 preview("Selected saved result", project.savedLanguageResults.first { $0.id == result.replacesResultID }?.payload.preview ?? "No previous result")
                 preview("New result", result.payload.preview)
@@ -383,8 +415,6 @@ struct ExportLanguageSelectionView: View {
 
                 }
             }
-            Text("Creates outputs in exports/<language code>/, including auto. Each output uses the saved results chosen here. Existing tracked exports are organized into those folders when exporting.")
-                .font(.caption).foregroundStyle(.secondary)
         }
     }
 }

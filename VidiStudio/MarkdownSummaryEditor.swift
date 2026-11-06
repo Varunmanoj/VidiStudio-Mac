@@ -392,12 +392,6 @@ struct SummaryMarkdownEditorView: View {
             Divider()
             HStack(spacing: 0) {
                 ZStack(alignment: .topLeading) {
-                    if text.isEmpty {
-                        Text("Type or paste your summary. Use the toolbar or Markdown shortcuts to format headings, lists, quotes, code, links, and tables.")
-                            .font(.body).foregroundStyle(.tertiary)
-                            .padding(.horizontal, 24).padding(.vertical, 20)
-                            .allowsHitTesting(false)
-                    }
                     MarkdownTextEditor(text: $text, controller: controller)
                         .accessibilityLabel("Summary Markdown editor")
                 }

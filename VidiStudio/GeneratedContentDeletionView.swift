@@ -83,18 +83,13 @@ struct GeneratedContentDeletionView: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 16) {
             Text("Delete Content by Language").font(.title2.bold())
-            Text("Choose languages, content types, saved results, and optional exports. The project and original source are kept.")
             OutputLanguagePicker(title: "Language filter", selection: $language, includesAll: true)
             ScrollView {
                 VStack(alignment: .leading, spacing: 10) {
                     Text("Content types").font(.headline)
                     ForEach(["transcript", "summary", "descriptions", "adAudio", "narration", "history", "thumbnails"], id: \.self) { kind in
                         Toggle(deletionTitle(kind), isOn: componentMembership(kind))
-                        if kind == "descriptions" {
-                            Text("Deletes the selected description results, including their segments and associated audio. Shared files used by retained results or history are kept.").font(.caption).foregroundStyle(.secondary)
-                        } else if kind == "narration" {
-                            Text("Removes narration from the selected description results. Keeps description text, timing, and undo history. Shared files used by retained results or history are kept.").font(.caption).foregroundStyle(.secondary)
-                        }
+
                     }
                     Divider()
                     HStack {
@@ -112,7 +107,7 @@ struct GeneratedContentDeletionView: View {
                     }
                 }
             }
-            Text("Selected: \(selection.count) results, \(exportPaths.count) exports. " + (components.contains("narration") ? "Description text and timing will be kept." : components.contains("descriptions") ? "Selected description segments and their audio will be deleted." : "Review the exact affected content before confirming."))
+            Text("Selected: \(selection.count) results, \(exportPaths.count) exports")
                 .font(.caption).foregroundStyle(.secondary)
             HStack {
                 Button("Cancel", role: .cancel) { dismiss() }
@@ -142,7 +137,7 @@ struct GeneratedContentDeletionView: View {
             }
             Button("Cancel", role: .cancel) {}
         } message: {
-            Text((preview?.text ?? "") + "\nContent types: " + components.sorted().map(deletionTitle).joined(separator: ", ") + ". This cannot be undone.")
+            Text((preview?.text ?? "") + "\nContent types: " + components.sorted().map(deletionTitle).joined(separator: ", "))
         }
     }
     private func deletionTitle(_ kind: String) -> String {

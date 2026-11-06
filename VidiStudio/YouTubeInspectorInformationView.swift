@@ -52,7 +52,6 @@ struct YouTubeInspectorInformationView: View {
                 Button("Refresh YouTube Details") { startRefresh() }.disabled(refreshing || studio.busy)
                 if refreshing { HStack { ProgressView().controlSize(.small); Text("Fetching YouTube details and playlists…") } }
                 if let issue { Text(issue).foregroundStyle(.red) }
-                Text("These details are saved locally in this project. Refresh to get updated information.").foregroundStyle(.secondary)
             }.font(.caption)
         }
         .task(id: project.id) { if details?.playlists == nil { await refresh() } }

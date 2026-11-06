@@ -179,8 +179,6 @@ struct OriginalAudioImportFields: View {
                     Text("YouTube video").tag(false)
                     Text("Chosen original audio file").tag(true)
                 }.pickerStyle(.radioGroup)
-                Text("Timing is checked before importing. A difference over 0.1 seconds, or an unknown video duration, requires your confirmation.")
-                    .font(.caption).foregroundStyle(.secondary)
             }
         }
     }

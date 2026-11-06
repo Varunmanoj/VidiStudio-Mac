@@ -313,7 +313,6 @@ struct GeminiAPISettingsView: View {
         } header: {
             Text("YouTube video")
         } footer: {
-            Text("When Transcription source is YouTube video, transcription and Audio Descriptions automatically use the YouTube video model. When it is Imported audio, the two choices above are used and shared with Local video. Descriptions still analyze the YouTube picture and current transcript. Playback and export choices do not change the model. Summary and other task models remain shared. Changes apply to future requests.")
         }
         Section {
             DisclosureGroup("Advanced", isExpanded: $advancedExpanded) {
@@ -323,8 +322,6 @@ struct GeminiAPISettingsView: View {
                 }
                 .pickerStyle(.menu)
                 .accessibilityHint("Choose Static for fixed video sampling or Agentic for model-directed video analysis.")
-                Text("Applies to summaries and Audio Descriptions for local and YouTube videos, and YouTube screen-text requests. Transcription and selected-range analysis use Static. Availability depends on the selected model and your Gemini access.")
-                    .font(.caption).foregroundStyle(.secondary)
             }
         }
     }
@@ -337,7 +334,6 @@ struct GeminiAPISettingsView: View {
                 let values = Set(["transcript", "summary", "audio_descriptions"].map { studio.settings.outputLanguages[$0] ?? "auto" })
                 return values.count == 1 ? values.first! : "auto"
             }, set: { studio.settings.defaultOutputLanguage = $0 }))
-            Text("Each project has one shared language picker in the right inspector. Existing projects start in Auto; saved results can be assigned a language without changing their text.").font(.caption).foregroundStyle(.secondary)
         }
     }
 

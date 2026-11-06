@@ -590,12 +590,6 @@ struct ExportDialog: View {
                 openCaptionAction = nil
                 continueSaving(action)
             }
-        } message: { _ in
-            if category == .webPlayback {
-                Text("Open captions become a permanent part of every adaptive Web Playback video rendition. Closed captions remain selectable and let each viewer turn them on or off. Choose Export with Open Captions only when the words must always appear in the picture.")
-            } else {
-                Text("Open captions become a permanent part of the picture, so VidiStudio must create a new copy of the video. It keeps the same picture size and preserves HDR where possible, but some original quality or iPhone Dolby Vision information may change. For the closest match to the original, use closed captions instead.")
-            }
         }
 
     }
@@ -613,8 +607,7 @@ struct ExportDialog: View {
             }
             .pickerStyle(.menu)
             .help("Choose whether the described track uses generated narration or the imported AD audio")
-            Text(project.isYouTubeURLProject ? "Narration is combined with the selected original audio. An imported full AD mix is used directly." : "Closed Audio Description creates Original Audio and language-labelled Audio Description tracks that viewers can switch between. Open Audio Description creates one described mix.")
-                .font(.caption).foregroundStyle(.secondary)
+
         } else if hasImportedADSource {
             Label("Using imported AD audio (\(project.importedADAudioModeLabel))", systemImage: "square.and.arrow.down")
                 .font(.caption)
@@ -721,7 +714,6 @@ struct ExportDialog: View {
         if !collisions.isEmpty {
             let alert = NSAlert()
             alert.messageText = collisions.count == 1 ? "Replace Existing Export?" : "Replace Existing Exports?"
-            alert.informativeText = "These outputs already exist. Replace Existing saves new exports in their place. Skip Existing preserves them and exports the remaining outputs. A Web Playback folder is treated as one output."
             let scroll = NSScrollView(frame: NSRect(x: 0, y: 0, width: 480, height: min(200, 36 + collisions.count * 36)))
             scroll.hasVerticalScroller = true
             let list = NSTextView(frame: scroll.bounds)

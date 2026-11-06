@@ -92,8 +92,6 @@ struct ADOverviewView: View {
                                     Divider()
                                 }
                             }
-                            Text("All six origin labels are counted, including imported and imported-modified descriptions. Manual choices persist, and older segments without recorded origin appear as unknown.")
-                                .font(.caption).foregroundStyle(.secondary)
                         }
                         .padding(.vertical, 4)
                     }
@@ -130,8 +128,6 @@ struct ADOverviewView: View {
                                 Label("Imported narration audio is in this project", systemImage: "square.and.arrow.down")
                                     .font(.subheadline.weight(.semibold))
                                 if voiceReport.hasMixedSources {
-                                    Text("This project mixes AI-generated narration and imported narration. Imported segments never count as a different generated voice.")
-                                        .font(.caption).foregroundStyle(.secondary)
                                 }
                                 if voiceReport.importedFiles.count > 1 {
                                     Text("Imported narration comes from \(voiceReport.importedFiles.count) different audio files: \(voiceReport.importedFiles.joined(separator: ", ")).")
@@ -352,8 +348,6 @@ struct NarrationVoicesView: View {
                             Label(file, systemImage: "waveform")
                                 .font(.callout)
                         }
-                        Text("Imported audio is never compared as a different generated voice. The selected voice applies only to new narration generation.")
-                            .font(.caption).foregroundStyle(.secondary)
                     }
                     .frame(maxWidth: .infinity, alignment: .leading)
                     .padding(.vertical, 4)

@@ -21,6 +21,7 @@ final class EditorShortcutActions {
     var segmentEditMode = false
     var hasUnsavedSummaryEdits = false
     var languageAction: ((String, [String]) -> Void)?
+    var settingsLanguageAction: ((String, [String], Bool) -> Void)?
     var canChangeLanguage: Bool { available && segmentEditMode && ["transcript", "summary", "descriptions", "ad-transcript"].contains(activeSection) && !hasUnsavedSummaryEdits }
     var segmentEditModeTitle = "Edit Segments"
     var filterTitle = "Filter Segments…"

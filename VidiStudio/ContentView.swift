@@ -192,8 +192,6 @@ private struct NewProjectView: View {
                         }
                         Text(source == .youtube ? "Combining creates described audio using the selected original soundtrack." : "Combining creates Original Audio and language-labelled Audio Description tracks that viewers can switch between.")
                             .font(.caption).foregroundStyle(.secondary)
-                    Text("Accepted: SRT, VTT, TXT for text; Markdown or TXT for summaries; WAV, MP3, M4A, AAC, or FLAC for audio. TXT timing is reviewed after the project is created.")
-                        .font(.caption2).foregroundStyle(.secondary)
                 }
             }
 
@@ -839,7 +837,7 @@ struct ProjectEditorWindow: View {
                 else { studio.youtubeDetailAction = action; studio.showingYouTubeDetails = true }
             }
             studio.refreshProjectIntegrity(for: projectID)
-            openProjects.open(projectID, name: studio.selected?.name ?? "Project", folder: studio.selected?.folder, owner: windowOwner)
+            openProjects.open(projectID, name: studio.selected?.name ?? "Project", folder: studio.selected?.folder, owner: windowOwner, actions: editorShortcutActions)
         }
         .task(id: studio.selectedID) {
             guard let project = studio.selected, project.isYouTubeURLProject, let id = project.youtubeURL.flatMap(StudioModel.youtubeVideoID) else { youtubeOpeningIssue = nil; return }
@@ -865,7 +863,7 @@ struct ProjectEditorWindow: View {
             studio.refreshProjectIntegrity(for: studio.selectedID ?? projectID)
         }
         .onChange(of: studio.selected?.name) { _, name in
-            if let name, let currentID = studio.selectedID { openProjects.open(currentID, name: name, folder: studio.selected?.folder, owner: windowOwner) }
+            if let name, let currentID = studio.selectedID { openProjects.open(currentID, name: name, folder: studio.selected?.folder, owner: windowOwner, actions: editorShortcutActions) }
         }
         .onDisappear { openProjects.close(studio.selectedID ?? projectID, owner: windowOwner) }
         .onReceive(NotificationCenter.default.publisher(for: ProjectListVisibility.didChange)) { _ in studio.reload() }
@@ -890,7 +888,7 @@ struct ProjectEditorWindow: View {
         if let oldID, oldID != target.id { openProjects.close(oldID, owner: windowOwner) }
         studio.selectedID = target.id
         windowProjectID = ProjectEditorWindowValue.replacingProject(in: windowProjectID ?? projectID, with: target.id)
-        openProjects.open(target.id, name: target.name, folder: target.folder, owner: windowOwner)
+        openProjects.open(target.id, name: target.name, folder: target.folder, owner: windowOwner, actions: editorShortcutActions)
     }
 
     private func removeProjectFromList(_ project: StudioProject) {
@@ -3001,7 +2999,6 @@ struct ProjectEditor: View {
         ContentUnavailableView {
             Label("Write or bring a summary", systemImage: "text.alignleft")
         } description: {
-            Text("Generate from a transcript, import an existing Markdown or TXT summary, or write one yourself. Importing and writing do not require a transcript or API key.")
         } actions: {
             sectionGenerationButton
             Button("Import Summary…", systemImage: "square.and.arrow.down") { chooseSummaryToImport() }
@@ -3036,11 +3033,11 @@ struct ProjectEditor: View {
             || summaryDraftOrigin != project.summaryOriginLabel)
     }
 
-    private func runLanguageAction(_ command: String, arguments: [String]) {
+    private func runLanguageAction(_ command: String, arguments: [String], settingsEditMode: Bool = false, fromSettings: Bool = false) {
         guard !studio.busy, !languageContextChanging, !hasUnsavedSummaryEdits,
               segmentToEdit == nil, segmentBatchToEdit == nil else { return }
         let changesLanguage = ["select-section-language", "sync-section-languages", "assign-result-language"].contains(command)
-        guard !changesLanguage || (tab == "summary" ? summaryEditMode : segmentEditMode) else { return }
+        guard !changesLanguage || settingsEditMode || (tab == "summary" ? summaryEditMode : segmentEditMode) else { return }
         stopNarrationPreview()
         summaryReader.stop()
         languageContextChanging = true
@@ -3051,6 +3048,7 @@ struct ProjectEditor: View {
             }
             languageContextChanging = false
             refreshEditorShortcutActions()
+            if fromSettings { NotificationCenter.default.post(name: .vidiStudioLanguageDidChange, object: nil, userInfo: ["projectID": project.id]) }
         }
     }
 
@@ -3077,6 +3075,7 @@ struct ProjectEditor: View {
             shortcutActions.handler = { action in runEditorShortcut(action) }
             shortcutActions.exportHandler = showExportDialog
             shortcutActions.languageAction = { command, arguments in runLanguageAction(command, arguments: arguments) }
+            shortcutActions.settingsLanguageAction = { command, arguments, editing in runLanguageAction(command, arguments: arguments, settingsEditMode: editing, fromSettings: true) }
         }
         shortcutActions.hasUnsavedSummaryEdits = hasUnsavedSummaryEdits
         shortcutActions.previewHidden = previewHidden
@@ -3186,6 +3185,19 @@ struct ProjectEditor: View {
                   let enabled = notification.userInfo?["enabled"] as? Bool,
                   followTranscript != enabled else { return }
             followTranscript = enabled
+        }
+        .onReceive(NotificationCenter.default.publisher(for: .vidiStudioLanguageWillChange)) { notification in
+            guard notification.userInfo?["projectID"] as? String == project.id else { return }
+            stopNarrationPreview(); summaryReader.stop(); playback.stopNarrationPlayback()
+        }
+        .onReceive(NotificationCenter.default.publisher(for: .vidiStudioLanguageDidChange)) { notification in
+            guard notification.userInfo?["projectID"] as? String == project.id, !hasUnsavedSummaryEdits, !studio.busy else { return }
+            studio.reload()
+            if let updated = studio.selected {
+                if summaryEditMode { summaryDraftText = updated.summary; summaryDraftOrigin = updated.summaryOriginLabel }
+                playback.syncNarration(updated, settings: studio.settings)
+            }
+            refreshEditorShortcutActions()
         }
         .onReceive(NotificationCenter.default.publisher(for: .vidiStudioNarrationAudioWillDelete)) { notification in
             guard notification.userInfo?["projectID"] as? String == project.id else { return }
@@ -3359,7 +3371,7 @@ struct ProjectEditor: View {
             Button("Generate", role: .destructive) { generateNarrationForSelectedDescriptions() }
             Button("Cancel", role: .cancel) { }
         } message: {
-            Text("\(bulkNarrationLabel), one after another, using the selected narration voice. A new narration alternative is saved for review. Existing narration remains available until you choose to replace it.")
+            Text(bulkNarrationLabel)
         }
     }
 
@@ -4191,7 +4203,7 @@ private struct BulkShiftTimingView: View {
         VStack(alignment: .leading, spacing: 0) {
             Text("Shift Selected Timing")
                 .font(.title2.bold()).padding(.horizontal, 20).padding(.top, 20).padding(.bottom, 4)
-            Text("Move all \(count) selected segment\(count == 1 ? "" : "s") earlier or later without changing their duration. Use a negative value to move earlier.")
+            Text("Selected segments")
                 .font(.callout).foregroundStyle(.secondary)
                 .padding(.horizontal, 20).padding(.bottom, 12)
             Form {
@@ -4249,7 +4261,6 @@ private struct SegmentFilterView: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
             Text(title).font(.title2.bold()).padding(.horizontal, 20).padding(.top, 20).padding(.bottom, 4)
-            Text("Choose which rows are visible. Leave every origin unchecked to show all origins. Filters do not change project content.")
                 .font(.callout).foregroundStyle(.secondary)
                 .padding(.horizontal, 20).padding(.bottom, 12)
             Form {

@@ -225,7 +225,6 @@ struct ImportExistingAssetsView: View {
             Form {
                 Section("Language") {
                     OutputLanguagePicker(selection: Binding(get: { selection.language ?? project.languageCode }, set: { selection.language = $0 }))
-                    Text("Assigns a language label without translating the supplied text. Existing results are kept for review.").font(.caption).foregroundStyle(.secondary)
                 }
                 if project.isYouTubeURLProject && (scope == .all || scope == .originalAudio) {
                     Section("Original audio") {
@@ -243,8 +242,6 @@ struct ImportExistingAssetsView: View {
                             if let captionSource, selection.transcript == captionInput {
                                 Text(captionSource).font(.caption).foregroundStyle(.secondary)
                             }
-                            Text("Downloads require permission to edit this video. The selected track is imported only when you confirm this dialog.")
-                                .font(.caption).foregroundStyle(.secondary)
                         }
                     }
                     if scope == .all || scope == .summary {
@@ -573,8 +570,6 @@ struct TXTImportTimingView: View {
         VStack(alignment: .leading, spacing: 0) {
             Text(fileURL.pathExtension.lowercased() == "txt" ? "Set TXT Timing" : "Review Timing")
                 .font(.title2.bold()).padding(20)
-            Text("Every row needs a start and end time inside \(importClock(duration)). SRT and VTT times are prefilled for review; use Distribute Evenly or Auto-time with Gemini when needed.")
-                .font(.callout).foregroundStyle(.secondary)
                 .padding(.horizontal, 20).padding(.bottom, 10)
             HStack {
                 Button("Distribute Evenly", systemImage: "arrow.left.and.right") { distribute() }
@@ -720,8 +715,6 @@ struct ImportReportSheet: View {
         VStack(alignment: .leading, spacing: 0) {
             Text("Import Report")
                 .font(.title2.bold()).padding(.horizontal, 20).padding(.top, 20)
-            Text("Review what was imported, what needs retiming, and what was omitted.")
-                .font(.callout).foregroundStyle(.secondary)
                 .padding(.horizontal, 20).padding(.bottom, 10)
             ScrollView {
                 VStack(alignment: .leading, spacing: 16) {
@@ -877,8 +870,6 @@ struct TranscriptTimingEditorView: View {
         VStack(alignment: .leading, spacing: 0) {
             Text("Edit Transcript Timings")
                 .font(.title2.bold()).padding(.horizontal, 20).padding(.top, 20)
-            Text("Review the start and end of every transcript row. Descriptions that overlap these rows are flagged for retiming; text exports remain available.")
-                .font(.callout).foregroundStyle(.secondary)
                 .padding(.horizontal, 20).padding(.bottom, 10)
             HStack {
                 Button("Distribute Evenly", systemImage: "arrow.left.and.right") { distribute() }
