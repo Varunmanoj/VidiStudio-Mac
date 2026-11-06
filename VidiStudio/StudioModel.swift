@@ -2223,18 +2223,32 @@ final class StudioModel {
             assign(url.standardizedFileURL.path)
         }
     }
-    func trashProject(_ project: StudioProject) {
+    func trashProject(_ project: StudioProject, completion: (() -> Void)? = nil) {
         guard !busy, let folder = project.folder else { return }
         guard FileManager.default.fileExists(atPath: folder.path) else {
             forgetProject(project)
-            return
+            NotificationCenter.default.post(name: .vidiStudioProjectDeleted, object: self, userInfo: ["projectID": project.id])
+            completion?(); return
         }
-        do {
-            try FileManager.default.trashItem(at: folder, resultingItemURL: nil)
-            if selectedID == project.id { selectedID = nil }
-            reload()
-        } catch {
-            present(.projectDelete, technicalDetails: error.localizedDescription, context: "Move project to Bin")
+        busy = true
+        message = "Moving project to Bin…"
+        let activity = DeletionActivityRegistry.shared.begin(title: message, projectName: project.name)
+        Task {
+            do {
+                try await Task.detached { try FileManager.default.trashItem(at: folder, resultingItemURL: nil) }.value
+                if selectedID == project.id { selectedID = nil }
+                reload()
+                busy = false
+                message = "Project moved to Bin"
+                DeletionActivityRegistry.shared.finish(activity)
+                NotificationCenter.default.post(name: .vidiStudioProjectDeleted, object: self, userInfo: ["projectID": project.id])
+                completion?()
+            } catch {
+                busy = false
+                DeletionActivityRegistry.shared.finish(activity)
+                message = "Could not move project to Bin"
+                present(.projectDelete, technicalDetails: error.localizedDescription, context: "Move project to Bin")
+            }
         }
     }
 
@@ -2283,7 +2297,7 @@ final class StudioModel {
         if selectedID == project.id { selectedID = nil }
     }
 
-    func confirmTrashProject(_ project: StudioProject) {
+    func confirmTrashProject(_ project: StudioProject, completion: (() -> Void)? = nil) {
         guard !busy, project.folder != nil else { return }
         let folderExists = project.folder.map { FileManager.default.fileExists(atPath: $0.path) } ?? false
         let damaged = project.integrityPlaceholder == true || integrityReport(for: project).isDamaged
@@ -2304,7 +2318,7 @@ final class StudioModel {
             actionTitle = "Move to Bin"
         }
         guard confirmDeletion(title: title, message: message, actionTitle: actionTitle) else { return }
-        trashProject(project)
+        trashProject(project, completion: completion)
     }
     func deleteGeneratedContent(_ project: StudioProject, components: Set<GeneratedContentComponent>) {
         guard !busy, !components.isEmpty else { return }
@@ -2706,6 +2720,7 @@ final class StudioModel {
             completion?(nil)
             return
         }
+        let deletionActivity = DeletionActivityRegistry.shared.begin(command: command, projectName: target?.name ?? "Project")
         busy = true
         cancellationRequested = false
         if Self.isExportCommand(command), let target {
@@ -2815,6 +2830,7 @@ final class StudioModel {
             narratingTotalCount = 0
             narratingQueueIDs = []
             process = nil
+            DeletionActivityRegistry.shared.finish(deletionActivity)
             present(issue, technicalDetails: detail, context: "Start \(command)")
             completion?(nil)
             return
@@ -2824,7 +2840,7 @@ final class StudioModel {
         var keyCheckGotVerdict = false
         let connectionWatch = ConnectionRecoveryWatch { [weak self] in self?.cancelCurrentOperation() }
         Task {
-            defer { connectionWatch.stop() }
+            defer { connectionWatch.stop(); DeletionActivityRegistry.shared.finish(deletionActivity) }
             do {
                 for try await line in output.fileHandleForReading.bytes.lines {
                     guard let data = line.data(using: .utf8), let event = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else { continue }

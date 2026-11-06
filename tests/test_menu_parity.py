@@ -19,6 +19,13 @@ class DesktopMenuParity(unittest.TestCase):
         windows_root = Path(os.environ.get('VIDISTUDIO_WINDOWS_ROOT', root / 'Vidi-Studio-Windows'))
         cls.windows = (windows_root / 'Vidi Studio Windows/MainWindow.Menus.cs').read_text(encoding='utf-8')
 
+    def test_file_deletion_commands_cannot_be_omitted(self):
+        for command in ('delete-project', 'delete-content'):
+            with self.assertRaises(ValueError):
+                self.checker.compare_sources(self.mac.replace('editor?.run("' + command + '")', 'editor?.run("missing")'), self.app, self.windows)
+            with self.assertRaises(ValueError):
+                self.checker.compare_sources(self.mac, self.app, self.windows.replace('Command("' + command + '")', 'Command("missing")', 1))
+
     def test_copy_to_edit_menu_cannot_be_omitted_on_either_platform(self):
         self.checker.compare_sources(self.mac, self.app, self.windows)
         for mac, windows in ((self.mac.replace('editor?.run("copy-to")', 'editor?.run("missing-copy")'), self.windows),

@@ -151,6 +151,7 @@ final class EditorShortcutActions {
         switch action {
         case "project-language": return !hasUnsavedSummaryEdits && !viewingLanguages.isEmpty
         case "copy-to": return hasCopyableResults && !hasUnsavedSummaryEdits
+        case "delete-project", "delete-content": return !hasUnsavedSummaryEdits
         case "language-results", "rename-project", "trash-project", "import-assets", "import-transcript", "import-summary", "import-descriptions", "import-ad-audio": return true
         case "import-original-audio": return canImportOriginalAudio
         case "filter-segments", "sort-start", "sort-duration-asc", "sort-duration-desc", "sort-origin":
@@ -361,6 +362,13 @@ struct StudioCommands: Commands {
             }
             .keyboardShortcut("e", modifiers: [.command, .shift])
             .disabled(editor?.available != true || editor?.exportHandler == nil)
+            Divider()
+            Button("Delete Project…", systemImage: "trash", role: .destructive) { editor?.run("delete-project") }
+                .accessibilityIdentifier("delete-project")
+                .disabled(editor?.canRun("delete-project") != true)
+            Button("Choose What to Delete…", systemImage: "eraser", role: .destructive) { editor?.run("delete-content") }
+                .accessibilityIdentifier("delete-content")
+                .disabled(editor?.canRun("delete-content") != true)
             Divider()
             Button("Remove from List", systemImage: "minus.circle") {
                 browser?.run("remove-from-list")

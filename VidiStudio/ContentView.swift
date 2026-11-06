@@ -448,11 +448,13 @@ struct ContentView: View {
         .onReceive(NotificationCenter.default.publisher(for: ProjectListVisibility.didChange)) { _ in
             studio.reload()
         }
+        .onReceive(NotificationCenter.default.publisher(for: .vidiStudioProjectDeleted)) { _ in if !studio.busy { studio.reload() } }
         .safeAreaInset(edge: .top, spacing: 0) {
             VStack(spacing: 0) {
                 ConnectivityBanner()
                 AIServiceIssueBanner(studio: studio)
                 ActiveExportProgressView()
+                DeletionProgressBanner()
             }
         }
         .background(WindowFitter().frame(width: 0, height: 0))
@@ -720,6 +722,7 @@ struct ProjectEditorWindow: View {
                 ConnectivityBanner()
                 AIServiceIssueBanner(studio: studio)
                 ActiveExportProgressView()
+                DeletionProgressBanner()
             }
         }
         .smoothPresentation()
@@ -868,6 +871,16 @@ struct ProjectEditorWindow: View {
             if let name, let currentID = studio.selectedID { openProjects.open(currentID, name: name, folder: studio.selected?.folder, owner: windowOwner, actions: editorShortcutActions) }
         }
         .onDisappear { openProjects.close(studio.selectedID ?? projectID, owner: windowOwner) }
+        .onReceive(NotificationCenter.default.publisher(for: .vidiStudioProjectDeleted)) { notification in
+            guard let deletedID = notification.userInfo?["projectID"] as? String else { return }
+            let currentID = ProjectEditorWindowValue.projectID(from: windowProjectID ?? projectID)
+            if currentID == deletedID {
+                openProjects.close(deletedID, owner: windowOwner)
+                editorShortcutActions.summaryEditing = false
+                openWindow(id: "studio")
+                dismissWindow(id: "project-editor", value: windowProjectID ?? projectID)
+            } else if !studio.busy { studio.reload() }
+        }
         .onReceive(NotificationCenter.default.publisher(for: ProjectListVisibility.didChange)) { _ in studio.reload() }
         .onReceive(NotificationCenter.default.publisher(for: .vidiStudioSettingsDidChange)) { notification in
             guard let settings = notification.userInfo?["settings"] as? StudioSettings else { return }
@@ -903,14 +916,7 @@ struct ProjectEditorWindow: View {
 
     private func deleteProject(_ project: StudioProject) {
         guard !studio.busy else { return }
-        let deletingCurrent = studio.selectedID == project.id
         studio.confirmTrashProject(project)
-        if deletingCurrent && !studio.projects.contains(where: { $0.id == project.id }) {
-            openProjects.close(project.id, owner: windowOwner)
-            editorShortcutActions.summaryEditing = false
-            if let next = studio.listedProjects.first { switchProject(next) }
-            else { dismissWindow(id: "project-editor", value: windowProjectID ?? projectID) }
-        }
     }
 }
 
@@ -3038,6 +3044,8 @@ struct ProjectEditor: View {
         case "import-ad-audio": importScope = .adAudio
         case "rename-project": renameProject()
         case "trash-project": trashProject()
+        case "delete-project": trashProject()
+        case "delete-content": studio.confirmDeleteGeneratedContent(project, components: [])
         case "analyze", "prepare-video", "transcribe", "generate-summary": studio.execute(action)
         case "generate-ad-cues":
             if project.canGenerateDescriptions { studio.execute(action) }
