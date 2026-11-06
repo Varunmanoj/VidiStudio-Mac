@@ -43,6 +43,34 @@ class DesktopMenuParity(unittest.TestCase):
         ):
             with self.assertRaises(ValueError): self.checker.compare_sources(mac, self.app, windows)
 
+    def test_saved_results_menu_and_selection_guard_cannot_be_omitted(self):
+        self.checker.compare_sources(self.mac, self.app, self.windows)
+        for mac, windows in (
+            (self.mac.replace('savedResultsMenu()\n            Divider()', 'Divider()', 1), self.windows),
+            (self.mac.replace('guard canRun("saved-results")', 'guard true', 1), self.windows),
+            (self.mac, self.windows.replace('SavedResultsMenu(), Separator()', 'Separator()', 1)),
+            (self.mac, self.windows.replace('!CanRunDesktopCommand("saved-results")', 'false', 1)),
+        ):
+            with self.assertRaises(ValueError): self.checker.compare_sources(mac, self.app, windows)
+
+    def test_saved_results_follow_tab_and_project_language(self):
+        self.assertIn('ForEach(editor?.savedResultKinds ?? []', self.mac)
+        self.assertIn('project.languageResults(kind: kind)', self.mac)
+        self.assertIn('savedResultKinds.contains(result.kind)', self.mac)
+        self.assertIn('foreach (var kind in CurrentLanguageKinds)', self.windows)
+        self.assertIn('r.Language == project.SelectedLanguage', self.windows)
+        self.assertIn('Model.Project.SelectedLanguage != result.Language', self.windows)
+
+    def test_saved_results_titles_and_flat_versions(self):
+        self.checker.compare_sources(self.mac, self.app, self.windows)
+        for title in ('Transcript Saved Results', 'Summary Saved Results', 'Description Saved Results', 'AD Transcript Saved Results'):
+            with self.assertRaises(ValueError):
+                self.checker.compare_sources(self.mac.replace(title, 'Missing title'), self.app, self.windows)
+            with self.assertRaises(ValueError):
+                self.checker.compare_sources(self.mac, self.app, self.windows.replace(title, 'Missing title'))
+        self.assertNotIn('Menu(SavedLanguageResult.kindTitle(kind))', self.mac)
+        self.assertNotIn('group.Items.Add(item)', self.windows[self.windows.index('private void RefreshSavedResultMenus()'):self.windows.index('private void RefreshProjectLanguageMenus()')])
+
     def test_language_results_command_is_shared_and_guarded(self):
         self.assertIn('editor?.run("language-results")', self.mac)
         self.assertIn('Command("language-results")', self.windows)

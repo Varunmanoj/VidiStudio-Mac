@@ -70,6 +70,14 @@ struct SavedLanguageResult: Codable, Identifiable {
         }
     }
     var kindTitle: String { Self.kindTitle(kind) }
+    static func savedResultsTitle(_ kind: String) -> String {
+        switch kind {
+        case "transcript": "Transcript Saved Results"
+        case "summary": "Summary Saved Results"
+        case "descriptions": "Description Saved Results"
+        default: "Imported AD Audio Saved Results"
+        }
+    }
     static func kindTitle(_ kind: String) -> String {
         switch kind {
         case "transcript": "Transcript"
@@ -159,6 +167,14 @@ extension StudioProject {
         }
         return OutputLanguage.title(code) + (names.isEmpty ? "" : " (" + names.joined(separator: ", ") + ")")
     }
+    var deletionLanguages: [String] {
+        let exportLanguages = exports.flatMap { path in
+            exportResults?[path]?.languages ?? [exportResults?[path]?.language ?? "auto"]
+        }
+        return Array(Set(savedLanguageResults.map(\.language) + exportLanguages)).sorted {
+            OutputLanguage.title($0).localizedStandardCompare(OutputLanguage.title($1)) == .orderedAscending
+        }
+    }
     var resultLanguages: [String] { Array(Set(savedLanguageResults.map(\.language))).sorted() }
     func matchesLanguage(_ code: String) -> Bool { code == "all" || savedLanguageResults.contains { $0.language == code } }
 }
@@ -194,13 +210,7 @@ struct LanguageResultControls: View {
     @State private var resultFilter = "all"
     private var visibleKinds: [String] {
         if let kindsOverride { return kindsOverride }
-        return switch editorActions.activeSection {
-        case "transcript": ["transcript"]
-        case "summary": ["summary"]
-        case "descriptions", "ad-overview": ["descriptions", "adAudio"]
-        case "ad-transcript": ["transcript", "descriptions"]
-        default: []
-        }
+        return editorActions.savedResultKinds
     }
     private func run(_ command: String, _ arguments: [String] = []) {
         guard editorActions.available, !editorActions.hasUnsavedSummaryEdits else { return }
@@ -275,10 +285,10 @@ struct LanguageResultControls: View {
                 let code = overview ? project.overviewLanguageCode : project.languageCode
                 let results = project.languageResults(kind: kind, language: code)
                 if !results.isEmpty {
-                    Picker("\(SavedLanguageResult.kindTitle(kind)) Saved Result", selection: Binding(get: { project.activeLanguageResultID(kind, language: code) }, set: {
+                    Picker(SavedLanguageResult.savedResultsTitle(kind), selection: Binding(get: { project.activeLanguageResultID(kind, language: code) }, set: {
                         run("select-result", ["--result-id", $0])
                     })) {
-                        ForEach(results) { Text($0.title).tag($0.id) }
+                        ForEach(results) { result in SavedResultOption(result: result, project: project, selected: result.id == project.activeLanguageResultID(kind, language: code)).tag(result.id) }
                     }.pickerStyle(.menu).disabled(editorActions.hasUnsavedSummaryEdits || !editorActions.available)
                     if showsCopyControls && ["transcript", "summary", "descriptions"].contains(kind) {
                         Button("Copy \(SavedLanguageResult.kindTitle(kind)) to…") { copySelection = LanguageCopySelection(kinds: [kind]) }
@@ -424,7 +434,7 @@ struct ExportLanguageSelectionView: View {
                             Picker(SavedLanguageResult.kindTitle(kind), selection: Binding(get: {
                                 selections[code]?[kind] ?? project.activeLanguageResultID(kind, language: code)
                             }, set: { selections[code, default: [:]][kind] = $0 })) {
-                                ForEach(results) { Text($0.title).tag($0.id) }
+                                ForEach(results) { result in SavedResultOption(result: result, project: project, selected: result.id == (selections[code]?[kind] ?? project.activeLanguageResultID(kind, language: code)), transcriptID: selections[code]?["transcript"]).tag(result.id) }
                             }.pickerStyle(.menu)
                         }
                     }
@@ -497,7 +507,7 @@ struct LanguageCopyView: View {
                 if included.contains(kind) {
                     if selectedOnly { Text("\(selection.segmentIDs[kind]?.count ?? 0) selected segments").font(.caption) }
                     else {
-                        Picker("\(SavedLanguageResult.kindTitle(kind)) Saved Result", selection: Binding(get: { selectedID(kind) }, set: { versions[kind] = $0 })) {
+                        Picker(SavedLanguageResult.savedResultsTitle(kind), selection: Binding(get: { selectedID(kind) }, set: { versions[kind] = $0 })) {
                             ForEach(results(kind)) { Text($0.title).tag($0.id) }
                         }.pickerStyle(.menu)
                     }

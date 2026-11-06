@@ -78,7 +78,7 @@ struct MediaTrackSelectionView: View {
                             selection.audio[code] = id
                             if audio.first(where: { $0.id == id })?.kind == "descriptions" { selection.descriptions[code] = id }
                         })) {
-                            ForEach(audio) { Text(SavedLanguageResult.kindTitle($0.kind) + " · " + $0.title).tag($0.id) }
+                            ForEach(audio) { result in SavedResultOption(result: result, project: project, selected: result.id == selection.audio[code], transcriptID: selection.captions[code]).tag(result.id) }
                         }
                     }
                 }
@@ -92,7 +92,7 @@ struct MediaTrackSelectionView: View {
                     }))
                     if selection.captions[code] != nil {
                         Picker("Transcript Saved Result", selection: Binding(get: { selection.captions[code] ?? "" }, set: { selection.captions[code] = $0 })) {
-                            ForEach(transcripts) { Text($0.title).tag($0.id) }
+                            ForEach(transcripts) { result in SavedResultOption(result: result, project: project, selected: result.id == selection.captions[code]).tag(result.id) }
                         }
                         let descriptions = project.languageResults(kind: "descriptions", language: code).filter(\.hasContent)
                         Toggle("AD Transcript", isOn: Binding(get: { selection.adCaptions.contains(code) }, set: { on in
@@ -101,7 +101,7 @@ struct MediaTrackSelectionView: View {
                         })).disabled(descriptions.isEmpty)
                         if selection.adCaptions.contains(code) && !descriptions.contains(where: { $0.id == selection.audio[code] }) {
                             Picker("Description Saved Result", selection: Binding(get: { selection.descriptions[code] ?? "" }, set: { selection.descriptions[code] = $0 })) {
-                                ForEach(descriptions) { Text($0.title).tag($0.id) }
+                                ForEach(descriptions) { result in SavedResultOption(result: result, project: project, selected: result.id == selection.descriptions[code], transcriptID: selection.captions[code]).tag(result.id) }
                             }
                         }
                     }

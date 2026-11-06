@@ -61,6 +61,7 @@ struct GeneratedContentDeletionView: View {
     @Environment(\.dismiss) private var dismiss
     @Bindable var studio: StudioModel
     let project: StudioProject
+    @State private var dialogSize = CGSize(width: 680, height: 520)
     @State private var language = "all"
     @State private var selection: Set<String> = []
     @State private var components: Set<String> = []
@@ -83,7 +84,13 @@ struct GeneratedContentDeletionView: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 16) {
             Text("Delete Content by Language").font(.title2.bold())
-            OutputLanguagePicker(title: "Language filter", selection: $language, includesAll: true)
+                .fixedSize(horizontal: false, vertical: true).layoutPriority(1)
+            Picker("Language filter", selection: $language) {
+                Text("All Languages").tag("all")
+                ForEach(project.deletionLanguages, id: \.self) { code in
+                    Text(OutputLanguage.title(code)).tag(code)
+                }
+            }.pickerStyle(.menu)
             ScrollView {
                 VStack(alignment: .leading, spacing: 10) {
                     Text("Content types").font(.headline)
@@ -98,7 +105,13 @@ struct GeneratedContentDeletionView: View {
                         Button("Select Visible Results") { selection.formUnion(results.map(\.id)) }
                     }
                     ForEach(results) { result in
-                        Toggle("\(OutputLanguage.title(result.language)) · \(result.kindTitle) · \(result.title)\(result.state == "draft" ? " · Review draft" : "")", isOn: membership(result.id, in: $selection))
+                        let option = SavedResultOption(result: result, project: project,
+                            selected: result.state == "saved" && project.activeLanguageResultID(result.kind, language: result.language) == result.id,
+                            includesKind: true, includesLanguage: true, includesDraft: true,
+                            currentSelectionLabel: "Selected (current saved result)")
+                        Toggle(isOn: membership(result.id, in: $selection)) { option }
+                            .accessibilityLabel(option.spokenLabel)
+                            .accessibilityIdentifier("delete-saved-result-" + result.id)
                     }
                     Divider()
                     Text("Optional exports").font(.headline)
@@ -108,6 +121,7 @@ struct GeneratedContentDeletionView: View {
                 }
             }
             Text("Selected: \(selection.count) results, \(exportPaths.count) exports")
+                .fixedSize(horizontal: false, vertical: true).layoutPriority(1)
                 .font(.caption).foregroundStyle(.secondary)
             HStack {
                 Button("Cancel", role: .cancel) { dismiss() }
@@ -116,13 +130,15 @@ struct GeneratedContentDeletionView: View {
                     studio.previewResultDeletion(request: request, project: project) { preview = $0; confirming = true }
                 }
                     .disabled(studio.busy || ((selection.isEmpty || components.isEmpty) && exportPaths.isEmpty && !components.contains("thumbnails")))
-            }
-        }.padding(24).frame(width: 680, height: 650)
+            }.fixedSize(horizontal: false, vertical: true).layoutPriority(1)
+        }.padding(24)
+        .frame(width: min(680, dialogSize.width), height: min(650, dialogSize.height))
+        .background(SegmentDialogViewport(size: $dialogSize).frame(width: 0, height: 0))
         .onAppear {
             if let component = studio.languageDeletionComponent {
                 components = [component.rawValue]
                 let kind = component == .narration || component == .history ? "descriptions" : component.rawValue
-                language = component == .thumbnails || component == .exports ? "all" : project.languageCode
+                language = component == .thumbnails || component == .exports || !project.deletionLanguages.contains(project.languageCode) ? "all" : project.languageCode
                 if component == .exports { exportPaths = Set(project.exports) }
                 let id = project.activeLanguageResultID(kind)
                 if !id.isEmpty { selection = [id] }

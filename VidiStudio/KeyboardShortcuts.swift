@@ -9,6 +9,25 @@ final class EditorShortcutActions {
     var timelineVisible = true
     var available = false
     var activeSection = "transcript"
+    var savedResultKinds: [String] {
+        switch activeSection {
+        case "transcript": return ["transcript"]
+        case "summary": return ["summary"]
+        case "descriptions", "ad-overview": return ["descriptions", "adAudio"]
+        case "ad-transcript": return ["transcript", "descriptions"]
+        default: return []
+        }
+    }
+    var savedResultsTitle: String {
+        switch activeSection {
+        case "transcript": return "Transcript Saved Results"
+        case "summary": return "Summary Saved Results"
+        case "descriptions", "ad-overview": return "Description Saved Results"
+        case "ad-transcript": return "AD Transcript Saved Results"
+        default: return "Saved Results"
+        }
+    }
+    var resultProject: StudioProject?
     var viewingLanguage = "auto"
     var viewingLanguages: [OutputLanguage] = []
     var captionDisplayMode = "off"
@@ -133,6 +152,13 @@ final class EditorShortcutActions {
         }
     }
 
+    func selectSavedResult(_ result: SavedLanguageResult) {
+        guard canRun("saved-results"), savedResultKinds.contains(result.kind), let project = resultProject,
+              project.languageResults(kind: result.kind).contains(where: { $0.id == result.id }),
+              project.activeLanguageResultID(result.kind) != result.id else { return }
+        languageAction?("select-result", ["--result-id", result.id])
+    }
+
     func selectProjectLanguage(_ code: String) {
         guard canRun("project-language"), viewingLanguages.contains(where: { $0.id == code }), code != viewingLanguage else { return }
         languageAction?("select-language", ["--language", code])
@@ -149,6 +175,7 @@ final class EditorShortcutActions {
         if ["play", "back", "forward"].contains(action), youtubeProject, !ConnectivityService.shared.available(.youtube) { return false }
         if action.hasPrefix("summary-") { return canRunSummary(action) }
         switch action {
+        case "saved-results": return !hasUnsavedSummaryEdits && resultProject?.savedLanguageResults.contains { $0.state == "saved" && $0.language == viewingLanguage && savedResultKinds.contains($0.kind) } == true
         case "project-language": return !hasUnsavedSummaryEdits && !viewingLanguages.isEmpty
         case "copy-to": return hasCopyableResults && !hasUnsavedSummaryEdits
         case "delete-project", "delete-content": return !hasUnsavedSummaryEdits
@@ -352,6 +379,26 @@ struct StudioCommands: Commands {
         .disabled(editor?.canRun("project-language") != true)
     }
 
+    @ViewBuilder private func savedResultsMenu() -> some View {
+        Menu(editor?.savedResultsTitle ?? "Saved Results") {
+            if let project = editor?.resultProject {
+                ForEach(editor?.savedResultKinds ?? [], id: \.self) { kind in
+                    ForEach(project.languageResults(kind: kind)) { result in
+                            let option = SavedResultOption(result: result, project: project, selected: project.activeLanguageResultID(kind) == result.id, includesKind: (editor?.savedResultKinds.count ?? 0) > 1)
+                            Toggle(isOn: Binding(get: { project.activeLanguageResultID(kind) == result.id }, set: { selected in
+                                if selected { editor?.selectSavedResult(result) }
+                            })) {
+                                option
+                            }.accessibilityLabel(option.spokenLabel)
+                             .help("Saved result status: " + option.statusLabels.joined(separator: ", "))
+                             .accessibilityIdentifier("saved-result-" + result.id)
+                        }
+                }
+            }
+        }.accessibilityIdentifier("saved-results")
+         .disabled(editor?.canRun("saved-results") != true)
+    }
+
     var body: some Commands {
         CommandGroup(after: .newItem) {
             Button("My YouTube Videos…", systemImage: "play.rectangle") { studio.runYouTube("youtube-browser"); openWindow(id: "youtube-browser") }.keyboardShortcut("y", modifiers: [.command, .option]).disabled(studio.busy)
@@ -386,6 +433,8 @@ struct StudioCommands: Commands {
         }
         CommandGroup(after: .sidebar) {
             projectLanguageMenu()
+            Divider()
+            savedResultsMenu()
             Divider()
             Button(editor?.previewHidden == true ? "Show Preview" : "Hide Preview", systemImage: editor?.previewHidden == true ? "video" : "video.slash") {
                 editor?.run("preview")

@@ -3142,6 +3142,7 @@ struct ProjectEditor: View {
         shortcutActions.timelineVisible = timelineVisible
         shortcutActions.available = !shortcutsBlocked && !studio.busy && segmentToEdit == nil && segmentBatchToEdit == nil && studio.screenText == nil
         shortcutActions.activeSection = tab
+        shortcutActions.resultProject = project
         shortcutActions.viewingLanguage = project.languageCode
         shortcutActions.viewingLanguages = OutputLanguage.options.filter { project.availableViewingLanguages.contains($0.id) }
             .map { OutputLanguage(id: $0.id, title: project.viewingLanguageTitle($0.id)) }

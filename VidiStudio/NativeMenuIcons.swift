@@ -18,6 +18,14 @@ enum NativeMenuIcons {
                     }
                 }
             }
+            // SwiftUI's native menu bridge can discard Label accessibility text.
+            // Apply the saved-result icon metadata to the actual NSMenuItem.
+            let prefix = "Saved result status: "
+            if let metadata = [item.image?.accessibilityDescription, item.toolTip].compactMap({ $0 }).first(where: { $0.hasPrefix(prefix) }) {
+                let status = String(metadata.dropFirst(prefix.count))
+                let label = item.title + (status.isEmpty ? "" : ", " + status)
+                if item.accessibilityLabel() != label { item.setAccessibilityLabel(label) }
+            }
             if let submenu = item.submenu { apply(to: submenu) }
         }
     }
