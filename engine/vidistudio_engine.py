@@ -55,7 +55,12 @@ def config():
     saved = json.loads(p.read_text()) if p.exists() else {}
     defaults['models'].update(saved.get('models',{}) or {})
     for stage,overrides in (saved.get('prompts',{}) or {}).items():
-        defaults['prompts'].setdefault(stage,{}).update(overrides or {})
+        pair = defaults['prompts'].setdefault(stage,{})
+        legacy = defaults.get('legacyPromptDefaults',{}).get(stage,{})
+        for field, value in (overrides or {}).items():
+            # Only untouched built-in text advances; preserve each custom field.
+            if value not in legacy.get(field,[]):
+                pair[field] = value
     resolved = defaults | {k:v for k,v in saved.items() if k not in ('models','prompts')}
     # The Gemini API key lives in the OS credential store and is injected per process in the
     # environment. Never read it from the on-disk config, so it is not stored in plaintext.

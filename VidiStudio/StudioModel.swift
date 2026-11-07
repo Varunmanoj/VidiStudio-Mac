@@ -1841,9 +1841,10 @@ final class StudioModel {
         var legacyApiKey: String?
         if let url = Bundle.main.resourceURL?.appendingPathComponent("Engine/_internal/ai-defaults.json"),
            let data = try? Data(contentsOf: url), let defaults = try? JSONSerialization.jsonObject(with: data) as? [String: Any] {
-            for key in ["models", "prompts", "apiVersion", "videoProcessing"] { merged[key] = defaults[key] }
+            for key in ["models", "prompts", "apiVersion", "videoProcessing", "legacyPromptDefaults"] { merged[key] = defaults[key] }
         }
-        if let data = try? Data(contentsOf: StudioSettings.url), let saved = try? JSONSerialization.jsonObject(with: data) as? [String: Any] {
+        if let data = try? Data(contentsOf: StudioSettings.url), let stored = try? JSONSerialization.jsonObject(with: data) as? [String: Any] {
+            let saved = PromptDefaults.upgrading(stored, defaults: merged)
             hasSavedCaptionDisplayMode = saved["captionDisplayMode"] is String
             legacyApiKey = saved["apiKey"] as? String
             if let savedModels = saved["models"] as? [String: Any] {
