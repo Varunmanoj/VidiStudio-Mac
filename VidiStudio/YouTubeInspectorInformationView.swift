@@ -30,31 +30,16 @@ struct YouTubeInspectorInformationView: View {
                     row("Video ID", video.videoID)
                     row("Channel ID", video.channelID)
                     row("Fetched", Date(timeIntervalSince1970: video.fetchedAt).formatted(date: .abbreviated, time: .shortened))
-                    if let playlist = video.openedFromPlaylist { row("Opened from playlist", playlist.title) }
-                    if let channel = video.playlistChannelTitle { row("Playlist channel", channel) }
-                    if let playlists = video.playlists {
-                        if playlists.isEmpty { Text("No matching playlists were returned for this channel.").foregroundStyle(.secondary) }
-                        ForEach(playlists) { playlist in
-                            DisclosureGroup(playlist.title) {
-                                row("Visibility", playlist.visibility.capitalized)
-                                row("Videos", playlist.count.map(String.init) ?? "Unavailable")
-                                row("Published", date(playlist.publishedAt))
-                                if !playlist.description.isEmpty { Text(playlist.description).textSelection(.enabled) }
-                                Link("Open Playlist in YouTube", destination: URL(string: "https://www.youtube.com/playlist?list=\(playlist.id)")!)
-                            }
-                        }
-                    } else { Text("Playlist details have not been fetched yet.").foregroundStyle(.secondary) }
-                    if let status = video.playlistLookupStatus { Text(status).foregroundStyle(.secondary) }
                     if !video.description.isEmpty { DisclosureGroup("Video description") { Text(video.description).textSelection(.enabled) } }
                     if !video.tags.isEmpty { DisclosureGroup("Tags") { Text(video.tags.joined(separator: ", ")).textSelection(.enabled) } }
                 } else { Text("YouTube details have not been saved for this project yet.") }
                 Button("Open in YouTube") { studio.openYouTubeInBrowser(project) }
                 Button("Refresh YouTube Details") { startRefresh() }.disabled(refreshing || studio.busy)
-                if refreshing { HStack { ProgressView().controlSize(.small); Text("Fetching YouTube details and playlists…") } }
+                if refreshing { HStack { ProgressView().controlSize(.small); Text("Fetching YouTube details…") } }
                 if let issue { Text(issue).foregroundStyle(.red) }
             }.font(.caption)
         }
-        .task(id: project.id) { if details?.playlists == nil { await refresh() } }
+        .task(id: project.id) { if details == nil { await refresh() } }
         .onChange(of: studio.youtubeInspectorRefresh) { _, _ in startRefresh() }
         .onChange(of: project.youtubeMetadata) { _, _ in fetched = nil }
         .onDisappear { request?.cancel() }
@@ -74,7 +59,8 @@ struct YouTubeInspectorInformationView: View {
         guard let id = project.youtubeURL.flatMap(StudioModel.youtubeVideoID), !refreshing else { return }
         refreshing = true; issue = nil; defer { refreshing = false }
         do {
-            let value = try await YouTubeService.shared.videoWithPlaylists(id)
+            let value = try await YouTubeService.shared.video(id)
+            try value.requireAvailable()
             try Task.checkCancellation()
             fetched = value
             while studio.busy { try await Task.sleep(for: .milliseconds(100)); try Task.checkCancellation() }
