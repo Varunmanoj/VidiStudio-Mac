@@ -358,15 +358,16 @@ def produce(args, root, p, core, dispatch):
         dispatch(local_args, root, working)
         checkpoint(root, working, core.atomic_json, force=True)
         for kind, r in tx['drafts'].items():
-            # Narration renders the selected words/timing. Activate completed
-            # runs (including per-segment failures) so successful audio and the
-            # remaining issues are visible together. Keep the prior saved
-            # result; interrupted runs still remain recoverable drafts.
+            # Completed generation selects the new version in its own language
+            # while keeping prior results. The viewing language never changes.
+            # Checkpoints from failed/interrupted runs remain unselected drafts.
+            completed_generation = args.command in ('transcribe', 'generate-summary', 'generate-ad-cues',
+                                                     'reanalyze-transcript-segment', 'reanalyze-segment', 'rewrite-cue')
             completed_narration = args.command == 'synthesize-tts'
             first_narration = args.command in ('synthesize-tts', 'import-segment-narration') and not any(cue.get('audio') for cue in tx['original']['descriptions'].get('cues', []))
-            if completed_narration or first_narration or not any(x['id'] != r['id'] and x['kind'] == kind and x['language'] == r['language'] and x['state'] == 'saved' for x in p['languageResults']):
+            if completed_generation or completed_narration or first_narration or not any(x['id'] != r['id'] and x['kind'] == kind and x['language'] == r['language'] and x['state'] == 'saved' for x in p['languageResults']):
                 r['state'] = 'saved'
-                if completed_narration or first_narration: r['replacesResultID'] = None
+                if completed_generation or completed_narration or first_narration: r['replacesResultID'] = None
                 p['activeResultIDs'].setdefault(r['language'], {})[kind] = r['id']
             core.emit('Result saved' if r['state'] == 'saved' else 'New result ready to review', resultID=r['id'], resultKind=kind, resultLanguage=r['language'], reviewRequired=r['state'] == 'draft')
         for key in ('hasProcessed', 'geminiVideo', 'importReports', 'lastImportReport'):

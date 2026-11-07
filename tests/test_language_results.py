@@ -108,16 +108,75 @@ class LanguageResultsTests(unittest.TestCase):
         self.assertEqual(self.p['schemaVersion'], 3)
         self.assertIn('audio-description/history.mp3', lr.referenced_paths(self.p))
 
-    def test_duplicate_generation_is_recoverable_draft(self):
-        old = copy.deepcopy(self.p['summary'])
-        def generate(args, root, p):
-            p['summary'] = 'New summary'
-        ids = lr.produce(self.args('generate-summary'), self.root, self.p, self.core, generate)
-        self.assertEqual(self.p['summary'], old)
-        result = lr.find(self.p, ids['summary'])
-        self.assertEqual(result['state'], 'draft')
-        self.assertEqual(result['payload']['summary'], 'New summary')
-        self.assertEqual(json.loads((self.root/'project.json').read_text())['summary'], old)
+    def test_completed_generation_selects_new_result_and_preserves_previous_versions(self):
+        commands = ('transcribe', 'generate-summary', 'generate-ad-cues',
+                    'reanalyze-transcript-segment', 'reanalyze-segment', 'rewrite-cue')
+        for command in commands:
+            for code in ('auto', 'hi'):
+                with self.subTest(command=command, language=code):
+                    p = copy.deepcopy(self.p)
+                    kind = lr.PRODUCERS[command][0]
+                    if code != 'auto':
+                        lr.copy_results(p, dict(sourceLanguage='auto', targetLanguage=code, kinds=[kind]))
+                    previous = copy.deepcopy(p['languageResults'])
+                    selections = copy.deepcopy(p['activeResultIDs'])
+                    field = lr.PRIMARY[kind]
+                    value = 'New summary' if kind == 'summary' else [dict(id='new', start=5, end=6, text='New segment')]
+                    events = []
+                    core = copy.copy(self.core)
+                    core.emit = lambda message, **data: events.append(data)
+                    def generate(args, root, working):
+                        # Intermediate checkpoints must not change the selection.
+                        working[field] = copy.deepcopy(value)
+                        core.save(root, working)
+                        self.assertEqual(p['activeResultIDs'], selections)
+                    made = lr.produce(self.args(command, language=code), self.root, p, core, generate)
+                    result = lr.find(p, made[kind])
+                    self.assertEqual(result['state'], 'saved')
+                    self.assertIsNone(result['replacesResultID'])
+                    self.assertEqual(result['payload'][field], value)
+                    self.assertEqual(lr.active(p, kind, code)['id'], result['id'])
+                    self.assertEqual(p['languageResults'][:-1], previous)
+                    selections.setdefault(code, {})[kind] = result['id']
+                    self.assertEqual(p['activeResultIDs'], selections)
+                    self.assertEqual(p['selectedLanguage'], 'auto')
+                    self.assertEqual(p['sectionLanguages'], self.p['sectionLanguages'])
+                    self.assertEqual(p[field], value if code == 'auto' else self.p[field])
+                    self.assertFalse(events[-1]['reviewRequired'])
+                    reopened = json.loads((self.root / 'project.json').read_text())
+                    lr.project(reopened)
+                    self.assertEqual(lr.active(reopened, kind, code)['id'], result['id'])
+                    self.assertEqual(reopened[field], p[field])
+                    # Selecting the older version still restores the older content.
+                    old = next(r for r in previous if r['language'] == code and r['kind'] == kind)
+                    reopened['selectedLanguage'] = code
+                    reopened['activeResultIDs'][code][kind] = old['id']
+                    lr.project(reopened)
+                    self.assertEqual(reopened[field], old['payload'][field])
+
+    def test_failed_or_cancelled_generation_keeps_selection_in_every_section(self):
+        for command in ('transcribe', 'generate-summary', 'generate-ad-cues',
+                        'reanalyze-transcript-segment', 'reanalyze-segment', 'rewrite-cue'):
+            for error in (ValueError('Unavailable'), KeyboardInterrupt()):
+                with self.subTest(command=command, error=type(error).__name__):
+                    p = copy.deepcopy(self.p)
+                    previous = copy.deepcopy(p['languageResults'])
+                    selections = copy.deepcopy(p['activeResultIDs'])
+                    kind = lr.PRODUCERS[command][0]
+                    field = lr.PRIMARY[kind]
+                    def fail(args, root, working):
+                        working[field] = 'Partial' if kind == 'summary' else [dict(id='partial', text='Partial')]
+                        self.core.save(root, working)
+                        raise error
+                    with self.assertRaises(type(error)):
+                        lr.produce(self.args(command), self.root, p, self.core, fail)
+                    self.assertEqual(p['activeResultIDs'], selections)
+                    self.assertEqual(p['languageResults'][:-1], previous)
+                    self.assertEqual(p[field], self.p[field])
+                    self.assertEqual(p['languageResults'][-1]['state'], 'draft')
+                    reopened = json.loads((self.root / 'project.json').read_text())
+                    lr.project(reopened)
+                    self.assertEqual(reopened[field], self.p[field])
 
     def test_new_language_is_saved_without_changing_auto(self):
         self.p['selectedLanguage'] = 'hi'; lr.project(self.p)
