@@ -18,3 +18,5 @@
 <p>Language labels, saved alternatives, narration references, source provenance, and review drafts stay in the portable local project folder. Assigning language labels, switching saved results, filtering, and deletion do not contact Gemini.</p>
 
 <h2>Copy to translation</h2><p>Copy to with Translate Text enabled sends only the selected saved transcript, summary or description text to Gemini, using the configured text-rewrite model. Video, audio recordings, credentials and undo history are not included in the translation content. New translated versions remain local. Turning Translate Text off duplicates content locally without contacting Gemini.</p>
+
+<h2 id="youtube-summary-context">YouTube summary context</h2><p>When generating a YouTube Summary, VidiStudio sends the nonempty video description saved in the project’s YouTube API details to Gemini as optional context alongside the video and transcript. It does not include connected-account credentials or playlist details. Refresh YouTube Details updates the saved description before a later generation. A missing or expired metadata snapshot contributes no description context.</p>

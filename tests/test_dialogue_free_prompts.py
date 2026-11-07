@@ -22,10 +22,10 @@ def defaults():
     return json.loads((ROOT / 'engine/ai-defaults.json').read_text())
 
 
-def legacy_settings():
+def legacy_settings(index=0):
     cfg = defaults()
     return {'models': {'summary': 'custom-model'}, 'prompts': {
-        stage: {field: values[0] for field, values in fields.items()}
+        stage: {field: values[index] for field, values in fields.items()}
         for stage, fields in cfg['legacyPromptDefaults'].items()}}
 
 
@@ -79,7 +79,7 @@ class DialogueFreePrompts(unittest.TestCase):
 
     def test_config_upgrades_only_exact_former_defaults_per_field(self):
         cfg = defaults()
-        cases = [legacy_settings(), {'prompts': {}}, {'prompts': {'summary': {'system_instruction': 'Custom system'}}}]
+        cases = [legacy_settings(), legacy_settings(-1), {'prompts': {}}, {'prompts': {'summary': {'system_instruction': 'Custom system'}}}]
         mixed = legacy_settings()
         mixed['prompts']['summary']['user_prompt'] = 'Custom summary with {transcript_json}'
         mixed['prompts']['audio_descriptions']['system_instruction'] = ''
@@ -103,7 +103,7 @@ class DialogueFreePrompts(unittest.TestCase):
 class NativePromptMigration(unittest.TestCase):
     def fixtures(self, folder):
         cfg = defaults()
-        saved = legacy_settings()
+        saved = legacy_settings(-1)
         saved['prompts']['summary']['user_prompt'] = 'Custom summary'
         saved['prompts']['audio_descriptions']['system_instruction'] = ''
         saved['prompts']['transcript'] = {'user_prompt': 'Custom transcript'}

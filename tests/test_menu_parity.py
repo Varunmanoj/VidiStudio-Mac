@@ -67,7 +67,7 @@ class DesktopMenuParity(unittest.TestCase):
 
     def test_saved_results_follow_tab_and_project_language(self):
         self.assertIn('ForEach(editor?.savedResultKinds ?? []', self.mac)
-        self.assertIn('project.languageResults(kind: kind)', self.mac)
+        self.assertIn('project.languageResults(kind: kind, includingDrafts: true)', self.mac)
         self.assertIn('savedResultKinds.contains(result.kind)', self.mac)
         self.assertIn('foreach (var kind in CurrentLanguageKinds)', self.windows)
         self.assertIn('r.Language == project.SelectedLanguage', self.windows)

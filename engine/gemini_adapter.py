@@ -11,12 +11,28 @@ def value(obj,key,default=None):
 
 def output_text(result):
     direct=value(result,'output_text')
-    if direct: return direct
+    # The SDK helper already isolates the final output, including an empty result.
+    if isinstance(direct,str): return direct
     texts=[]
-    for step in value(result,'steps',[]) or []:
-        if value(step,'type')=='model_output':
-            texts.extend(value(c,'text','') for c in value(step,'content',[]) or [] if value(c,'type')=='text')
-    return '\n'.join(texts)
+    collecting=False
+    for step in reversed(value(result,'steps',[]) or []):
+        kind=value(step,'type')
+        if kind=='user_input': break
+        if kind=='thought': continue
+        if kind!='model_output':
+            if collecting: break
+            continue
+        stop=False
+        for content in reversed(value(step,'content',[]) or []):
+            if value(content,'type')=='text':
+                collecting=True
+                text=value(content,'text','')
+                texts.append(text if isinstance(text,str) else '')
+            elif collecting:
+                stop=True
+                break
+        if stop: break
+    return ''.join(reversed(texts))
 
 def ready_file(client,path,emit=lambda *_:None):
     if Path(path).stat().st_size > MAX_FILE_SIZE_BYTES:
@@ -93,7 +109,8 @@ def video_interaction(client,model,uri,mime,prompt,system='',schema=None,process
     media={'type':'video','uri':uri}
     if mime: media['mime_type']=mime
     if processing: media['processing']=processing
-    args=dict(model=model,input=[media,{'type':'text','text':prompt}])
+    args=dict(model=model,input=[media,{'type':'text','text':prompt}],
+              generation_config={'thinking_summaries':'none'})
     if system: args['system_instruction']=system
     if schema: args['response_format']={'type':'text','mime_type':'application/json','schema':schema}
     result=client.interactions.create(**args)

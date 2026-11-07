@@ -33,7 +33,7 @@ class VideoProcessing(unittest.TestCase):
                         self.assertEqual(args['input'][0]['processing'], 'static')
                         self.assertIn('Hello', args['input'][1]['text'])
                         self.assertEqual(args['input'][0]['uri'], project['youtubeURL'] if source == 'youtube' else 'files/video')
-                        return dict(output_text='# Summary' if stage == 'generate-summary' else '{"audioDescriptions":[]}')
+                        return dict(output_text='# Summary\n\nA puppy learns to help.' if stage == 'generate-summary' else '{"audioDescriptions":[]}')
                     client.interactions.create.side_effect = respond
                     with patch.object(e, 'config', return_value=cfg), \
                          patch.object(e, 'client_and_model', return_value=(client, 'video-model')), \

@@ -155,7 +155,7 @@ final class EditorShortcutActions {
 
     func selectSavedResult(_ result: SavedLanguageResult) {
         guard canRun("saved-results"), savedResultKinds.contains(result.kind), let project = resultProject,
-              project.languageResults(kind: result.kind).contains(where: { $0.id == result.id }),
+              project.languageResults(kind: result.kind, includingDrafts: true).contains(where: { $0.id == result.id }),
               project.activeLanguageResultID(result.kind) != result.id else { return }
         languageAction?("select-result", ["--result-id", result.id])
     }
@@ -176,7 +176,7 @@ final class EditorShortcutActions {
         if ["play", "back", "forward"].contains(action), youtubeProject, !ConnectivityService.shared.available(.youtube) { return false }
         if action.hasPrefix("summary-") { return canRunSummary(action) }
         switch action {
-        case "saved-results": return !hasUnsavedSummaryEdits && resultProject?.savedLanguageResults.contains { $0.state == "saved" && $0.language == viewingLanguage && savedResultKinds.contains($0.kind) } == true
+        case "saved-results": return !hasUnsavedSummaryEdits && resultProject?.savedLanguageResults.contains { $0.language == viewingLanguage && savedResultKinds.contains($0.kind) } == true
         case "project-language": return !hasUnsavedSummaryEdits && !viewingLanguages.isEmpty
         case "copy-to": return hasCopyableResults && !hasUnsavedSummaryEdits
         case "delete-project", "delete-content": return !hasUnsavedSummaryEdits
@@ -384,7 +384,7 @@ struct StudioCommands: Commands {
         Menu(editor?.savedResultsTitle ?? "Saved Results") {
             if let project = editor?.resultProject {
                 ForEach(editor?.savedResultKinds ?? [], id: \.self) { kind in
-                    ForEach(project.languageResults(kind: kind)) { result in
+                    ForEach(project.languageResults(kind: kind, includingDrafts: true)) { result in
                             let option = SavedResultOption(result: result, project: project, selected: project.activeLanguageResultID(kind) == result.id, includesKind: (editor?.savedResultKinds.count ?? 0) > 1)
                             Toggle(isOn: Binding(get: { project.activeLanguageResultID(kind) == result.id }, set: { selected in
                                 if selected { editor?.selectSavedResult(result) }

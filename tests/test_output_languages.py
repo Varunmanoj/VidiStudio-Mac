@@ -91,7 +91,7 @@ class OutputLanguages(unittest.TestCase):
         for source in ('upload', 'youtube'):
             for stage, label in [('transcribe', 'Hindi'), ('generate-summary', 'Marathi'), ('generate-ad-cues', 'Tamil')]:
                 project = self.project(source)
-                response = ('# मराठी' if stage == 'generate-summary' else
+                response = ('# मराठी\n\nएक कुत्रा मदत करायला शिकतो.' if stage == 'generate-summary' else
                             json.dumps({'transcript': [dict(start=1, end=2, text='नमस्ते')]} if stage == 'transcribe'
                                        else {'audioDescriptions': [dict(start=3, end=4, text='அவள் நடக்கிறாள்.')]}))
                 with self.subTest(source=source, stage=stage), tempfile.TemporaryDirectory() as folder, \

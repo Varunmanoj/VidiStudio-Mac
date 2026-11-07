@@ -521,10 +521,12 @@ def _run(args, root, p, core, dispatch):
     elif command == 'select-overview-language':
         p['overviewLanguage'] = 'project' if args.language == 'project' else language(args.language)
     elif command == 'select-view-result':
-        r = find(p, args.result_id, saved_only=True)
+        r = find(p, args.result_id)
         code = p['selectedLanguage'] if p.get('overviewLanguage', 'project') == 'project' else p['overviewLanguage']
         if r['language'] != code or r['kind'] not in ('descriptions', 'adAudio'):
             raise ValueError('Choose a saved result for the overview language.')
+        # Explicit selection keeps a draft as an alternative; never replace another result.
+        r['state'] = 'saved'
         p['activeResultIDs'].setdefault(code, {})[r['kind']] = r['id']
         project(p)
     elif command == 'select-section-language':
@@ -538,8 +540,11 @@ def _run(args, root, p, core, dispatch):
         p['sectionLanguages'] = {}
         project(p)
     elif command == 'select-result':
-        r = find(p, args.result_id, saved_only=True)
+        r = find(p, args.result_id)
         if r['language'] != p['selectedLanguage']: raise ValueError('Choose a result in View Project Language.')
+        # Selecting a review draft is Keep Both: preserve all existing alternatives,
+        # payloads, histories and media, and make this version usable throughout the app.
+        r['state'] = 'saved'
         p['activeResultIDs'].setdefault(r['language'], {})[r['kind']] = r['id']
         project(p)
     elif command in ('copy-results', 'translate-results'):

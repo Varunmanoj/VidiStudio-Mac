@@ -92,7 +92,7 @@ class Validation(unittest.TestCase):
         }
         cases = [
             ('transcribe', 'Creating the transcript', 'transcript', '{"transcript":[{"start":0,"end":1,"text":"Hello"}]}'),
-            ('generate-summary', 'Creating the summary', 'summary', 'Summary'),
+            ('generate-summary', 'Creating the summary', 'summary', '# Summary\n\nA puppy learns to help.'),
             ('generate-ad-cues', 'Creating Audio Descriptions', 'descriptions', '{"audioDescriptions":[]}'),
         ]
         for stage, message, section, response in cases:
@@ -122,7 +122,7 @@ class Validation(unittest.TestCase):
         with tempfile.TemporaryDirectory() as temp, \
              patch.object(engine, 'config', return_value={'prompts': prompts}), \
              patch.object(engine, 'client_and_model', return_value=(Mock(), 'gemini-video')), \
-             patch.object(engine.gemini_adapter, 'video_interaction', return_value='Summary') as interaction, \
+             patch.object(engine.gemini_adapter, 'video_interaction', return_value='# Summary\n\nA puppy learns to help.') as interaction, \
              patch.object(engine, 'reusable_video') as upload_video, \
              patch.object(engine, 'emit') as emit:
             engine._ai_video_once(Path(temp), project, 'generate-summary')
@@ -634,7 +634,7 @@ class Validation(unittest.TestCase):
                         cues=[dict(id='ad', start=4, end=5, text='Old AD', audio='audio-description/old.wav')],
                         exports=['exports/old.srt'], undoStack=[[{'text':'prior AD'}]])
         cases = [('transcribe', 'transcript', '[{"start":1,"end":2,"text":"New dialogue"}]'),
-                 ('generate-summary', 'summary', 'New summary'),
+                 ('generate-summary', 'summary', '# Summary\n\nA puppy learns to help.'),
                  ('generate-ad-cues', 'cues', '[{"start":4,"end":5,"text":"New AD"}]')]
         for stage, changed, response in cases:
             with self.subTest(stage=stage), tempfile.TemporaryDirectory() as temp:

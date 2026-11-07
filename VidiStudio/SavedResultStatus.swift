@@ -33,7 +33,7 @@ struct SavedResultOption: View {
     var transcriptID: String? = nil
     var includesKind = false
     var includesLanguage = false
-    var includesDraft = false
+    var includesDraft = true
     var currentSelectionLabel = "Selected"
     private var title: String {
         (includesLanguage ? OutputLanguage.title(result.language) + " · " : "") +

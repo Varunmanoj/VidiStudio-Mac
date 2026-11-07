@@ -684,6 +684,57 @@ class LanguageResultCLITests(unittest.TestCase):
         self.cli('select-result', '--result-id', result['id'], succeeds=False)
 
 
+
+    def test_select_review_draft_keeps_both_and_reopens_for_every_content_kind(self):
+        self.cli('select-language', '--language', 'auto')
+        for kind, data in [
+            ('summary', dict(summary='Alternative summary')),
+            ('transcript', dict(transcript=[dict(id='new-t', start=1, end=2, text='New dialogue')])),
+            ('descriptions', dict(cues=[dict(id='new-ad', start=3, end=4, text='No narration yet')], undoStack=[[dict(id='history', start=2, end=3, text='Older edit')]])),
+            ('adAudio', dict(importedAudioDescription=dict(path='imports/not-yet-available.wav', sourceName='Missing audio'))),
+        ]:
+            with self.subTest(kind=kind):
+                p = self.read()
+                previous = copy.deepcopy(p['languageResults'])
+                draft = lr.record(p, kind, 'auto', data, state='draft')
+                draft['replacesResultID'] = p['activeResultIDs'].get('auto', {}).get(kind)
+                p['languageResults'].append(draft)
+                p['sectionLanguages'][kind] = 'hi'
+                self.project.write_text(json.dumps(p))
+                self.cli('select-result', '--result-id', draft['id'])
+                selected = self.read()
+                self.assertEqual(selected['activeResultIDs']['auto'][kind], draft['id'])
+                self.assertEqual(lr.find(selected, draft['id'])['state'], 'saved')
+                self.assertEqual(lr.find(selected, draft['id'])['payload'], data)
+                self.assertEqual(selected['sectionLanguages'][kind], 'hi')
+                self.assertEqual([r for r in selected['languageResults'] if r['id'] != draft['id']], previous)
+                self.cli('select-language', '--language', 'auto')
+                self.assertEqual(self.read()[lr.PRIMARY[kind]], data[lr.PRIMARY[kind]])
+                old = next((r for r in previous if r['kind'] == kind), None)
+                if old:
+                    self.cli('select-result', '--result-id', old['id'])
+                    self.assertEqual(self.read()[lr.PRIMARY[kind]], old['payload'][lr.PRIMARY[kind]])
+                    self.cli('select-result', '--result-id', draft['id'])
+
+    def test_draft_only_language_is_selectable_without_approving_other_drafts(self):
+        self.cli('select-language', '--language', 'auto')
+        p = self.read()
+        draft = lr.record(p, 'summary', 'ta', dict(summary='Draft in Tamil'), state='draft')
+        empty = lr.record(p, 'transcript', 'ta', dict(transcript=[]), state='draft')
+        p['languageResults'] += [draft, empty]
+        self.project.write_text(json.dumps(p))
+        self.cli('select-result', '--result-id', draft['id'], succeeds=False)
+        self.assertEqual(lr.find(self.read(), draft['id'])['state'], 'draft')
+        self.cli('select-language', '--language', 'ta')
+        self.cli('select-result', '--result-id', draft['id'])
+        self.assertEqual(self.read()['summary'], 'Draft in Tamil')
+        self.assertEqual(lr.find(self.read(), empty['id'])['state'], 'draft')
+        self.cli('select-result', '--result-id', empty['id'])
+        self.assertEqual(self.read()['transcript'], [])
+        self.cli('select-language', '--language', 'auto')
+        self.assertEqual(self.read()['summary'], 'Original summary')
+
+
 @unittest.skipUnless(sys.platform == 'darwin', 'AVFoundation metadata verification requires macOS')
 class AppleLanguageExportTests(unittest.TestCase):
     def test_hindi_language_survives_native_mov_accessibility_finalization(self):

@@ -1043,11 +1043,13 @@ def _ai_video_once(root, p, stage):
                 uploaded=reusable_video(root,p,client);uri=uploaded.uri;mime=uploaded.mime_type
             pair=parity.media_prompt_pair(cfg,key)
             prompt=parity.render(pair['user_prompt'],p)
+            if stage=='generate-summary':
+                prompt+=parity.youtube_summary_context(p)
             if stage=='generate-ad-cues':
                 prompt+=parity.description_context(p)
                 # Prior narration belongs to saved results and is retained until explicit deletion.
             raw=gemini_adapter.video_interaction(client,model,uri,mime,prompt,pair.get('system_instruction',''),processing=cfg.get('videoProcessing','agentic') if stage!='transcribe' else 'static')
-            if stage=='generate-summary': data={'summary':raw}
+            if stage=='generate-summary': data={'summary':parity.final_summary(raw)}
             else: data=parity.parse_json(raw)
         if stage=='transcribe':
             if isinstance(data,dict):

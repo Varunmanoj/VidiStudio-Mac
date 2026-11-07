@@ -149,8 +149,8 @@ extension StudioProject {
         }
         return results
     }
-    func languageResults(kind: String, language: String? = nil) -> [SavedLanguageResult] {
-        savedLanguageResults.filter { $0.kind == kind && $0.language == (language ?? languageCode) && $0.state == "saved" }
+    func languageResults(kind: String, language: String? = nil, includingDrafts: Bool = false) -> [SavedLanguageResult] {
+        savedLanguageResults.filter { $0.kind == kind && $0.language == (language ?? languageCode) && (includingDrafts || $0.state == "saved") }
             .sorted { $0.createdAt > $1.createdAt }
     }
     func activeLanguageResultID(_ kind: String, language: String? = nil) -> String {
@@ -158,10 +158,10 @@ extension StudioProject {
         return activeResultIDs?[code]?[kind] ?? languageResults(kind: kind, language: code).first?.id ?? ""
     }
     var availableViewingLanguages: [String] {
-        Array(Set(savedLanguageResults.filter { $0.state == "saved" && $0.hasContent }.map(\.language))).sorted()
+        Array(Set(savedLanguageResults.map(\.language))).sorted()
     }
     func viewingLanguageTitle(_ code: String) -> String {
-        let kinds = Set(savedLanguageResults.filter { $0.language == code && $0.state == "saved" && $0.hasContent }.map(\.kind))
+        let kinds = Set(savedLanguageResults.filter { $0.language == code }.map(\.kind))
         let names = ["transcript", "summary", "descriptions", "adAudio"].filter(kinds.contains).map { kind in
             ["transcript": "Transcript", "summary": "Summary", "descriptions": "Descriptions", "adAudio": "AD Audio"][kind]!
         }
@@ -283,11 +283,14 @@ struct LanguageResultControls: View {
                 }), includesFollowProject: true).disabled(!editorActions.canChangeLanguage)
                 let overview = editorActions.activeSection == "ad-overview"
                 let code = overview ? project.overviewLanguageCode : project.languageCode
-                let results = project.languageResults(kind: kind, language: code)
+                let results = project.languageResults(kind: kind, language: code, includingDrafts: true)
                 if !results.isEmpty {
                     Picker(SavedLanguageResult.savedResultsTitle(kind), selection: Binding(get: { project.activeLanguageResultID(kind, language: code) }, set: {
-                        run("select-result", ["--result-id", $0])
+                        if !$0.isEmpty { run("select-result", ["--result-id", $0]) }
                     })) {
+                        if project.activeLanguageResultID(kind, language: code).isEmpty {
+                            Text("Choose a result").tag("")
+                        }
                         ForEach(results) { result in SavedResultOption(result: result, project: project, selected: result.id == project.activeLanguageResultID(kind, language: code)).tag(result.id) }
                     }.pickerStyle(.menu).disabled(editorActions.hasUnsavedSummaryEdits || !editorActions.available)
                     if showsCopyControls && ["transcript", "summary", "descriptions"].contains(kind) {
