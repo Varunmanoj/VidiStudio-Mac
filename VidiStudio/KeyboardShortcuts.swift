@@ -7,6 +7,7 @@ final class EditorShortcutActions {
     var isVideoFullScreen = false
     var fullScreenTitle: String { isVideoFullScreen ? "Exit Full-Screen Video" : "Full-Screen Video" }
     var timelineVisible = true
+    var thumbnailImagesVisible = false
     var available = false
     var activeSection = "transcript"
     var savedResultKinds: [String] {
@@ -449,6 +450,10 @@ struct StudioCommands: Commands {
                 editor?.run("toggle-timeline")
             }
             .disabled(editor?.canRun("toggle-timeline") != true)
+            Button(editor?.thumbnailImagesVisible == true ? "Hide Thumbnail Images" : "Show Thumbnail Images", systemImage: "photo.on.rectangle") {
+                editor?.run("toggle-thumbnail-images")
+            }
+            .disabled(editor?.canRun("toggle-thumbnail-images") != true)
             if editor?.canFilterSegments == true {
                 Button(editor?.filterTitle ?? "Filter Segments…", systemImage: "line.3.horizontal.decrease.circle") {
                     editor?.run("filter-segments")
@@ -708,7 +713,7 @@ struct ShortcutReferenceView: View {
         VStack(alignment: .leading, spacing: 14) {
             Text("Keyboard Shortcuts").font(.title2).accessibilityAddTraits(.isHeader)
             Text("These shortcuts apply to the native macOS app. Editor commands are available with a project open and no editing sheet or processing operation active.")
-            Text("The File menu contains Export with Video, Audio, and Text choices. View can show or hide the preview and the complete timeline. The centered transport row beneath the thumbnails shares the Playback menu shortcuts for a single Play/Pause toggle, Stop Video, and five-second Rewind/Fast Forward on local and YouTube videos. Pause keeps the current position; Stop returns to the beginning and stops narration. Playback also contains Transcript Overlay controls on Transcript, Descriptions, and AD Transcript, plus Summary Reading commands that become available only on Summary. Summary Reading includes Previous and Next Sentence and Paragraph navigation, which jump to the target text and read it aloud from the centered Summary transport. Project > Segments mirrors segment editing, creation, selection, bulk editing, deletion, Follow, Undo, and Redo. Project > Analysis contains Video Details and Timeline Pictures, Analyze Video, and the individual Transcript, Summary, and Audio Description stages. The inspector stays specific to its open section. Existing content is regenerated only after confirmation.")
+            Text("The File menu contains Export with Video, Audio, and Text choices. View can show or hide the preview, the complete timeline, and thumbnail images. Thumbnail images are hidden by default; the choice is remembered. The centered transport row in the timeline shares the Playback menu shortcuts for a single Play/Pause toggle, Stop Video, and five-second Rewind/Fast Forward on local and YouTube videos. Pause keeps the current position; Stop returns to the beginning and stops narration. Playback also contains Transcript Overlay controls on Transcript, Descriptions, and AD Transcript, plus Summary Reading commands that become available only on Summary. Summary Reading includes Previous and Next Sentence and Paragraph navigation, which jump to the target text and read it aloud from the centered Summary transport. Project > Segments mirrors segment editing, creation, selection, bulk editing, deletion, Follow, Undo, and Redo. Project > Analysis contains Video Details and Timeline Pictures, Analyze Video, and the individual Transcript, Summary, and Audio Description stages. The inspector stays specific to its open section. Existing content is regenerated only after confirmation.")
             shortcutRow("New Project", value: "Command + N")
             shortcutRow("Open Project Folder", value: "Command + Shift + O")
             shortcutRow("Rename Selected Project", value: "Return; All Projects")
@@ -716,6 +721,7 @@ struct ShortcutReferenceView: View {
             shortcutRow("Open Project Settings", value: "Command + Shift + Comma; current project editor")
             shortcutRow("Show or Hide Inspector", value: "Command + Shift + B; requires a selected project")
             shortcutRow("Show or Hide Timeline", value: "View menu; project editor")
+            shortcutRow("Show or Hide Thumbnail Images", value: "View menu; hidden by default")
             shortcutRow("Project List View", value: "Command + Option + 1")
             shortcutRow("Project Grid View", value: "Command + Option + 2")
             shortcutRow("VidiStudio Help", value: "Command + Option + Slash")

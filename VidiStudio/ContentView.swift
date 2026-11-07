@@ -1579,6 +1579,7 @@ struct ProjectEditor: View {
     @State private var requestedTitle = ""
     @State private var previewHidden = false
     @AppStorage("timelineVisible") private var timelineVisible = true
+    @AppStorage("thumbnailImagesVisible") private var thumbnailImagesVisible = false
     @State private var previewHeight: CGFloat = 413
     @State private var previewHeightAtDragStart: CGFloat?
     @State private var segmentToEdit: TranscriptRow?
@@ -2523,7 +2524,7 @@ struct ProjectEditor: View {
             .frame(minWidth: 0, idealWidth: 700, maxWidth: .infinity, minHeight: 120, idealHeight: 340, maxHeight: .infinity)
             .background(.black)
             if timelineVisible {
-                TimelineView(project: project, playback: playback)
+                TimelineView(project: project, playback: playback, thumbnailImagesVisible: thumbnailImagesVisible)
                     .transition(.opacity.combined(with: .scale(scale: 0.98, anchor: .top)))
             }
         }
@@ -2966,6 +2967,7 @@ struct ProjectEditor: View {
         switch action {
         case "preview": playback.exitVideoFullScreen(); previewHidden.toggle()
         case "toggle-timeline": timelineVisible.toggle()
+        case "toggle-thumbnail-images": thumbnailImagesVisible.toggle()
         case "fullscreen":
             previewHidden = false
             DispatchQueue.main.async {
@@ -3140,6 +3142,7 @@ struct ProjectEditor: View {
         shortcutActions.previewHidden = previewHidden
         shortcutActions.isVideoFullScreen = playback.isVideoFullScreen
         shortcutActions.timelineVisible = timelineVisible
+        shortcutActions.thumbnailImagesVisible = thumbnailImagesVisible
         shortcutActions.available = !shortcutsBlocked && !studio.busy && segmentToEdit == nil && segmentBatchToEdit == nil && studio.screenText == nil
         shortcutActions.activeSection = tab
         shortcutActions.resultProject = project
@@ -3280,6 +3283,7 @@ struct ProjectEditor: View {
         .onChange(of: studio.settings.systemSpeechPitch) { _, _ in playback.syncNarration(project, settings: studio.settings) }
         .onChange(of: studio.settings.systemSpeechVolume) { _, _ in playback.syncNarration(project, settings: studio.settings) }
         .onChange(of: timelineVisible) { _, _ in refreshEditorShortcutActions() }
+        .onChange(of: thumbnailImagesVisible) { _, _ in refreshEditorShortcutActions() }
     }
 
     private var editorWithSummaryUpdates: some View {
@@ -3503,6 +3507,7 @@ struct ProjectEditor: View {
 struct TimelineView: View {
     let project: StudioProject
     let playback: PlaybackModel
+    let thumbnailImagesVisible: Bool
 
     private let trackLabelWidth: CGFloat = 132
     private let trackSpacing: CGFloat = 8
@@ -3513,8 +3518,10 @@ struct TimelineView: View {
 
     private var duration: Double { max(0, project.duration) }
 
+    private var seekTrackHeight: CGFloat { thumbnailImagesVisible ? thumbnailHeight : 16 }
+
     private var tracksHeight: CGFloat {
-        thumbnailHeight + rowSpacing + transportHeight + rowSpacing + segmentHeight + rowSpacing + segmentHeight
+        seekTrackHeight + rowSpacing + transportHeight + rowSpacing + segmentHeight + rowSpacing + segmentHeight
     }
 
     private var timelineValue: Binding<Double> {
@@ -3673,8 +3680,15 @@ struct TimelineView: View {
                 ZStack(alignment: .topLeading) {
                     VStack(spacing: rowSpacing) {
                         HStack(spacing: trackSpacing) {
-                            trackLabel("Thumbnails", systemImage: "photo.on.rectangle", height: thumbnailHeight)
-                            thumbnailTrack(width: timelineWidth)
+                            if thumbnailImagesVisible {
+                                trackLabel("Thumbnails", systemImage: "photo.on.rectangle", height: thumbnailHeight)
+                                thumbnailTrack(width: timelineWidth)
+                            } else {
+                                trackLabel("Video Position", systemImage: "slider.horizontal.3", height: seekTrackHeight)
+                                seekSurface(width: timelineWidth)
+                                    .frame(width: timelineWidth, height: seekTrackHeight)
+                                    .background(.quaternary, in: .rect(cornerRadius: 4))
+                            }
                         }
                         transportControls
                         HStack(spacing: trackSpacing) {
@@ -3715,7 +3729,7 @@ struct TimelineView: View {
 
                         RoundedRectangle(cornerRadius: 1)
                             .fill(playheadRed)
-                            .frame(width: 3, height: thumbnailHeight - 12)
+                            .frame(width: 3, height: seekTrackHeight - 12)
                             .overlay {
                                 RoundedRectangle(cornerRadius: 1)
                                     .strokeBorder(Color.white.opacity(0.35), lineWidth: 0.5)

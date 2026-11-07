@@ -19,6 +19,18 @@ class DesktopMenuParity(unittest.TestCase):
         windows_root = Path(os.environ.get('VIDISTUDIO_WINDOWS_ROOT', root / 'Vidi-Studio-Windows'))
         cls.windows = (windows_root / 'Vidi Studio Windows/MainWindow.Menus.cs').read_text(encoding='utf-8')
 
+    def test_thumbnail_visibility_command_cannot_be_omitted(self):
+        self.checker.compare_sources(self.mac, self.app, self.windows)
+        for mac, windows in (
+            (self.mac.replace('editor?.run("toggle-thumbnail-images")', 'editor?.run("missing-thumbnails")'), self.windows),
+            (self.mac, self.windows.replace('Command("toggle-thumbnail-images"), ', '', 1)),
+        ):
+            with self.assertRaises(ValueError):
+                self.checker.compare_sources(mac, self.app, windows)
+        for title in ('Show Thumbnail Images', 'Hide Thumbnail Images'):
+            self.assertIn(title, self.mac)
+            self.assertIn(title, self.windows)
+
     def test_file_deletion_commands_cannot_be_omitted(self):
         for command in ('delete-project', 'delete-content'):
             with self.assertRaises(ValueError):
