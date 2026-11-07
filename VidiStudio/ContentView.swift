@@ -1899,7 +1899,7 @@ struct ProjectEditor: View {
                     Button(tab == "transcript" ? "Add Transcript Segment" : "Add Audio Description Segment", systemImage: "plus") {
                         presentNewSegment(isDescription: tab == "descriptions")
                     }
-                    .disabled(!canCreateSegment || (tab == "descriptions" && project.transcript.isEmpty))
+                    .disabled(!canCreateSegment)
                     Divider()
                     Button(tab == "transcript" ? "Import Transcript…" : "Import Descriptions…", systemImage: "square.and.arrow.down") {
                         importScope = tab == "transcript" ? .transcript : .descriptions
@@ -3452,7 +3452,7 @@ struct ProjectEditor: View {
     }
 
     private func presentNewSegment(isDescription: Bool) {
-        guard canCreateSegment, !(isDescription && project.transcript.isEmpty) else { return }
+        guard canCreateSegment else { return }
         playback.pauseAndCaptureTime { capturedTime in
             guard canCreateSegment else { return }
             let latestStart = max(0, project.duration - 0.1)

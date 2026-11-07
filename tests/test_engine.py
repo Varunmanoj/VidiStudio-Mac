@@ -7,6 +7,23 @@ ENGINE=Path(__file__).resolve().parents[1]/'engine/vidistudio_engine.py'
 sys.path.insert(0,str(ENGINE.parent))
 spec=importlib.util.spec_from_file_location('engine',ENGINE); engine=importlib.util.module_from_spec(spec); spec.loader.exec_module(engine)
 class Validation(unittest.TestCase):
+    def test_manual_descriptions_without_transcript(self):
+        project = dict(duration=10, transcript=[], cues=[], exports=[], undoStack=[], redoStack=[], summary='', summaryGenerated=False)
+        cue = dict(id='manual', start=1, end=3, text='A puppy opens its eyes.', origin='manual')
+        engine.save_segments(project, [], [cue])
+        self.assertEqual(project['cues'][0]['text'], cue['text'])
+        self.assertEqual(project['transcript'], [])
+        edited = dict(project['cues'][0], text='The puppy looks up.')
+        engine.save_segments(project, [], [edited])
+        self.assertEqual(project['cues'][0]['text'], edited['text'])
+        for invalid in [dict(edited, start=-1), dict(edited, end=11), dict(edited, end=1), dict(edited, text='')]:
+            with self.assertRaises(ValueError):
+                engine.validate_authored_cues([invalid], project['cues'], 10, [])
+        with self.assertRaisesRegex(ValueError, 'another description'):
+            engine.validate_authored_cues([edited, dict(edited, id='other', start=2, end=4)], [], 10, [])
+        with self.assertRaisesRegex(ValueError, 'spoken dialogue'):
+            engine.validate_authored_cues([edited], [], 10, [dict(start=2, end=4, text='Hello')])
+
     def test_hls_export_names_and_renditions_are_stable(self):
         self.assertEqual(
             engine.hls_web_export_type('closed-description', 'dual-closed', 'transcript'),

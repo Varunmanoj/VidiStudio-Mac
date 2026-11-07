@@ -419,8 +419,6 @@ def validate_authored_cues(cues, previous, duration, transcript):
         changed = old is None or any(cue.get(key) != old.get(key) for key in ('start', 'end', 'text'))
         if not changed:
             continue
-        if not transcript:
-            raise ValueError('Import or generate a transcript before adding or editing descriptions. It is required for overlap validation.')
         validate_cues([cue], duration, transcript)
         if any(other is not cue and import_assets.overlap(cue, other) for other in cues):
             raise ValueError('This audio description overlaps another description. Adjust its timing.')
