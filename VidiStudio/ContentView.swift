@@ -2592,6 +2592,7 @@ struct ProjectEditor: View {
                         follow: followTranscript,
                         hasSummary: !project.summary.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
                         origin: project.summary.isEmpty ? nil : project.summaryOriginLabel,
+                        showZoomSlider: previewHidden,
                         onEdit: { startSummaryEditing() }
                     )
                 }
@@ -3011,6 +3012,9 @@ struct ProjectEditor: View {
         case "sort-origin": segmentSort = .origin; refreshEditorShortcutActions()
         case "segment-delete-selected": deleteSelectedSegments()
         case "descriptions", "transcript", "summary", "ad-transcript", "ad-overview": tab = action
+        case "summary-zoom-in": summaryReader.zoomIn()
+        case "summary-zoom-out": summaryReader.zoomOut()
+        case "summary-zoom-reset": summaryReader.setZoom(1)
         case "summary-play-pause": summaryReader.togglePlayPause()
         case "summary-play":
             if summaryReader.isPaused { summaryReader.play() }
@@ -3200,6 +3204,7 @@ struct ProjectEditor: View {
         shortcutActions.summaryActive = (tab == "summary")
         shortcutActions.summaryEditing = (tab == "summary" && summaryEditMode)
         shortcutActions.summaryReadable = !project.summary.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty && !studio.busy
+        shortcutActions.summaryZoom = summaryReader.zoom
         shortcutActions.summaryIsReading = summaryReader.isReading
         shortcutActions.summaryIsPaused = summaryReader.isPaused
         shortcutActions.summaryCanGoToPreviousSentence = summaryReader.canGoToPreviousSentence
@@ -3301,6 +3306,7 @@ struct ProjectEditor: View {
         .onChange(of: summaryEditMode) { _, _ in refreshEditorShortcutActions() }
         .onChange(of: summaryDraftText) { _, _ in refreshEditorShortcutActions() }
         .onChange(of: summaryDraftOrigin) { _, _ in refreshEditorShortcutActions() }
+        .onChange(of: summaryReader.zoom) { _, _ in refreshEditorShortcutActions() }
         .onChange(of: summaryReader.isReading) { _, _ in refreshEditorShortcutActions() }
         .onChange(of: summaryReader.isPaused) { _, _ in refreshEditorShortcutActions() }
         .onChange(of: summaryReader.currentIndex) { _, _ in refreshEditorShortcutActions() }

@@ -23,13 +23,28 @@ class DesktopMenuParity(unittest.TestCase):
         self.checker.compare_sources(self.mac, self.app, self.windows)
         for mac, windows in (
             (self.mac.replace('editor?.run("toggle-thumbnail-images")', 'editor?.run("missing-thumbnails")'), self.windows),
-            (self.mac, self.windows.replace('Command("toggle-thumbnail-images"), ', '', 1)),
+            (self.mac, self.windows.replace('Command("toggle-thumbnail-images"),', '', 1)),
         ):
             with self.assertRaises(ValueError):
                 self.checker.compare_sources(mac, self.app, windows)
         for title in ('Show Thumbnail Images', 'Hide Thumbnail Images'):
             self.assertIn(title, self.mac)
             self.assertIn(title, self.windows)
+
+    def test_summary_zoom_commands_cannot_be_omitted(self):
+        self.checker.compare_sources(self.mac, self.app, self.windows)
+        for command in ('summary-zoom-in', 'summary-zoom-out', 'summary-zoom-reset'):
+            with self.assertRaises(ValueError):
+                self.checker.compare_sources(self.mac, self.app, self.windows.replace('Command("' + command + '")', 'Command("missing")', 1))
+
+    def test_summary_zoom_requires_reader_and_matching_limits(self):
+        for mac, windows in (
+            (self.mac.replace('summaryActive, !summaryEditing, summaryReadable', 'summaryReadable'), self.windows),
+            (self.mac.replace('return summaryZoom < 4', 'return true'), self.windows),
+            (self.mac, self.windows.replace('SummaryPanel.ZoomFactor > .5', 'SummaryPanel.ZoomFactor > 0')),
+        ):
+            with self.assertRaises(ValueError):
+                self.checker.compare_sources(mac, self.app, windows)
 
     def test_file_deletion_commands_cannot_be_omitted(self):
         for command in ('delete-project', 'delete-content'):

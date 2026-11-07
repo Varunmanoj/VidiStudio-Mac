@@ -79,6 +79,7 @@ final class EditorShortcutActions {
     /// True while the Markdown summary editor is active. Project List/Grid
     /// shortcuts are temporarily disabled so Command-Option-1/2 apply headings.
     var summaryEditing = false
+    var summaryZoom: Double = 1
 
     var synthesizeNarrationTitle: String {
         if isSynthesizingNarration {
@@ -225,7 +226,10 @@ final class EditorShortcutActions {
     }
 
     func canRunSummary(_ action: String) -> Bool {
-        guard available, handler != nil, summaryActive, summaryReadable else { return false }
+        guard available, handler != nil, summaryActive, !summaryEditing, summaryReadable else { return false }
+        if action == "summary-zoom-in" { return summaryZoom < 4 }
+        if action == "summary-zoom-out" { return summaryZoom > 0.5 }
+        if action == "summary-zoom-reset" { return true }
         switch action {
         case "summary-play-pause", "summary-from-start":
             return true
@@ -291,6 +295,9 @@ struct StudioShortcut: Identifiable {
         case "segment-delete-selected": return "trash"
         case "follow": return "text.line.first.and.arrowtriangle.forward"
         case "delete-narration": return "speaker.slash"
+        case "summary-zoom-in": return "plus.magnifyingglass"
+        case "summary-zoom-out": return "minus.magnifyingglass"
+        case "summary-zoom-reset": return "1.magnifyingglass"
         case "summary-play": return "play.fill"
         case "summary-pause": return "pause.fill"
         case "summary-stop": return "stop.fill"
@@ -345,6 +352,9 @@ struct StudioShortcut: Identifiable {
         .init(id: "segment-delete-selected", title: "Delete Selected Segments…", key: .delete, modifiers: [.command, .control], spoken: "Command + Control + Delete", group: "Segments"),
         .init(id: "follow", title: "Toggle Transcript Follow", key: "f", modifiers: [.command, .shift], spoken: "Command + Shift + F", group: "Editor"),
         .init(id: "delete-narration", title: "Delete All Narration Audio…", key: .delete, modifiers: [.command, .option], spoken: "Command + Option + Delete", group: "Editor"),
+        .init(id: "summary-zoom-in", title: "Zoom In", key: "=", modifiers: .command, spoken: "Command + Equals", group: "Summary Zoom"),
+        .init(id: "summary-zoom-out", title: "Zoom Out", key: "-", modifiers: .command, spoken: "Command + Minus", group: "Summary Zoom"),
+        .init(id: "summary-zoom-reset", title: "Actual Size (100%)", key: "0", modifiers: .command, spoken: "Command + 0", group: "Summary Zoom"),
         .init(id: "summary-play", title: "Play or Resume Summary Reading", key: "p", modifiers: [.command, .shift], spoken: "Command + Shift + P", group: "Summary"),
         .init(id: "summary-pause", title: "Pause Summary Reading", key: "p", modifiers: [.command, .option], spoken: "Command + Option + P", group: "Summary"),
         .init(id: "summary-stop", title: "Stop Summary Reading", key: "s", modifiers: [.command, .shift], spoken: "Command + Shift + S", group: "Summary"),
@@ -454,6 +464,9 @@ struct StudioCommands: Commands {
                 editor?.run("toggle-thumbnail-images")
             }
             .disabled(editor?.canRun("toggle-thumbnail-images") != true)
+            if editor?.summaryActive == true {
+                shortcutEntries(StudioShortcut.editor.filter { $0.group == "Summary Zoom" })
+            }
             if editor?.canFilterSegments == true {
                 Button(editor?.filterTitle ?? "Filter Segments…", systemImage: "line.3.horizontal.decrease.circle") {
                     editor?.run("filter-segments")

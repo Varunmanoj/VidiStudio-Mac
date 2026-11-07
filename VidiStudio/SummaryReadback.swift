@@ -221,6 +221,17 @@ enum SummarySpeechParser {
 
 @MainActor @Observable
 final class SummaryReadbackModel: NSObject, AVSpeechSynthesizerDelegate, AVAudioPlayerDelegate {
+    // Reader presentation only: never reconfigure or restart speech for zoom.
+    var zoom: Double = 1
+    static let zoomRange = 0.5...4.0
+    var zoomPercent: Int { Int((zoom * 100).rounded()) }
+    func setZoom(_ value: Double) {
+        guard value.isFinite else { return }
+        zoom = min(Self.zoomRange.upperBound, max(Self.zoomRange.lowerBound, value))
+    }
+    func zoomIn() { setZoom((floor(zoom * 10 + 0.001) + 1) / 10) }
+    func zoomOut() { setZoom((ceil(zoom * 10 - 0.001) - 1) / 10) }
+
     var sentences: [SummarySentence] = []
     var currentIndex: Int?
     /// Word highlight in display-text (UTF-16) coordinates. See `cachedLineRanges`.
@@ -607,7 +618,9 @@ final class SummaryReadbackModel: NSObject, AVSpeechSynthesizerDelegate, AVAudio
             let sentence = sentences[index]
             let storage = NSMutableAttributedString(string: line.prefix + line.body)
             let fullRange = NSRange(location: 0, length: storage.length)
-            storage.addAttribute(.font, value: displayFont(for: sentence), range: fullRange)
+            let baseFont = displayFont(for: sentence)
+            let scaledFont = NSFont(descriptor: baseFont.fontDescriptor, size: baseFont.pointSize * zoom) ?? baseFont
+            storage.addAttribute(.font, value: scaledFont, range: fullRange)
             // Explicit semantic foreground so the text adapts to Dark Mode even if
             // the host view ever changes its default text color.
             storage.addAttribute(
@@ -616,8 +629,9 @@ final class SummaryReadbackModel: NSObject, AVSpeechSynthesizerDelegate, AVAudio
                 range: fullRange
             )
             let paragraph = NSMutableParagraphStyle()
-            paragraph.paragraphSpacing = 10
-            paragraph.lineSpacing = 3
+            paragraph.paragraphSpacing = 10 * zoom
+            paragraph.lineSpacing = 3 * zoom
+            paragraph.lineBreakMode = .byWordWrapping
             storage.addAttribute(.paragraphStyle, value: paragraph, range: fullRange)
             if currentIndex == sentence.id {
                 storage.addAttribute(.backgroundColor, value: sentenceBackground, range: fullRange)
@@ -938,6 +952,22 @@ final class SummaryReadbackModel: NSObject, AVSpeechSynthesizerDelegate, AVAudio
 /// subclass dispatch instead of the delegate channel.
 final class SummaryTextView: NSTextView {
     var contextMenuProvider: (@MainActor (NSEvent) -> NSMenu?)?
+    var magnificationHandler: (@MainActor (CGFloat) -> Void)?
+    var selectionEnded: (@MainActor () -> Void)?
+    var magnificationAnchor: NSPoint?
+    private(set) var isSelectingText = false
+
+    override func mouseDown(with event: NSEvent) {
+        isSelectingText = true
+        super.mouseDown(with: event)
+        isSelectingText = false
+        selectionEnded?()
+    }
+
+    override func magnify(with event: NSEvent) {
+        magnificationAnchor = convert(event.locationInWindow, from: nil)
+        magnificationHandler?(event.magnification)
+    }
 
     override func menu(for event: NSEvent) -> NSMenu? {
         contextMenuProvider?(event) ?? super.menu(for: event)
@@ -1001,16 +1031,28 @@ struct SummarySentenceTextView: NSViewRepresentable {
             guard let coordinator else { return nil }
             return coordinator.menu(for: event, in: textView)
         }
+        textView.selectionEnded = { [weak model, weak textView] in
+            model?.selectedRange = textView?.selectedRange()
+        }
+        textView.magnificationHandler = { [weak model, weak textView] delta in
+            guard let model else { return }
+            let previous = model.zoom
+            model.setZoom(model.zoom * (1 + delta))
+            if model.zoom == previous { textView?.magnificationAnchor = nil }
+        }
+        textView.minSize = NSSize(width: 0, height: 0)
+        textView.maxSize = NSSize(width: CGFloat.greatestFiniteMagnitude, height: CGFloat.greatestFiniteMagnitude)
         scrollView.documentView = textView
+        textView.setFrameSize(NSSize(width: scrollView.contentSize.width, height: scrollView.contentSize.height))
         return scrollView
     }
 
     func updateNSView(_ scrollView: NSScrollView, context: Context) {
         let coordinator = context.coordinator
         coordinator.hasSummary = hasSummary
-        guard let textView = scrollView.documentView as? NSTextView else { return }
+        guard let textView = scrollView.documentView as? SummaryTextView else { return }
         // Never fight an active mouse selection: defer highlight refreshes until release.
-        let userSelecting = (NSEvent.pressedMouseButtons & 1) != 0
+        let userSelecting = textView.isSelectingText
         let content = model.displayContent(
             sentenceBackground: SummaryHighlightColor.nsColor(
                 from: settings.summarySentenceHighlight, alpha: 0.38),
@@ -1019,14 +1061,22 @@ struct SummarySentenceTextView: NSViewRepresentable {
             wordForeground: SummaryHighlightColor.nsTextColor(
                 forWordHex: settings.summaryWordHighlight)
         )
-        let signature = "\(content.string.hashValue):\(model.currentIndex ?? -1):" +
+        let signature = "\(model.zoom):\(content.string.hashValue):\(model.currentIndex ?? -1):" +
             "\(model.wordRange?.location ?? -1):\(model.wordRange?.length ?? 0):" +
             "\(settings.summarySentenceHighlight):\(settings.summaryWordHighlight)"
         if signature != coordinator.lastContentSignature, !userSelecting {
             coordinator.lastContentSignature = signature
             if let storage = textView.textStorage, !storage.isEqual(to: content) {
                 let selection = textView.selectedRange()
+                let zoomChanged = coordinator.lastZoom != model.zoom
+                let anchor = coordinator.visibleAnchor()
                 storage.setAttributedString(content)
+                textView.layoutManager?.ensureLayout(for: textView.textContainer!)
+                if zoomChanged {
+                    coordinator.restoreVisibleAnchor(anchor)
+                    coordinator.lastZoom = model.zoom
+                    if model.isReading && !model.isPaused { coordinator.lastFollowedRange = nil }
+                }
                 let length = (content.string as NSString).length
                 var restored = selection
                 restored.location = min(max(0, restored.location), length)
@@ -1034,15 +1084,17 @@ struct SummarySentenceTextView: NSViewRepresentable {
                 context.coordinator.restoreSelection(restored)
             }
         }
-        if follow, hasSummary, !userSelecting,
-           let index = model.currentIndex, index != coordinator.lastScrolledIndex,
-           let range = model.lineRange(forSentence: index) {
-            coordinator.lastScrolledIndex = index
-            textView.scrollRangeToVisible(range)
+        // Follow the spoken word, rather than an entire sentence that may now
+        // occupy several screens. scrollRangeToVisible leaves visible words still.
+        let spokenRange = model.wordRange ?? model.currentIndex.flatMap { model.lineRange(forSentence: $0) }
+        if follow, hasSummary, !userSelecting, let range = spokenRange,
+           range != coordinator.lastFollowedRange {
+            coordinator.lastFollowedRange = range
+            textView.scrollRangeToVisible(NSRange(location: range.location, length: min(range.length, model.wordRange == nil ? 1 : range.length)))
         } else if model.currentIndex == nil {
-            coordinator.lastScrolledIndex = nil
+            coordinator.lastFollowedRange = nil
         } else if !follow {
-            coordinator.lastScrolledIndex = model.currentIndex
+            coordinator.lastFollowedRange = spokenRange
         }
     }
 
@@ -1051,7 +1103,33 @@ struct SummarySentenceTextView: NSViewRepresentable {
         let model: SummaryReadbackModel
         var hasSummary = true
         var lastContentSignature = ""
-        var lastScrolledIndex: Int?
+        var lastZoom: Double = 1
+        var lastFollowedRange: NSRange?
+
+        // Anchor the same character at the top of the viewport during reflow.
+        func visibleAnchor() -> (Int, CGFloat)? {
+            guard let view = textView, let layout = view.layoutManager,
+                  let container = view.textContainer, !view.string.isEmpty else { return nil }
+            let focalPoint = view.magnificationAnchor ?? NSPoint(x: view.textContainerOrigin.x, y: view.visibleRect.minY)
+            view.magnificationAnchor = nil
+            let point = NSPoint(x: max(0, focalPoint.x - view.textContainerOrigin.x), y: max(0, focalPoint.y - view.textContainerOrigin.y))
+            let glyph = layout.glyphIndex(for: point, in: container)
+            guard glyph < layout.numberOfGlyphs else { return nil }
+            let character = layout.characterIndexForGlyph(at: glyph)
+            let rect = layout.lineFragmentRect(forGlyphAt: glyph, effectiveRange: nil)
+            return (character, rect.minY + view.textContainerOrigin.y - view.visibleRect.minY)
+        }
+
+        func restoreVisibleAnchor(_ anchor: (Int, CGFloat)?) {
+            guard let (character, offset) = anchor, let view = textView,
+                  let layout = view.layoutManager, let scroll = view.enclosingScrollView,
+                  character < (view.string as NSString).length else { return }
+            let glyph = layout.glyphIndexForCharacter(at: character)
+            let rect = layout.lineFragmentRect(forGlyphAt: glyph, effectiveRange: nil)
+            let maximum = max(0, view.bounds.height - scroll.contentSize.height)
+            scroll.contentView.scroll(to: NSPoint(x: 0, y: min(maximum, max(0, rect.minY + view.textContainerOrigin.y - offset))))
+            scroll.reflectScrolledClipView(scroll.contentView)
+        }
         weak var textView: SummaryTextView?
         /// Anchor resolved when the context menu opens (click, or selection when clicked inside it).
         private var menuAnchor = NSNotFound
@@ -1221,6 +1299,7 @@ struct SummaryReaderView: View {
     /// When true the text is an instructional placeholder, so reading controls stay disabled.
     var hasSummary: Bool = true
     var origin: SummaryOrigin? = nil
+    var showZoomSlider: Bool = false
     var onEdit: (() -> Void)? = nil
 
     /// Names the engine actually used for summary reading.
@@ -1269,6 +1348,31 @@ struct SummaryReaderView: View {
                 hasSummary: hasSummary,
                 follow: follow
             )
+            if showZoomSlider {
+                Divider()
+                HStack(spacing: 8) {
+                    Spacer(minLength: 0)
+                    Image(systemName: "minus").accessibilityHidden(true)
+                    Slider(value: Binding(get: { model.zoom }, set: { model.setZoom($0) }), in: SummaryReadbackModel.zoomRange)
+                        .frame(width: 160)
+                        .accessibilityLabel("Summary zoom")
+                        .accessibilityValue("\(model.zoomPercent) percent")
+                        .help("Summary zoom: 50%–400%")
+                    Image(systemName: "plus").accessibilityHidden(true)
+                    Text("\(model.zoomPercent)%").monospacedDigit().frame(width: 48, alignment: .trailing)
+                        .accessibilityLabel("Summary zoom: \(model.zoomPercent) percent")
+                }
+                .controlSize(.small)
+                .padding(.horizontal, 16)
+                .padding(.vertical, 8)
+            }
+        }
+        .background {
+            // Accept the shifted plus key as well as the View menu's Equals key.
+            Button("Zoom In") { model.zoomIn() }
+                .keyboardShortcut("+", modifiers: .command)
+                .disabled(!hasSummary || model.zoom >= 4)
+                .hidden().accessibilityHidden(true)
         }
         .onAppear { model.configure(markdown: markdown, settings: settings) }
         .onChange(of: markdown) { _, newValue in model.configure(markdown: newValue, settings: settings) }
@@ -1291,7 +1395,7 @@ struct SummaryReaderView: View {
                 .font(.callout)
                 .foregroundStyle(.secondary)
                 .lineLimit(1)
-                .frame(maxWidth: .infinity, alignment: .leading)
+                .frame(minWidth: 0, maxWidth: .infinity, alignment: .leading)
                 .accessibilityLabel("Summary reading status: \(model.progressLabel)")
 
             HStack(spacing: 8) {
@@ -1359,12 +1463,25 @@ struct SummaryReaderView: View {
             }
             .fixedSize()
 
+            HStack(spacing: 4) {
+                Button { model.zoomOut() } label: { Image(systemName: "minus") }
+                    .disabled(model.zoom <= SummaryReadbackModel.zoomRange.lowerBound)
+                    .help("Zoom Out (Command + Minus)").accessibilityLabel("Zoom out summary")
+                Button("100%") { model.setZoom(1) }
+                    .help("Actual Size (100%) (Command + 0)").accessibilityLabel("Reset summary zoom to 100 percent")
+                Button { model.zoomIn() } label: { Image(systemName: "plus") }
+                    .disabled(model.zoom >= SummaryReadbackModel.zoomRange.upperBound)
+                    .help("Zoom In (Command + Equals)").accessibilityLabel("Zoom in summary")
+            }
+            .buttonStyle(.bordered)
+
             Text(speechEngineLabel)
+                .lineLimit(1)
                 .font(.caption)
                 .foregroundStyle(.secondary)
                 .help(speechEngineHelp)
                 .accessibilityLabel(speechEngineHelp)
-                .frame(maxWidth: .infinity, alignment: .trailing)
+                .frame(minWidth: 0, maxWidth: .infinity, alignment: .trailing)
         }
         .controlSize(.small)
         .padding(.horizontal, 16)
