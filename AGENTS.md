@@ -44,3 +44,8 @@ Xcode MCP complements rather than replaces repository validation. Continue to ru
 ## Concise application UI copy
 
 Keep explanatory descriptions, workflow instructions, and detailed behavior guidance in canonical desktop Help and website documentation. Do not add instructional paragraphs, explanatory footers, or long descriptions to Settings, Project Settings, inspectors, or application dialogs (including Import, Export, Delete, and generation/review dialogs). Use concise control labels and necessary action buttons. Retain short errors, validation states, affected item/file counts, required legal notices, and essential confirmation details. Preserve accessible control names and icon-action tooltips, without putting long procedural guidance there. When behavior changes, update Help and website documentation instead of expanding the application UI copy.
+
+
+## Required menu access for every new UI action
+
+Every new UI action anywhere in this application—including text/icon buttons, toolbar/sidebar/inspector actions, toggles, pickers, navigation/view controls, and Settings/dialog actions—must have a corresponding context-appropriate menu entry in the same task. Menus must expose the same action, navigation destination, toggle or choice, checked state, dynamic title, availability and confirmations through the same guarded path and shared state. Scope entries to the active window, section, dialog and visible selection. Mirror shared entries on the other desktop and update parity checks, native smoke/regression coverage, Help and website documentation. Follow the workspace AGENTS.md section “UI Actions Must Be Available from Menus (Required)” and record any runtime validation blocker; a new UI control without its menu path is incomplete.

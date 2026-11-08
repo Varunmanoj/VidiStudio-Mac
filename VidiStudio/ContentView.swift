@@ -458,13 +458,6 @@ struct ContentView: View {
             }
         }
         .background(WindowFitter().frame(width: 0, height: 0))
-        .focusedSceneValue(\.projectBrowser, ProjectBrowserActions(
-            showProjects: nil,
-            showInspector: nil,
-            grid: $projectGrid,
-            hasProject: false,
-            listModel: studio
-        ))
         .preferredColorScheme(studio.settings.theme == "dark" ? .dark : studio.settings.theme == "light" ? .light : nil)
         .sheet(isPresented: $renaming) {
             VStack(spacing: 20) {

@@ -1,3 +1,17 @@
+## 2026-11-08 — All Projects menu context (1.0.258 / build 258)
+
+All Projects now publishes its own scene command context and visible selection. View exposes source/language filters, Reset Project Filters and selected list/grid layouts; editor-only View/Playback/Copy/Project commands and YouTube browser-only tools are hidden. Project exposes Open Selected Project, selected-project Analysis (including descriptions) and management. File Export, Delete Project, Choose What to Delete, Remove from List and Project Settings use the visible selection. Filtering the selected project out clears it and disables selection actions. Menu and shortcut dispatch share guards; Windows uses the selected gallery project for source/connectivity checks and retains the selection when changing layout.
+
+User-requested guidance added to workspace and both desktop AGENTS.md: each new UI action needs an equivalent context-specific menu path, matching guarded state/behavior and keyboard access; desktop parity, Help, website docs and tests must accompany it.
+
+Validation: desktop menu checker passes (hierarchy/order and 49 translated editor shortcuts); 47 Mac targeted tests and 31 Windows menu tests pass. The actual Swift AllProjectsActions bridge is compiled/executed against controlled project/service states, covering selected-target dispatch, absent selection, busy/damaged/API/connectivity guards and shared filter/reset bindings. Windows C# Compile target succeeds against the existing SDK/reference project with temporary generated-XAML field stubs (two unused-stub warnings); this is source semantic checking, not a native Windows build. Extended Windows native smoke expectations cover library filter submenus and hidden editor-only commands. Updated the older project-recycling regression to follow the existing confirmed model/STA recycling path and editor closure rather than expecting recycling inline in MainWindow.
+
+Native Mac UI after unlock: verified All Projects View contains browsing filters/layouts and Project contains only selected-project actions; filtering out the selected YouTube project disables File selection actions; selecting local Dilemma enables them; File Export opens Dilemma while the Andy editor remains open, then Cancel closes without exporting. Andy editor View restores language/saved results, preview/timeline, segment filter/sort and inspector commands. No generation or deletion was performed.
+
+Installed via script/build_and_run.sh --verify: /Applications/VidiStudio.app 1.0.258/build 258, Share and Finder extensions both 1.0.258/258, Apple Development team LLVWNNUV26 with previous designated-requirement continuity and registered-extension checks passing. Build copy removed; Spotlight lists only /Applications/VidiStudio.app; LaunchServices points to the installed build 258. Canonical Help and generated Windows Help validate all pages/links; installed Help verification passes. Xcode MCP found the workspace but no active scheme; packaged script build/launch passed.
+
+Limits: Windows 11 VM start is blocked because prlctl requires Parallels Pro/Business, so native Windows build/install/UI remain unverified. Website TypeScript and production builds pass (existing chunk-size advisory); Wrangler 4.158.0 is unauthenticated, so updated website documentation remains local/unpublished. No commit or push.
+
 ## 2026-11-07 — Optional timeline thumbnail images (1.0.249 / build 249)
 
 ## 2026-11-07 — Live Summary zoom verification and controls layout — 1.0.254 / build 254

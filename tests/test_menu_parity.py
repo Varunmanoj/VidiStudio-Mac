@@ -19,6 +19,15 @@ class DesktopMenuParity(unittest.TestCase):
         windows_root = Path(os.environ.get('VIDISTUDIO_WINDOWS_ROOT', root / 'Vidi-Studio-Windows'))
         cls.windows = (windows_root / 'Vidi Studio Windows/MainWindow.Menus.cs').read_text(encoding='utf-8')
 
+    def test_library_filter_and_selected_project_contracts(self):
+        for mac, windows in (
+            (self.mac.replace('allProjects.languageFilter.wrappedValue = language.id', 'allProjects.languageFilter.wrappedValue = "auto"'), self.windows),
+            (self.mac, self.windows.replace('IsChecked = Model.LanguageFilter == language.Id', 'IsChecked = false')),
+            (self.mac, self.windows.replace('if (SelectedGalleryProject() is not { } selected) return false;', 'if (Model.Project == null) return false;')),
+            (self.mac, self.windows.replace('case "delete-project": if (ProjectManagementTarget()', 'case "delete-project": if (Model.Project')),
+        ):
+            with self.assertRaises(ValueError): self.checker.compare_sources(mac, self.app, windows)
+
     def test_thumbnail_visibility_command_cannot_be_omitted(self):
         self.checker.compare_sources(self.mac, self.app, self.windows)
         for mac, windows in (
@@ -49,7 +58,7 @@ class DesktopMenuParity(unittest.TestCase):
     def test_file_deletion_commands_cannot_be_omitted(self):
         for command in ('delete-project', 'delete-content'):
             with self.assertRaises(ValueError):
-                self.checker.compare_sources(self.mac.replace('editor?.run("' + command + '")', 'editor?.run("missing")'), self.app, self.windows)
+                self.checker.compare_sources(self.mac.replace('runProject("' + command + '")', 'runProject("missing")'), self.app, self.windows)
             with self.assertRaises(ValueError):
                 self.checker.compare_sources(self.mac, self.app, self.windows.replace('Command("' + command + '")', 'Command("missing")', 1))
 
@@ -62,7 +71,7 @@ class DesktopMenuParity(unittest.TestCase):
     def test_project_language_menu_checks_choices_state_and_guard_contract(self):
         self.checker.compare_sources(self.mac, self.app, self.windows)
         for mac, windows in (
-            (self.mac.replace('projectLanguageMenu()\n            Divider()', 'Divider()', 1), self.windows),
+            (self.mac.replace('projectLanguageMenu()\n                Divider()', 'Divider()', 1), self.windows),
             (self.mac.replace('editor?.viewingLanguage == language.id', 'editor?.viewingLanguage != language.id', 1), self.windows),
             (self.mac, self.windows.replace('ProjectLanguageMenu(), Separator()', 'Separator()', 1)),
             (self.mac, self.windows.replace('IsChecked = choice.Id == project.SelectedLanguage', 'IsChecked = false', 1)),
@@ -73,7 +82,7 @@ class DesktopMenuParity(unittest.TestCase):
     def test_saved_results_menu_and_selection_guard_cannot_be_omitted(self):
         self.checker.compare_sources(self.mac, self.app, self.windows)
         for mac, windows in (
-            (self.mac.replace('savedResultsMenu()\n            Divider()', 'Divider()', 1), self.windows),
+            (self.mac.replace('savedResultsMenu()\n                Divider()', 'Divider()', 1), self.windows),
             (self.mac.replace('guard canRun("saved-results")', 'guard true', 1), self.windows),
             (self.mac, self.windows.replace('SavedResultsMenu(), Separator()', 'Separator()', 1)),
             (self.mac, self.windows.replace('!CanRunDesktopCommand("saved-results")', 'false', 1)),
@@ -170,7 +179,7 @@ class DesktopMenuParity(unittest.TestCase):
 
     def test_summary_heading_shortcuts_take_priority_over_project_layout(self):
         self.assertIn('.disabled(browser?.grid == nil || editor?.summaryEditing == true)', self.mac)
-        self.assertIn('if (id is "project-list" or "project-grid") return !(Section.SelectedIndex == 1 && summaryEditMode);', self.windows)
+        self.assertIn('if (id is "project-list" or "project-grid") return !desktopEditorVisible || !(Section.SelectedIndex == 1 && summaryEditMode);', self.windows)
         self.assertIn('}, () => CanRunDesktopCommand(id));', self.windows)
 
     def test_project_management_order_guards_and_handlers_match(self):

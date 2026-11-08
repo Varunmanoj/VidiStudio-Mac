@@ -152,3 +152,8 @@ View saved-result menus and inspector/settings pickers include all stored versio
 ## Summary zoom
 
 View contains Zoom In (`summary-zoom-in`), Zoom Out (`summary-zoom-out`) and Actual Size (100%) (`summary-zoom-reset`) while Summary is active. They use the shared guard in reader mode with nonempty content and an idle editor, including during reading; editing/processing disables them. Shortcuts are Command/Ctrl + Equals, Minus, and 0. Shifted Plus is accepted too, and Windows accepts Ctrl+keypad Add/Subtract. The native OEM Equals/Minus keys map to 187/189. Range is 50–400%, with 10 percentage point button steps. The playback row always has minus/100%/plus; the footer slider and percentage appear only with Preview hidden. Native pinch zoom reflows text without changing speech or selection. This layout does not require OS full screen. Zoom is per open editor, default 100%, and does not alter project data or exports.
+
+
+## All Projects window menus
+
+View uses the All Projects source/language filters, reset filters, and checked list/grid layout. Project offers Open Selected Project, Analysis (including description generation), folder/configuration, rename and trash. File Export, deletion, Remove from List and Project Settings target the visible selection. Filtering a selection out disables those actions. Editor-only controls are hidden in this window, including preview/timeline/inspector, saved results, sections, segments, import, narration and playback. Native macOS Edit/Window commands remain system-owned; Windows hides its application-only Edit/Playback menus in All Projects. The macOS grid icon-size slider remains a native Mac presentation control.

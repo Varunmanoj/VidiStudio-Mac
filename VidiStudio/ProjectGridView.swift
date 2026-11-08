@@ -145,13 +145,13 @@ struct ProjectBrowserActions {
     var editorModel: StudioModel? = nil
 
     func canRun(_ command: String) -> Bool {
-        guard let model = editorModel ?? listModel, let project = model.selected else { return false }
+        guard hasProject, let model = editorModel ?? listModel, let project = model.selected else { return false }
         if editorModel == nil && !model.listedProjects.contains(where: { $0.id == project.id }) { return false }
         return model.canManageProject(command, project: project)
     }
 
     var canRemoveFromList: Bool {
-        guard let model = listModel, !model.busy, let project = model.selected, project.folder != nil else { return false }
+        guard hasProject, let model = listModel, !model.busy, let project = model.selected, project.folder != nil else { return false }
         return model.listedProjects.contains { $0.id == project.id }
     }
     func run(_ command: String) {
@@ -165,6 +165,53 @@ struct ProjectBrowserActions {
         let currentID = model.selectedID
         model.removeProjectFromList(project)
         if preserveOpenProject { model.selectedID = currentID }
+    }
+}
+@MainActor
+struct AllProjectsActions {
+    let studio: StudioModel
+    let project: StudioProject?
+    let sourceFilter: Binding<ProjectSourceFilter>
+    let languageFilter: Binding<String>
+    let search: Binding<String>
+    let perform: (String, StudioProject) -> Void
+
+    func canRun(_ action: String) -> Bool {
+        if action.hasPrefix("projects-source-") { return true }
+        if action == "projects-reset-filters" {
+            return sourceFilter.wrappedValue != .all || languageFilter.wrappedValue != "all" || !search.wrappedValue.isEmpty
+        }
+        guard !studio.busy, let project else { return false }
+        if action == "delete-project" { return project.folder != nil }
+        guard project.integrityPlaceholder != true else { return false }
+        switch action {
+        case "open-selected-project", "export": return project.folder != nil
+        case "delete-content": return project.hasGeneratedContent
+        case "prepare-video": return !project.isYouTubeURLProject || ConnectivityService.shared.available(.youtube)
+        case "analyze", "transcribe", "generate-summary", "generate-ad-cues":
+            return studio.hasApiKey && studio.apiKeyVerified != false && !studio.isAIProcessingBlocked
+                && ConnectivityService.shared.available(.gemini) && (action != "generate-ad-cues" || project.canGenerateDescriptions)
+        default: return false
+        }
+    }
+
+    func run(_ action: String) {
+        guard canRun(action) else { return }
+        switch action {
+        case "projects-source-all": sourceFilter.wrappedValue = .all
+        case "projects-source-local": sourceFilter.wrappedValue = .local
+        case "projects-source-youtube": sourceFilter.wrappedValue = .youtube
+        case "projects-reset-filters":
+            search.wrappedValue = ""; sourceFilter.wrappedValue = .all; languageFilter.wrappedValue = "all"
+        default: if let project { perform(action, project) }
+        }
+    }
+}
+private struct AllProjectsKey: FocusedValueKey { typealias Value = AllProjectsActions }
+extension FocusedValues {
+    var allProjects: AllProjectsActions? {
+        get { self[AllProjectsKey.self] }
+        set { self[AllProjectsKey.self] = newValue }
     }
 }
 private struct ProjectBrowserKey: FocusedValueKey { typealias Value = ProjectBrowserActions }

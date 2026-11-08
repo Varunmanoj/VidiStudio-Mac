@@ -375,6 +375,25 @@ struct StudioCommands: Commands {
     @FocusedValue(\.youtubeBrowser) private var youtubeBrowser
     @FocusedValue(\.projectBrowser) private var browser
     @FocusedValue(\.editorShortcuts) private var editor
+    @FocusedValue(\.allProjects) private var allProjects
+
+    private func canRunProject(_ action: String) -> Bool {
+        allProjects?.canRun(action) ?? (editor?.canRun(action) == true)
+    }
+    private func runProject(_ action: String) {
+        if let allProjects { allProjects.run(action) } else { editor?.run(action) }
+    }
+
+    @ViewBuilder private func libraryLanguageMenu() -> some View {
+        Menu("Filter Projects by Language", systemImage: "translate") {
+            if let allProjects {
+                Toggle("All Languages", isOn: Binding(get: { allProjects.languageFilter.wrappedValue == "all" }, set: { if $0 { allProjects.languageFilter.wrappedValue = "all" } }))
+                ForEach(OutputLanguage.options) { language in
+                    Toggle(language.title, isOn: Binding(get: { allProjects.languageFilter.wrappedValue == language.id }, set: { if $0 { allProjects.languageFilter.wrappedValue = language.id } }))
+                }
+            }
+        }.accessibilityIdentifier("projects-language-filter")
+    }
     @Environment(\.openWindow) private var openWindow
     @Environment(\.openSettings) private var openSettings
     @ViewBuilder private func projectLanguageMenu() -> some View {
@@ -416,17 +435,17 @@ struct StudioCommands: Commands {
             Button("Open in YouTube", systemImage: "arrow.up.right.square") { if youtubeBrowser != nil { youtubeBrowser?.run("youtube-open-browser") } else { browser?.run("youtube-open-browser") } }.keyboardShortcut(.return, modifiers: [.command, .shift]).disabled(youtubeBrowser != nil ? youtubeBrowser?.canRun("youtube-open-browser") != true : browser?.canRun("youtube-open-browser") != true)
             Divider()
             Button("Export…", systemImage: "square.and.arrow.up") {
-                editor?.showExportDialog()
+                if let allProjects { allProjects.run("export") } else { editor?.showExportDialog() }
             }
             .keyboardShortcut("e", modifiers: [.command, .shift])
-            .disabled(editor?.available != true || editor?.exportHandler == nil)
+            .disabled(allProjects != nil ? allProjects?.canRun("export") != true : editor?.available != true || editor?.exportHandler == nil)
             Divider()
-            Button("Delete Project…", systemImage: "trash", role: .destructive) { editor?.run("delete-project") }
+            Button("Delete Project…", systemImage: "trash", role: .destructive) { runProject("delete-project") }
                 .accessibilityIdentifier("delete-project")
-                .disabled(editor?.canRun("delete-project") != true)
-            Button("Choose What to Delete…", systemImage: "eraser", role: .destructive) { editor?.run("delete-content") }
+                .disabled(!canRunProject("delete-project"))
+            Button("Choose What to Delete…", systemImage: "eraser", role: .destructive) { runProject("delete-content") }
                 .accessibilityIdentifier("delete-content")
-                .disabled(editor?.canRun("delete-content") != true)
+                .disabled(!canRunProject("delete-content"))
             Divider()
             Button("Remove from List", systemImage: "minus.circle") {
                 browser?.run("remove-from-list")
@@ -443,64 +462,77 @@ struct StudioCommands: Commands {
 
         }
         CommandGroup(after: .sidebar) {
-            projectLanguageMenu()
-            Divider()
-            savedResultsMenu()
-            Divider()
-            Button(editor?.previewHidden == true ? "Show Preview" : "Hide Preview", systemImage: editor?.previewHidden == true ? "video" : "video.slash") {
-                editor?.run("preview")
-            }
-            .keyboardShortcut("v", modifiers: [.command, .shift])
-            .disabled(editor?.canRun("preview") != true)
-            Button(editor?.fullScreenTitle ?? "Full-Screen Video", systemImage: "arrow.up.left.and.arrow.down.right") {
-                editor?.run("fullscreen")
-            }
-            .disabled(editor?.canRun("fullscreen") != true)
-            Button(editor?.timelineVisible == false ? "Show Timeline" : "Hide Timeline", systemImage: "film") {
-                editor?.run("toggle-timeline")
-            }
-            .disabled(editor?.canRun("toggle-timeline") != true)
-            Button(editor?.thumbnailImagesVisible == true ? "Hide Thumbnail Images" : "Show Thumbnail Images", systemImage: "photo.on.rectangle") {
-                editor?.run("toggle-thumbnail-images")
-            }
-            .disabled(editor?.canRun("toggle-thumbnail-images") != true)
-            if editor?.summaryActive == true {
-                shortcutEntries(StudioShortcut.editor.filter { $0.group == "Summary Zoom" })
-            }
-            if editor?.canFilterSegments == true {
-                Button(editor?.filterTitle ?? "Filter Segments…", systemImage: "line.3.horizontal.decrease.circle") {
-                    editor?.run("filter-segments")
+            if let allProjects {
+                Menu("Filter Projects by Source", systemImage: "line.3.horizontal.decrease.circle") {
+                    Button("All Projects", systemImage: allProjects.sourceFilter.wrappedValue == .all ? "checkmark" : "square.stack") { allProjects.run("projects-source-all") }
+                    Button("Local Video Projects", systemImage: allProjects.sourceFilter.wrappedValue == .local ? "checkmark" : "film") { allProjects.run("projects-source-local") }
+                    Button("YouTube Projects", systemImage: allProjects.sourceFilter.wrappedValue == .youtube ? "checkmark" : "play.rectangle") { allProjects.run("projects-source-youtube") }
                 }
-                .disabled(editor?.canRun("filter-segments") != true)
-                Menu(editor?.sortTitle ?? "Sort Segments", systemImage: "arrow.up.arrow.down") {
-                Button("Start Time", systemImage: editor?.segmentSort == "start" ? "checkmark" : "clock") {
-                    editor?.run("sort-start")
-                }
-                .disabled(editor?.canRun("sort-start") != true)
-                Button("Duration — Shortest First", systemImage: editor?.segmentSort == "durationAscending" ? "checkmark" : "timer") {
-                    editor?.run("sort-duration-asc")
-                }
-                .disabled(editor?.canRun("sort-duration-asc") != true)
-                Button("Duration — Longest First", systemImage: editor?.segmentSort == "durationDescending" ? "checkmark" : "timer") {
-                    editor?.run("sort-duration-desc")
-                }
-                .disabled(editor?.canRun("sort-duration-desc") != true)
-                Button("Origin", systemImage: editor?.segmentSort == "origin" ? "checkmark" : "tag") {
-                    editor?.run("sort-origin")
-                }
-                .disabled(editor?.canRun("sort-origin") != true)
-                }
+                libraryLanguageMenu()
+                Button("Reset Project Filters", systemImage: "line.3.horizontal.decrease.circle") { allProjects.run("projects-reset-filters") }
+                    .disabled(!allProjects.canRun("projects-reset-filters"))
+                Divider()
             }
-            Divider()
-            Button(browser?.showProjects?.wrappedValue == true ? "Hide Project List" : "Show Project List", systemImage: "sidebar.left") { browser?.showProjects?.wrappedValue.toggle() }
-                .keyboardShortcut("b", modifiers: .command).disabled(browser?.showProjects == nil)
-            Button(browser?.hasProject == true && browser?.showInspector?.wrappedValue == true ? "Hide Inspector" : "Show Inspector", systemImage: "sidebar.right") { browser?.showInspector?.wrappedValue.toggle() }
-                .keyboardShortcut("b", modifiers: [.command, .shift]).disabled(browser?.hasProject != true || browser?.showInspector == nil)
-            Divider()
-            Button("Project List View", systemImage: "list.bullet") { browser?.grid?.wrappedValue = false; browser?.showProjects?.wrappedValue = true }
+            if allProjects == nil {
+                projectLanguageMenu()
+                Divider()
+                savedResultsMenu()
+                Divider()
+                Button(editor?.previewHidden == true ? "Show Preview" : "Hide Preview", systemImage: editor?.previewHidden == true ? "video" : "video.slash") {
+                    editor?.run("preview")
+                }
+                .keyboardShortcut("v", modifiers: [.command, .shift])
+                .disabled(editor?.canRun("preview") != true)
+                Button(editor?.fullScreenTitle ?? "Full-Screen Video", systemImage: "arrow.up.left.and.arrow.down.right") {
+                    editor?.run("fullscreen")
+                }
+                .disabled(editor?.canRun("fullscreen") != true)
+                Button(editor?.timelineVisible == false ? "Show Timeline" : "Hide Timeline", systemImage: "film") {
+                    editor?.run("toggle-timeline")
+                }
+                .disabled(editor?.canRun("toggle-timeline") != true)
+                Button(editor?.thumbnailImagesVisible == true ? "Hide Thumbnail Images" : "Show Thumbnail Images", systemImage: "photo.on.rectangle") {
+                    editor?.run("toggle-thumbnail-images")
+                }
+                .disabled(editor?.canRun("toggle-thumbnail-images") != true)
+                if editor?.summaryActive == true {
+                    shortcutEntries(StudioShortcut.editor.filter { $0.group == "Summary Zoom" })
+                }
+                if editor?.canFilterSegments == true {
+                    Button(editor?.filterTitle ?? "Filter Segments…", systemImage: "line.3.horizontal.decrease.circle") {
+                        editor?.run("filter-segments")
+                    }
+                    .disabled(editor?.canRun("filter-segments") != true)
+                    Menu(editor?.sortTitle ?? "Sort Segments", systemImage: "arrow.up.arrow.down") {
+                    Button("Start Time", systemImage: editor?.segmentSort == "start" ? "checkmark" : "clock") {
+                        editor?.run("sort-start")
+                    }
+                    .disabled(editor?.canRun("sort-start") != true)
+                    Button("Duration — Shortest First", systemImage: editor?.segmentSort == "durationAscending" ? "checkmark" : "timer") {
+                        editor?.run("sort-duration-asc")
+                    }
+                    .disabled(editor?.canRun("sort-duration-asc") != true)
+                    Button("Duration — Longest First", systemImage: editor?.segmentSort == "durationDescending" ? "checkmark" : "timer") {
+                        editor?.run("sort-duration-desc")
+                    }
+                    .disabled(editor?.canRun("sort-duration-desc") != true)
+                    Button("Origin", systemImage: editor?.segmentSort == "origin" ? "checkmark" : "tag") {
+                        editor?.run("sort-origin")
+                    }
+                    .disabled(editor?.canRun("sort-origin") != true)
+                    }
+                }
+                Divider()
+                Button(browser?.showProjects?.wrappedValue == true ? "Hide Project List" : "Show Project List", systemImage: "sidebar.left") { browser?.showProjects?.wrappedValue.toggle() }
+                    .keyboardShortcut("b", modifiers: .command).disabled(browser?.showProjects == nil)
+                Button(browser?.hasProject == true && browser?.showInspector?.wrappedValue == true ? "Hide Inspector" : "Show Inspector", systemImage: "sidebar.right") { browser?.showInspector?.wrappedValue.toggle() }
+                    .keyboardShortcut("b", modifiers: [.command, .shift]).disabled(browser?.hasProject != true || browser?.showInspector == nil)
+                Divider()
+            }
+            Button("Project List View", systemImage: browser?.grid?.wrappedValue == false ? "checkmark" : "list.bullet") { browser?.grid?.wrappedValue = false; browser?.showProjects?.wrappedValue = true }
                 .keyboardShortcut("1", modifiers: [.command, .option])
                 .disabled(browser?.grid == nil || editor?.summaryEditing == true)
-            Button("Project Grid View", systemImage: "square.grid.2x2") { browser?.grid?.wrappedValue = true; browser?.showProjects?.wrappedValue = true }
+            Button("Project Grid View", systemImage: browser?.grid?.wrappedValue == true ? "checkmark" : "square.grid.2x2") { browser?.grid?.wrappedValue = true; browser?.showProjects?.wrappedValue = true }
                 .keyboardShortcut("2", modifiers: [.command, .option])
                 .disabled(browser?.grid == nil || editor?.summaryEditing == true)
         }
@@ -511,140 +543,160 @@ struct StudioCommands: Commands {
             }
         }
         CommandGroup(after: .pasteboard) {
-            Button("Copy to…", systemImage: "doc.on.doc") { editor?.run("copy-to") }
-                .accessibilityIdentifier("copy-to")
-                .disabled(editor?.canRun("copy-to") != true)
+            if allProjects == nil {
+                Button("Copy to…", systemImage: "doc.on.doc") { editor?.run("copy-to") }
+                    .accessibilityIdentifier("copy-to")
+                    .disabled(editor?.canRun("copy-to") != true)
+            }
         }
         CommandGroup(replacing: .textEditing) { }
         CommandGroup(replacing: .textFormatting) { }
-        CommandMenu("Playback") {
-            shortcutEntries(StudioShortcut.editor.filter { $0.group == "Playback" })
-            if editor?.captionControlsAvailable == true {
-                Divider()
-                Menu("Transcript Overlay: \(captionModeTitle)", systemImage: captionModeIcon) {
-                    shortcutEntries(StudioShortcut.editor.filter { $0.id == "caption-cycle" })
+        if allProjects == nil {
+            CommandMenu("Playback") {
+                shortcutEntries(StudioShortcut.editor.filter { $0.group == "Playback" })
+                if editor?.captionControlsAvailable == true {
                     Divider()
-                    captionShortcutEntry("caption-off", mode: "off")
-                    captionShortcutEntry("caption-transcript", mode: "transcript")
-                    captionShortcutEntry("caption-ad-transcript", mode: "ad-transcript")
+                    Menu("Transcript Overlay: \(captionModeTitle)", systemImage: captionModeIcon) {
+                        shortcutEntries(StudioShortcut.editor.filter { $0.id == "caption-cycle" })
+                        Divider()
+                        captionShortcutEntry("caption-off", mode: "off")
+                        captionShortcutEntry("caption-transcript", mode: "transcript")
+                        captionShortcutEntry("caption-ad-transcript", mode: "ad-transcript")
+                    }
                 }
-            }
-            Divider()
-            Menu("Summary Reading", systemImage: "speaker.wave.2") {
-                shortcutEntries(StudioShortcut.editor.filter {
-                    ["summary-play", "summary-pause", "summary-stop"].contains($0.id)
-                })
                 Divider()
-                shortcutEntries(StudioShortcut.editor.filter {
-                    ["summary-previous-sentence", "summary-next-sentence",
-                     "summary-previous-paragraph", "summary-next-paragraph"].contains($0.id)
-                })
-                Divider()
-                Button("Read Summary from Start", systemImage: "forward.end") { editor?.run("summary-from-start") }
-                    .disabled(editor?.canRun("summary-from-start") != true)
-                Button("Read Summary from Selection", systemImage: "text.cursor") { editor?.run("summary-from-selection") }
-                    .disabled(editor?.canRun("summary-from-selection") != true)
-                Button("Read Selected Summary Text", systemImage: "quote.bubble") { editor?.run("summary-read-selection") }
-                    .disabled(editor?.canRun("summary-read-selection") != true)
+                Menu("Summary Reading", systemImage: "speaker.wave.2") {
+                    shortcutEntries(StudioShortcut.editor.filter {
+                        ["summary-play", "summary-pause", "summary-stop"].contains($0.id)
+                    })
+                    Divider()
+                    shortcutEntries(StudioShortcut.editor.filter {
+                        ["summary-previous-sentence", "summary-next-sentence",
+                         "summary-previous-paragraph", "summary-next-paragraph"].contains($0.id)
+                    })
+                    Divider()
+                    Button("Read Summary from Start", systemImage: "forward.end") { editor?.run("summary-from-start") }
+                        .disabled(editor?.canRun("summary-from-start") != true)
+                    Button("Read Summary from Selection", systemImage: "text.cursor") { editor?.run("summary-from-selection") }
+                        .disabled(editor?.canRun("summary-from-selection") != true)
+                    Button("Read Selected Summary Text", systemImage: "quote.bubble") { editor?.run("summary-read-selection") }
+                        .disabled(editor?.canRun("summary-read-selection") != true)
+                }
+                .disabled(editor?.summaryActive != true)
             }
-            .disabled(editor?.summaryActive != true)
         }
         CommandMenu("Project") {
-            Button("Language and Saved Results…", systemImage: "translate") { editor?.run("language-results") }
-                .disabled(editor?.canRun("language-results") != true)
-
-            Menu("Editor Sections", systemImage: "rectangle.split.3x1") {
-                shortcutEntries(StudioShortcut.editor.filter { ["transcript", "summary", "descriptions", "ad-overview", "ad-transcript"].contains($0.id) })
+            if let allProjects {
+                Button("Open Selected Project", systemImage: "macwindow") { allProjects.run("open-selected-project") }
+                    .disabled(!allProjects.canRun("open-selected-project"))
+                Divider()
             }
-            Menu("Segments", systemImage: "timeline.selection") {
-                Button(editor?.segmentEditModeTitle ?? "Edit Segments", systemImage: editor?.segmentEditMode == true ? "checkmark" : "pencil") {
-                    editor?.run("segment-edit-mode")
+            if allProjects == nil {
+                Button("Language and Saved Results…", systemImage: "translate") { editor?.run("language-results") }
+                    .disabled(editor?.canRun("language-results") != true)
+
+                Menu("Editor Sections", systemImage: "rectangle.split.3x1") {
+                    shortcutEntries(StudioShortcut.editor.filter { ["transcript", "summary", "descriptions", "ad-overview", "ad-transcript"].contains($0.id) })
                 }
-                .keyboardShortcut("e", modifiers: [.command, .option])
-                .disabled(editor?.canRun("segment-edit-mode") != true)
-                Button(editor?.addSegmentTitle ?? "Add Segment", systemImage: "plus") { editor?.run("add") }
-                    .keyboardShortcut("n", modifiers: [.command, .shift])
-                    .disabled(editor?.canRun("add") != true)
-                Divider()
-                shortcutEntries(StudioShortcut.editor.filter { $0.id == "reanalyze-selection" })
-                Button("Select All Segments", systemImage: "checkmark.square") { editor?.run("segment-select-all") }
-                    .keyboardShortcut("a", modifiers: [.command, .option])
-                    .disabled(editor?.canRun("segment-select-all") != true)
-                Button("Deselect All Segments", systemImage: "square") { editor?.run("segment-deselect-all") }
-                    .keyboardShortcut("u", modifiers: [.command, .option, .shift])
-                    .disabled(editor?.canRun("segment-deselect-all") != true)
-                Button("Edit Selected Segments…", systemImage: "square.and.pencil") { editor?.run("segment-edit-selected") }
-                    .keyboardShortcut(.return, modifiers: [.command, .option])
-                    .disabled(editor?.canRun("segment-edit-selected") != true)
-                Button("Delete Selected Segments…", systemImage: "trash", role: .destructive) { editor?.run("segment-delete-selected") }
-                    .keyboardShortcut(.delete, modifiers: [.command, .control])
-                    .disabled(editor?.canRun("segment-delete-selected") != true)
-                Divider()
-                shortcutEntries(StudioShortcut.editor.filter { ["follow", "undo", "redo"].contains($0.id) })
+                Menu("Segments", systemImage: "timeline.selection") {
+                    Button(editor?.segmentEditModeTitle ?? "Edit Segments", systemImage: editor?.segmentEditMode == true ? "checkmark" : "pencil") {
+                        editor?.run("segment-edit-mode")
+                    }
+                    .keyboardShortcut("e", modifiers: [.command, .option])
+                    .disabled(editor?.canRun("segment-edit-mode") != true)
+                    Button(editor?.addSegmentTitle ?? "Add Segment", systemImage: "plus") { editor?.run("add") }
+                        .keyboardShortcut("n", modifiers: [.command, .shift])
+                        .disabled(editor?.canRun("add") != true)
+                    Divider()
+                    shortcutEntries(StudioShortcut.editor.filter { $0.id == "reanalyze-selection" })
+                    Button("Select All Segments", systemImage: "checkmark.square") { editor?.run("segment-select-all") }
+                        .keyboardShortcut("a", modifiers: [.command, .option])
+                        .disabled(editor?.canRun("segment-select-all") != true)
+                    Button("Deselect All Segments", systemImage: "square") { editor?.run("segment-deselect-all") }
+                        .keyboardShortcut("u", modifiers: [.command, .option, .shift])
+                        .disabled(editor?.canRun("segment-deselect-all") != true)
+                    Button("Edit Selected Segments…", systemImage: "square.and.pencil") { editor?.run("segment-edit-selected") }
+                        .keyboardShortcut(.return, modifiers: [.command, .option])
+                        .disabled(editor?.canRun("segment-edit-selected") != true)
+                    Button("Delete Selected Segments…", systemImage: "trash", role: .destructive) { editor?.run("segment-delete-selected") }
+                        .keyboardShortcut(.delete, modifiers: [.command, .control])
+                        .disabled(editor?.canRun("segment-delete-selected") != true)
+                    Divider()
+                    shortcutEntries(StudioShortcut.editor.filter { ["follow", "undo", "redo"].contains($0.id) })
+                }
             }
             Menu("Analysis", systemImage: "sparkles") {
-                shortcutEntries(StudioShortcut.editor.filter { $0.id == "analyze" })
+                Button("Analyze Video…", systemImage: "sparkles") { runProject("analyze") }
+                    .keyboardShortcut("a", modifiers: [.command, .option, .shift])
+                    .disabled(!canRunProject("analyze"))
                 Divider()
-                Button(editor?.hasGeneratedThumbnails == true ? "Regenerate Video Details & Timeline Pictures…" : "Generate Video Details & Timeline Pictures", systemImage: "photo.on.rectangle.angled") { editor?.run("prepare-video") }
-                    .disabled(editor?.canRun("prepare-video") != true)
-                Button(editor?.hasGeneratedTranscript == true ? "Regenerate Transcript…" : "Generate Transcript", systemImage: "text.bubble") { editor?.run("transcribe") }
+                Button((!(allProjects?.project?.thumbnails.isEmpty ?? true) || editor?.hasGeneratedThumbnails == true) ? "Regenerate Video Details & Timeline Pictures…" : "Generate Video Details & Timeline Pictures", systemImage: "photo.on.rectangle.angled") { runProject("prepare-video") }
+                    .disabled(!canRunProject("prepare-video"))
+                Button((allProjects?.project?.hasGeneratedTranscript == true || editor?.hasGeneratedTranscript == true) ? "Regenerate Transcript…" : "Generate Transcript", systemImage: "text.bubble") { runProject("transcribe") }
                     .keyboardShortcut("t", modifiers: [.command, .option, .shift])
-                    .disabled(editor?.canRun("transcribe") != true)
-                Button(editor?.hasGeneratedSummary == true ? "Regenerate Summary…" : "Generate Summary", systemImage: "text.alignleft") { editor?.run("generate-summary") }
+                    .disabled(!canRunProject("transcribe"))
+                Button((allProjects?.project?.summary.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty == false || editor?.hasGeneratedSummary == true) ? "Regenerate Summary…" : "Generate Summary", systemImage: "text.alignleft") { runProject("generate-summary") }
                     .keyboardShortcut("s", modifiers: [.command, .option, .shift])
-                    .disabled(editor?.canRun("generate-summary") != true)
-            }
-            Menu("YouTube", systemImage: "play.rectangle") {
-                Button("Video Details…", systemImage: "info.circle") { editor?.run("youtube-details") }.disabled(editor?.youtubeProject != true || editor?.available != true)
-                Button("Refresh YouTube Details", systemImage: "arrow.clockwise") { editor?.run("youtube-refresh") }.disabled(editor?.youtubeProject != true || editor?.available != true)
-                Button("Import YouTube Captions…", systemImage: "captions.bubble") { editor?.run("youtube-captions") }.disabled(editor?.youtubeProject != true || editor?.available != true)
-            }
-            Menu("Narration", systemImage: editor?.isSynthesizingNarration == true ? "rays" : "speaker.wave.2") {
-                Menu("AD Segment Generation", systemImage: "sparkles") {
-                    Button(editor?.hasDescriptions == true ? "Regenerate Audio Descriptions…" : "Generate Audio Descriptions", systemImage: "sparkles") { editor?.run("generate-ad-cues") }
-                        .keyboardShortcut("d", modifiers: [.command, .option, .shift])
-                        .disabled(editor?.canRun("generate-ad-cues") != true)
-                    Divider()
-                    Button("Delete Descriptions…", systemImage: "trash", role: .destructive) { editor?.run("delete-descriptions") }
-                        .disabled(editor?.canRun("delete-descriptions") != true)
-                }
-                Menu("Narration Audio", systemImage: "speaker.wave.2") {
-                    Button(editor?.synthesizeNarrationTitle ?? "Generate All AD Audio", systemImage: editor?.isSynthesizingNarration == true ? "rays" : "speaker.wave.2") { editor?.run("synthesize-tts") }
-                        .disabled(editor?.canRun("synthesize-tts") != true)
-                    Button("Generate Missing or Changed AD Audio", systemImage: "waveform") { editor?.run("synthesize-changed") }
-                        .disabled(editor?.canRun("synthesize-changed") != true)
-                    Button("Review Narration Issues…", systemImage: "list.bullet.clipboard") { editor?.run("review-narration-issues") }
-                        .disabled(editor?.canRun("review-narration-issues") != true)
-                    Button("Review Narration Voices…", systemImage: "person.wave.2") { editor?.run("review-narration-voices") }
-                        .disabled(editor?.canRun("review-narration-voices") != true)
-                    Divider()
-                    shortcutEntries(StudioShortcut.editor.filter { $0.id == "delete-narration" })
+                    .disabled(!canRunProject("generate-summary"))
+                if let allProjects {
+                    Button(allProjects.project?.cues.isEmpty == false ? "Regenerate Audio Descriptions…" : "Generate Audio Descriptions", systemImage: "sparkles") { allProjects.run("generate-ad-cues") }
+                    .keyboardShortcut("d", modifiers: [.command, .option, .shift])
+                        .disabled(!allProjects.canRun("generate-ad-cues"))
                 }
             }
-            Button(editor?.currentDeleteTitle ?? "Delete Current Page…", systemImage: "trash", role: .destructive) {
-                guard let action = editor?.currentDeleteAction else { return }
-                editor?.run(action)
-            }
-            .disabled(editor?.currentDeleteAction == nil || editor?.canRun(editor?.currentDeleteAction ?? "") != true)
-            Divider()
-            Menu("Import", systemImage: "square.and.arrow.down") {
-                Button("Import Transcript…", systemImage: "text.bubble") { editor?.run("import-transcript") }
-                    .keyboardShortcut("i", modifiers: [.command, .option])
-                    .disabled(editor?.canRun("import-transcript") != true)
-                Button("Import Summary…", systemImage: "text.alignleft") { editor?.run("import-summary") }
-                    .keyboardShortcut("m", modifiers: [.command, .option])
-                    .disabled(editor?.canRun("import-summary") != true)
-                Button("Import Descriptions…", systemImage: "text.below.photo") { editor?.run("import-descriptions") }
-                    .keyboardShortcut("d", modifiers: [.command, .option])
-                    .disabled(editor?.canRun("import-descriptions") != true)
-                Button("Import Original Audio…", systemImage: "waveform") { editor?.run("import-original-audio") }
-                    .disabled(editor?.canRun("import-original-audio") != true)
-                Button("Import AD Audio…", systemImage: "waveform") { editor?.run("import-ad-audio") }
-                    .disabled(editor?.canRun("import-ad-audio") != true)
+            if allProjects == nil {
+                Menu("YouTube", systemImage: "play.rectangle") {
+                    Button("Video Details…", systemImage: "info.circle") { editor?.run("youtube-details") }.disabled(editor?.youtubeProject != true || editor?.available != true)
+                    Button("Refresh YouTube Details", systemImage: "arrow.clockwise") { editor?.run("youtube-refresh") }.disabled(editor?.youtubeProject != true || editor?.available != true)
+                    Button("Import YouTube Captions…", systemImage: "captions.bubble") { editor?.run("youtube-captions") }.disabled(editor?.youtubeProject != true || editor?.available != true)
+                }
+                Menu("Narration", systemImage: editor?.isSynthesizingNarration == true ? "rays" : "speaker.wave.2") {
+                    Menu("AD Segment Generation", systemImage: "sparkles") {
+                        Button(editor?.hasDescriptions == true ? "Regenerate Audio Descriptions…" : "Generate Audio Descriptions", systemImage: "sparkles") { editor?.run("generate-ad-cues") }
+                            .keyboardShortcut("d", modifiers: [.command, .option, .shift])
+                            .disabled(editor?.canRun("generate-ad-cues") != true)
+                        Divider()
+                        Button("Delete Descriptions…", systemImage: "trash", role: .destructive) { editor?.run("delete-descriptions") }
+                            .disabled(editor?.canRun("delete-descriptions") != true)
+                    }
+                    Menu("Narration Audio", systemImage: "speaker.wave.2") {
+                        Button(editor?.synthesizeNarrationTitle ?? "Generate All AD Audio", systemImage: editor?.isSynthesizingNarration == true ? "rays" : "speaker.wave.2") { editor?.run("synthesize-tts") }
+                            .disabled(editor?.canRun("synthesize-tts") != true)
+                        Button("Generate Missing or Changed AD Audio", systemImage: "waveform") { editor?.run("synthesize-changed") }
+                            .disabled(editor?.canRun("synthesize-changed") != true)
+                        Button("Review Narration Issues…", systemImage: "list.bullet.clipboard") { editor?.run("review-narration-issues") }
+                            .disabled(editor?.canRun("review-narration-issues") != true)
+                        Button("Review Narration Voices…", systemImage: "person.wave.2") { editor?.run("review-narration-voices") }
+                            .disabled(editor?.canRun("review-narration-voices") != true)
+                        Divider()
+                        shortcutEntries(StudioShortcut.editor.filter { $0.id == "delete-narration" })
+                    }
+                }
+                Button(editor?.currentDeleteTitle ?? "Delete Current Page…", systemImage: "trash", role: .destructive) {
+                    guard let action = editor?.currentDeleteAction else { return }
+                    editor?.run(action)
+                }
+                .disabled(editor?.currentDeleteAction == nil || editor?.canRun(editor?.currentDeleteAction ?? "") != true)
                 Divider()
-                Button("Import Existing Assets…", systemImage: "square.and.arrow.down") { editor?.run("import-assets") }
-                    .keyboardShortcut("i", modifiers: [.command, .option, .shift])
-                    .disabled(editor?.canRun("import-assets") != true)
+                Menu("Import", systemImage: "square.and.arrow.down") {
+                    Button("Import Transcript…", systemImage: "text.bubble") { editor?.run("import-transcript") }
+                        .keyboardShortcut("i", modifiers: [.command, .option])
+                        .disabled(editor?.canRun("import-transcript") != true)
+                    Button("Import Summary…", systemImage: "text.alignleft") { editor?.run("import-summary") }
+                        .keyboardShortcut("m", modifiers: [.command, .option])
+                        .disabled(editor?.canRun("import-summary") != true)
+                    Button("Import Descriptions…", systemImage: "text.below.photo") { editor?.run("import-descriptions") }
+                        .keyboardShortcut("d", modifiers: [.command, .option])
+                        .disabled(editor?.canRun("import-descriptions") != true)
+                    Button("Import Original Audio…", systemImage: "waveform") { editor?.run("import-original-audio") }
+                        .disabled(editor?.canRun("import-original-audio") != true)
+                    Button("Import AD Audio…", systemImage: "waveform") { editor?.run("import-ad-audio") }
+                        .disabled(editor?.canRun("import-ad-audio") != true)
+                    Divider()
+                    Button("Import Existing Assets…", systemImage: "square.and.arrow.down") { editor?.run("import-assets") }
+                        .keyboardShortcut("i", modifiers: [.command, .option, .shift])
+                        .disabled(editor?.canRun("import-assets") != true)
+                }
             }
             Button("Show Project in Finder", systemImage: "folder") { browser?.run("show-in-finder") }
                 .disabled(browser?.canRun("show-in-finder") != true)
@@ -662,16 +714,20 @@ struct StudioCommands: Commands {
             Button("My YouTube Videos…", systemImage: "play.rectangle") { studio.runYouTube("youtube-browser"); openWindow(id: "youtube-browser") }.keyboardShortcut("y", modifiers: [.command, .option]).disabled(studio.busy)
             Button("YouTube Accounts…", systemImage: "person.crop.circle") { youtubeBrowser?.run("youtube-accounts"); if youtubeBrowser == nil { SettingsSectionRequest.request("YouTube Accounts"); openSettings() } }
                 .keyboardShortcut("y", modifiers: [.command, .option, .shift])
+            if allProjects == nil {
             Divider()
             Button("List View", systemImage: youtubeBrowser?.layout == "list" ? "checkmark" : "list.bullet") { youtubeBrowser?.run("youtube-list") }.disabled(youtubeBrowser == nil)
             Button("Table View", systemImage: youtubeBrowser?.layout == "table" ? "checkmark" : "tablecells") { youtubeBrowser?.run("youtube-table") }.disabled(youtubeBrowser == nil)
             Divider()
             Button("Open in Editor", systemImage: "pencil") { youtubeBrowser?.run("youtube-open-editor") }.keyboardShortcut(.return, modifiers: [.command]).disabled(youtubeBrowser?.canRun("youtube-open-editor") != true)
+            }
             Button("Open in YouTube", systemImage: "arrow.up.right.square") { if youtubeBrowser != nil { youtubeBrowser?.run("youtube-open-browser") } else { browser?.run("youtube-open-browser") } }.keyboardShortcut(.return, modifiers: [.command, .shift]).disabled(youtubeBrowser != nil ? youtubeBrowser?.canRun("youtube-open-browser") != true : browser?.canRun("youtube-open-browser") != true)
+            if allProjects == nil {
             Divider()
             Button("Refresh Videos", systemImage: "arrow.clockwise") { youtubeBrowser?.run("youtube-refresh-list") }.keyboardShortcut("r", modifiers: [.command]).disabled(youtubeBrowser?.canRun("youtube-refresh-list") != true)
             Button("Load More Videos", systemImage: "plus") { youtubeBrowser?.run("youtube-load-videos") }.keyboardShortcut("l", modifiers: [.command, .option]).disabled(youtubeBrowser?.canRun("youtube-load-videos") != true)
             Button("Load More Playlists", systemImage: "plus") { youtubeBrowser?.run("youtube-load-playlists") }.keyboardShortcut("l", modifiers: [.command, .option, .shift]).disabled(youtubeBrowser?.canRun("youtube-load-playlists") != true)
+            }
         }
         CommandGroup(replacing: .help) {
             Button("VidiStudio Help", systemImage: "questionmark.circle") { StudioHelp.open() }.keyboardShortcut("/", modifiers: [.command, .option])
@@ -731,7 +787,7 @@ struct ShortcutReferenceView: View {
             shortcutRow("Open Project Folder", value: "Command + Shift + O")
             shortcutRow("Rename Selected Project", value: "Return; All Projects")
             shortcutRow("Settings", value: "Command + Comma")
-            shortcutRow("Open Project Settings", value: "Command + Shift + Comma; current project editor")
+            shortcutRow("Open Project Settings", value: "Command + Shift + Comma; selected project or current editor")
             shortcutRow("Show or Hide Inspector", value: "Command + Shift + B; requires a selected project")
             shortcutRow("Show or Hide Timeline", value: "View menu; project editor")
             shortcutRow("Show or Hide Thumbnail Images", value: "View menu; hidden by default")

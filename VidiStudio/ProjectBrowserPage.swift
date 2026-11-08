@@ -83,9 +83,12 @@ struct ProjectBrowserPage: View {
         !search.isEmpty || sourceFilter != .all || languageFilter != "all"
     }
 
+    private var selectedProject: StudioProject? {
+        filteredProjects.first { $0.id == selection }
+    }
+
     private var selectedProjectFolder: URL? {
-        guard let selection else { return nil }
-        return projects.first(where: { $0.id == selection })?.folder
+        selectedProject?.folder
     }
 
     var body: some View {
@@ -268,6 +271,26 @@ struct ProjectBrowserPage: View {
                 .accessibilityLabel("All projects table")
             }
         }
+        .focusedSceneValue(\.projectBrowser, ProjectBrowserActions(
+            showProjects: nil, showInspector: nil, grid: $grid,
+            hasProject: selectedProject != nil, listModel: studio
+        ))
+        .focusedSceneValue(\.allProjects, AllProjectsActions(
+            studio: studio, project: selectedProject, sourceFilter: $sourceFilter,
+            languageFilter: $languageFilter, search: $search,
+            perform: { action, project in
+                switch action {
+                case "open-selected-project": openEditor(project)
+                case "export": export(project)
+                case "delete-content": clear(project)
+                case "delete-project": delete(project)
+                default: process(project, action)
+                }
+            }
+        ))
+        .onChange(of: filteredProjects.map(\.id)) { _, visibleIDs in
+            if let selection, !visibleIDs.contains(selection) { self.selection = nil }
+        }
         .navigationTitle("All Projects")
         .searchable(text: $search, placement: .toolbar, prompt: "Search projects")
         .toolbar {
@@ -336,7 +359,7 @@ struct ProjectBrowserPage: View {
             .overlay(alignment: .top) { Divider() }
         }
         .onKeyPress(.return) {
-            guard let selection, let project = projects.first(where: { $0.id == selection }) else { return .ignored }
+            guard !busy, let project = selectedProject else { return .ignored }
             rename(project)
             return .handled
         }
