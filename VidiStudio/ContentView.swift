@@ -962,6 +962,12 @@ struct ProcessingInspector: View {
                     VStack(alignment: .leading, spacing: 10) {
                         LanguageResultControls(studio: studio, project: project, editorActions: editorActions)
                         ProjectVideoInformationView(project: project)
+                        if ["descriptions", "ad-overview"].contains(editorActions.activeSection) {
+                            InspectorSection("Audio Description") {
+                                InspectorInformationRow(label: "Total AD characters", value: (editorActions.activeSection == "ad-overview" ? project.overviewProject : project).descriptionCharacterCount.formatted())
+                                    .font(.caption)
+                            }
+                        }
                         if project.isYouTubeURLProject { YouTubeInspectorInformationView(studio: studio, project: project) }
                     }
                         .frame(maxWidth: .infinity, alignment: .leading)

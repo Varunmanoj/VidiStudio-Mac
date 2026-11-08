@@ -57,6 +57,8 @@ struct ADOverviewView: View {
                             Divider()
                             statistic("Description segments", value: String(project.cues.count))
                             Divider()
+                            statistic("Total AD characters", value: project.descriptionCharacterCount.formatted())
+                            Divider()
                             statistic("Narration audio ready", value: String(ready))
                             Divider()
                             statistic("Audio needs updating", value: String(stale))

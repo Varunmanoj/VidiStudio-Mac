@@ -616,6 +616,8 @@ struct StudioProject: Codable, Identifiable {
     var hasGeneratedTranscript: Bool {
         transcriptGenerated == true || !transcript.isEmpty
     }
+    /// Counts each segment's text as displayed characters, including whitespace and punctuation.
+    var descriptionCharacterCount: Int { cues.reduce(0) { $0 + $1.text.count } }
     var hasNarrationAudio: Bool { cues.contains { $0.audio != nil } }
     var descriptionTimingIssueCount: Int { descriptionTimingAudit?.count ?? 0 }
     var hasDescriptionTimingIssues: Bool { descriptionTimingIssueCount > 0 }
