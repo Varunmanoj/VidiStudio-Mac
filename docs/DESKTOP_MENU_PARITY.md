@@ -157,3 +157,7 @@ View contains Zoom In (`summary-zoom-in`), Zoom Out (`summary-zoom-out`) and Act
 ## All Projects window menus
 
 View uses the All Projects source/language filters, reset filters, and checked list/grid layout. Project offers Open Selected Project, Analysis (including description generation), folder/configuration, rename and trash. File Export, deletion, Remove from List and Project Settings target the visible selection. Filtering a selection out disables those actions. Editor-only controls are hidden in this window, including preview/timeline/inspector, saved results, sections, segments, import, narration and playback. Native macOS Edit/Window commands remain system-owned; Windows hides its application-only Edit/Playback menus in All Projects. The macOS grid icon-size slider remains a native Mac presentation control.
+
+### Piper Settings voice sample
+
+In Settings > Narration, the Piper sample button offers Play Sample and Stop Sample in its context menu (right-click; Windows also supports Shift-F10). Both use the same guarded actions as the button and stable IDs `piper-settings-play-sample` / `piper-settings-stop-sample`. Play requires Piper and a selected downloaded voice; Stop is enabled while preparing or playing audio. The button remains visible but disabled without that voice. Mac applies rate, pitch and volume to the local sample; Windows applies rate and volume, retaining its existing saved-narration pitch behavior.

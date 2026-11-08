@@ -19,6 +19,20 @@ class DesktopMenuParity(unittest.TestCase):
         windows_root = Path(os.environ.get('VIDISTUDIO_WINDOWS_ROOT', root / 'Vidi-Studio-Windows'))
         cls.windows = (windows_root / 'Vidi Studio Windows/MainWindow.Menus.cs').read_text(encoding='utf-8')
 
+    def test_piper_settings_sample_menu_and_download_guard(self):
+        root = Path(os.environ.get('VIDISTUDIO_DESKTOP_WORKSPACE', Path(__file__).resolve().parents[2]))
+        mac = (root / 'VidiStudio Mac/VidiStudio/PiperVoiceCatalog.swift').read_text()
+        windows = (root / 'Vidi-Studio-Windows/Vidi Studio Windows/Views/SettingsDialog.Voices.cs').read_text()
+        self.checker.compare_piper_settings_samples(mac, windows)
+        for changed_mac, changed_windows in (
+            (mac.replace('Button("Play Sample") { playSample() }', ''), windows),
+            (mac.replace('.disabled(selectedVoice == nil)', ''), windows),
+            (mac, windows.replace('piperPlaySampleMenuItem.IsEnabled = CanPlayPiperSample', 'piperPlaySampleMenuItem.IsEnabled = true')),
+            (mac, windows.replace('Text = "Stop Sample", Tag = "piper-settings-stop-sample"', 'Text = "Stop"')),
+        ):
+            with self.assertRaises(ValueError):
+                self.checker.compare_piper_settings_samples(changed_mac, changed_windows)
+
     def test_library_filter_and_selected_project_contracts(self):
         for mac, windows in (
             (self.mac.replace('allProjects.languageFilter.wrappedValue = language.id', 'allProjects.languageFilter.wrappedValue = "auto"'), self.windows),

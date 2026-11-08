@@ -611,11 +611,75 @@ enum PiperSpeechError: LocalizedError {
 
 // MARK: - Settings controls
 
+/// Plays a local sample of the selected downloaded voice using the narration controls.
+@MainActor @Observable final class PiperSettingsPreview: NSObject, AVAudioPlayerDelegate {
+    var active = false
+    var loading = false
+    var error: String?
+    @ObservationIgnored private var player: AVAudioPlayer?
+    @ObservationIgnored private var generation = 0
+
+    func play(settings: StudioSettings) {
+        stop()
+        error = nil
+        active = true
+        loading = true
+        let generation = generation
+        let request = PiperSpeech.request(text: "Welcome to VidiStudio. This is a sample of the selected Piper narration voice.", settings: settings)
+        Task {
+            do {
+                let url = try await PiperSpeech.shared.synthesize(request)
+                guard self.generation == generation else { return }
+                let player = try AVAudioPlayer(contentsOf: url)
+                player.delegate = self
+                guard player.play() else { throw PiperSpeechError.message("The audio sample could not be played.") }
+                self.player = player
+                self.loading = false
+            } catch {
+                guard self.generation == generation else { return }
+                self.stop()
+                self.error = "The sample could not be played. \(error.localizedDescription)"
+            }
+        }
+    }
+
+    func stop() {
+        generation += 1
+        player?.stop()
+        player = nil
+        loading = false
+        active = false
+    }
+
+    nonisolated func audioPlayerDidFinishPlaying(_ player: AVAudioPlayer, successfully flag: Bool) {
+        Task { @MainActor [weak self] in
+            guard let self, self.player === player else { return }
+            self.stop()
+            if !flag { self.error = "The audio sample could not finish playing." }
+        }
+    }
+}
+
+
 struct PiperVoiceSettingsView: View {
     @Binding var settings: StudioSettings
     @State private var manager = PiperVoiceManager.shared
     @State private var showingCatalog = false
     @State private var showingDelete = false
+    @State private var sample = PiperSettingsPreview()
+
+    private var selectedVoice: PiperVoice? {
+        guard settings.ttsMode == "piper" else { return nil }
+        return manager.downloadedVoices.first { $0.id == settings.piperVoice && !manager.deletingIDs.contains($0.id) }
+    }
+    private var canPlaySample: Bool { selectedVoice != nil && !sample.active }
+    private func playSample() {
+        guard canPlaySample else { return }
+        sample.play(settings: settings)
+    }
+    private func toggleSample() {
+        if sample.active { sample.stop() } else { playSample() }
+    }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
@@ -636,6 +700,22 @@ struct PiperVoiceSettingsView: View {
                 .accessibilityHint("Chooses the downloaded Piper voice used for narration, live preview, and summary read-aloud")
             }
             HStack(spacing: 12) {
+                    Button(sample.active ? "Stop Sample" : "Play Sample", systemImage: sample.active ? "stop.circle" : "play.circle") { toggleSample() }
+                        .accessibilityIdentifier("piper-settings-sample")
+                        .accessibilityLabel((sample.active ? "Stop sample of " : "Play sample of ") + (selectedVoice?.displayName ?? "the selected Piper voice"))
+                        .disabled(selectedVoice == nil)
+                        .help("Plays the selected downloaded Piper voice with the current speech controls")
+                        .contextMenu {
+                            Button("Play Sample") { playSample() }
+                                .disabled(!canPlaySample)
+                                .accessibilityIdentifier("piper-settings-play-sample")
+                            Button("Stop Sample") { sample.stop() }
+                                .disabled(!sample.active)
+                                .accessibilityIdentifier("piper-settings-stop-sample")
+                        }
+                    if sample.loading {
+                        ProgressView().controlSize(.small).accessibilityLabel("Preparing Piper sample")
+                    }
                 Button("Download or Remove Voices…", systemImage: "arrow.down.circle") {
                     showingCatalog = true
                 }
@@ -647,7 +727,17 @@ struct PiperVoiceSettingsView: View {
                 .accessibilityLabel("Delete downloaded Piper voices")
                 .accessibilityHint("Lists downloaded Piper voices so you can listen to a sample and remove the ones you no longer need")
             }
+            if let error = sample.error { Text(error).foregroundStyle(.red).accessibilityLabel("Voice preview error: " + error) }
         }
+        .onChange(of: settings.piperVoice) { _, _ in sample.stop() }
+        .onChange(of: settings.ttsMode) { _, _ in sample.stop() }
+        .onChange(of: settings.systemSpeechRate) { _, _ in sample.stop() }
+        .onChange(of: settings.systemSpeechPitch) { _, _ in sample.stop() }
+        .onChange(of: settings.systemSpeechVolume) { _, _ in sample.stop() }
+        .onChange(of: selectedVoice?.id) { _, _ in sample.stop() }
+        .onChange(of: showingCatalog) { _, _ in sample.stop() }
+        .onChange(of: showingDelete) { _, _ in sample.stop() }
+        .onDisappear { sample.stop() }
         .sheet(isPresented: $showingCatalog) {
             PiperVoiceBrowser(settings: $settings)
         }
