@@ -959,6 +959,7 @@ struct ProcessingInspector: View {
                             InspectorSection("Audio Description") {
                                 InspectorInformationRow(label: "Total AD characters", value: (editorActions.activeSection == "ad-overview" ? project.overviewProject : project).descriptionCharacterCount.formatted())
                                     .font(.caption)
+                                ADAudioReadinessIndicator(status: (editorActions.activeSection == "ad-overview" ? project.overviewProject : project).adAudioReadiness(language: project.languageCode))
                             }
                         }
                         if project.isYouTubeURLProject { YouTubeInspectorInformationView(studio: studio, project: project) }
@@ -1183,12 +1184,18 @@ struct ProcessingInspector: View {
                         }
                         InspectorSection("Export") {
                             VStack(alignment: .leading, spacing: 10) {
-                                ProjectExportButton(
-                                    project: p,
-                                    busy: studio.busy,
-                                    showDialog: showExportDialog
-                                )
-                                .help("Export video, narration audio, or text in the format you need (Command-Shift-E)")
+                                HStack {
+                                    ProjectExportButton(
+                                        project: p,
+                                        busy: studio.busy,
+                                        showDialog: showExportDialog
+                                    )
+                                    .help("Export video, narration audio, or text in the format you need (Command-Shift-E)")
+                                    ADAudioReadinessIndicator(status: p.adAudioReadiness(language: p.languageCode), iconOnly: true)
+                                }
+                                ForEach(p.adAudioReadinessByLanguage) { status in
+                                    ADAudioReadinessIndicator(status: status)
+                                }
                                 if !p.exports.isEmpty {
                                     Divider()
                                     CreatedExportsView(studio: studio, project: p)

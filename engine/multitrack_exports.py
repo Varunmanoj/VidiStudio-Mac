@@ -57,8 +57,10 @@ def validate(root, project, plan, core):
         raise ValueError('Choose at least one audio track.')
     for row in audio + captions:
         row['language'] = results.language(row['language'])
-    if len({r['language'] for r in audio}) != len(audio) or len({r['language'] for r in captions}) != len(captions):
-        raise ValueError('Choose only one audio result and one caption result per language.')
+    if len({r['language'] for r in audio}) != len(audio):
+        raise ValueError('Choose only one audio result per language.')
+    if len({(r['language'], bool(r.get('descriptionsID'))) for r in captions}) != len(captions):
+        raise ValueError('Choose only one Transcript and one AD Transcript track per language.')
     seen = set()
     for row in audio:
         result = results.find(project, row['resultID'], saved_only=True)

@@ -459,7 +459,7 @@ struct ExportDialog: View {
                 Form {
                     if category == .video || category == .audio {
                         Section {
-                            Toggle("One File with Selected Tracks", isOn: $combineTracks)
+                            ExportOptionToggle("One File with Selected Tracks", isOn: $combineTracks)
                         }
                     }
                     if selectingTracks {
@@ -700,21 +700,7 @@ struct ExportDialog: View {
         let media = category == .video ? "video" : "audio"
         let format = category == .video ? videoFormat : trackAudioFormat
         let plan = trackSelection.plan(media: media, format: format)
-        let path = trackSelection.path(project: sourceProject, media: media, format: format)
-        var replace = false
-        if sourceProject.hasFile(path) {
-            let alert = NSAlert()
-            alert.messageText = "Replace Existing Export?"
-            alert.informativeText = URL(fileURLWithPath: path).lastPathComponent
-            alert.addButton(withTitle: "Replace Existing")
-            alert.addButton(withTitle: "Skip Existing")
-            alert.addButton(withTitle: "Cancel")
-            let choice = alert.runModal()
-            if choice == .alertThirdButtonReturn { return }
-            replace = choice == .alertFirstButtonReturn
-        }
-        studio.executeResultRequest("export-batch", request: ["jobs": [["command": "export-selected-tracks", "trackPlan": plan, "replaceExisting": replace]]], project: sourceProject)
-        dismiss()
+        submitJobs([["command": "export-selected-tracks", "trackPlan": plan, "replaceExisting": false]])
     }
 
     private func continueSaving(_ action: StudioExportAction) {
@@ -729,7 +715,7 @@ struct ExportDialog: View {
                 options[key] = action.arguments[index + 1]; index += 2
             } else { options[key] = true; index += 1 }
         }
-        var jobs: [[String: Any]] = exportLanguages.sorted().map { code in
+        let jobs: [[String: Any]] = exportLanguages.sorted().map { code in
             var ids: [String: String] = [:]
             for kind in ["transcript", "summary", "descriptions", "adAudio"] {
                 let rid = exportSelections[code]?[kind] ?? sourceProject.activeLanguageResultID(kind, language: code)
@@ -738,9 +724,21 @@ struct ExportDialog: View {
             return ["language": code, "resultIDs": ids, "command": action.command,
                     "options": options, "projectName": sourceProject.name, "replaceExisting": false]
         }
+        submitJobs(jobs, action: action)
+    }
+
+    private func submitJobs(_ initialJobs: [[String: Any]], action: StudioExportAction? = nil) {
+        guard let studio else { return }
+        var jobs = initialJobs
         // Freeze names and result IDs before asking about existing destinations.
         var collisions: [(Int, String)] = []
         for (index, job) in jobs.enumerated() {
+            if job["command"] as? String == "export-selected-tracks" {
+                let media = category == .video ? "video" : "audio"
+                let path = trackSelection.path(project: sourceProject, media: media, format: category == .video ? videoFormat : trackAudioFormat)
+                if sourceProject.hasFile(path) { collisions.append((index, path)) }
+                continue
+            }
             let code = job["language"] as! String
             let ids = job["resultIDs"] as! [String: String]
             var target = sourceProject
@@ -748,7 +746,10 @@ struct ExportDialog: View {
             let prefix = String(String.UnicodeScalarView(sourceProject.name.unicodeScalars.prefix(40)))
             let suffix = ids.values.map { String($0.prefix(8)) }.sorted().joined(separator: "-").replacingOccurrences(of: "-", with: ".")
             target.name = prefix + " [" + OutputLanguage.title(code) + (suffix.isEmpty ? "" : " " + suffix) + "]"
-            let path = action.targetRelativePath(for: target)
+            let options = job["options"] as? [String: Any] ?? [:]
+            let outputAction = job["command"] as? String == "export-subtitles"
+                ? StudioExportAction.text(content: options["content"] as? String ?? "transcript", format: options["format"] as? String ?? "srt") : action!
+            let path = outputAction.targetRelativePath(for: target)
             let legacyExists = sourceProject.exports.contains { old in
                 let oldCode = sourceProject.exportResults?[old]?.language ?? (old.split(separator: "/").count > 2 ? String(old.split(separator: "/")[1]) : "auto")
                 return oldCode == code && URL(fileURLWithPath: old).lastPathComponent == URL(fileURLWithPath: path).lastPathComponent && sourceProject.hasFile(old)

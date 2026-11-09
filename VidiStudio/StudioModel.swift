@@ -669,18 +669,19 @@ struct StudioProject: Codable, Identifiable {
         default: return false
         }
     }
+    func hasUsableExportNarration(_ cue: Segment) -> Bool {
+        guard duration.isFinite, duration > 0,
+              SynchronizedAudioStatus.resolve(cue: cue, project: self) == .generated,
+              !cue.text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
+              cue.start.isFinite, cue.end.isFinite,
+              cue.start >= 0, cue.end > cue.start, cue.end <= duration,
+              let path = cue.audio, let url = url(path),
+              let values = try? url.resourceValues(forKeys: [.isRegularFileKey, .fileSizeKey]),
+              values.isRegularFile == true, (values.fileSize ?? 0) > 0 else { return false }
+        return true
+    }
     func hasCompleteExportNarration() -> Bool {
-        guard duration.isFinite, duration > 0, !cues.isEmpty else { return false }
-        return cues.allSatisfy { cue in
-            guard SynchronizedAudioStatus.resolve(cue: cue, project: self) == .generated,
-                  !cue.text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
-                  cue.start.isFinite, cue.end.isFinite,
-                  cue.start >= 0, cue.end > cue.start, cue.end <= duration,
-                  let path = cue.audio, let url = url(path),
-                  let values = try? url.resourceValues(forKeys: [.isRegularFileKey, .fileSizeKey]),
-                  values.isRegularFile == true, (values.fileSize ?? 0) > 0 else { return false }
-            return true
-        }
+        !cues.isEmpty && cues.allSatisfy(hasUsableExportNarration)
     }
     func hasExportableNarration() -> Bool {
         cues.contains {

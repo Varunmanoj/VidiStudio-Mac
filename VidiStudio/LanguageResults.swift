@@ -541,3 +541,54 @@ extension StudioModel {
         } catch { self.error = error.localizedDescription }
     }
 }
+
+
+struct ADAudioReadiness: Identifiable {
+    let language: String
+    let total: Int
+    let ready: Int
+    var id: String { language }
+    var complete: Bool { total > 0 && ready == total }
+    var title: String { "\(OutputLanguage.title(language)) · \(ready)/\(total) AD audio" }
+    var accessibilityLabel: String {
+        let name = OutputLanguage.title(language)
+        if total == 0 { return "\(name): No AD segments. AD narration is not ready." }
+        if complete { return "\(name): All \(total) AD segments have usable text and audio." }
+        return "\(name): \(ready) of \(total) AD segments have usable text and audio. \(total - ready) missing or unusable. Exports using generated AD narration require complete audio."
+    }
+}
+
+extension StudioProject {
+    func adAudioReadiness(language code: String) -> ADAudioReadiness {
+        var view = self
+        if code != languageCode {
+            let rid = activeLanguageResultID("descriptions", language: code)
+            view.cues = savedLanguageResults.first { $0.kind == "descriptions" && $0.language == code && $0.id == rid }?.payload.cues ?? []
+        }
+        return ADAudioReadiness(language: code, total: view.cues.count, ready: view.cues.filter(view.hasUsableExportNarration).count)
+    }
+    var adAudioReadinessByLanguage: [ADAudioReadiness] {
+        let codes = Set(savedLanguageResults.filter { $0.kind == "descriptions" && $0.hasContent }.map(\.language)).union([languageCode])
+        return codes.sorted { $0 == languageCode ? $1 != languageCode : $1 == languageCode ? false : $0 < $1 }.map { adAudioReadiness(language: $0) }
+    }
+}
+
+
+extension StudioProject {
+    func languagesForExport(_ path: String) -> [String] {
+        if let result = exportResults?[path] {
+            let codes = result.languages?.isEmpty == false ? result.languages! : [result.language]
+            return Array(Set(codes)).sorted()
+        }
+        let parts = path.split(separator: "/")
+        if parts.count > 2 && parts[0] == "exports" {
+            return Array(Set(parts[1].split(separator: "+").map(String.init))).sorted()
+        }
+        return ["auto"]
+    }
+    var exportLanguageCodes: [String] { Array(Set(exports.flatMap(languagesForExport))).sorted() }
+    func languageGroupForExport(_ path: String) -> String {
+        let codes = languagesForExport(path)
+        return codes.count > 1 ? "multilingual" : codes.first ?? "auto"
+    }
+}

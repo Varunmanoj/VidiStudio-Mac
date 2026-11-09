@@ -7,36 +7,67 @@ struct CreatedExportsView: View {
     @State private var resultFilter = "all"
     @State private var selectedExport: ExportSelection?
 
+    private var filteredPaths: [String] {
+        project.exports.filter { path in
+            (languageFilter == "all" || project.languagesForExport(path).contains(languageFilter))
+            && (resultFilter == "all" || project.exportResults?[path]?.resultIDs.values.contains(resultFilter) == true)
+        }
+    }
+    private var languageGroups: [String] {
+        Array(Set(filteredPaths.map(project.languageGroupForExport))).sorted {
+            $0 == "multilingual" ? $1 != "multilingual" : $1 == "multilingual" ? false : OutputLanguage.title($0) < OutputLanguage.title($1)
+        }
+    }
+
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
             Text("Created Exports")
                 .font(.headline)
                 .accessibilityAddTraits(.isHeader)
 
-            OutputLanguagePicker(title: "Export language filter", selection: $languageFilter, includesAll: true)
+            ExportOptionPicker("Export language filter", selection: $languageFilter) {
+                Text("All Languages").tag("all")
+                ForEach(project.exportLanguageCodes, id: \.self) { code in Text(OutputLanguage.title(code)).tag(code) }
+            }.pickerStyle(.menu)
             Picker("Saved result filter", selection: $resultFilter) {
                 Text("All Saved Results").tag("all")
                 ForEach(project.savedLanguageResults.filter { languageFilter == "all" || $0.language == languageFilter }) { result in
                     Text("\(OutputLanguage.title(result.language)) · \(result.kindTitle) · \(result.title)").tag(result.id)
                 }
             }.pickerStyle(.menu)
-            ForEach(ExportCategory.allCases) { kind in
-                let paths = project.exports.filter { ExportCategory.resolve(path: $0) == kind && (languageFilter == "all" || (project.exportResults?[$0]?.matches(languageFilter) ?? (languageFilter == "auto"))) && (resultFilter == "all" || project.exportResults?[$0]?.resultIDs.values.contains(resultFilter) == true) }
-                if !paths.isEmpty {
-                    VStack(alignment: .leading, spacing: 6) {
-                        Label(kind == .text ? "Text and Subtitles" : kind.title, systemImage: kind.icon)
-                            .font(.subheadline.bold())
-                            .accessibilityAddTraits(.isHeader)
-
-                        ForEach(paths, id: \.self) { path in
-                            exportRow(path: path, kind: kind)
+            ForEach(languageGroups, id: \.self) { group in
+                VStack(alignment: .leading, spacing: 8) {
+                    Text(group == "multilingual" ? "Multilingual" : OutputLanguage.title(group))
+                        .font(.subheadline.bold())
+                        .accessibilityAddTraits(.isHeader)
+                    ForEach(ExportCategory.allCases) { kind in
+                        let paths = filteredPaths.filter { project.languageGroupForExport($0) == group && ExportCategory.resolve(path: $0) == kind }
+                        if !paths.isEmpty {
+                            VStack(alignment: .leading, spacing: 6) {
+                                Label(kind == .text ? "Text and Subtitles" : kind.title, systemImage: kind.icon)
+                                    .font(.caption.bold())
+                                    .accessibilityAddTraits(.isHeader)
+                                ForEach(paths, id: \.self) { path in
+                                    VStack(alignment: .leading, spacing: 3) {
+                                        exportRow(path: path, kind: kind)
+                                        if group == "multilingual" {
+                                            Text(project.languagesForExport(path).map(OutputLanguage.title).joined(separator: ", "))
+                                                .font(.caption).foregroundStyle(.secondary)
+                                        }
+                                    }
+                                }
+                            }
                         }
                     }
-                    .accessibilityElement(children: .contain)
-                    .accessibilityLabel("\(kind == .text ? "Text and subtitle" : kind.title) exports")
                 }
+                .accessibilityElement(children: .contain)
+                .accessibilityLabel(group == "multilingual" ? "Multilingual exports" : "\(OutputLanguage.title(group)) exports")
             }
         }
+        .onChange(of: project.exportLanguageCodes) {
+            if languageFilter != "all" && !project.exportLanguageCodes.contains(languageFilter) { languageFilter = "all" }
+        }
+        .onChange(of: languageFilter) { resultFilter = "all" }
         .confirmationDialog(
             "Export Information",
             isPresented: Binding(

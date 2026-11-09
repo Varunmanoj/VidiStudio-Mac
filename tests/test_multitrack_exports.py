@@ -68,6 +68,27 @@ class SelectedTracks(unittest.TestCase):
                 text = subprocess.check_output([core.tool('ffmpeg'), '-v','error','-i',str(path),'-map','0:s:2','-f','srt','-']).decode()
                 self.assertIn('नमस्ते', text)
 
+    def test_both_transcript_types_in_each_language(self):
+        plan = copy.deepcopy(self.plan)
+        plan['captions'] = [dict(language=code, transcriptID=self.ids[code][0], descriptionsID=description)
+                            for code in ('en', 'hi') for description in ('', self.ids[code][1])]
+        for format in ('mkv', 'mp4', 'mov', 'm4v'):
+            with self.subTest(format=format):
+                path, info = self.run_plan(dict(plan, format=format))
+                streams = [s for s in info['streams'] if s['codec_type'] == 'subtitle']
+                self.assertEqual(len(streams), 4)
+                self.assertEqual([s['tags'].get('title') or s['tags'].get('handler_name') for s in streams],
+                                 ['English Transcript', 'English AD Transcript', 'Hindi Transcript', 'Hindi AD Transcript'])
+                self.assertEqual([s['tags'].get('language') for s in streams], ['eng', 'eng', 'hin', 'hin'])
+                for index in range(4):
+                    text = subprocess.check_output([core.tool('ffmpeg'), '-v', 'error', '-i', str(path), '-map', f'0:s:{index}', '-f', 'srt', '-']).decode()
+                    self.assertEqual('Audio description' in text, bool(index % 2))
+        with self.assertRaisesRegex(ValueError, 'Burned-in'):
+            tracks.validate(self.root, self.project, dict(plan, captionMode='open'), core)
+        bad = copy.deepcopy(plan); bad['captions'].append(dict(plan['captions'][0]))
+        with self.assertRaisesRegex(ValueError, 'one Transcript'):
+            tracks.validate(self.root, self.project, bad, core)
+
     def test_single_burned_caption_and_mixed_audio(self):
         plan = dict(self.plan, audioMode='mixed', captionMode='open', audio=[self.plan['audio'][1]], captions=[self.plan['captions'][1]])
         _, info = self.run_plan(plan)
@@ -98,7 +119,7 @@ class SelectedTracks(unittest.TestCase):
         self.assertEqual(len(audio),2)
         self.assertEqual(audio[1]['tags']['title'],'English - Audio Description')
         bad = copy.deepcopy(self.plan); bad['captions'].append(bad['captions'][1])
-        with self.assertRaisesRegex(ValueError,'one audio result and one caption'): tracks.validate(self.root,self.project,bad,core)
+        with self.assertRaisesRegex(ValueError,'one Transcript and one AD Transcript'): tracks.validate(self.root,self.project,bad,core)
 
     def test_batch_preflight_provenance_skip_and_cancellation(self):
         request = self.root/'request.json'

@@ -77,3 +77,28 @@ struct SavedResultOption: View {
         return image
     }
 }
+
+
+struct ADAudioReadinessIndicator: View {
+    let status: ADAudioReadiness
+    var iconOnly = false
+    var body: some View {
+        Label(status.title, systemImage: status.complete ? "checkmark.circle.fill" : "xmark.circle.fill")
+            .labelStyle(ADReadinessLabelStyle(iconOnly: iconOnly))
+            .foregroundStyle(status.complete ? Color.green : Color.red)
+            .font(.caption)
+            .accessibilityElement(children: .ignore)
+            .accessibilityLabel(status.accessibilityLabel)
+            .help(status.accessibilityLabel)
+    }
+}
+
+private struct ADReadinessLabelStyle: LabelStyle {
+    let iconOnly: Bool
+    func makeBody(configuration: Configuration) -> some View {
+        HStack(spacing: 6) {
+            configuration.icon
+            if !iconOnly { configuration.title }
+        }
+    }
+}

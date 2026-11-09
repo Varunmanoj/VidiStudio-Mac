@@ -161,3 +161,11 @@ View uses the All Projects source/language filters, reset filters, and checked l
 ### Piper Settings voice sample
 
 In Settings > Narration, the Piper sample button offers Play Sample and Stop Sample in its context menu (right-click; Windows also supports Shift-F10). Both use the same guarded actions as the button and stable IDs `piper-settings-play-sample` / `piper-settings-stop-sample`. Play requires Piper and a selected downloaded voice; Stop is enabled while preparing or playing audio. The button remains visible but disabled without that voice. Mac applies rate, pitch and volume to the local sample; Windows applies rate and volume, retaining its existing saved-narration pitch behavior.
+
+## Export dialog control menus
+
+One File with Selected Tracks and the remaining combined-track toggles/pickers provide native context menus using the same state and enabled choices. Transcript and AD Transcript are independent per-language controls; closed captions allow both, while open captions permit one track. Native secondary click or keyboard context-menu invocation opens these menus. Standalone text options are confined to the dedicated Text category and remain independent of media packaging. The File > Export entry point and shortcut are unchanged.
+
+Combined Audio Description is fixed to selectable tracks. The former audio-presentation dropdown and its menu are removed on both desktops; Include Original Audio and per-language AD Audio keep their shared state/control menus. Caption presentation remains selectable.
+
+Created Exports language picker/context menu lists All Languages plus only languages in tracked outputs; each entry shares the same selection and filter behavior. Combined files match each included language, are grouped once under Multilingual, and retain existing file actions and icons. Main menu hierarchy is unchanged.
