@@ -1,0 +1,111 @@
+<h1>Switch audio and caption tracks in video players</h1>
+<p>Use this guide when watching a finished video on Windows or macOS, or on YouTube. Audio and captions are separate choices: you can listen to one language or Audio Description (AD) soundtrack while reading a different caption language. Player labels vary with version, language, and the tracks supplied with the video.</p>
+
+<h2 id="choose-tracks">Choose the tracks you want</h2>
+<ol>
+<li>Open the video in a compatible player. Reveal the playback controls or open the player's menu.</li>
+<li>Open the audio or language menu and choose an available soundtrack. A described track may be labelled <strong>Audio Description</strong>, <strong>AD</strong>, <strong>Descriptive Audio</strong>, or <strong>DVS</strong>, with a language name. An original or non-described track plays without added descriptions.</li>
+<li>Open the subtitles or captions menu separately and choose an available track or language. When both are supplied, a dialogue transcript contains speech, while a descriptive transcript also includes written visual descriptions.</li>
+<li>To stop AD, select an original or non-described soundtrack. To hide selectable captions, choose <strong>Off</strong>, <strong>None</strong>, or <strong>Disable</strong> in the caption menu. Muting or disabling audio stops all sound.</li>
+</ol>
+<p>One audio track normally plays at a time. VidiStudio described soundtracks include the original dialogue, music and effects plus narration. Audio and caption selections are independent. Descriptions in another language do not dub the original dialogue.</p>
+<h3 id="playback-formats-codecs">Formats, codecs and track availability</h3>
+<p>A container such as MKV, MP4, MOV or M4V holds the video, audio and subtitle streams. Their codecs determine how each stream is decoded. A player must support both the container and the codecs, and expose track selection, for switchable audio and captions to work.</p>
+<p>VidiStudio video exports use AAC audio, selectable SubRip subtitles in MKV, and timed-text (<code>tx3g</code>) subtitles in MP4, MOV and M4V. Web Playback uses WebVTT captions. A separate SRT or VTT file is subtitle text, not an audio track. Track names and languages depend on the media metadata; available choices depend on the tracks included and the player's support.</p>
+<p>Permanent audio-description mixes cannot be separated into original and described soundtracks by a player. Burned-in captions cannot be turned off. Export selectable tracks when viewers should be able to switch them.</p>
+
+<h2 id="vlc">VLC media player — Windows and macOS</h2>
+<p>Use VLC's audio and subtitle menus to choose from the tracks available in a supported video. Track titles may contain language names, accessibility labels or track numbers.</p>
+<figure data-platform="mac"><img src="images/mac-vlc-player.jpg" width="2560" height="1568" alt="VLC media player on macOS with video and playback controls." loading="lazy"><figcaption>Use the Audio and Subtitles menus to select available tracks in VLC on Mac.</figcaption></figure>
+<h3 id="vlc-audio">Switch audio tracks on Mac</h3>
+<ol>
+<li>Open a video with <strong>File &gt; Open File</strong>.</li>
+<li>Choose <strong>Audio &gt; Audio Track</strong>, then select the soundtrack or language you want.</li>
+<li>To hear audio descriptions, choose a track identified as described audio, when available. To stop descriptions, select an original or non-described track. Reopen the submenu to change your choice.</li>
+</ol>
+<p><strong>Audio &gt; Audio Track &gt; Disable</strong> silences the soundtrack. Use an original or non-described track to turn off AD while retaining the video's sound.</p>
+<h3 id="vlc-captions">Switch caption tracks or hide them on Mac</h3>
+<ol>
+<li>Choose <strong>Subtitles &gt; Subtitle Track</strong>, then select the caption track or language you want.</li>
+<li>When dialogue and descriptive transcript tracks are both available, use their titles to choose the content you want to read.</li>
+<li>Choose <strong>Subtitles &gt; Subtitle Track &gt; Disable</strong> to hide selectable captions. This does not change the audio track.</li>
+<li>To load a separate subtitle file, choose <strong>Subtitles &gt; Add Subtitle File...</strong>, select a supported subtitle file such as SRT, then choose it under Subtitle Track.</li>
+</ol>
+<p>Audio and captions are independent choices. VLC may append a language or show a track number rather than a full title. If a track is unavailable, check that it is included in the file and that its format is supported.</p>
+<h3 id="vlc-windows">Equivalent VLC controls on Windows</h3>
+<p>Open a video with <strong>Media &gt; Open File</strong>. Use <strong>Audio &gt; Audio Track</strong> for the soundtrack, <strong>Subtitle &gt; Sub Track</strong> for a caption track or Disable, and <strong>Subtitle &gt; Add Subtitle File</strong> for a separate subtitle file. Menu labels can vary by release.</p>
+
+<h2 id="windows-players">Windows Media Player and Movies &amp; TV</h2>
+<p><strong>Media Player (the current Windows app):</strong> Open the video and reveal the playback controls. Look for the language/subtitle control, labelled <strong>Languages and subtitles</strong> or <strong>Audio and subtitles</strong> in versions that provide it. Open it, select the desired audio track, then select the caption track or Off separately. Available controls and recognized tracks depend on the installed version and file format. If no audio-track selector appears or a track is missing, open the same file in VLC instead.</p>
+<p><strong>Movies &amp; TV (also called Films &amp; TV, where installed):</strong> During playback, open the speech-bubble menu for subtitles and audio. Choose the audio language or described track in its audio list, then the caption language or Off in its subtitle list. With a keyboard, use <strong>Tab</strong> or <strong>Shift-Tab</strong> to reach the subtitles-and-audio button, <strong>Enter</strong> to open it, and the arrow keys and Enter to choose an option. Narrator identifies the button as the menu for subtitles and audio.</p>
+<p><strong>Windows Media Player Legacy:</strong> Press <strong>Alt</strong> to show the menu bar if hidden. Use <strong>Play &gt; Audio and language tracks</strong> to choose an available soundtrack. Use <strong>Play &gt; Lyrics, captions, and subtitles</strong> and choose <strong>On if available</strong> or <strong>Off</strong>. Legacy caption support is limited; this menu does not guarantee a selectable list of every embedded subtitle language. Use VLC if your MKV or MP4 tracks are unavailable.</p>
+<p>Windows accessibility caption appearance settings and Live Captions do not select an embedded audio or subtitle track. Live Captions generates text from sound; it is separate from the caption tracks included in the file.</p>
+
+<h2 id="quicktime">QuickTime Player — macOS</h2>
+<p>QuickTime Player offers audio and subtitle choices for tracks it recognizes in a supported movie. Availability depends on the container, codecs, metadata and QuickTime version.</p>
+<figure data-platform="mac"><img src="images/mac-quicktime-player.jpg" width="3004" height="1368" alt="QuickTime Player video window on macOS." loading="lazy"><figcaption>Move the pointer over the movie to reveal playback controls, or use the View menu.</figcaption></figure>
+<h3 id="quicktime-audio">Switch original and described audio</h3>
+<ol>
+<li>Open a supported movie. MOV, MP4 and M4V can hold selectable audio and timed-text subtitles; the contained codecs must also be supported. Use another compatible player for formats QuickTime cannot open.</li>
+<li>Choose <strong>View &gt; Languages</strong>, then select an available soundtrack. The playback controls also offer an audio selection button, with the accessibility name <strong>show audible media selection menu</strong>.</li>
+<li>Choose an audio-description track when one is available. To stop descriptions, choose an original or non-described soundtrack. Titles may include a language, Audio Description, AD or DVS.</li>
+<li>Reopen the menu to switch again. A checkmark identifies the selected option. Muting the player stops all audio.</li>
+</ol>
+<figure data-platform="mac"><img src="images/mac-quicktime-audio-tracks.jpg" width="3004" height="1368" alt="QuickTime Player audio selection menu for choosing an available soundtrack." loading="lazy"><figcaption>Select the desired soundtrack in the audio menu. Track labels depend on the media metadata and player.</figcaption></figure>
+<p><strong>Unknown language</strong> indicates missing or unrecognized language metadata. It does not tell you whether a track contains audio descriptions. Check the track's title and content when the label is unclear.</p>
+<h3 id="quicktime-captions">Turn captions on or off and choose their language</h3>
+<ol>
+<li>Choose <strong>View &gt; Subtitles &gt; On</strong> to display available captions, or <strong>View &gt; Subtitles &gt; Off</strong> to hide them. The caption selection button in the playback controls offers the same choices, with the accessibility name <strong>show legible media selection menu</strong>.</li>
+<li>Choose <strong>View &gt; Subtitles &gt; Language</strong> and select an available caption language. In the caption popup, open <strong>Language</strong> to reach these choices.</li>
+<li>A checkmark identifies the selected language. Caption selection is independent of the audio soundtrack.</li>
+</ol>
+<figure data-platform="mac"><img src="images/mac-quicktime-captions.jpg" width="3004" height="1368" alt="QuickTime Player caption menu with On, Off, Language and Style controls." loading="lazy"><figcaption>Use On or Off to show or hide selectable captions, independently of audio descriptions.</figcaption></figure>
+<figure data-platform="mac"><img src="images/mac-quicktime-caption-language.jpg" width="3004" height="1368" alt="QuickTime Player caption Language submenu." loading="lazy"><figcaption>Open Language to choose from the available caption languages.</figcaption></figure>
+<p>A player may group captions by language instead of exposing every individual track title. If the menu does not distinguish the tracks you need, use a compatible player that exposes individual subtitle tracks. Do not assume that all streams in a container will appear as separate menu choices.</p>
+<p>VidiStudio MP4/MOV/M4V subtitles use timed text (<code>tx3g</code>). Older QuickTime versions may list subtitle languages directly under View &gt; Subtitles; some offer a separate Show Closed Captioning command for CEA-608 captions. Follow the controls available in the installed version. Turning captions off cannot remove text burned into the picture.</p>
+
+<h2 id="apple-tv">Apple TV app — macOS and Windows</h2>
+<ol>
+<li>Play a title in the Apple TV app and reveal its controls.</li>
+<li>Open the <strong>Audio</strong> button and select a language or an entry marked <strong>AD</strong> or Audio Description. Select a non-AD entry to stop descriptions. Some versions combine audio and subtitle choices in one language menu.</li>
+<li>Open the <strong>Subtitles</strong> or <strong>Languages</strong> button. Turn subtitles on and choose their language; turn them off in the same control.</li>
+</ol>
+<p>These choices depend on the title and region. The Apple TV app is not a general-purpose player for every exported local file. On macOS, <strong>System Settings &gt; Accessibility &gt; Audio Descriptions</strong> can prefer descriptions when available in supported apps. This preference does not create a missing AD track or control every third-party player.</p>
+
+<h2 id="iina">IINA — macOS</h2>
+<ol>
+<li>Open the video, then use <strong>Audio &gt; Audio Track</strong> to select the original, described, or other language soundtrack.</li>
+<li>Use <strong>Subtitle</strong> and its subtitle-track list to select a language or <strong>None</strong> to turn the primary subtitles off. If a secondary subtitle track is active, turn that off separately.</li>
+<li>Use <strong>Subtitle &gt; Load External Subtitle</strong> for a separate subtitle file, then select that track. Track choices are also available in IINA's audio and subtitle panels.</li>
+</ol>
+
+<h2 id="mpc-hc">MPC-HC — Windows</h2>
+<ol>
+<li>Open the video. Use <strong>Play &gt; Audio Track</strong> to choose an available soundtrack.</li>
+<li>Use <strong>Play &gt; Subtitle Track</strong> to select a caption track, or its subtitle enable/disable option to hide captions. The video context menu also exposes track selection. Menu wording can differ between releases.</li>
+<li>If no embedded subtitle track is available, use <strong>File &gt; Subtitles &gt; Load Subtitles</strong> to load the matching external SRT file.</li>
+</ol>
+
+<h2 id="youtube">YouTube — browser on Windows or macOS</h2>
+<ol>
+<li>Open the video on YouTube and reveal the player controls.</li>
+<li>Open <strong>Settings</strong> (the gear), then <strong>Audio track</strong>, and choose the desired language or described track when offered. Return here and choose the original or non-described track to stop AD. Audio track only appears when YouTube offers alternative audio for that video.</li>
+<li>Open <strong>Settings &gt; Subtitles/CC</strong> and choose a caption language, or <strong>Off</strong>. The <strong>CC</strong> button also toggles captions on and off; it does not switch audio tracks. With the player focused, <strong>C</strong> toggles captions.</li>
+</ol>
+<p>Auto-generated captions and Auto-translate, when offered, are different from creator-supplied caption tracks. A translated caption does not change the spoken soundtrack. Uploading a video with several embedded audio or subtitle tracks does not automatically publish them as YouTube player choices: the creator must add and publish the appropriate tracks in YouTube Studio. A VidiStudio export does not change the original YouTube video.</p>
+
+<h2 id="web-playback">VidiStudio Web Playback</h2>
+<p>In a hosted VidiStudio Web Playback player, reveal the controls and use the audio-track menu for Original Audio or Audio Description, and the captions/subtitles menu for a caption track or Off. Only exported selectable tracks appear. Serve the complete exported folder over HTTP or HTTPS; opening its HTML file directly may prevent playback or track loading. Menu appearance depends on the browser and player version.</p>
+
+<h2 id="missing-tracks">If a track is missing or will not turn off</h2>
+<ul>
+<li><strong>Only one audio choice:</strong> the file may contain only one soundtrack, or the player may not expose its other tracks. Try the same file in VLC. To offer both original and AD audio, export selectable tracks and include Original Audio.</li>
+<li><strong>Captions stay visible after Off:</strong> captions may be burned into the picture, or a second subtitle track, Live Captions, or another overlay may be active. Burned-in captions cannot be removed by a player setting.</li>
+<li><strong>AD stays audible on every audio choice:</strong> narration may already be mixed into the source or only a described soundtrack was exported. A player cannot remove narration from a mixed soundtrack; use an original non-described track or another export.</li>
+<li><strong>No captions menu or desired language:</strong> check that the export included that caption language with selectable closed captions. A separate SRT/VTT file must be loaded in a player that supports it. TXT, JSON, and a narration-only audio file do not become embedded caption tracks.</li>
+<li><strong>Tracks share a language or have generic names:</strong> compare track titles or briefly play each track. Player labels and container support vary. For local playback, MKV in VLC or IINA often exposes choices more clearly; QuickTime needs a compatible MOV/MP4/M4V file.</li>
+</ul>
+<p>Open descriptions and burned-in captions are permanent. To give viewers control, export selectable audio and closed captions. Keyboard shortcuts belong to the player and can be customized; use its menus when a shortcut behaves differently.</p>
+
+<h2 id="player-sources">Player support references</h2>
+<p>Instructions checked on 9 November 2026. For changes in player versions, see <a href="https://docs.videolan.me/vlc-user/desktop/3.0/en/basic/audio.html">VLC audio</a>, <a href="https://docs.videolan.me/vlc-user/desktop/3.0/en/basic/subtitles.html">VLC subtitles</a>, <a href="https://support.microsoft.com/en-us/accessibility/windows/use-the-movies-tv-app-with-narrator">Movies &amp; TV keyboard and screen-reader help</a>, <a href="https://support.apple.com/guide/quicktime-player/qtp4c0cd59d1/mac">QuickTime soundtracks</a>, <a href="https://support.apple.com/guide/quicktime-player/qtped9fbc349/mac">QuickTime subtitles</a>, <a href="https://support.apple.com/en-us/118411">Apple TV languages and captions</a>, <a href="https://iina.io/">IINA</a>, <a href="https://github.com/clsid2/mpc-hc">MPC-HC</a>, <a href="https://support.google.com/youtube/answer/13339776">YouTube audio languages</a>, and <a href="https://support.google.com/youtube/answer/100078">YouTube captions</a>.</p>

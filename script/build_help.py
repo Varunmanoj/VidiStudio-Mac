@@ -20,6 +20,7 @@ TOPICS = [
     ("analysis", "Analyze and replace content"),
     ("narration", "Choose voices and play narration"),
     ("exports", "Export your work"),
+    ("playback", "Switch audio and caption tracks in video players"),
     ("settings", "Settings reference"),
     ("keyboard", "Keyboard shortcuts and accessibility"),
     ("troubleshooting", "Solve common problems"),

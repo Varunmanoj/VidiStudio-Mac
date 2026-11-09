@@ -2,6 +2,8 @@
 
 This documentation is intended for the bundled macOS Help Viewer. The current application source is the authority for control names, shortcuts, export formats, and persistence behavior.
 
+Player instructions must apply across supported videos. Screenshots may illustrate the controls, but steps, captions, and alt text must not depend on the pictured video's title, track inventory, languages, or behavior. Describe format, codec, metadata, and player limitations generically.
+
 ## Content and verification plan
 
 - Welcome: purpose, audio description concepts, local projects, online analysis versus offline narration.
@@ -12,6 +14,7 @@ This documentation is intended for the bundled macOS Help Viewer. The current ap
 - Analysis: the complete and individual workflows, page-specific generation or regeneration, non-AI metadata and thumbnail preparation, prerequisites, failure handling, and deletion.
 - Narration: saved audio versus live speech, Apple and Gemini generation, voice selection, samples, fit, old-voice file preservation, indication sounds.
 - Export: closed or open Audio Description video, closed- or open-caption video, Video.js-ready HLS Web Playback folders, complete YouTube Studio described MP3, M4A narration, SRT/VTT/TXT/JSON text, completeness checks, and URL-backed YouTube limits.
+- Playback: switch original/described/language audio and caption tracks in Windows players, VLC, QuickTime, Apple TV, IINA, MPC-HC and YouTube; external subtitles, permanent presentation and missing-track troubleshooting. This cross-platform topic is preserved verbatim in generated Windows Help.
 - Settings: Appearance, Projects, Narration, Gemini API, Developer prompts (shown when Developer mode is enabled under Appearance), Storage, Help, About; each visible control and its scope, including Piper and FFmpeg licensing.
 - Keyboard and accessibility: all application shortcuts, text-editing differences, VoiceOver, full keyboard navigation.
 - Troubleshooting: disabled actions, missing audio, wrong voice, stale text, failed analysis, engine issues, missing project/source, export problems.
