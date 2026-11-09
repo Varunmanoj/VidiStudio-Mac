@@ -79,8 +79,30 @@ class DesktopMenuParity(unittest.TestCase):
     def test_copy_to_edit_menu_cannot_be_omitted_on_either_platform(self):
         self.checker.compare_sources(self.mac, self.app, self.windows)
         for mac, windows in ((self.mac.replace('editor?.run("copy-to")', 'editor?.run("missing-copy")'), self.windows),
-                             (self.mac, self.windows.replace('Menu("Edit", Command("copy-to"))', 'Menu("Edit")'))):
+                             (self.mac, self.windows.replace('Menu("Edit", Command("copy-to"), Command("segment-edit-mode"))', 'Menu("Edit", Command("segment-edit-mode"))'))):
             with self.assertRaises(ValueError): self.checker.compare_sources(mac, self.app, windows)
+
+    def test_edit_mode_is_adjacent_to_copy_and_cannot_be_omitted(self):
+        self.checker.compare_sources(self.mac, self.app, self.windows)
+        for mac, windows in (
+            (self.mac, self.windows.replace('Menu("Edit", Command("copy-to"), Command("segment-edit-mode"))', 'Menu("Edit", Command("copy-to"))')),
+            (self.mac.replace('.accessibilityIdentifier("segment-edit-mode")\n                .keyboardShortcut("e", modifiers: [.command, .option])\n                .disabled(editor?.canRun("segment-edit-mode") != true)', '.accessibilityIdentifier("segment-edit-mode")'), self.windows),
+        ):
+            with self.assertRaises(ValueError): self.checker.compare_sources(mac, self.app, windows)
+
+    def test_inspector_edit_mode_uses_shared_state_and_guarded_action(self):
+        root = Path(os.environ.get('VIDISTUDIO_DESKTOP_WORKSPACE', Path(__file__).resolve().parents[2]))
+        languages = (root / 'VidiStudio Mac/VidiStudio/LanguageResults.swift').read_text()
+        content = (root / 'VidiStudio Mac/VidiStudio/ContentView.swift').read_text()
+        windows = (root / 'Vidi-Studio-Windows/Vidi Studio Windows/MainWindow.LanguageResults.cs').read_text()
+        self.checker.compare_edit_mode_controls(languages, content, windows)
+        for changed_languages, changed_content, changed_windows in (
+            (languages.replace('else if editorActions.segmentEditingAvailable {', 'else if !editorActions.segmentEditMode && editorActions.segmentEditingAvailable {'), content, windows),
+            (languages.replace('Button(editorActions.segmentEditModeTitle,', 'Button("Enter Edit Mode",'), content, windows),
+            (languages, content, windows.replace('edit.Content = DesktopCommandTitle("segment-edit-mode");', 'edit.Content = "Edit";')),
+            (languages, content, windows.replace('edit.Click += async (_, _) => await RunDesktopCommandAsync("segment-edit-mode");', 'edit.Click += (_, _) => {};')),
+        ):
+            with self.assertRaises(ValueError): self.checker.compare_edit_mode_controls(changed_languages, changed_content, changed_windows)
 
     def test_project_language_menu_checks_choices_state_and_guard_contract(self):
         self.checker.compare_sources(self.mac, self.app, self.windows)

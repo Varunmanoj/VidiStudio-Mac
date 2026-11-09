@@ -547,6 +547,12 @@ struct StudioCommands: Commands {
                 Button("Copy to…", systemImage: "doc.on.doc") { editor?.run("copy-to") }
                     .accessibilityIdentifier("copy-to")
                     .disabled(editor?.canRun("copy-to") != true)
+                Button(editor?.segmentEditModeTitle ?? "Edit Segments", systemImage: editor?.segmentEditMode == true ? "checkmark" : "pencil") {
+                    editor?.run("segment-edit-mode")
+                }
+                .accessibilityIdentifier("segment-edit-mode")
+                .keyboardShortcut("e", modifiers: [.command, .option])
+                .disabled(editor?.canRun("segment-edit-mode") != true)
             }
         }
         CommandGroup(replacing: .textEditing) { }

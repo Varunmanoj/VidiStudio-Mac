@@ -2054,9 +2054,7 @@ struct ProjectEditor: View {
                     .help("Delete the selected segments after confirmation")
                 }
                 Button(segmentEditMode ? "Done" : "Edit", systemImage: segmentEditMode ? "checkmark" : "pencil") {
-                    segmentEditMode.toggle()
-                    if !segmentEditMode { selectedSegmentIDs.removeAll() }
-                    refreshEditorShortcutActions()
+                    shortcutActions.run("segment-edit-mode")
                 }
                 .labelStyle(.iconOnly)
                 .buttonStyle(.borderedProminent)

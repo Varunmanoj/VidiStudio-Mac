@@ -254,8 +254,8 @@ struct LanguageResultControls: View {
             if let editModeToggle {
                 Button(editorActions.segmentEditMode ? "Finish Editing Languages" : "Edit Languages", action: editModeToggle)
                     .disabled(!editorActions.available || editorActions.hasUnsavedSummaryEdits)
-            } else if !editorActions.segmentEditMode && editorActions.segmentEditingAvailable {
-                Button("Enter Edit Mode") { editorActions.run("segment-edit-mode") }
+            } else if editorActions.segmentEditingAvailable {
+                Button(editorActions.segmentEditModeTitle, systemImage: editorActions.segmentEditMode ? "checkmark" : "pencil") { editorActions.run("segment-edit-mode") }
                     .disabled(!editorActions.canRun("segment-edit-mode"))
             }
             if editorActions.hasUnsavedSummaryEdits {
