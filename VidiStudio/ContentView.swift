@@ -1479,6 +1479,7 @@ private struct TranscriptRow: Identifiable, Hashable {
 private struct SegmentEditBatch: Identifiable {
     let id = UUID()
     let rows: [TranscriptRow]
+    var selectedID: String? = nil
 }
 
 private struct TranscriptCaptionOverlay: View {
@@ -1590,6 +1591,11 @@ struct ProjectEditor: View {
     @AppStorage("thumbnailImagesVisible") private var thumbnailImagesVisible = false
     @State private var previewHeight: CGFloat = 413
     @State private var previewHeightAtDragStart: CGFloat?
+    @State private var validationHighlightID: String?
+    @State private var validationShowcaseActive = false
+    @State private var validationShowcaseTask: Task<Void, Never>?
+    @State private var segmentEditorHint = ""
+    @State private var validationRequest: (() -> Void)?
     @State private var segmentToEdit: TranscriptRow?
     @State private var segmentBatchToEdit: SegmentEditBatch?
     @State private var segmentEditMode = false
@@ -1621,7 +1627,7 @@ struct ProjectEditor: View {
         let dialogue = project.transcript.map { TranscriptRow(segment: $0, isDescription: false) }
         let descriptions = project.cues.map { TranscriptRow(segment: $0, isDescription: true) }
         let rows = tab == "descriptions" ? descriptions : tab == "ad-transcript" ? dialogue + descriptions : dialogue
-        return sortRows(rows.filter { segmentFilter.matches($0, project: project) })
+        return sortRows(rows.filter { segmentFilter.matches($0, project: project) || $0.id == validationHighlightID })
     }
 
     private func sortRows(_ rows: [TranscriptRow]) -> [TranscriptRow] {
@@ -2162,6 +2168,13 @@ struct ProjectEditor: View {
             : nil
         return SegmentEditor(
             row: row,
+            soundWhenTimingInvalid: studio.settings.soundWhenTimingInvalid,
+            initialHint: segmentEditorHint,
+            showIssues: { draft, hint, targets in
+                segmentEditorHint = hint
+                validationRequest = { showcaseValidationIssues(targets) { segmentToEdit = draft } }
+                segmentToEdit = nil
+            },
             duration: project.duration,
             transcript: project.transcript,
             descriptions: project.cues,
@@ -2176,6 +2189,42 @@ struct ProjectEditor: View {
             }
         ) { updated in
             saveEditedRows([updated])
+        }
+    }
+
+    /// The editor draft stays in the completion closure while the sheet is hidden.
+    private func showcaseValidationIssues(_ targets: [TranscriptRow], resume: @escaping () -> Void) {
+        guard !targets.isEmpty, !validationShowcaseActive else { return }
+        let originalTab = tab
+        let originalEditMode = segmentEditMode
+        let originalSelection = selectedSegmentIDs
+        validationShowcaseActive = true
+        playback.stopPlayback()
+        validationShowcaseTask = Task { @MainActor in
+            do {
+                try await Task.sleep(for: .milliseconds(350))
+                for (index, target) in targets.enumerated() {
+                    try Task.checkCancellation()
+                    tab = target.isDescription ? "descriptions" : "transcript"
+                    validationHighlightID = target.id
+                    NSAccessibility.post(element: NSApp as Any, notification: .announcementRequested,
+                        userInfo: [.announcement: "Validation issue \(index + 1) of \(targets.count). \(target.kind), \(preciseSegmentTimecode(target.segment.start)): \(target.segment.text)", .priority: NSAccessibilityPriorityLevel.high.rawValue])
+                    try await Task.sleep(for: .seconds(2))
+                }
+            } catch { /* Return to Edit cancels the remaining highlights. */ }
+            guard validationShowcaseActive else { return }
+            validationHighlightID = nil
+            tab = originalTab
+            // A fresh task allows the restoration delay even after cancellation.
+            validationShowcaseTask = Task { @MainActor in
+                try? await Task.sleep(for: .milliseconds(350))
+                guard validationShowcaseActive else { return }
+                segmentEditMode = originalEditMode
+                selectedSegmentIDs = originalSelection
+                validationShowcaseActive = false
+                validationShowcaseTask = nil
+                resume()
+            }
         }
     }
 
@@ -2288,6 +2337,7 @@ struct ProjectEditor: View {
         guard adding ? canCreateSegment : canOpenSegmentEditor else { return }
         playback.pauseAndCaptureTime { _ in
             guard adding ? canCreateSegment : canOpenSegmentEditor else { return }
+            segmentEditorHint = ""
             segmentToEdit = row
         }
     }
@@ -2818,6 +2868,14 @@ struct ProjectEditor: View {
                                     ? Color.accentColor.opacity(0.22)
                                     : (playback.time >= cue.start && playback.time < cue.end ? Color.accentColor.opacity(0.15) : Color.clear)
                             )
+                            .listRowBackground(validationHighlightID == row.id ? Color.orange.opacity(0.25) : Color.clear)
+                            .overlay {
+                                if validationHighlightID == row.id {
+                                    RoundedRectangle(cornerRadius: 6).stroke(.orange, lineWidth: 3)
+                                        .allowsHitTesting(false)
+                                }
+                            }
+                            .accessibilityValue(validationHighlightID == row.id ? "Timing validation issue" : "")
                             .contextMenu {
                                 Button("Copy to…", systemImage: "doc.on.doc") {
                                     let kind = row.isDescription ? "descriptions" : "transcript"
@@ -2921,8 +2979,12 @@ struct ProjectEditor: View {
                                 .disabled(studio.busy)
                             }
                     }.listStyle(.inset)
+                    .onAppear { if let id = validationHighlightID { reader.scrollTo(id, anchor: .center) } }
+                    .onChange(of: validationHighlightID) { _, id in
+                        if let id { reader.scrollTo(id, anchor: .center) }
+                    }
                     .onChange(of: segments.first(where: { playback.time >= $0.segment.start && playback.time < $0.segment.end })?.id) { _, id in
-                        if followTranscript, let id { if reduceMotion { reader.scrollTo(id, anchor: .center) } else { withAnimation { reader.scrollTo(id, anchor: .center) } } }
+                        if followTranscript && !validationShowcaseActive, let id { if reduceMotion { reader.scrollTo(id, anchor: .center) } else { withAnimation { reader.scrollTo(id, anchor: .center) } } }
                     }
                     }
                 }
@@ -3364,11 +3426,26 @@ struct ProjectEditor: View {
 
     var body: some View {
         editorWithShortcutUpdates
+        .disabled(validationShowcaseActive)
+        .overlay(alignment: .bottom) {
+            if validationShowcaseActive {
+                Button("Return to Edit", systemImage: "arrow.uturn.backward") { validationShowcaseTask?.cancel() }
+                    .keyboardShortcut(.cancelAction)
+                    .accessibilityIdentifier("validation-return-to-edit")
+                    .contextMenu { Button("Return to Edit") { validationShowcaseTask?.cancel() } }
+                    .padding(12)
+                    .background(.regularMaterial, in: .rect(cornerRadius: 10))
+                    .padding()
+            }
+        }
         .onAppear {
             preparePlayback()
             refreshEditorShortcutActions(updateHandler: true)
         }
         .onDisappear {
+            validationShowcaseActive = false
+            validationShowcaseTask?.cancel()
+            validationRequest = nil
             shortcutActions.available = false
             shortcutActions.summaryEditing = false
             shortcutActions.handler = nil
@@ -3381,10 +3458,26 @@ struct ProjectEditor: View {
         .sheet(item: $segmentToEdit, onDismiss: {
             readingFrameForSegment = false
             segmentScreenText = nil
+            if let request = validationRequest {
+                validationRequest = nil
+                request()
+            }
         }) { row in segmentEditor(for: row) }
-        .sheet(item: $segmentBatchToEdit) { batch in
+        .sheet(item: $segmentBatchToEdit, onDismiss: {
+            if let request = validationRequest { validationRequest = nil; request() }
+        }) { batch in
             BulkSegmentEditor(
                 rows: batch.rows,
+                soundWhenTimingInvalid: studio.settings.soundWhenTimingInvalid,
+                selectedID: batch.selectedID,
+                showIssues: { rows, selectedID, targets in
+                    validationRequest = {
+                        showcaseValidationIssues(targets) {
+                            segmentBatchToEdit = SegmentEditBatch(rows: rows, selectedID: selectedID)
+                        }
+                    }
+                    segmentBatchToEdit = nil
+                },
                 allRows: project.transcript.map { TranscriptRow(segment: $0, isDescription: false) }
                     + project.cues.map { TranscriptRow(segment: $0, isDescription: true) },
                 duration: project.duration
@@ -3912,6 +4005,32 @@ private func segmentExcerpt(_ text: String) -> String {
     return String(collapsed.prefix(77)) + "…"
 }
 
+private func segmentValidationTargets(for row: TranscriptRow, among rows: [TranscriptRow]) -> [TranscriptRow] {
+    guard row.segment.start.isFinite, row.segment.end.isFinite else { return [] }
+    return rows.filter { $0.id != row.id && row.segment.start < $0.segment.end && row.segment.end > $0.segment.start }
+        .sorted { ($0.segment.start, $0.id) < ($1.segment.start, $1.id) }
+}
+
+private struct ShowValidationIssueButton: View {
+    let targets: [TranscriptRow]
+    let show: () -> Void
+    private var title: String {
+        if !targets.isEmpty && targets.allSatisfy(\.isDescription) { return "Show Description" }
+        if !targets.isEmpty && targets.allSatisfy({ !$0.isDescription }) { return "Show Transcript" }
+        return targets.count > 1 ? "Show Validation Issues" : "Show Validation Issue"
+    }
+    var body: some View {
+        Button(title, systemImage: "scope", action: show)
+            .accessibilityIdentifier("show-validation-issue")
+            .keyboardShortcut("v", modifiers: [.command, .option])
+            .help("Locate the affected timing or briefly highlight conflicting segments")
+            .contextMenu {
+                Button(title) { show() }
+                    .accessibilityIdentifier("show-validation-issue-menu")
+            }
+    }
+}
+
 private func segmentValidationErrors(for row: TranscriptRow, among rows: [TranscriptRow], duration: Double) -> [String] {
     let segment = row.segment
     var errors: [String] = []
@@ -3922,9 +4041,7 @@ private func segmentValidationErrors(for row: TranscriptRow, among rows: [Transc
     } else if segment.end <= segment.start {
         errors.append("End time must be after start time.")
     }
-    let overlaps = rows
-        .filter { $0.id != row.id && segment.start < $0.segment.end && segment.end > $0.segment.start }
-        .sorted { $0.segment.start < $1.segment.start }
+    let overlaps = segmentValidationTargets(for: row, among: rows)
     errors += overlaps.map { other in
         let kind = other.isDescription ? "audio description" : "transcript"
         return "Overlaps \(kind) \(preciseSegmentTimecode(other.segment.start)) to \(preciseSegmentTimecode(other.segment.end)): \(segmentExcerpt(other.segment.text))"
@@ -3970,6 +4087,10 @@ private struct SegmentEditor: View {
     @State private var row: TranscriptRow
     @State private var frameTextStatus: String?
     @State private var reanalysisHint = ""
+    @State private var validationFlash = false
+    let showIssues: (TranscriptRow, String, [TranscriptRow]) -> Void
+    let soundWhenTimingInvalid: Bool
+    @State private var validationSound = TimingValidationSound()
     @State private var dialogSize = CGSize(width: 780, height: 580)
     let duration: Double
     let transcript: [Segment]
@@ -3986,8 +4107,11 @@ private struct SegmentEditor: View {
     let reanalyze: (Segment, String) -> Void
     let save: (TranscriptRow) -> Void
 
-    init(row: TranscriptRow, duration: Double, transcript: [Segment], descriptions: [Segment], capturedScreenText: Binding<String?>, isReadingFrame: Bool, readFrame: ((Double) -> Void)?, canReanalyze: Bool, hasApiKey: Bool, apiKeyVerified: Bool? = nil, reanalyze: @escaping (Segment, String) -> Void, save: @escaping (TranscriptRow) -> Void) {
+    init(row: TranscriptRow, soundWhenTimingInvalid: Bool, initialHint: String = "", showIssues: @escaping (TranscriptRow, String, [TranscriptRow]) -> Void, duration: Double, transcript: [Segment], descriptions: [Segment], capturedScreenText: Binding<String?>, isReadingFrame: Bool, readFrame: ((Double) -> Void)?, canReanalyze: Bool, hasApiKey: Bool, apiKeyVerified: Bool? = nil, reanalyze: @escaping (Segment, String) -> Void, save: @escaping (TranscriptRow) -> Void) {
         _row = State(initialValue: row)
+        _reanalysisHint = State(initialValue: initialHint)
+        self.showIssues = showIssues
+        self.soundWhenTimingInvalid = soundWhenTimingInvalid
         self.duration = duration
         self.transcript = transcript
         self.descriptions = descriptions
@@ -4028,6 +4152,7 @@ private struct SegmentEditor: View {
                 .frame(maxWidth: .infinity, alignment: .leading)
                 .padding(.horizontal, 20).padding(.vertical, 16)
             Divider()
+            ScrollViewReader { validationReader in
             Form {
             Section {
                 VStack(alignment: .leading, spacing: 22) {
@@ -4043,6 +4168,8 @@ private struct SegmentEditor: View {
                     TimecodeInput(label: "End time", value: $row.segment.end)
                     if !timingErrors.isEmpty {
                         SegmentTimingValidationView(errors: timingErrors, isDescription: row.isDescription)
+                            .id("timing-validation")
+                            .overlay { if validationFlash { RoundedRectangle(cornerRadius: 8).stroke(.orange, lineWidth: 3) } }
                     }
                 }
             } header: {
@@ -4149,10 +4276,30 @@ private struct SegmentEditor: View {
             HStack {
                 Spacer()
                 Button("Cancel", role: .cancel) { dismiss() }.keyboardShortcut(.cancelAction)
+                if !timingErrors.isEmpty {
+                    ShowValidationIssueButton(targets: segmentValidationTargets(for: row, among: allRows)) {
+                        let targets = segmentValidationTargets(for: row, among: allRows)
+                        if targets.isEmpty {
+                            validationReader.scrollTo("timing-validation", anchor: .center)
+                            validationFlash = true
+                        } else { showIssues(row, reanalysisHint, targets) }
+                    }
+                    .disabled(isReadingFrame)
+                }
                 Button("Save Segment", systemImage: "checkmark") { guard !saveDisabled else { return }; save(row); dismiss() }.keyboardShortcut(.defaultAction)
                     .disabled(saveDisabled)
                     .help(saveDisabled && !timingErrors.isEmpty ? "Resolve timing errors before saving this segment" : "Save this \(row.kind.lowercased()) segment")
             }.padding(.horizontal, 20).padding(.vertical, 14)
+            }
+        }
+        .onChange(of: timingErrors, initial: true) { _, errors in
+            validationSound.update(errors: errors, enabled: soundWhenTimingInvalid)
+        }
+        .onDisappear { validationSound.stop() }
+        .task(id: validationFlash) {
+            guard validationFlash else { return }
+            try? await Task.sleep(for: .seconds(2))
+            validationFlash = false
         }
         .onChange(of: capturedScreenText) { _, text in
             guard let text else { return }
@@ -4176,13 +4323,19 @@ private struct BulkSegmentEditor: View {
     @Environment(\.dismiss) private var dismiss
     @State private var rows: [TranscriptRow]
     @State private var selectedID: String?
+    let showIssues: ([TranscriptRow], String?, [TranscriptRow]) -> Void
+    let soundWhenTimingInvalid: Bool
+    @State private var validationSound = TimingValidationSound()
+    @State private var validationFlash = false
     let allRows: [TranscriptRow]
     let duration: Double
     let save: ([TranscriptRow]) -> Void
 
-    init(rows: [TranscriptRow], allRows: [TranscriptRow], duration: Double, save: @escaping ([TranscriptRow]) -> Void) {
+    init(rows: [TranscriptRow], soundWhenTimingInvalid: Bool, selectedID: String? = nil, showIssues: @escaping ([TranscriptRow], String?, [TranscriptRow]) -> Void, allRows: [TranscriptRow], duration: Double, save: @escaping ([TranscriptRow]) -> Void) {
         _rows = State(initialValue: rows)
-        _selectedID = State(initialValue: rows.first?.id)
+        _selectedID = State(initialValue: selectedID ?? rows.first?.id)
+        self.showIssues = showIssues
+        self.soundWhenTimingInvalid = soundWhenTimingInvalid
         self.allRows = allRows
         self.duration = duration
         self.save = save
@@ -4205,6 +4358,7 @@ private struct BulkSegmentEditor: View {
 
     var body: some View {
         VStack(spacing: 0) {
+            ScrollViewReader { validationReader in
             HSplitView {
                 List(selection: $selectedID) {
                     ForEach(rows) { row in
@@ -4245,6 +4399,8 @@ private struct BulkSegmentEditor: View {
                                 TimecodeInput(label: "End time", value: $rows[index].segment.end)
                                 if !timingErrors.isEmpty {
                                     SegmentTimingValidationView(errors: timingErrors, isDescription: rows[index].isDescription)
+                                        .id("timing-validation")
+                                        .overlay { if validationFlash { RoundedRectangle(cornerRadius: 8).stroke(.orange, lineWidth: 3) } }
                                 }
                             }
                         }
@@ -4268,6 +4424,18 @@ private struct BulkSegmentEditor: View {
                     .accessibilityLabel("\(rows.count) segments selected for bulk editing")
                 Spacer()
                 Button("Cancel", role: .cancel) { dismiss() }.keyboardShortcut(.cancelAction)
+                if rows.contains(where: { !errors(for: $0).isEmpty }) {
+                    let invalidRow = rows.first { $0.id == selectedID && !errors(for: $0).isEmpty }
+                        ?? rows.first { !errors(for: $0).isEmpty }!
+                    let targets = segmentValidationTargets(for: invalidRow, among: combinedRows)
+                    ShowValidationIssueButton(targets: targets) {
+                        if targets.isEmpty {
+                            selectedID = invalidRow.id
+                            validationReader.scrollTo("timing-validation", anchor: .center)
+                            validationFlash = true
+                        } else { showIssues(rows, selectedID, targets) }
+                    }
+                }
                 Button("Save All", systemImage: "checkmark") {
                     guard !saveDisabled else { return }
                     save(rows)
@@ -4278,6 +4446,16 @@ private struct BulkSegmentEditor: View {
                 .help(saveDisabled ? "Resolve every empty-text or timing error before saving" : "Save changes to all selected segments")
             }
             .padding(16)
+            }
+        }
+        .onChange(of: rows.flatMap { errors(for: $0) }, initial: true) { _, errors in
+            validationSound.update(errors: errors, enabled: soundWhenTimingInvalid)
+        }
+        .onDisappear { validationSound.stop() }
+        .task(id: validationFlash) {
+            guard validationFlash else { return }
+            try? await Task.sleep(for: .seconds(2))
+            validationFlash = false
         }
         .navigationTitle("Edit Selected Segments")
         .frame(width: 880, height: 620)

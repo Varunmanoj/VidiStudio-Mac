@@ -169,3 +169,7 @@ One File with Selected Tracks and the remaining combined-track toggles/pickers p
 Combined Audio Description is fixed to selectable tracks. The former audio-presentation dropdown and its menu are removed on both desktops; Include Original Audio and per-language AD Audio keep their shared state/control menus. Caption presentation remains selectable.
 
 Created Exports language picker/context menu lists All Languages plus only languages in tracked outputs; each entry shares the same selection and filter behavior. Combined files match each included language, are grouped once under Multilingual, and retain existing file actions and icons. Main menu hierarchy is unchanged.
+
+
+## Timing validation navigation and sound
+The segment dialog footer action (Show Description / Show Transcript / Show Validation Issues) has a matching context-menu action, stable IDs `show-validation-issue` and `show-validation-issue-menu`, and Command-Option-V / Ctrl-Alt-V keyboard access, scoped to a timing error in the active dialog. Bounds/order errors reveal the local error; overlaps briefly showcase affected rows in their corresponding sections and return to the unchanged draft. Settings > Narration includes the default-on Sound when timing validation fails toggle and a matching checked context-menu toggle (`timing-validation-sound-menu`) on both platforms.

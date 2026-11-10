@@ -184,6 +184,12 @@ struct SettingsView: View {
                     }
                     Toggle("Sound when narration is off", isOn: $studio.settings.soundWhenNarrationOff)
                     Toggle("Sound when synthesized audio is unavailable", isOn: $studio.settings.soundWhenNarrationMissing)
+                    Toggle("Sound when timing validation fails", isOn: $studio.settings.soundWhenTimingInvalid)
+                        .accessibilityIdentifier("timing-validation-sound")
+                        .contextMenu {
+                            Toggle("Sound when timing validation fails", isOn: $studio.settings.soundWhenTimingInvalid)
+                                .accessibilityIdentifier("timing-validation-sound-menu")
+                        }
                 }
                 if studio.settings.ttsMode == "gemini" {
                     GeminiVoiceBrowser(studio: studio)

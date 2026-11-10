@@ -19,6 +19,21 @@ class DesktopMenuParity(unittest.TestCase):
         windows_root = Path(os.environ.get('VIDISTUDIO_WINDOWS_ROOT', root / 'Vidi-Studio-Windows'))
         cls.windows = (windows_root / 'Vidi Studio Windows/MainWindow.Menus.cs').read_text(encoding='utf-8')
 
+    def test_timing_validation_dialog_and_sound_menu_guards(self):
+        root = Path(os.environ.get('VIDISTUDIO_DESKTOP_WORKSPACE', Path(__file__).resolve().parents[2]))
+        mac = (root / 'VidiStudio Mac/VidiStudio/ContentView.swift').read_text()
+        settings = (root / 'VidiStudio Mac/VidiStudio/SettingsView.swift').read_text()
+        windows = (root / 'Vidi-Studio-Windows/Vidi Studio Windows/MainWindow.xaml.cs').read_text()
+        win_settings = (root / 'Vidi-Studio-Windows/Vidi Studio Windows/Views/SettingsDialog.cs').read_text()
+        self.checker.compare_timing_validation_controls(mac, settings, windows, win_settings)
+        for sources in (
+            (mac.replace('show-validation-issue-menu', 'missing-menu'), settings, windows, win_settings),
+            (mac, settings, windows.replace('showIssue.ContextFlyout = issueMenu', ''), win_settings),
+            (mac, settings.replace('timing-validation-sound-menu', ''), windows, win_settings),
+            (mac, settings, windows.replace('errors.Count > 0 ? Visibility.Visible : Visibility.Collapsed', 'Visibility.Visible'), win_settings),
+        ):
+            with self.assertRaises(ValueError): self.checker.compare_timing_validation_controls(*sources)
+
     def test_piper_settings_sample_menu_and_download_guard(self):
         root = Path(os.environ.get('VIDISTUDIO_DESKTOP_WORKSPACE', Path(__file__).resolve().parents[2]))
         mac = (root / 'VidiStudio Mac/VidiStudio/PiperVoiceCatalog.swift').read_text()

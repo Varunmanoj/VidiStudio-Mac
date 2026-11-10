@@ -1165,6 +1165,7 @@ struct StudioSettings: Codable, Equatable {
     var narrationPlayback = "generated"
     var soundWhenNarrationOff = true
     var soundWhenNarrationMissing = true
+    var soundWhenTimingInvalid = true
     var systemVoice = ""
     var piperVoice = ""
     var systemSpeechRate = 1.0
