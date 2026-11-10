@@ -19,6 +19,33 @@ class DesktopMenuParity(unittest.TestCase):
         windows_root = Path(os.environ.get('VIDISTUDIO_WINDOWS_ROOT', root / 'Vidi-Studio-Windows'))
         cls.windows = (windows_root / 'Vidi Studio Windows/MainWindow.Menus.cs').read_text(encoding='utf-8')
 
+    def test_clear_segment_view_actions_hide_when_inactive(self):
+        root = Path(os.environ.get('VIDISTUDIO_DESKTOP_WORKSPACE', Path(__file__).resolve().parents[2]))
+        content = (root/'VidiStudio Mac/VidiStudio/ContentView.swift').read_text()
+        xaml = (root/'Vidi-Studio-Windows/Vidi Studio Windows/MainWindow.xaml').read_text()
+        self.checker.compare_clear_segment_view_actions(content, self.mac, self.windows, xaml)
+        for sources in (
+            (content.replace('if filterableTab && segmentFilter.isActive', 'if filterableTab'), self.mac, self.windows, xaml),
+            (content, self.mac, self.windows.replace('segmentSort != "start" ? Visibility.Visible : Visibility.Collapsed', 'true ? Visibility.Visible : Visibility.Collapsed'), xaml),
+            (content, self.mac.replace('editor?.run("clear-segment-filter")', ''), self.windows, xaml),
+        ):
+            with self.assertRaises(ValueError): self.checker.compare_clear_segment_view_actions(*sources)
+
+    def test_range_filter_dialog_menus_and_language_scope(self):
+        root = Path(os.environ.get('VIDISTUDIO_DESKTOP_WORKSPACE', Path(__file__).resolve().parents[2]))
+        mac = (root/'VidiStudio Mac/VidiStudio/SegmentRangeFilterControls.swift').read_text() + (root/'VidiStudio Mac/VidiStudio/SegmentRangeFilter.swift').read_text()
+        windows = (root/'Vidi-Studio-Windows/Vidi Studio Windows/MainWindow.SegmentRangeFilter.cs').read_text()
+        context = (root/'VidiStudio Mac/VidiStudio/ContentView.swift').read_text()
+        win_context = (root/'Vidi-Studio-Windows/Vidi Studio Windows/MainWindow.SegmentFilter.cs').read_text()
+        self.checker.compare_segment_range_controls(mac, windows, context, win_context)
+        for sources in (
+            (mac.replace('filter-segment-number-menu', ''), windows, context, win_context),
+            (mac, windows.replace('mode.ContextFlyout = modeMenu', ''), context, win_context),
+            (mac, windows, context, win_context.replace('result.Language == project.SelectedLanguage', 'true')),
+            (mac, windows, context.replace('.disabled(rangeError != nil)', ''), win_context),
+        ):
+            with self.assertRaises(ValueError): self.checker.compare_segment_range_controls(*sources)
+
     def test_timing_validation_dialog_and_sound_menu_guards(self):
         root = Path(os.environ.get('VIDISTUDIO_DESKTOP_WORKSPACE', Path(__file__).resolve().parents[2]))
         mac = (root / 'VidiStudio Mac/VidiStudio/ContentView.swift').read_text()

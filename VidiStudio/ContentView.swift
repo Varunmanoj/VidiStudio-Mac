@@ -1454,10 +1454,12 @@ private enum SegmentAudioFilter: String, CaseIterable, Identifiable {
 private struct SegmentFilter: Equatable {
     var origins: Set<DescriptionOrigin> = []
     var audio: SegmentAudioFilter = .all
+    var ranges = SegmentRangeFilter()
 
-    var isActive: Bool { !origins.isEmpty || audio != .all }
+    var isActive: Bool { !origins.isEmpty || audio != .all || ranges.isActive }
 
-    func matches(_ row: TranscriptRow, project: StudioProject) -> Bool {
+    func matches(_ row: TranscriptRow, project: StudioProject, number: Int = 0) -> Bool {
+        guard ranges.matches(id: row.id, number: number, isDescription: row.isDescription, start: row.segment.start, end: row.segment.end) else { return false }
         if !origins.isEmpty && !origins.contains(row.segment.provenance) { return false }
         guard row.isDescription, audio != .all else { return true }
         let hasAudio = row.segment.audio.map { project.hasFile($0) } ?? false
@@ -1619,15 +1621,33 @@ struct ProjectEditor: View {
     @State private var copySelection: LanguageCopySelection?
     @State private var showingLanguageResults = false
     @State private var showingSegmentFilter = false
-    @State private var segmentFilter = SegmentFilter()
-    @State private var segmentSort: SegmentSort = .start
+    @State private var showingSegmentSort = false
+    @State private var segmentFilters: [String: SegmentFilter] = [:]
+    private var segmentFilter: SegmentFilter {
+        get { segmentFilters[segmentFilterKey] ?? SegmentFilter() }
+        nonmutating set { segmentFilters[segmentFilterKey] = newValue }
+    }
+    private var segmentFilterKey: String {
+        let kinds = tab == "transcript" ? ["transcript"] : tab == "descriptions" ? ["descriptions"] : ["transcript", "descriptions"]
+        return ([tab, project.languageCode] + kinds.map { project.activeLanguageResultID($0) }).joined(separator: ":")
+    }
+    @State private var segmentSorts: [String: SegmentSort] = [:]
+    private var segmentSort: SegmentSort {
+        get { segmentSorts[segmentFilterKey] ?? .start }
+        nonmutating set { segmentSorts[segmentFilterKey] = newValue }
+    }
     @State private var confirmBulkNarration = false
     @State private var narrationImportCue: Segment?
     private var transcriptRows: [TranscriptRow] {
         let dialogue = project.transcript.map { TranscriptRow(segment: $0, isDescription: false) }
         let descriptions = project.cues.map { TranscriptRow(segment: $0, isDescription: true) }
         let rows = tab == "descriptions" ? descriptions : tab == "ad-transcript" ? dialogue + descriptions : dialogue
-        return sortRows(rows.filter { segmentFilter.matches($0, project: project) || $0.id == validationHighlightID })
+        let transcriptNumbers = project.segmentNumbers(isDescription: false)
+        let descriptionNumbers = project.segmentNumbers(isDescription: true)
+        return sortRows(rows.filter {
+            segmentFilter.matches($0, project: project, number: ($0.isDescription ? descriptionNumbers : transcriptNumbers)[$0.segment.id] ?? 0)
+                || $0.id == validationHighlightID
+        })
     }
 
     private func sortRows(_ rows: [TranscriptRow]) -> [TranscriptRow] {
@@ -1904,6 +1924,20 @@ struct ProjectEditor: View {
                                 : "Unavailable because this section has no transcript or description segments")
                     }
                 }
+            }
+            if filterableTab && segmentFilter.isActive {
+                Button("Clear Filter", systemImage: "xmark.circle") { shortcutActions.run("clear-segment-filter") }
+                    .labelStyle(.iconOnly).fixedSize()
+                    .accessibilityIdentifier("clear-segment-filter")
+                    .help("Clear Filter")
+                    .disabled(!shortcutActions.canRun("clear-segment-filter"))
+            }
+            if filterableTab && segmentSort != .start {
+                Button("Clear Sort", systemImage: "arrow.uturn.backward") { shortcutActions.run("clear-segment-sort") }
+                    .labelStyle(.iconOnly).fixedSize()
+                    .accessibilityIdentifier("clear-segment-sort")
+                    .help("Clear Sort: restore Start Time order")
+                    .disabled(!shortcutActions.canRun("clear-segment-sort"))
             }
             sectionGenerationButton
                 .labelStyle(.iconOnly)
@@ -2208,7 +2242,7 @@ struct ProjectEditor: View {
                     tab = target.isDescription ? "descriptions" : "transcript"
                     validationHighlightID = target.id
                     NSAccessibility.post(element: NSApp as Any, notification: .announcementRequested,
-                        userInfo: [.announcement: "Validation issue \(index + 1) of \(targets.count). \(target.kind), \(preciseSegmentTimecode(target.segment.start)): \(target.segment.text)", .priority: NSAccessibilityPriorityLevel.high.rawValue])
+                        userInfo: [.announcement: "Validation issue \(index + 1) of \(targets.count). \(target.kind) segment #\(project.segmentNumbers(isDescription: target.isDescription)[target.segment.id] ?? 0), \(preciseSegmentTimecode(target.segment.start)) to \(preciseSegmentTimecode(target.segment.end)): \(target.segment.text)", .priority: NSAccessibilityPriorityLevel.high.rawValue])
                     try await Task.sleep(for: .seconds(2))
                 }
             } catch { /* Return to Edit cancels the remaining highlights. */ }
@@ -2428,6 +2462,18 @@ struct ProjectEditor: View {
         case "ad-transcript": return "Filter AD Transcript…"
         default: return "Filter Segments…"
         }
+    }
+
+    private var filterSegmentOptions: [SegmentFilterOption] {
+        let dialogue = tab == "descriptions" ? [] : project.transcript.enumerated().map {
+            SegmentFilterOption(id: "transcript:" + $0.element.id, number: $0.offset + 1, isDescription: false,
+                start: $0.element.start, end: $0.element.end, text: $0.element.text)
+        }
+        let descriptions = tab == "transcript" ? [] : project.cues.enumerated().map {
+            SegmentFilterOption(id: "ad:" + $0.element.id, number: $0.offset + 1, isDescription: true,
+                start: $0.element.start, end: $0.element.end, text: $0.element.text)
+        }
+        return dialogue + descriptions
     }
 
     private var availableOrigins: [DescriptionOrigin] {
@@ -3082,6 +3128,15 @@ struct ProjectEditor: View {
             copySelection = LanguageCopySelection(segmentIDs: ids)
         case "language-results": showingLanguageResults = true
         case "filter-segments": if filterableTab { showingSegmentFilter = true }
+        case "sort-segments": if filterableTab { showingSegmentSort = true }
+        case "clear-segment-filter":
+            segmentFilter = SegmentFilter()
+            selectedSegmentIDs.removeAll()
+            refreshEditorShortcutActions()
+        case "clear-segment-sort":
+            segmentSort = .start
+            selectedSegmentIDs.removeAll()
+            refreshEditorShortcutActions()
         case "sort-start": segmentSort = .start; refreshEditorShortcutActions()
         case "sort-duration-asc": segmentSort = .durationAscending; refreshEditorShortcutActions()
         case "sort-duration-desc": segmentSort = .durationDescending; refreshEditorShortcutActions()
@@ -3249,6 +3304,7 @@ struct ProjectEditor: View {
             shortcutActions.segmentEditMode = segmentEditMode
             shortcutActions.segmentEditModeTitle = segmentEditMode ? "Done Editing Segments" : "Edit \(segmentSectionTitle) Segments"
         shortcutActions.filterTitle = segmentFilterTitle
+        shortcutActions.segmentFilterActive = filterableTab && segmentFilter.isActive
         shortcutActions.sortTitle = switch tab {
         case "transcript": "Sort Transcripts…"
         case "descriptions": "Sort Descriptions…"
@@ -3534,13 +3590,29 @@ struct ProjectEditor: View {
         .sheet(isPresented: $showingLanguageResults) {
             ScrollView { LanguageResultControls(studio: studio, project: project, editorActions: shortcutActions).padding(24) }.frame(width: 520, height: 600)
         }
+        .sheet(isPresented: $showingSegmentSort) {
+            VStack(alignment: .leading, spacing: 16) {
+                SegmentSavedResultControls(project: project, kinds: tab == "transcript" ? ["transcript"] : tab == "descriptions" ? ["descriptions"] : ["transcript", "descriptions"],
+                    enabled: !studio.busy && !languageContextChanging) { id in runLanguageAction("select-result", arguments: ["--result-id", id]) }
+                SegmentSortView(title: shortcutActions.sortTitle.replacingOccurrences(of: "…", with: ""), initial: segmentSort) {
+                    segmentSort = $0
+                    selectedSegmentIDs.removeAll()
+                    refreshEditorShortcutActions()
+                }
+            }.padding(20).frame(width: 620)
+        }
         .sheet(isPresented: $showingSegmentFilter) {
             VStack {
-                LanguageResultControls(studio: studio, project: project, editorActions: shortcutActions)
+                SegmentSavedResultControls(project: project, kinds: tab == "transcript" ? ["transcript"] : tab == "descriptions" ? ["descriptions"] : ["transcript", "descriptions"],
+                    enabled: !studio.busy && !languageContextChanging) { id in runLanguageAction("select-result", arguments: ["--result-id", id]) }
+                    .padding(.horizontal, 20).padding(.top, 16)
                 SegmentFilterView(
                 title: segmentFilterTitle.replacingOccurrences(of: "…", with: ""),
                 origins: availableOrigins,
                 showsAudio: tab != "transcript",
+                showsTranscript: tab != "descriptions",
+                options: filterSegmentOptions,
+                duration: project.duration,
                 initial: segmentFilter,
                 onApply: { filter in
                     segmentFilter = filter
@@ -3548,6 +3620,7 @@ struct ProjectEditor: View {
                     refreshEditorShortcutActions()
                 }
             )
+            .id(segmentFilterKey)
             }
         }
         .alert("Generate narration for selected descriptions?", isPresented: $confirmBulkNarration) {
@@ -3898,7 +3971,7 @@ private struct DownwardTriangle: Shape {
     }
 }
 
-private struct TimecodeInput: View {
+struct TimecodeInput: View {
     let label: String
     @Binding var value: Double
 
@@ -4031,7 +4104,7 @@ private struct ShowValidationIssueButton: View {
     }
 }
 
-private func segmentValidationErrors(for row: TranscriptRow, among rows: [TranscriptRow], duration: Double) -> [String] {
+private func segmentValidationErrors(for row: TranscriptRow, among rows: [TranscriptRow], duration: Double, numberingRows: [TranscriptRow]? = nil) -> [String] {
     let segment = row.segment
     var errors: [String] = []
     if !segment.start.isFinite || !segment.end.isFinite {
@@ -4044,7 +4117,12 @@ private func segmentValidationErrors(for row: TranscriptRow, among rows: [Transc
     let overlaps = segmentValidationTargets(for: row, among: rows)
     errors += overlaps.map { other in
         let kind = other.isDescription ? "audio description" : "transcript"
-        return "Overlaps \(kind) \(preciseSegmentTimecode(other.segment.start)) to \(preciseSegmentTimecode(other.segment.end)): \(segmentExcerpt(other.segment.text))"
+        // Match the editor's per-kind numbering in the selected result, independent
+        // of filters, display sorting, or reordered unsaved bulk drafts.
+        let number = (numberingRows ?? rows).filter { $0.isDescription == other.isDescription }
+            .firstIndex { $0.id == other.id }.map { $0 + 1 }
+        let numberedKind = number.map { "\(kind) segment #\($0)" } ?? kind
+        return "Overlaps \(numberedKind) \(preciseSegmentTimecode(other.segment.start)) to \(preciseSegmentTimecode(other.segment.end)): \(segmentExcerpt(other.segment.text))"
     }
     return errors
 }
@@ -4347,7 +4425,7 @@ private struct BulkSegmentEditor: View {
     }
 
     private func errors(for row: TranscriptRow) -> [String] {
-        segmentValidationErrors(for: row, among: combinedRows, duration: duration)
+        segmentValidationErrors(for: row, among: combinedRows, duration: duration, numberingRows: allRows)
     }
 
     private var saveDisabled: Bool {
@@ -4521,19 +4599,33 @@ private struct SegmentFilterView: View {
     let title: String
     let origins: [DescriptionOrigin]
     let showsAudio: Bool
+    let showsTranscript: Bool
+    let options: [SegmentFilterOption]
+    let duration: Double
     let onApply: (SegmentFilter) -> Void
 
     @State private var selectedOrigins: Set<DescriptionOrigin>
     @State private var audio: SegmentAudioFilter
+    @State private var ranges: SegmentRangeFilter
 
-    init(title: String, origins: [DescriptionOrigin], showsAudio: Bool, initial: SegmentFilter,
+    private var rangeError: String? {
+        ranges.error(transcriptCount: options.filter { !$0.isDescription }.count,
+            descriptionCount: options.filter(\.isDescription).count, duration: duration,
+            availableIDs: Set(options.map(\.id)))
+    }
+
+    init(title: String, origins: [DescriptionOrigin], showsAudio: Bool, showsTranscript: Bool, options: [SegmentFilterOption], duration: Double, initial: SegmentFilter,
          onApply: @escaping (SegmentFilter) -> Void) {
         self.title = title
         self.origins = origins
         self.showsAudio = showsAudio
+        self.showsTranscript = showsTranscript
+        self.options = options
+        self.duration = duration
         self.onApply = onApply
         _selectedOrigins = State(initialValue: initial.origins)
         _audio = State(initialValue: initial.audio)
+        _ranges = State(initialValue: initial.ranges)
     }
 
     var body: some View {
@@ -4542,6 +4634,11 @@ private struct SegmentFilterView: View {
                 .font(.callout).foregroundStyle(.secondary)
                 .padding(.horizontal, 20).padding(.bottom, 12)
             Form {
+                SegmentRangeFilterControls(options: options, showsTranscript: showsTranscript, showsDescriptions: showsAudio,
+                    duration: duration, ranges: $ranges)
+                if let rangeError {
+                    Text(rangeError).foregroundStyle(.red).accessibilityLabel("Filter error. \(rangeError)")
+                }
                 Section("Origin") {
                     if origins.isEmpty {
                         Text("No origin labels are present in this section.")
@@ -4566,8 +4663,6 @@ private struct SegmentFilterView: View {
                             }
                         }
                         .pickerStyle(.radioGroup)
-                        Text("Audio filters apply to description rows only; transcript rows remain visible when their origin matches.")
-                            .font(.caption).foregroundStyle(.secondary)
                     }
                 }
             }
@@ -4577,17 +4672,43 @@ private struct SegmentFilterView: View {
                     onApply(SegmentFilter())
                     dismiss()
                 }
-                .disabled(selectedOrigins.isEmpty && audio == .all)
+                .disabled(selectedOrigins.isEmpty && audio == .all && !ranges.isActive)
                 Spacer()
                 Button("Cancel", role: .cancel) { dismiss() }
                 Button("Apply Filter", systemImage: "line.3.horizontal.decrease.circle") {
-                    onApply(SegmentFilter(origins: selectedOrigins, audio: audio))
+                    guard rangeError == nil else { return }
+                    onApply(SegmentFilter(origins: selectedOrigins, audio: audio, ranges: ranges))
                     dismiss()
                 }
                 .keyboardShortcut(.defaultAction)
+                .disabled(rangeError != nil)
             }
             .padding(20)
         }
-        .frame(width: 500, height: 420)
+        .frame(width: 660, height: 640)
+    }
+}
+
+
+private struct SegmentSortView: View {
+    @Environment(\.dismiss) private var dismiss
+    let title: String
+    @State private var sort: SegmentSort
+    let apply: (SegmentSort) -> Void
+    init(title: String, initial: SegmentSort, apply: @escaping (SegmentSort) -> Void) {
+        self.title = title; _sort = State(initialValue: initial); self.apply = apply
+    }
+    var body: some View {
+        VStack(alignment: .leading, spacing: 20) {
+            Text(title).font(.title2.bold())
+            Picker("Sort by", selection: $sort) {
+                ForEach(SegmentSort.allCases, id: \.self) { Text($0.title).tag($0) }
+            }.pickerStyle(.radioGroup)
+            HStack {
+                Spacer()
+                Button("Cancel", role: .cancel) { dismiss() }
+                Button("Apply Sort") { apply(sort); dismiss() }.keyboardShortcut(.defaultAction)
+            }
+        }
     }
 }

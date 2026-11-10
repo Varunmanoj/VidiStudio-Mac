@@ -24,7 +24,7 @@ class SegmentDurationBoundsTests(unittest.TestCase):
         mac = root if (root / 'VidiStudio').exists() else root.parent / 'VidiStudio Mac'
         source = (mac / 'VidiStudio/ContentView.swift').read_text()
         model = (mac / 'VidiStudio/StudioModel.swift').read_text()
-        parts = [declaration(source, marker) for marker in ['private struct TimecodeInput', 'private func preciseSegmentTimecode', 'private func segmentExcerpt', 'private func segmentValidationErrors']]
+        parts = [declaration(source, marker) for marker in ['struct TimecodeInput', 'private func preciseSegmentTimecode', 'private func segmentExcerpt', 'private func segmentValidationTargets', 'private func segmentValidationErrors']]
         harness = '''import SwiftUI
 struct Segment { var start: Double; var end: Double; var text = "Text" }
 struct TranscriptRow: Identifiable { var id = "row"; var segment: Segment; var isDescription: Bool }

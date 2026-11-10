@@ -173,3 +173,9 @@ Created Exports language picker/context menu lists All Languages plus only langu
 
 ## Timing validation navigation and sound
 The segment dialog footer action (Show Description / Show Transcript / Show Validation Issues) has a matching context-menu action, stable IDs `show-validation-issue` and `show-validation-issue-menu`, and Command-Option-V / Ctrl-Alt-V keyboard access, scoped to a timing error in the active dialog. Bounds/order errors reveal the local error; overlaps briefly showcase affected rows in their corresponding sections and return to the unchanged draft. Settings > Narration includes the default-on Sound when timing validation fails toggle and a matching checked context-menu toggle (`timing-validation-sound-menu`) on both platforms.
+
+
+## Segment filter modes and Sort Options
+View > Filter Transcript / Filter Descriptions / Filter AD Transcript exposes All segments, Select segment numbers, Segment number ranges and Time ranges. Filter mode, segment checkbox, range add/remove and time-match actions have matching dialog-local context menus and checked state. Range bounds are separate controls and Apply is guarded by validation. System accent indicates checked rows. View > Sort Segments adds Sort Options… (`sort-segments`) before direct sort commands; its modal exposes saved results and sort choices only. Filter/Sort modals use the already viewed language and omit copy, language, generation-language, synchronization and editing controls. Existing View > Saved Results menu selectors operate on the same result state.
+
+Clear Filter (`clear-segment-filter`) is conditional directly below Filter in View; Clear Sort (`clear-segment-sort`) is conditional at the top of Sort. Matching icon-only section-toolbar buttons sit next to Generate/Add. UI/menu share guarded dispatch and hide independently when inactive; each reset retains the other setting. Filters and sort orders are scoped to the current tab/language/result.

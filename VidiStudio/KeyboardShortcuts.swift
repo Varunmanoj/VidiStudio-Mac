@@ -50,6 +50,7 @@ final class EditorShortcutActions {
     var filterTitle = "Filter Segments…"
     var sortTitle = "Sort Segments…"
     var segmentSort = "start"
+    var segmentFilterActive = false
     var canFilterSegments: Bool {
         ["transcript", "descriptions", "ad-transcript"].contains(activeSection)
     }
@@ -183,7 +184,9 @@ final class EditorShortcutActions {
         case "delete-project", "delete-content": return !hasUnsavedSummaryEdits
         case "language-results", "rename-project", "trash-project", "import-assets", "import-transcript", "import-summary", "import-descriptions", "import-ad-audio": return true
         case "import-original-audio": return canImportOriginalAudio
-        case "filter-segments", "sort-start", "sort-duration-asc", "sort-duration-desc", "sort-origin":
+        case "clear-segment-filter": return canFilterSegments && segmentFilterActive
+        case "clear-segment-sort": return canFilterSegments && segmentSort != "start"
+        case "filter-segments", "sort-segments", "sort-start", "sort-duration-asc", "sort-duration-desc", "sort-origin":
             return ["transcript", "descriptions", "ad-transcript"].contains(activeSection)
         case "narration": return canToggleNarration
         case "follow": return canToggleFollow
@@ -503,7 +506,18 @@ struct StudioCommands: Commands {
                         editor?.run("filter-segments")
                     }
                     .disabled(editor?.canRun("filter-segments") != true)
+                    if editor?.segmentFilterActive == true {
+                        Button("Clear Filter", systemImage: "xmark.circle") { editor?.run("clear-segment-filter") }
+                            .disabled(editor?.canRun("clear-segment-filter") != true)
+                    }
                     Menu(editor?.sortTitle ?? "Sort Segments", systemImage: "arrow.up.arrow.down") {
+                    if editor?.segmentSort != "start" {
+                        Button("Clear Sort", systemImage: "arrow.uturn.backward") { editor?.run("clear-segment-sort") }
+                            .disabled(editor?.canRun("clear-segment-sort") != true)
+                    }
+                    Button("Sort Options…", systemImage: "arrow.up.arrow.down") { editor?.run("sort-segments") }
+                        .disabled(editor?.canRun("sort-segments") != true)
+                    Divider()
                     Button("Start Time", systemImage: editor?.segmentSort == "start" ? "checkmark" : "clock") {
                         editor?.run("sort-start")
                     }

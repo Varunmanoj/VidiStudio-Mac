@@ -17,13 +17,20 @@ let current = row("same", 1, 63)
 let rows = [current, row("last", 40, 44,true), row("same", 4,8.5,true), row("dialogue",39,39.5), row("next",63,65)]
 assert(segmentValidationTargets(for: current, among: rows).map(\\.id) == ["ad:same","transcript:dialogue","ad:last"])
 assert(segmentValidationErrors(for: current, among: rows, duration: 100).count == 3)
+let errors = segmentValidationErrors(for: current, among: rows, duration: 100)
+assert(errors[0].hasPrefix("Overlaps audio description segment #2 00:00:04.000 to 00:00:08.500:"))
+assert(errors[1].hasPrefix("Overlaps transcript segment #2 00:00:39.000 to 00:00:39.500:"))
+assert(errors[2].hasPrefix("Overlaps audio description segment #1 00:00:40.000 to 00:00:44.000:"))
+let bulkRows = [rows[3], rows[1], rows[2], current, rows[4]]
+assert(segmentValidationErrors(for: current, among: bulkRows, duration:100, numberingRows:rows) == errors)
+
 assert(segmentValidationTargets(for: row("edit",8.5,10), among: [row("touch-left",4,8.5,true),row("touch-right",10,12)]).isEmpty)
 assert(segmentValidationTargets(for: row("bad",.nan,3), among: rows).isEmpty)
 assert(segmentValidationErrors(for: row("bad",2,1), among: [], duration:100) == ["End time must be after start time."])
 assert(segmentValidationErrors(for: row("bad",0,101), among: [], duration:100).first!.contains("video duration"))
 assert(segmentValidationErrors(for: current, among:[current], duration:100).isEmpty)
 assert(segmentValidationTargets(for: row("edit",0,10), among:[row("z",1,2),row("a",1,3)]).map(\\.id) == ["transcript:a","transcript:z"])
-print("PASS: actual Swift validation functions: mixed conflicts, same-ID cross-type rows, chronological order, adjacency, nonfinite and local errors")
+print("PASS: actual Swift validation functions: mixed conflicts, per-kind segment numbers, bulk draft numbering, same-ID cross-type rows, chronological order, adjacency, nonfinite and local errors")
 '''
 with tempfile.TemporaryDirectory(prefix='vidi-274-validation-') as d:
  path=Path(d);(path/'main.swift').write_text(source)
