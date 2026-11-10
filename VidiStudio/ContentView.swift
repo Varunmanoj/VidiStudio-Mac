@@ -2178,8 +2178,7 @@ struct ProjectEditor: View {
     }
 
     private func saveEditedRows(_ updatedRows: [TranscriptRow]) {
-        let editsExisting = updatedRows.contains { row in (row.isDescription ? project.cues : project.transcript).contains { $0.id == row.segment.id } }
-        guard canCreateSegment, !editsExisting || segmentEditMode else { return }
+        guard canCreateSegment, updatedRows.count <= 1 || segmentEditMode else { return }
         let transcriptUpdates = Dictionary(uniqueKeysWithValues: updatedRows.filter { !$0.isDescription }.map { ($0.segment.id, $0.segment) })
         let descriptionUpdates = Dictionary(uniqueKeysWithValues: updatedRows.filter(\.isDescription).map { ($0.segment.id, $0.segment) })
         var transcript = project.transcript.map { transcriptUpdates[$0.id] ?? $0 }
@@ -2281,7 +2280,7 @@ struct ProjectEditor: View {
     }
 
     private var canCreateSegment: Bool { captionControlsAvailable && !studio.busy }
-    private var canOpenSegmentEditor: Bool { segmentEditMode && canCreateSegment }
+    private var canOpenSegmentEditor: Bool { canCreateSegment }
 
     private func presentSegmentEditor(_ row: TranscriptRow, adding: Bool = false) {
         guard adding ? canCreateSegment : canOpenSegmentEditor else { return }
@@ -2292,11 +2291,11 @@ struct ProjectEditor: View {
     }
 
     private func presentBulkSegmentEditor() {
-        guard canOpenSegmentEditor else { return }
+        guard segmentEditMode && canOpenSegmentEditor else { return }
         let selected = transcriptRows.filter { selectedSegmentIDs.contains($0.id) }
         guard !selected.isEmpty else { return }
         playback.pauseAndCaptureTime { _ in
-            guard canOpenSegmentEditor else { return }
+            guard segmentEditMode && canOpenSegmentEditor else { return }
             segmentBatchToEdit = SegmentEditBatch(rows: selected)
         }
     }
@@ -2801,6 +2800,7 @@ struct ProjectEditor: View {
                             .id(row.id)
                             .contentShape(Rectangle())
                             .onTapGesture(count: 2) {
+                                guard segmentEditMode else { return }
                                 presentSegmentEditor(row)
                             }
                             .listRowBackground(
@@ -2817,7 +2817,7 @@ struct ProjectEditor: View {
                                     presentSegmentEditor(row)
                                 }
                                 .disabled(!canOpenSegmentEditor)
-                                .help(segmentEditMode ? "Edit \(row.kind.lowercased()) text and timing in a dialog" : "Enter Edit mode to edit segment text and timing")
+                                .help("Edit \(row.kind.lowercased()) text and timing in a dialog")
                                 .accessibilityLabel("Edit \(row.kind.lowercased()) segment starting at \(timecode(cue.start))")
 
                                 Button("Play from \(row.kind)", systemImage: "play.fill") {
