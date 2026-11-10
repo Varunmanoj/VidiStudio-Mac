@@ -82,7 +82,7 @@ struct MediaTrackSelectionView: View {
         }
         ForEach(project.resultLanguages.sorted(), id: \.self) { code in
             Section(OutputLanguage.title(code)) {
-                let audio = project.savedLanguageResults.filter { $0.state == "saved" && $0.language == code && ["descriptions", "adAudio"].contains($0.kind) && $0.hasContent }
+                let audio = project.savedLanguageResults.filter { $0.state == "saved" && $0.language == code && ["descriptions", "adAudio"].contains($0.kind) && ($0.kind == "adAudio" ? $0.hasContent : $0.hasExportableText) }
                 if !audio.isEmpty {
                     ExportOptionToggle("AD Audio", isOn: Binding(get: { selection.audio[code] != nil }, set: { on in
                         if on {
@@ -99,9 +99,9 @@ struct MediaTrackSelectionView: View {
                         }
                     }
                 }
-                let transcripts = project.languageResults(kind: "transcript", language: code).filter(\.hasContent)
+                let transcripts = project.languageResults(kind: "transcript", language: code).filter(\.hasExportableText)
                 if media == "video" && !transcripts.isEmpty {
-                    let descriptions = project.languageResults(kind: "descriptions", language: code).filter(\.hasContent)
+                    let descriptions = project.languageResults(kind: "descriptions", language: code).filter(\.hasExportableText)
                     ExportOptionToggle("Transcript", isOn: captionBinding(code, ad: false, transcripts: transcripts, descriptions: descriptions))
                     ExportOptionToggle("AD Transcript", isOn: captionBinding(code, ad: true, transcripts: transcripts, descriptions: descriptions))
                         .disabled(descriptions.isEmpty)

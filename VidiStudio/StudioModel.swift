@@ -662,10 +662,10 @@ struct StudioProject: Codable, Identifiable {
     }
     func canExportText(_ content: String) -> Bool {
         switch content {
-        case "transcript": return !transcript.isEmpty
+        case "transcript": return transcript.contains { !$0.text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }
         case "summary": return !summary.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
-        case "descriptions": return !cues.isEmpty
-        case "combined": return !transcript.isEmpty && !cues.isEmpty
+        case "descriptions": return cues.contains { !$0.text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }
+        case "combined": return canExportText("transcript") && canExportText("descriptions")
         default: return false
         }
     }

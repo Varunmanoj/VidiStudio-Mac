@@ -324,7 +324,7 @@ def execute(args,root,p,e):
             segments = sorted(imported_combined['segments'], key=lambda s: s['start'])
         else:
             segments=p['transcript'] if args.content=='transcript' else p['cues'] if args.content=='descriptions' else sorted(p['transcript']+p['cues'],key=lambda s:s['start'])
-        if not segments:raise ValueError('No text available to export.')
+        if not any(str(row.get('text', '')).strip() for row in segments):raise ValueError('No text available to export.')
         if args.format=='json':text=json.dumps(segments,ensure_ascii=False,indent=2)
         elif args.format=='txt':text='\n\n'.join(f"{clock(c['start'])} — {clock(c['end'])}\n{c['text']}" for c in segments)
         else:

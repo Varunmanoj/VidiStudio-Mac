@@ -108,6 +108,7 @@ struct ADOverviewView: View {
                             Text("Piper Voices").tag("piper")
                             Text("Gemini Voices").tag("gemini")
                         }
+                        statistic("Language", value: studio.settings.currentNarrationLanguage)
                         statistic("Selected voice", value: studio.settings.currentNarrationSummary)
                         if studio.isSynthesizingNarration {
                             HStack(spacing: 8) {

@@ -19,7 +19,7 @@ struct SavedResultStatus {
         else if result.kind == "adAudio", let path = result.payload.importedAudioDescription?.path,
                 let url = project.url(path), let values = try? url.resourceValues(forKeys: [.isRegularFileKey, .fileSizeKey]) {
             exportReady = result.state == "saved" && values.isRegularFile == true && (values.fileSize ?? 0) > 0
-        } else { exportReady = result.state == "saved" && result.kind != "adAudio" && result.hasContent }
+        } else { exportReady = result.state == "saved" && result.kind != "adAudio" && result.hasExportableText }
     }
     func labels(selected: Bool) -> [String] {
         (selected ? ["Selected"] : []) + (allAudio ? ["All AD segments have audio"] : []) + (exportReady ? ["Export ready"] : [])
@@ -100,5 +100,20 @@ private struct ADReadinessLabelStyle: LabelStyle {
             configuration.icon
             if !iconOnly { configuration.title }
         }
+    }
+}
+
+
+struct InspectorContentStatusIndicator: View {
+    let status: InspectorContentStatus
+    var iconOnly = false
+    var body: some View {
+        Label(status.title, systemImage: status.complete ? "checkmark.circle.fill" : "xmark.circle.fill")
+            .labelStyle(ADReadinessLabelStyle(iconOnly: iconOnly))
+            .foregroundStyle(status.complete ? Color.green : Color.red)
+            .font(.caption)
+            .accessibilityElement(children: .ignore)
+            .accessibilityLabel(status.accessibilityLabel)
+            .help(status.accessibilityLabel)
     }
 }

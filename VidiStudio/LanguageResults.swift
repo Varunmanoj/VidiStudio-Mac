@@ -69,6 +69,14 @@ struct SavedLanguageResult: Codable, Identifiable {
         default: !(payload.importedAudioDescription?.path ?? "").isEmpty
         }
     }
+    var hasExportableText: Bool {
+        switch kind {
+        case "transcript": return (payload.transcript ?? []).contains { !$0.text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }
+        case "summary": return !(payload.summary ?? "").trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+        case "descriptions": return ((payload.cues ?? []) + (payload.importedADTranscript?.segments ?? [])).contains { !$0.text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }
+        default: return false
+        }
+    }
     var kindTitle: String { Self.kindTitle(kind) }
     static func savedResultsTitle(_ kind: String) -> String {
         switch kind {
@@ -432,7 +440,7 @@ struct ExportLanguageSelectionView: View {
                 }))
                 if languages.contains(code) {
                     ForEach(["transcript", "summary", "descriptions", "adAudio"], id: \.self) { kind in
-                        let results = project.languageResults(kind: kind, language: code)
+                        let results = project.languageResults(kind: kind, language: code).filter { kind == "adAudio" ? $0.hasContent : $0.hasExportableText }
                         if !results.isEmpty {
                             Picker(SavedLanguageResult.kindTitle(kind), selection: Binding(get: {
                                 selections[code]?[kind] ?? project.activeLanguageResultID(kind, language: code)
@@ -590,5 +598,58 @@ extension StudioProject {
     func languageGroupForExport(_ path: String) -> String {
         let codes = languagesForExport(path)
         return codes.count > 1 ? "multilingual" : codes.first ?? "auto"
+    }
+}
+
+
+struct InspectorContentStatus: Identifiable {
+    let language: String
+    let complete: Bool
+    let title: String
+    let accessibilityLabel: String
+    var id: String { language }
+    static func kind(for section: String) -> String? {
+        switch section {
+        case "transcript", "summary": return section
+        case "descriptions", "ad-overview", "ad-transcript": return "descriptions"
+        default: return nil
+        }
+    }
+}
+
+extension StudioProject {
+    func inspectorContentStatus(section: String, language code: String) -> InspectorContentStatus? {
+        guard let kind = InspectorContentStatus.kind(for: section) else { return nil }
+        if kind == "descriptions" {
+            let status = adAudioReadiness(language: code)
+            return InspectorContentStatus(language: code, complete: status.complete, title: status.title, accessibilityLabel: status.accessibilityLabel)
+        }
+        let resultID = activeLanguageResultID(kind, language: code)
+        let payload = savedLanguageResults.first { $0.kind == kind && $0.language == code && $0.id == resultID }?.payload
+        let available: Bool
+        let count: Int
+        if kind == "transcript" {
+            let rows = code == languageCode ? transcript : payload?.transcript ?? []
+            count = rows.count
+            available = rows.contains { !$0.text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }
+        } else {
+            let text = code == languageCode ? summary : payload?.summary ?? ""
+            count = text.count
+            available = !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+        }
+        let name = kind == "transcript" ? "Transcript" : "Summary"
+        let state = available ? "available" : "unavailable"
+        return InspectorContentStatus(language: code, complete: available,
+            title: "\(OutputLanguage.title(code)) · \(count.formatted()) \(name) \(kind == "transcript" ? "segments" : "characters")",
+            accessibilityLabel: "\(OutputLanguage.title(code)): \(count) \(name.lowercased()) \(kind == "transcript" ? "segments" : "characters"). \(name) \(state) in the selected result.")
+    }
+    func inspectorContentStatuses(section: String) -> [InspectorContentStatus] {
+        guard let kind = InspectorContentStatus.kind(for: section) else { return [] }
+        let codes = Set(savedLanguageResults.filter { $0.kind == kind && $0.hasContent }.map(\.language)).union([languageCode])
+        return codes.sorted { $0 == languageCode ? $1 != languageCode : $1 == languageCode ? false : $0 < $1 }
+            .compactMap { inspectorContentStatus(section: section, language: $0) }
+    }
+    func segmentNumbers(isDescription: Bool) -> [String: Int] {
+        Dictionary(uniqueKeysWithValues: (isDescription ? cues : transcript).enumerated().map { ($0.element.id, $0.offset + 1) })
     }
 }

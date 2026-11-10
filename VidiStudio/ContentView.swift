@@ -1191,10 +1191,12 @@ struct ProcessingInspector: View {
                                         showDialog: showExportDialog
                                     )
                                     .help("Export video, narration audio, or text in the format you need (Command-Shift-E)")
-                                    ADAudioReadinessIndicator(status: p.adAudioReadiness(language: p.languageCode), iconOnly: true)
+                                    if let status = (editorActions.activeSection == "ad-overview" ? p.overviewProject : p).inspectorContentStatus(section: editorActions.activeSection, language: p.languageCode) {
+                                        InspectorContentStatusIndicator(status: status, iconOnly: true)
+                                    }
                                 }
-                                ForEach(p.adAudioReadinessByLanguage) { status in
-                                    ADAudioReadinessIndicator(status: status)
+                                ForEach((editorActions.activeSection == "ad-overview" ? p.overviewProject : p).inspectorContentStatuses(section: editorActions.activeSection)) { status in
+                                    InspectorContentStatusIndicator(status: status)
                                 }
                                 if !p.exports.isEmpty {
                                     Divider()
@@ -2617,9 +2619,12 @@ struct ProjectEditor: View {
                     }
                 } else {
                     ScrollViewReader { reader in
+                    let transcriptNumbers = project.segmentNumbers(isDescription: false)
+                    let descriptionNumbers = project.segmentNumbers(isDescription: true)
                     List(segments) { row in
                         let cue = row.segment
-                        let adNumber = row.isDescription ? (project.cues.firstIndex(where: { $0.id == cue.id }).map { $0 + 1 }) : nil
+                        let segmentNumber = (row.isDescription ? descriptionNumbers : transcriptNumbers)[cue.id] ?? 0
+                        let adNumber: Int? = row.isDescription ? segmentNumber : nil
                         let isNarratingCue = row.isDescription && studio.isSegmentNarrating(cue.id)
                         let isQueuedCue = row.isDescription && studio.isSegmentQueuedForNarration(cue.id)
                         HStack(alignment: .top, spacing: 16) {
@@ -2638,6 +2643,11 @@ struct ProjectEditor: View {
                             .buttonStyle(.borderless)
                             .accessibilityLabel(row.playbackLabel)
                             .help(row.playbackLabel)
+                            Text("#\(segmentNumber)")
+                                .font(.caption.monospacedDigit().weight(.semibold))
+                                .foregroundStyle(.secondary)
+                                .frame(minWidth: 28, alignment: .trailing)
+                                .accessibilityLabel("\(row.kind) segment \(segmentNumber)")
                             Button { playback.seek(cue.start) } label: {
                                 VStack { Text(timecode(cue.start)); Text(timecode(cue.end)).foregroundStyle(.secondary) }.monospacedDigit().font(.caption)
                             }.buttonStyle(.plain).help("Seek to \(timecode(cue.start))")
