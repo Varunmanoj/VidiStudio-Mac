@@ -3177,7 +3177,9 @@ def main():
     if args.command in ('import-youtube','validate-config'):
         parity.execute(args,None,None,core);return
     if args.command=='doctor':
-        emit('VidiStudio is ready',python=platform.python_version(),ffmpeg=tool('ffmpeg'),ffprobe=tool('ffprobe')); return
+        import ssl, certifi
+        tls = ssl.create_default_context(cafile=certifi.where())
+        emit('VidiStudio is ready',python=platform.python_version(),ffmpeg=tool('ffmpeg'),ffprobe=tool('ffprobe'),sslReady=tls.verify_mode == ssl.CERT_REQUIRED and tls.check_hostname); return
     if args.command=='import-video':
         if not args.video or not args.library: raise ValueError('Import requires --video and --library.')
         ensure_supported_local_video(args.video)
