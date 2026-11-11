@@ -128,7 +128,7 @@ class DesktopMenuParity(unittest.TestCase):
         self.checker.compare_sources(self.mac, self.app, self.windows)
         for mac, windows in (
             (self.mac, self.windows.replace('Menu("Edit", Command("copy-to"), Command("segment-edit-mode"))', 'Menu("Edit", Command("copy-to"))')),
-            (self.mac.replace('.accessibilityIdentifier("segment-edit-mode")\n                .keyboardShortcut("e", modifiers: [.command, .option])\n                .disabled(editor?.canRun("segment-edit-mode") != true)', '.accessibilityIdentifier("segment-edit-mode")'), self.windows),
+            (self.mac.replace('.accessibilityIdentifier("segment-edit-mode")\n                    .keyboardShortcut("e", modifiers: [.command, .option])\n                    .disabled(editor?.canRun("segment-edit-mode") != true)', '.accessibilityIdentifier("segment-edit-mode")'), self.windows),
         ):
             with self.assertRaises(ValueError): self.checker.compare_sources(mac, self.app, windows)
 

@@ -167,15 +167,52 @@ final class EditorShortcutActions {
         languageAction?("select-language", ["--language", code])
     }
 
+    /// Visibility follows the focused editor's tab; busy/prerequisite state only disables relevant actions.
+    func isCommandVisible(_ action: String) -> Bool {
+        guard isCommandVisibleInMode(action) else { return false }
+        if action.hasPrefix("summary-") { return activeSection == "summary" }
+        switch action {
+        case "analyze": return false // Full-project analysis belongs to All Projects.
+        case "transcribe", "import-transcript", "delete-transcript": return activeSection == "transcript"
+        case "generate-summary", "import-summary", "delete-summary": return activeSection == "summary"
+        case "generate-ad-cues", "import-descriptions", "delete-descriptions": return activeSection == "descriptions"
+        case "synthesize-tts", "synthesize-changed", "review-narration-issues", "review-narration-voices", "delete-narration":
+            return ["descriptions", "ad-overview", "ad-transcript"].contains(activeSection)
+        case "import-ad-audio", "narration", "caption-ad-transcript":
+            return ["descriptions", "ad-transcript"].contains(activeSection)
+        case "add", "reanalyze-selection", "undo", "redo": return ["transcript", "descriptions"].contains(activeSection)
+        case "segment-select-all", "segment-deselect-all", "segment-edit-selected", "segment-delete-selected", "follow",
+             "filter-segments", "clear-segment-filter", "sort-segments", "clear-segment-sort", "sort-start", "sort-duration-asc", "sort-duration-desc", "sort-origin",
+             "caption-cycle", "caption-off", "caption-transcript":
+            return ["transcript", "descriptions", "ad-transcript"].contains(activeSection)
+        case "copy-to", "segment-edit-mode": return ["transcript", "summary", "descriptions", "ad-transcript"].contains(activeSection)
+        case "delete-current": return ["transcript", "summary", "descriptions"].contains(activeSection)
+        case "youtube-captions": return youtubeProject && activeSection == "transcript"
+        case "youtube-details", "youtube-refresh", "import-original-audio": return youtubeProject
+        default: return true
+        }
+    }
+
+    func isCommandVisibleInMode(_ action: String) -> Bool {
+        if ["segment-select-all", "segment-deselect-all", "segment-edit-selected", "segment-delete-selected", "reanalyze-selection", "undo", "redo"].contains(action) {
+            return segmentEditMode
+        }
+        if activeSection == "summary", summaryEditing {
+            return !action.hasPrefix("summary-") && !["generate-summary", "import-summary", "delete-summary", "delete-current"].contains(action)
+        }
+        return true
+    }
+
     func run(_ action: String) {
-        if ["youtube-details", "youtube-refresh", "youtube-captions"].contains(action) { if available && youtubeProject { youtubeHandler?(action) }; return }
         guard canRun(action) else { return }
+        if ["youtube-details", "youtube-refresh", "youtube-captions"].contains(action) { youtubeHandler?(action); return }
         handler?(action)
     }
 
     func canRun(_ action: String) -> Bool {
-        guard available, handler != nil else { return false }
+        guard available, handler != nil, isCommandVisible(action) else { return false }
         if ["play", "back", "forward"].contains(action), youtubeProject, !ConnectivityService.shared.available(.youtube) { return false }
+        if ["youtube-details", "youtube-refresh", "youtube-captions"].contains(action) { return youtubeHandler != nil }
         if action.hasPrefix("summary-") { return canRunSummary(action) }
         switch action {
         case "saved-results": return !hasUnsavedSummaryEdits && resultProject?.savedLanguageResults.contains { $0.language == viewingLanguage && savedResultKinds.contains($0.kind) } == true
@@ -432,10 +469,16 @@ struct StudioCommands: Commands {
          .disabled(editor?.canRun("saved-results") != true)
     }
 
+    private var youtubeMenusVisible: Bool { allProjects != nil || editor?.youtubeProject == true || youtubeBrowser != nil }
+
     var body: some Commands {
         CommandGroup(after: .newItem) {
-            Button("My YouTube Videos…", systemImage: "play.rectangle") { studio.runYouTube("youtube-browser"); openWindow(id: "youtube-browser") }.keyboardShortcut("y", modifiers: [.command, .option]).disabled(studio.busy)
-            Button("Open in YouTube", systemImage: "arrow.up.right.square") { if youtubeBrowser != nil { youtubeBrowser?.run("youtube-open-browser") } else { browser?.run("youtube-open-browser") } }.keyboardShortcut(.return, modifiers: [.command, .shift]).disabled(youtubeBrowser != nil ? youtubeBrowser?.canRun("youtube-open-browser") != true : browser?.canRun("youtube-open-browser") != true)
+            if youtubeMenusVisible {
+                Button("My YouTube Videos…", systemImage: "play.rectangle") { studio.runYouTube("youtube-browser"); openWindow(id: "youtube-browser") }.keyboardShortcut("y", modifiers: [.command, .option]).disabled(studio.busy)
+            }
+            if youtubeMenusVisible && (youtubeBrowser != nil || browser?.canRun("youtube-open-browser") == true) {
+                Button("Open in YouTube", systemImage: "arrow.up.right.square") { if youtubeBrowser != nil { youtubeBrowser?.run("youtube-open-browser") } else { browser?.run("youtube-open-browser") } }.keyboardShortcut(.return, modifiers: [.command, .shift]).disabled(youtubeBrowser != nil ? youtubeBrowser?.canRun("youtube-open-browser") != true : browser?.canRun("youtube-open-browser") != true)
+            }
             Divider()
             Button("Export…", systemImage: "square.and.arrow.up") {
                 if let allProjects { allProjects.run("export") } else { editor?.showExportDialog() }
@@ -498,7 +541,7 @@ struct StudioCommands: Commands {
                     editor?.run("toggle-thumbnail-images")
                 }
                 .disabled(editor?.canRun("toggle-thumbnail-images") != true)
-                if editor?.summaryActive == true {
+                if editor?.summaryActive == true && editor?.summaryEditing != true {
                     shortcutEntries(StudioShortcut.editor.filter { $0.group == "Summary Zoom" })
                 }
                 if editor?.canFilterSegments == true {
@@ -558,15 +601,19 @@ struct StudioCommands: Commands {
         }
         CommandGroup(after: .pasteboard) {
             if allProjects == nil {
-                Button("Copy to…", systemImage: "doc.on.doc") { editor?.run("copy-to") }
-                    .accessibilityIdentifier("copy-to")
-                    .disabled(editor?.canRun("copy-to") != true)
-                Button(editor?.segmentEditModeTitle ?? "Edit Segments", systemImage: editor?.segmentEditMode == true ? "checkmark" : "pencil") {
-                    editor?.run("segment-edit-mode")
+                if editor?.isCommandVisible("copy-to") == true {
+                    Button("Copy to…", systemImage: "doc.on.doc") { editor?.run("copy-to") }
+                        .accessibilityIdentifier("copy-to")
+                        .disabled(editor?.canRun("copy-to") != true)
                 }
-                .accessibilityIdentifier("segment-edit-mode")
-                .keyboardShortcut("e", modifiers: [.command, .option])
-                .disabled(editor?.canRun("segment-edit-mode") != true)
+                if editor?.isCommandVisible("segment-edit-mode") == true {
+                    Button(editor?.segmentEditModeTitle ?? "Edit Segments", systemImage: editor?.segmentEditMode == true ? "checkmark" : "pencil") {
+                        editor?.run("segment-edit-mode")
+                    }
+                    .accessibilityIdentifier("segment-edit-mode")
+                    .keyboardShortcut("e", modifiers: [.command, .option])
+                    .disabled(editor?.canRun("segment-edit-mode") != true)
+                }
             }
         }
         CommandGroup(replacing: .textEditing) { }
@@ -584,25 +631,27 @@ struct StudioCommands: Commands {
                         captionShortcutEntry("caption-ad-transcript", mode: "ad-transcript")
                     }
                 }
-                Divider()
-                Menu("Summary Reading", systemImage: "speaker.wave.2") {
-                    shortcutEntries(StudioShortcut.editor.filter {
-                        ["summary-play", "summary-pause", "summary-stop"].contains($0.id)
-                    })
+                if editor?.summaryActive == true && editor?.summaryEditing != true {
                     Divider()
-                    shortcutEntries(StudioShortcut.editor.filter {
-                        ["summary-previous-sentence", "summary-next-sentence",
-                         "summary-previous-paragraph", "summary-next-paragraph"].contains($0.id)
-                    })
-                    Divider()
-                    Button("Read Summary from Start", systemImage: "forward.end") { editor?.run("summary-from-start") }
-                        .disabled(editor?.canRun("summary-from-start") != true)
-                    Button("Read Summary from Selection", systemImage: "text.cursor") { editor?.run("summary-from-selection") }
-                        .disabled(editor?.canRun("summary-from-selection") != true)
-                    Button("Read Selected Summary Text", systemImage: "quote.bubble") { editor?.run("summary-read-selection") }
-                        .disabled(editor?.canRun("summary-read-selection") != true)
+                    Menu("Summary Reading", systemImage: "speaker.wave.2") {
+                        shortcutEntries(StudioShortcut.editor.filter {
+                            ["summary-play", "summary-pause", "summary-stop"].contains($0.id)
+                        })
+                        Divider()
+                        shortcutEntries(StudioShortcut.editor.filter {
+                            ["summary-previous-sentence", "summary-next-sentence",
+                             "summary-previous-paragraph", "summary-next-paragraph"].contains($0.id)
+                        })
+                        Divider()
+                        Button("Read Summary from Start", systemImage: "forward.end") { editor?.run("summary-from-start") }
+                            .disabled(editor?.canRun("summary-from-start") != true)
+                        Button("Read Summary from Selection", systemImage: "text.cursor") { editor?.run("summary-from-selection") }
+                            .disabled(editor?.canRun("summary-from-selection") != true)
+                        Button("Read Selected Summary Text", systemImage: "quote.bubble") { editor?.run("summary-read-selection") }
+                            .disabled(editor?.canRun("summary-read-selection") != true)
+                    }
+                    .disabled(editor?.summaryActive != true)
                 }
-                .disabled(editor?.summaryActive != true)
             }
         }
         CommandMenu("Project") {
@@ -618,46 +667,58 @@ struct StudioCommands: Commands {
                 Menu("Editor Sections", systemImage: "rectangle.split.3x1") {
                     shortcutEntries(StudioShortcut.editor.filter { ["transcript", "summary", "descriptions", "ad-overview", "ad-transcript"].contains($0.id) })
                 }
-                Menu("Segments", systemImage: "timeline.selection") {
-                    Button(editor?.segmentEditModeTitle ?? "Edit Segments", systemImage: editor?.segmentEditMode == true ? "checkmark" : "pencil") {
-                        editor?.run("segment-edit-mode")
+                if editor?.canFilterSegments == true {
+                    Menu("Segments", systemImage: "timeline.selection") {
+                        Button(editor?.segmentEditModeTitle ?? "Edit Segments", systemImage: editor?.segmentEditMode == true ? "checkmark" : "pencil") {
+                            editor?.run("segment-edit-mode")
+                        }
+                        .keyboardShortcut("e", modifiers: [.command, .option])
+                        .disabled(editor?.canRun("segment-edit-mode") != true)
+                        if editor?.isCommandVisible("add") == true {
+                            Button(editor?.addSegmentTitle ?? "Add Segment", systemImage: "plus") { editor?.run("add") }
+                                .keyboardShortcut("n", modifiers: [.command, .shift])
+                                .disabled(editor?.canRun("add") != true)
+                        }
+                        if editor?.segmentEditMode == true {
+                            Divider()
+                            shortcutEntries(StudioShortcut.editor.filter { $0.id == "reanalyze-selection" })
+                            Button("Select All Segments", systemImage: "checkmark.square") { editor?.run("segment-select-all") }
+                                .keyboardShortcut("a", modifiers: [.command, .option])
+                                .disabled(editor?.canRun("segment-select-all") != true)
+                            Button("Deselect All Segments", systemImage: "square") { editor?.run("segment-deselect-all") }
+                                .keyboardShortcut("u", modifiers: [.command, .option, .shift])
+                                .disabled(editor?.canRun("segment-deselect-all") != true)
+                            Button("Edit Selected Segments…", systemImage: "square.and.pencil") { editor?.run("segment-edit-selected") }
+                                .keyboardShortcut(.return, modifiers: [.command, .option])
+                                .disabled(editor?.canRun("segment-edit-selected") != true)
+                            Button("Delete Selected Segments…", systemImage: "trash", role: .destructive) { editor?.run("segment-delete-selected") }
+                                .keyboardShortcut(.delete, modifiers: [.command, .control])
+                                .disabled(editor?.canRun("segment-delete-selected") != true)
+                            Divider()
+                        }
+                        shortcutEntries(StudioShortcut.editor.filter { ["follow", "undo", "redo"].contains($0.id) })
                     }
-                    .keyboardShortcut("e", modifiers: [.command, .option])
-                    .disabled(editor?.canRun("segment-edit-mode") != true)
-                    Button(editor?.addSegmentTitle ?? "Add Segment", systemImage: "plus") { editor?.run("add") }
-                        .keyboardShortcut("n", modifiers: [.command, .shift])
-                        .disabled(editor?.canRun("add") != true)
-                    Divider()
-                    shortcutEntries(StudioShortcut.editor.filter { $0.id == "reanalyze-selection" })
-                    Button("Select All Segments", systemImage: "checkmark.square") { editor?.run("segment-select-all") }
-                        .keyboardShortcut("a", modifiers: [.command, .option])
-                        .disabled(editor?.canRun("segment-select-all") != true)
-                    Button("Deselect All Segments", systemImage: "square") { editor?.run("segment-deselect-all") }
-                        .keyboardShortcut("u", modifiers: [.command, .option, .shift])
-                        .disabled(editor?.canRun("segment-deselect-all") != true)
-                    Button("Edit Selected Segments…", systemImage: "square.and.pencil") { editor?.run("segment-edit-selected") }
-                        .keyboardShortcut(.return, modifiers: [.command, .option])
-                        .disabled(editor?.canRun("segment-edit-selected") != true)
-                    Button("Delete Selected Segments…", systemImage: "trash", role: .destructive) { editor?.run("segment-delete-selected") }
-                        .keyboardShortcut(.delete, modifiers: [.command, .control])
-                        .disabled(editor?.canRun("segment-delete-selected") != true)
-                    Divider()
-                    shortcutEntries(StudioShortcut.editor.filter { ["follow", "undo", "redo"].contains($0.id) })
                 }
             }
             Menu("Analysis", systemImage: "sparkles") {
-                Button("Analyze Video…", systemImage: "sparkles") { runProject("analyze") }
-                    .keyboardShortcut("a", modifiers: [.command, .option, .shift])
-                    .disabled(!canRunProject("analyze"))
-                Divider()
+                if allProjects != nil {
+                    Button("Analyze Video…", systemImage: "sparkles") { runProject("analyze") }
+                        .keyboardShortcut("a", modifiers: [.command, .option, .shift])
+                        .disabled(!canRunProject("analyze"))
+                    Divider()
+                }
                 Button((!(allProjects?.project?.thumbnails.isEmpty ?? true) || editor?.hasGeneratedThumbnails == true) ? "Regenerate Video Details & Timeline Pictures…" : "Generate Video Details & Timeline Pictures", systemImage: "photo.on.rectangle.angled") { runProject("prepare-video") }
                     .disabled(!canRunProject("prepare-video"))
-                Button((allProjects?.project?.hasGeneratedTranscript == true || editor?.hasGeneratedTranscript == true) ? "Regenerate Transcript…" : "Generate Transcript", systemImage: "text.bubble") { runProject("transcribe") }
-                    .keyboardShortcut("t", modifiers: [.command, .option, .shift])
-                    .disabled(!canRunProject("transcribe"))
-                Button((allProjects?.project?.summary.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty == false || editor?.hasGeneratedSummary == true) ? "Regenerate Summary…" : "Generate Summary", systemImage: "text.alignleft") { runProject("generate-summary") }
-                    .keyboardShortcut("s", modifiers: [.command, .option, .shift])
-                    .disabled(!canRunProject("generate-summary"))
+                if allProjects != nil || editor?.isCommandVisible("transcribe") == true {
+                    Button((allProjects?.project?.hasGeneratedTranscript == true || editor?.hasGeneratedTranscript == true) ? "Regenerate Transcript…" : "Generate Transcript", systemImage: "text.bubble") { runProject("transcribe") }
+                        .keyboardShortcut("t", modifiers: [.command, .option, .shift])
+                        .disabled(!canRunProject("transcribe"))
+                }
+                if allProjects != nil || editor?.isCommandVisible("generate-summary") == true {
+                    Button((allProjects?.project?.summary.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty == false || editor?.hasGeneratedSummary == true) ? "Regenerate Summary…" : "Generate Summary", systemImage: "text.alignleft") { runProject("generate-summary") }
+                        .keyboardShortcut("s", modifiers: [.command, .option, .shift])
+                        .disabled(!canRunProject("generate-summary"))
+                }
                 if let allProjects {
                     Button(allProjects.project?.cues.isEmpty == false ? "Regenerate Audio Descriptions…" : "Generate Audio Descriptions", systemImage: "sparkles") { allProjects.run("generate-ad-cues") }
                     .keyboardShortcut("d", modifiers: [.command, .option, .shift])
@@ -665,53 +726,73 @@ struct StudioCommands: Commands {
                 }
             }
             if allProjects == nil {
-                Menu("YouTube", systemImage: "play.rectangle") {
-                    Button("Video Details…", systemImage: "info.circle") { editor?.run("youtube-details") }.disabled(editor?.youtubeProject != true || editor?.available != true)
-                    Button("Refresh YouTube Details", systemImage: "arrow.clockwise") { editor?.run("youtube-refresh") }.disabled(editor?.youtubeProject != true || editor?.available != true)
-                    Button("Import YouTube Captions…", systemImage: "captions.bubble") { editor?.run("youtube-captions") }.disabled(editor?.youtubeProject != true || editor?.available != true)
-                }
-                Menu("Narration", systemImage: editor?.isSynthesizingNarration == true ? "rays" : "speaker.wave.2") {
-                    Menu("AD Segment Generation", systemImage: "sparkles") {
-                        Button(editor?.hasDescriptions == true ? "Regenerate Audio Descriptions…" : "Generate Audio Descriptions", systemImage: "sparkles") { editor?.run("generate-ad-cues") }
-                            .keyboardShortcut("d", modifiers: [.command, .option, .shift])
-                            .disabled(editor?.canRun("generate-ad-cues") != true)
-                        Divider()
-                        Button("Delete Descriptions…", systemImage: "trash", role: .destructive) { editor?.run("delete-descriptions") }
-                            .disabled(editor?.canRun("delete-descriptions") != true)
-                    }
-                    Menu("Narration Audio", systemImage: "speaker.wave.2") {
-                        Button(editor?.synthesizeNarrationTitle ?? "Generate All AD Audio", systemImage: editor?.isSynthesizingNarration == true ? "rays" : "speaker.wave.2") { editor?.run("synthesize-tts") }
-                            .disabled(editor?.canRun("synthesize-tts") != true)
-                        Button("Generate Missing or Changed AD Audio", systemImage: "waveform") { editor?.run("synthesize-changed") }
-                            .disabled(editor?.canRun("synthesize-changed") != true)
-                        Button("Review Narration Issues…", systemImage: "list.bullet.clipboard") { editor?.run("review-narration-issues") }
-                            .disabled(editor?.canRun("review-narration-issues") != true)
-                        Button("Review Narration Voices…", systemImage: "person.wave.2") { editor?.run("review-narration-voices") }
-                            .disabled(editor?.canRun("review-narration-voices") != true)
-                        Divider()
-                        shortcutEntries(StudioShortcut.editor.filter { $0.id == "delete-narration" })
+                if editor?.youtubeProject == true {
+                    Menu("YouTube", systemImage: "play.rectangle") {
+                        Button("Video Details…", systemImage: "info.circle") { editor?.run("youtube-details") }.disabled(editor?.canRun("youtube-details") != true)
+                        Button("Refresh YouTube Details", systemImage: "arrow.clockwise") { editor?.run("youtube-refresh") }.disabled(editor?.canRun("youtube-refresh") != true)
+                        if editor?.isCommandVisible("youtube-captions") == true {
+                            Button("Import YouTube Captions…", systemImage: "captions.bubble") { editor?.run("youtube-captions") }.disabled(editor?.canRun("youtube-captions") != true)
+                        }
                     }
                 }
-                Button(editor?.currentDeleteTitle ?? "Delete Current Page…", systemImage: "trash", role: .destructive) {
-                    guard let action = editor?.currentDeleteAction else { return }
-                    editor?.run(action)
+                if editor?.isCommandVisible("synthesize-tts") == true {
+                    Menu("Narration", systemImage: editor?.isSynthesizingNarration == true ? "rays" : "speaker.wave.2") {
+                        if editor?.isCommandVisible("generate-ad-cues") == true {
+                            Menu("AD Segment Generation", systemImage: "sparkles") {
+                                Button(editor?.hasDescriptions == true ? "Regenerate Audio Descriptions…" : "Generate Audio Descriptions", systemImage: "sparkles") { editor?.run("generate-ad-cues") }
+                                    .keyboardShortcut("d", modifiers: [.command, .option, .shift])
+                                    .disabled(editor?.canRun("generate-ad-cues") != true)
+                                Divider()
+                                Button("Delete Descriptions…", systemImage: "trash", role: .destructive) { editor?.run("delete-descriptions") }
+                                    .disabled(editor?.canRun("delete-descriptions") != true)
+                            }
+                        }
+                        Menu("Narration Audio", systemImage: "speaker.wave.2") {
+                            Button(editor?.synthesizeNarrationTitle ?? "Generate All AD Audio", systemImage: editor?.isSynthesizingNarration == true ? "rays" : "speaker.wave.2") { editor?.run("synthesize-tts") }
+                                .disabled(editor?.canRun("synthesize-tts") != true)
+                            Button("Generate Missing or Changed AD Audio", systemImage: "waveform") { editor?.run("synthesize-changed") }
+                                .disabled(editor?.canRun("synthesize-changed") != true)
+                            Button("Review Narration Issues…", systemImage: "list.bullet.clipboard") { editor?.run("review-narration-issues") }
+                                .disabled(editor?.canRun("review-narration-issues") != true)
+                            Button("Review Narration Voices…", systemImage: "person.wave.2") { editor?.run("review-narration-voices") }
+                                .disabled(editor?.canRun("review-narration-voices") != true)
+                            Divider()
+                            shortcutEntries(StudioShortcut.editor.filter { $0.id == "delete-narration" })
+                        }
+                    }
                 }
-                .disabled(editor?.currentDeleteAction == nil || editor?.canRun(editor?.currentDeleteAction ?? "") != true)
+                if let deleteAction = editor?.currentDeleteAction, editor?.isCommandVisible(deleteAction) == true {
+                    Button(editor?.currentDeleteTitle ?? "Delete Current Page…", systemImage: "trash", role: .destructive) {
+                        guard let action = editor?.currentDeleteAction else { return }
+                        editor?.run(action)
+                    }
+                    .disabled(editor?.currentDeleteAction == nil || editor?.canRun(editor?.currentDeleteAction ?? "") != true)
+                }
                 Divider()
                 Menu("Import", systemImage: "square.and.arrow.down") {
-                    Button("Import Transcript…", systemImage: "text.bubble") { editor?.run("import-transcript") }
-                        .keyboardShortcut("i", modifiers: [.command, .option])
-                        .disabled(editor?.canRun("import-transcript") != true)
-                    Button("Import Summary…", systemImage: "text.alignleft") { editor?.run("import-summary") }
-                        .keyboardShortcut("m", modifiers: [.command, .option])
-                        .disabled(editor?.canRun("import-summary") != true)
-                    Button("Import Descriptions…", systemImage: "text.below.photo") { editor?.run("import-descriptions") }
-                        .keyboardShortcut("d", modifiers: [.command, .option])
-                        .disabled(editor?.canRun("import-descriptions") != true)
-                    Button("Import Original Audio…", systemImage: "waveform") { editor?.run("import-original-audio") }
-                        .disabled(editor?.canRun("import-original-audio") != true)
-                    Button("Import AD Audio…", systemImage: "waveform") { editor?.run("import-ad-audio") }
-                        .disabled(editor?.canRun("import-ad-audio") != true)
+                    if editor?.isCommandVisible("import-transcript") == true {
+                        Button("Import Transcript…", systemImage: "text.bubble") { editor?.run("import-transcript") }
+                            .keyboardShortcut("i", modifiers: [.command, .option])
+                            .disabled(editor?.canRun("import-transcript") != true)
+                    }
+                    if editor?.isCommandVisible("import-summary") == true {
+                        Button("Import Summary…", systemImage: "text.alignleft") { editor?.run("import-summary") }
+                            .keyboardShortcut("m", modifiers: [.command, .option])
+                            .disabled(editor?.canRun("import-summary") != true)
+                    }
+                    if editor?.isCommandVisible("import-descriptions") == true {
+                        Button("Import Descriptions…", systemImage: "text.below.photo") { editor?.run("import-descriptions") }
+                            .keyboardShortcut("d", modifiers: [.command, .option])
+                            .disabled(editor?.canRun("import-descriptions") != true)
+                    }
+                    if editor?.isCommandVisible("import-original-audio") == true {
+                        Button("Import Original Audio…", systemImage: "waveform") { editor?.run("import-original-audio") }
+                            .disabled(editor?.canRun("import-original-audio") != true)
+                    }
+                    if editor?.isCommandVisible("import-ad-audio") == true {
+                        Button("Import AD Audio…", systemImage: "waveform") { editor?.run("import-ad-audio") }
+                            .disabled(editor?.canRun("import-ad-audio") != true)
+                    }
                     Divider()
                     Button("Import Existing Assets…", systemImage: "square.and.arrow.down") { editor?.run("import-assets") }
                         .keyboardShortcut("i", modifiers: [.command, .option, .shift])
@@ -730,23 +811,27 @@ struct StudioCommands: Commands {
             Button("Move Project to Bin…", systemImage: "trash", role: .destructive) { browser?.run("trash-project") }
                 .disabled(browser?.canRun("trash-project") != true)
         }
-        CommandMenu("YouTube") {
-            Button("My YouTube Videos…", systemImage: "play.rectangle") { studio.runYouTube("youtube-browser"); openWindow(id: "youtube-browser") }.keyboardShortcut("y", modifiers: [.command, .option]).disabled(studio.busy)
-            Button("YouTube Accounts…", systemImage: "person.crop.circle") { youtubeBrowser?.run("youtube-accounts"); if youtubeBrowser == nil { SettingsSectionRequest.request("YouTube Accounts"); openSettings() } }
-                .keyboardShortcut("y", modifiers: [.command, .option, .shift])
-            if allProjects == nil {
-            Divider()
-            Button("List View", systemImage: youtubeBrowser?.layout == "list" ? "checkmark" : "list.bullet") { youtubeBrowser?.run("youtube-list") }.disabled(youtubeBrowser == nil)
-            Button("Table View", systemImage: youtubeBrowser?.layout == "table" ? "checkmark" : "tablecells") { youtubeBrowser?.run("youtube-table") }.disabled(youtubeBrowser == nil)
-            Divider()
-            Button("Open in Editor", systemImage: "pencil") { youtubeBrowser?.run("youtube-open-editor") }.keyboardShortcut(.return, modifiers: [.command]).disabled(youtubeBrowser?.canRun("youtube-open-editor") != true)
-            }
-            Button("Open in YouTube", systemImage: "arrow.up.right.square") { if youtubeBrowser != nil { youtubeBrowser?.run("youtube-open-browser") } else { browser?.run("youtube-open-browser") } }.keyboardShortcut(.return, modifiers: [.command, .shift]).disabled(youtubeBrowser != nil ? youtubeBrowser?.canRun("youtube-open-browser") != true : browser?.canRun("youtube-open-browser") != true)
-            if allProjects == nil {
-            Divider()
-            Button("Refresh Videos", systemImage: "arrow.clockwise") { youtubeBrowser?.run("youtube-refresh-list") }.keyboardShortcut("r", modifiers: [.command]).disabled(youtubeBrowser?.canRun("youtube-refresh-list") != true)
-            Button("Load More Videos", systemImage: "plus") { youtubeBrowser?.run("youtube-load-videos") }.keyboardShortcut("l", modifiers: [.command, .option]).disabled(youtubeBrowser?.canRun("youtube-load-videos") != true)
-            Button("Load More Playlists", systemImage: "plus") { youtubeBrowser?.run("youtube-load-playlists") }.keyboardShortcut("l", modifiers: [.command, .option, .shift]).disabled(youtubeBrowser?.canRun("youtube-load-playlists") != true)
+        if youtubeMenusVisible {
+            CommandMenu("YouTube") {
+                Button("My YouTube Videos…", systemImage: "play.rectangle") { studio.runYouTube("youtube-browser"); openWindow(id: "youtube-browser") }.keyboardShortcut("y", modifiers: [.command, .option]).disabled(studio.busy)
+                Button("YouTube Accounts…", systemImage: "person.crop.circle") { youtubeBrowser?.run("youtube-accounts"); if youtubeBrowser == nil { SettingsSectionRequest.request("YouTube Accounts"); openSettings() } }
+                    .keyboardShortcut("y", modifiers: [.command, .option, .shift])
+                if allProjects == nil {
+                Divider()
+                Button("List View", systemImage: youtubeBrowser?.layout == "list" ? "checkmark" : "list.bullet") { youtubeBrowser?.run("youtube-list") }.disabled(youtubeBrowser == nil)
+                Button("Table View", systemImage: youtubeBrowser?.layout == "table" ? "checkmark" : "tablecells") { youtubeBrowser?.run("youtube-table") }.disabled(youtubeBrowser == nil)
+                Divider()
+                Button("Open in Editor", systemImage: "pencil") { youtubeBrowser?.run("youtube-open-editor") }.keyboardShortcut(.return, modifiers: [.command]).disabled(youtubeBrowser?.canRun("youtube-open-editor") != true)
+                }
+                if youtubeBrowser != nil || browser?.canRun("youtube-open-browser") == true {
+                    Button("Open in YouTube", systemImage: "arrow.up.right.square") { if youtubeBrowser != nil { youtubeBrowser?.run("youtube-open-browser") } else { browser?.run("youtube-open-browser") } }.keyboardShortcut(.return, modifiers: [.command, .shift]).disabled(youtubeBrowser != nil ? youtubeBrowser?.canRun("youtube-open-browser") != true : browser?.canRun("youtube-open-browser") != true)
+                }
+                if allProjects == nil {
+                Divider()
+                Button("Refresh Videos", systemImage: "arrow.clockwise") { youtubeBrowser?.run("youtube-refresh-list") }.keyboardShortcut("r", modifiers: [.command]).disabled(youtubeBrowser?.canRun("youtube-refresh-list") != true)
+                Button("Load More Videos", systemImage: "plus") { youtubeBrowser?.run("youtube-load-videos") }.keyboardShortcut("l", modifiers: [.command, .option]).disabled(youtubeBrowser?.canRun("youtube-load-videos") != true)
+                Button("Load More Playlists", systemImage: "plus") { youtubeBrowser?.run("youtube-load-playlists") }.keyboardShortcut("l", modifiers: [.command, .option, .shift]).disabled(youtubeBrowser?.canRun("youtube-load-playlists") != true)
+                }
             }
         }
         CommandGroup(replacing: .help) {
@@ -771,7 +856,7 @@ struct StudioCommands: Commands {
         }
     }
     @ViewBuilder private func captionShortcutEntry(_ id: String, mode: String) -> some View {
-        if let shortcut = StudioShortcut.editor.first(where: { $0.id == id }) {
+        if editor?.isCommandVisible(id) == true, let shortcut = StudioShortcut.editor.first(where: { $0.id == id }) {
             Button(shortcut.title, systemImage: editor?.captionDisplayMode == mode ? "checkmark" : shortcut.icon) {
                 editor?.run(shortcut.id)
             }
@@ -780,7 +865,7 @@ struct StudioCommands: Commands {
         }
     }
     @ViewBuilder private func shortcutEntries(_ shortcuts: [StudioShortcut]) -> some View {
-        ForEach(shortcuts) { shortcut in
+        ForEach(shortcuts.filter { editor?.isCommandVisible($0.id) == true }) { shortcut in
             Button(shortcut.title, systemImage: shortcut.icon) { editor?.run(shortcut.id) }
                 .keyboardShortcut(shortcut.key, modifiers: shortcut.modifiers)
                 .disabled(editor?.canRun(shortcut.id) != true)

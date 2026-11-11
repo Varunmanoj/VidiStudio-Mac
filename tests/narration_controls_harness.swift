@@ -13,6 +13,7 @@ struct NarrationControlsHarness {
         project.folder = root
         project.cues = [Segment(id: "ad1", start: 0, end: 1, text: "First"), Segment(id: "ad2", start: 1, end: 2, text: "Second")]
         let actions = EditorShortcutActions()
+        actions.activeSection = "descriptions"
         actions.available = true
         actions.handler = { _ in }
         actions.descriptionCount = project.cues.count

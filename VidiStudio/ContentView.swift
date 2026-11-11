@@ -736,8 +736,10 @@ struct ProjectEditorWindow: View {
         .preferredColorScheme(studio.settings.theme == "dark" ? .dark : studio.settings.theme == "light" ? .light : nil)
         .contextMenu {
             if let project = studio.selected {
-                Button("Copy to…", systemImage: "doc.on.doc") { editorShortcutActions.run("copy-to") }
-                    .disabled(!editorShortcutActions.canRun("copy-to"))
+                if editorShortcutActions.isCommandVisible("copy-to") {
+                    Button("Copy to…", systemImage: "doc.on.doc") { editorShortcutActions.run("copy-to") }
+                        .disabled(!editorShortcutActions.canRun("copy-to"))
+                }
                 Button("Open Project Settings…", systemImage: "gearshape") { studio.requestProjectManagement("project-settings", project: project) }
                     .disabled(!studio.canManageProject("project-settings", project: project))
             }
