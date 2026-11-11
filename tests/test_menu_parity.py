@@ -210,7 +210,7 @@ class DesktopMenuParity(unittest.TestCase):
         self.checker.compare_project_list_context_actions(browser, grid, commands)
         for sources in ((browser.replace('Remove from List', 'Remove'), grid, commands),
                         (browser, grid.replace('Remove from List', 'Remove'), commands),
-                        (browser, grid, commands.replace('commandId: "remove-from-list"', 'commandId: "remove"'))):
+                        (browser, grid, commands.replace('Item("remove-from-list");', 'Item("remove");'))):
             with self.assertRaises(ValueError):
                 self.checker.compare_project_list_context_actions(*sources)
 

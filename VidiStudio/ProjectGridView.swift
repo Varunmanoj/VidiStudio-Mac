@@ -55,6 +55,7 @@ struct ProjectGridView: View {
                     .accessibilityAction(named: "Open Project") { open(project) }
                     .accessibilityAddTraits(selection == project.id ? [.isSelected] : [])
                     .contextMenu {
+                        Group {
                         Button("Open in New Window", systemImage: "macwindow.badge.plus") { openNewWindow(project) }
                         Divider()
                         Button("Rename", systemImage: "pencil") { rename(project) }
@@ -87,6 +88,7 @@ struct ProjectGridView: View {
                         Divider()
                         Button("Choose Content to Delete…", systemImage: "eraser", role: .destructive) { clear(project) }.disabled(busy || project.integrityPlaceholder == true || !project.hasGeneratedContent)
                         Button("Delete Project…", systemImage: "trash", role: .destructive) { delete(project) }.disabled(busy)
+                        }.disabled(busy)
                     }
                 }
             }.padding(12)

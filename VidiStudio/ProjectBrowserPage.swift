@@ -375,6 +375,7 @@ struct ProjectBrowserPage: View {
 
     @ViewBuilder
     private func projectMenu(_ project: StudioProject) -> some View {
+        Group {
         Button("Open in New Window", systemImage: "macwindow.badge.plus") { openNewWindow(project) }
         Divider()
         Button("Rename", systemImage: "pencil") { rename(project) }
@@ -413,5 +414,6 @@ struct ProjectBrowserPage: View {
             delete(project)
         }
         .disabled(busy)
+        }.disabled(busy)
     }
 }
