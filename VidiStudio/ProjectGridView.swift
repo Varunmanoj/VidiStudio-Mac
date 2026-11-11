@@ -174,11 +174,13 @@ struct AllProjectsActions {
     let sourceFilter: Binding<ProjectSourceFilter>
     let languageFilter: Binding<String>
     let search: Binding<String>
+    let projectSort: Binding<ProjectListSort>
     let perform: (String, StudioProject) -> Void
     var languageOptions: [OutputLanguage] = []
 
     func canRun(_ action: String) -> Bool {
         if action.hasPrefix("projects-source-") { return true }
+        if action.hasPrefix("projects-sort-") { return true }
         if action == "projects-reset-filters" {
             return sourceFilter.wrappedValue != .all || languageFilter.wrappedValue != "all" || !search.wrappedValue.isEmpty
         }
@@ -203,6 +205,10 @@ struct AllProjectsActions {
     func run(_ action: String) {
         guard canRun(action) else { return }
         switch action {
+        case "projects-sort-opened": projectSort.wrappedValue = .lastOpened
+        case "projects-sort-name": projectSort.wrappedValue = .name
+        case "projects-sort-duration": projectSort.wrappedValue = .duration
+        case "projects-sort-type": projectSort.wrappedValue = .type
         case "projects-source-all": sourceFilter.wrappedValue = .all
         case "projects-source-local": sourceFilter.wrappedValue = .local
         case "projects-source-youtube": sourceFilter.wrappedValue = .youtube

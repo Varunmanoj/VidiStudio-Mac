@@ -365,6 +365,7 @@ struct ContentView: View {
 
     private func openEditor(_ project: StudioProject) {
         if project.youtubeMetadata?.visibility == "private" { studio.error = "Private Video Cannot Be Opened. Signing in to Google does not give Gemini access."; return }
+        ProjectOpenHistory.record(project)
         studio.selectedID = project.id
         // The project ID is the WindowGroup value and therefore its window identity.
         // Reopening the same value activates that editor instead of creating a duplicate.
@@ -832,6 +833,7 @@ struct ProjectEditorWindow: View {
         .onAppear {
             studio.reload()
             studio.selectedID = projectID
+            if let project = studio.selected { ProjectOpenHistory.record(project) }
             editorShortcutActions.youtubeHandler = { action in
                 if action == "youtube-refresh" { studio.youtubeInspectorRefresh = UUID(); showInspector = true }
                 else { studio.youtubeDetailAction = action; studio.showingYouTubeDetails = true }
@@ -897,6 +899,7 @@ struct ProjectEditorWindow: View {
         guard let target = studio.projects.first(where: { $0.id == project.id }) else { return }
         if let oldID, oldID != target.id { openProjects.close(oldID, owner: windowOwner) }
         studio.selectedID = target.id
+        ProjectOpenHistory.record(target)
         windowProjectID = ProjectEditorWindowValue.replacingProject(in: windowProjectID ?? projectID, with: target.id)
         openProjects.open(target.id, name: target.name, folder: target.folder, owner: windowOwner, actions: editorShortcutActions)
     }

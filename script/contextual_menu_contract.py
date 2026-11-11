@@ -25,6 +25,19 @@ def _policy(source, swift):
 
 
 def check_contextual_menus(mac, windows):
+    for token in ['allProjects.projectSort.wrappedValue == .lastOpened',
+                  'allProjects.projectSort.wrappedValue == .name',
+                  'allProjects.projectSort.wrappedValue == .duration',
+                  'allProjects.projectSort.wrappedValue == .type',
+                  'StudioHelp.openWebsite()', '.accessibilityIdentifier("website")']:
+        if token not in mac: raise ValueError('Mac project sort/website contract missing: ' + token)
+    for token in ['if (id.StartsWith("projects-sort-", StringComparison.Ordinal)) return !desktopEditorVisible;',
+                  'if (name is "Filter Projects by Source" or "Sort Projects") group.IsEnabled = !desktopEditorVisible;',
+                  'Model.ProjectSort == "opened"', 'Model.ProjectSort == "name"',
+                  'Model.ProjectSort == "duration"', 'Model.ProjectSort == "type"',
+                  'if (id == "website") return true;',
+                  'case "website": await Launcher.LaunchUriAsync(new Uri("https://vidistudio.varunmanojkumar.in/")); break;']:
+        if token not in windows: raise ValueError('Windows project sort/website contract missing: ' + token)
     if _policy(mac, True) != _policy(windows, False):
         raise ValueError('Desktop tab/source visibility policies differ')
     mac_guards = [

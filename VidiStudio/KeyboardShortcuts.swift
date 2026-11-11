@@ -611,6 +611,12 @@ struct StudioCommands: Commands {
                     Button("YouTube Projects", systemImage: allProjects.sourceFilter.wrappedValue == .youtube ? "checkmark" : "play.rectangle") { allProjects.run("projects-source-youtube") }
                 }
                 libraryLanguageMenu()
+                Menu("Sort Projects", systemImage: "arrow.up.arrow.down") {
+                    Button("Last Opened", systemImage: allProjects.projectSort.wrappedValue == .lastOpened ? "checkmark" : "clock") { allProjects.run("projects-sort-opened") }
+                    Button("Name (A–Z)", systemImage: allProjects.projectSort.wrappedValue == .name ? "checkmark" : "textformat.abc") { allProjects.run("projects-sort-name") }
+                    Button("Duration (Longest First)", systemImage: allProjects.projectSort.wrappedValue == .duration ? "checkmark" : "timer") { allProjects.run("projects-sort-duration") }
+                    Button("Type (Local, then YouTube)", systemImage: allProjects.projectSort.wrappedValue == .type ? "checkmark" : "film") { allProjects.run("projects-sort-type") }
+                }
                 Button("Reset Project Filters", systemImage: "line.3.horizontal.decrease.circle") { allProjects.run("projects-reset-filters") }
                     .disabled(!allProjects.canRun("projects-reset-filters"))
                 Divider()
@@ -1004,6 +1010,8 @@ struct StudioCommands: Commands {
         }
         CommandGroup(replacing: .help) {
             Button("VidiStudio Help", systemImage: "questionmark.circle") { StudioHelp.open() }.keyboardShortcut("/", modifiers: [.command, .option])
+            Button("VidiStudio Website", systemImage: "arrow.up.right.square") { StudioHelp.openWebsite() }
+                .accessibilityIdentifier("website")
         }
     }
     @ViewBuilder private func entries(_ group: String) -> some View {

@@ -75,6 +75,18 @@ class DesktopMenuParity(unittest.TestCase):
             with self.assertRaises(ValueError):
                 self.checker.compare_piper_settings_samples(changed_mac, changed_windows)
 
+    def test_project_sort_and_website_commands_cannot_be_omitted(self):
+        for command in ('projects-sort-opened', 'projects-sort-name', 'projects-sort-duration', 'projects-sort-type', 'website'):
+            with self.assertRaises(ValueError):
+                self.checker.compare_sources(self.mac, self.app, self.windows.replace('Command("' + command + '")', 'Command("missing")', 1))
+        root = Path(os.environ.get('VIDISTUDIO_DESKTOP_WORKSPACE', Path(__file__).resolve().parents[2]))
+        import runpy
+        check = runpy.run_path(str(root / 'VidiStudio Mac/script/contextual_menu_contract.py'))['check_contextual_menus']
+        for token in ('Model.ProjectSort == "duration"', 'if (id == "website") return true;', 'if (id.StartsWith("projects-sort-", StringComparison.Ordinal)) return !desktopEditorVisible;'):
+            with self.assertRaises(ValueError): check(self.mac, self.windows.replace(token, ''))
+        help_source = (root / 'VidiStudio Mac/VidiStudio/StudioHelp.swift').read_text()
+        self.assertIn('https://vidistudio.varunmanojkumar.in/', help_source)
+
     def test_library_filter_and_selected_project_contracts(self):
         for mac, windows in (
             (self.mac.replace('allProjects.languageFilter.wrappedValue = language.id', 'allProjects.languageFilter.wrappedValue = "auto"'), self.windows),

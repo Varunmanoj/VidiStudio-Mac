@@ -51,6 +51,8 @@ struct ProjectBrowserPage: View {
     let projects: [StudioProject]
     @Binding var search: String
     @State private var languageFilter = "all"
+    @State private var projectSort = ProjectListSort.lastOpened
+    @AppStorage("projectLastOpened") private var projectOpenHistory = Data()
     @Binding var sourceFilter: ProjectSourceFilter
     @Binding var grid: Bool
     @Binding var gridItemSize: Double
@@ -76,9 +78,9 @@ struct ProjectBrowserPage: View {
     private var languageOptions: [OutputLanguage] { OutputLanguage.projectFilterOptions(projects) }
 
     private var filteredProjects: [StudioProject] {
-        projects.filter {
+        projectSort.sorted(projects.filter {
             (search.isEmpty || $0.name.localizedStandardContains(search)) && sourceFilter.matches($0) && $0.matchesLanguage(languageFilter)
-        }
+        }, lastOpened: ProjectOpenHistory.read(projectOpenHistory))
     }
 
     private var isFiltering: Bool {
@@ -280,7 +282,7 @@ struct ProjectBrowserPage: View {
         .focusedSceneValue(\.allProjects, AllProjectsActions(
             studio: studio, project: selectedProject, sourceFilter: $sourceFilter,
             languageFilter: $languageFilter, search: $search,
-            perform: { action, project in
+            projectSort: $projectSort, perform: { action, project in
                 switch action {
                 case "open-selected-project": openEditor(project)
                 case "open-gallery-window": openNewWindow(project)
