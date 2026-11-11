@@ -43,6 +43,7 @@ def check_contextual_menus(mac, windows):
         'if editor?.canFilterSegments == true {',
         'if editor?.youtubeProject == true {',
         'if youtubeMenusVisible {',
+        'ForEach(allProjects.languageOptions)',
         'if youtubeBrowser != nil {',
         'allProjects != nil || editor?.youtubeProject == true || youtubeBrowser != nil',
         'if action.hasPrefix("summary-") { return activeSection == "summary" }',
@@ -54,6 +55,7 @@ def check_contextual_menus(mac, windows):
         mac_guards.append('if allProjects != nil || editor?.isCommandVisible("' + action + '") == true {')
     win_guards = [
         'desktopEditorVisible && !EditorCommandVisible(id)',
+        'Concat(Model.ProjectFilterLanguages)',
         'if (!EditorCommandVisibleInMode(id)) return false;',
         'if (Section.SelectedIndex == 1 && summaryEditMode)',
         '&& EditorCommandVisible(id)',
@@ -81,7 +83,8 @@ def check_row_more_actions(mac_content, windows_commands, mac_language, windows_
         raise ValueError('Mac row More Actions must omit copying for transcript and description rows')
     context = mac_content.split('.accessibilityValue(validationHighlightID == row.id ? "Timing validation issue" : "")', 1)[1]
     context = context.split('.contextMenu {', 1)[1].split('}.listStyle(.inset)', 1)[0]
-    if 'Copy' in context:
+    helper = mac_content.split('@ViewBuilder private func segmentRowContextMenu(', 1)[1].split('private func runSegmentRowAction(', 1)[0]
+    if 'Copy' in context or 'Copy' in helper:
         raise ValueError('Mac individual row context menu must omit copying')
     row_branch = windows_commands.split('\n        if (segment != null)\n        {', 1)[1].split('\n        else\n        {', 1)[0]
     if 'Copy' in row_branch or 'ShowCopyToAsync' in row_branch:
@@ -96,3 +99,44 @@ def check_row_more_actions(mac_content, windows_commands, mac_language, windows_
         raise ValueError('Copy dialog must initially allow all preselected content types')
     if 'Text("Copy and Translate")' not in mac_language or 'Title = "Copy and Translate"' not in windows_language:
         raise ValueError('Copy and Translate dialog titles must match')
+
+
+def check_single_segment_commands(mac, windows, content, commands):
+    for source, tokens in [
+        (mac, ['segmentEditMode, selectedSegmentCount == 1, let kind = selectedSegmentKind',
+               'return canRunRowCommand(action, kind: kind, hasAudio: selectedSegmentHasAudio, audioReady: selectedSegmentAudioReady, isPreviewing: selectedSegmentPreviewing)',
+               'segmentEditMode && rowCommandVisible(action, kind: selectedSegmentKind)']),
+        (windows, ['return editMode && SingleSelectedSegment() is { } segment && CanRunRowCommand(id, segment);',
+                   'Segments.SelectedItems.Count == 1', 'Segments.Items.Contains(segment) && SegmentBelongsToCurrentTab(segment)',
+                   'return CanRunSingleSegmentCommand(id);', 'return editMode && RowCommandVisible(id, SingleSelectedSegment()?.IsDescription) &&']),
+        (content, ['.contextMenu { segmentRowContextMenu(row) }',
+                   'guard canRunSegmentRowAction(action, row: row) else { return }',
+                   'guard shortcutActions.canRun(action), selectedSegmentIDs.count == 1, selectedRows.count == 1,']),
+        (commands, ['if (!CanRunRowCommand(id, segment)) return;', 'await RunSegmentRowCommandAsync(id, segment)',
+                    'RowCommandVisible(id, segment.IsDescription)', 'IsEnabled = CanRunRowCommand(id, segment)'])
+    ]:
+        for token in tokens:
+            if token not in source: raise ValueError('Single-segment command guard missing: ' + token)
+    mac_edit = mac.split('CommandMenu("Edit")', 1)[1].split('CommandGroup(replacing: .textEditing)', 1)[0]
+    win_edit = windows.split('Menu("Edit",', 1)[1].split('Menu("View",', 1)[0]
+    for action in ['edit', 'play', 'skip', 'synthesize', 'rewrite', 'import-audio', 'delete-audio', 'reanalyze']:
+        command = 'segment-one-' + action
+        if 'editor?.run("' + command + '")' not in mac_edit or 'Command("' + command + '")' not in win_edit:
+            raise ValueError('Edit must mirror individual row actions: ' + command)
+    if 'editor?.run("segment-delete-selected")' not in mac_edit or 'Command("segment-delete-selected")' not in win_edit:
+        raise ValueError('Edit must retain deletion for any nonempty selection')
+
+    mac_playback = mac.split('CommandMenu("Playback")', 1)[1].split('CommandMenu("Project")', 1)[0]
+    win_playback = windows.split('Menu("Playback",', 1)[1].split('Menu("Project",', 1)[0]
+    for command in ['segment-one-preview', 'segment-one-preview-stop']:
+        if command in mac_edit or command in win_edit:
+            raise ValueError('Narration playback belongs in Playback rather than Edit')
+        if 'editor?.run("' + command + '")' not in mac_playback or 'Command("' + command + '")' not in win_playback:
+            raise ValueError('Playback must expose guarded narration transport: ' + command)
+
+    if 'Menu("Segment Narration"' not in mac_playback or 'Submenu("Segment Narration"' not in win_playback:
+        raise ValueError('Segment narration transport must be grouped separately from video controls')
+    if 'action != "segment-one-preview-stop" || selectedSegmentPreviewing' not in mac or 'id != "segment-one-preview-stop" || SingleSelectedSegment()' not in windows:
+        raise ValueError('Stop narration must be hidden without an active preview for the selected row')
+    if 'if action == "stop" { return videoPlaybackStarted }' not in mac or 'if (id == "stop") return videoPlaybackStarted;' not in windows:
+        raise ValueError('Stop Video must be hidden before playback and after stopping')

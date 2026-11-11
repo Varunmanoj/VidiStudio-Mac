@@ -17,6 +17,7 @@ struct Project { var transcript = [Segment(id: "t")]; var cues = [Segment(id: "d
 final class EditorFixture {
     let studio = Studio(); let playback = Playback()
     var captionControlsAvailable = true; var segmentEditMode = false
+    var segmentEditorHint = ""
     var segmentToEdit: TranscriptRow?; var segmentBatchToEdit: SegmentEditBatch?
     var project = Project()
     var transcriptRows: [TranscriptRow] { [TranscriptRow(segment: project.transcript[0]), TranscriptRow(segment: project.cues[0], isDescription: true)] }

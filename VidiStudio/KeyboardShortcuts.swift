@@ -43,8 +43,8 @@ final class EditorShortcutActions {
     var segmentEditingAvailable = false
     var segmentEditMode = false
     var hasUnsavedSummaryEdits = false
-    var languageAction: ((String, [String]) -> Void)?
-    var settingsLanguageAction: ((String, [String], Bool) -> Void)?
+    @ObservationIgnored var languageAction: ((String, [String]) -> Void)?
+    @ObservationIgnored var settingsLanguageAction: ((String, [String], Bool) -> Void)?
     var canChangeLanguage: Bool { available && segmentEditMode && ["transcript", "summary", "descriptions", "ad-transcript"].contains(activeSection) && !hasUnsavedSummaryEdits }
     var segmentEditModeTitle = "Edit Segments"
     var filterTitle = "Filter Segments…"
@@ -56,6 +56,63 @@ final class EditorShortcutActions {
     }
     var segmentCount = 0
     var selectedSegmentCount = 0
+    var selectedSegmentKind: String?
+    var selectedSegmentHasAudio = false
+    var selectedSegmentAudioReady = false
+    var videoIsPlaying = false
+    var videoPlaybackStarted = false
+    var selectedSegmentPreviewing = false
+    var segmentPreviewPaused = false
+
+    func rowCommandVisible(_ action: String, kind: String?) -> Bool {
+        guard ["transcript", "descriptions", "ad-transcript"].contains(activeSection) else { return false }
+        if let kind {
+            guard ["transcript", "descriptions"].contains(kind),
+                  activeSection == "ad-transcript" || activeSection == kind else { return false }
+        }
+        let effectiveKind = kind ?? (activeSection == "ad-transcript" ? nil : activeSection)
+        switch action {
+        case "segment-one-edit", "segment-one-play", "segment-one-skip", "segment-one-delete": return true
+        case "segment-one-preview", "segment-one-preview-stop", "segment-one-synthesize", "segment-one-rewrite", "segment-one-import-audio", "segment-one-delete-audio":
+            return effectiveKind != "transcript"
+        case "segment-one-reanalyze": return effectiveKind != "descriptions"
+        default: return false
+        }
+    }
+
+    func canRunRowCommand(_ action: String, kind: String, hasAudio: Bool, audioReady: Bool, isPreviewing: Bool = false) -> Bool {
+        guard available, rowCommandVisible(action, kind: kind) else { return false }
+        switch action {
+        case "segment-one-play", "segment-one-skip": return !youtubeProject || ConnectivityService.shared.available(.youtube)
+        case "segment-one-reanalyze", "segment-one-rewrite": return hasValidApiKey
+        case "segment-one-synthesize": return !ttsUsesGemini || hasValidApiKey
+        case "segment-one-preview": return audioReady || isPreviewing
+        case "segment-one-preview-stop": return isPreviewing
+        case "segment-one-delete-audio": return hasAudio
+        default: return true
+        }
+    }
+
+    func segmentCommandTitle(_ action: String, kind: String? = nil, hasAudio: Bool? = nil, isPreviewing: Bool? = nil, isPaused: Bool? = nil) -> String {
+        let kind = kind ?? selectedSegmentKind ?? (activeSection == "ad-transcript" ? nil : activeSection)
+        let title = kind == "descriptions" ? "Audio description" : kind == "transcript" ? "Transcript" : "Segment"
+        switch action {
+        case "segment-one-edit": return "Edit \(title)\(title == "Segment" ? "" : " Segment")…"
+        case "segment-one-play": return "Play from \(title)"
+        case "segment-one-skip": return "Skip to \(title)"
+        case "segment-one-preview":
+            return (isPreviewing ?? selectedSegmentPreviewing) ? ((isPaused ?? segmentPreviewPaused) ? "Resume Narration" : "Pause Narration") : "Play Narration"
+        case "segment-one-preview-stop": return "Stop Narration"
+        case "segment-one-synthesize": return (hasAudio ?? selectedSegmentHasAudio) ? "Regenerate Segment Narration" : "Synthesize This Segment"
+        case "segment-one-rewrite": return "Rewrite to Fit"
+        case "segment-one-import-audio": return "Import Narration Audio…"
+        case "segment-one-delete-audio": return "Delete Segment Audio…"
+        case "segment-one-reanalyze": return "Re-Analyze This Segment…"
+        case "segment-one-delete": return "Delete Segment…"
+        default: return action
+        }
+    }
+
     var canGenerateDescriptions = false
     var hasNarrationAudio = false
     var hasDescriptions = false
@@ -70,7 +127,7 @@ final class EditorShortcutActions {
     var aiProcessingBlocked = false
     var hasValidApiKey: Bool { hasApiKey && apiKeyVerified != false && !aiProcessingBlocked && ConnectivityService.shared.available(.gemini) }
     var youtubeProject = false
-    var youtubeHandler: ((String) -> Void)?
+    @ObservationIgnored var youtubeHandler: ((String) -> Void)?
     var ttsUsesGemini = false
     var isSynthesizingNarration = false
     var narratingSegmentIndex: Int? = nil
@@ -104,9 +161,9 @@ final class EditorShortcutActions {
     var summaryHasSelection = false
     /// A non-empty summary text selection (read-selection content).
     var summaryHasTextSelection = false
-    var handler: ((String) -> Void)?
-    var copyHandler: ((Bool) -> Void)?
-    var exportHandler: (() -> Void)?
+    @ObservationIgnored var handler: ((String) -> Void)?
+    @ObservationIgnored var copyHandler: ((Bool) -> Void)?
+    @ObservationIgnored var exportHandler: (() -> Void)?
 
     var captionControlsAvailable: Bool {
         ["transcript", "descriptions", "ad-transcript"].contains(activeSection)
@@ -171,6 +228,8 @@ final class EditorShortcutActions {
     /// Visibility follows the focused editor's tab; busy/prerequisite state only disables relevant actions.
     func isCommandVisible(_ action: String) -> Bool {
         guard isCommandVisibleInMode(action) else { return false }
+        if action == "stop" { return videoPlaybackStarted }
+        if action.hasPrefix("segment-one-") { return segmentEditMode && rowCommandVisible(action, kind: selectedSegmentKind) && (action != "segment-one-preview-stop" || selectedSegmentPreviewing) }
         if action.hasPrefix("summary-") { return activeSection == "summary" }
         switch action {
         case "analyze": return false // Full-project analysis belongs to All Projects.
@@ -241,6 +300,10 @@ final class EditorShortcutActions {
         guard available, handler != nil, isCommandVisible(action) else { return false }
         if ["play", "back", "forward"].contains(action), youtubeProject, !ConnectivityService.shared.available(.youtube) { return false }
         if ["youtube-details", "youtube-refresh", "youtube-captions"].contains(action) { return youtubeHandler != nil }
+        if action.hasPrefix("segment-one-") {
+            guard segmentEditMode, selectedSegmentCount == 1, let kind = selectedSegmentKind else { return false }
+            return canRunRowCommand(action, kind: kind, hasAudio: selectedSegmentHasAudio, audioReady: selectedSegmentAudioReady, isPreviewing: selectedSegmentPreviewing)
+        }
         if action.hasPrefix("summary-") { return canRunSummary(action) }
         switch action {
         case "saved-results": return !hasUnsavedSummaryEdits && resultProject?.savedLanguageResults.contains { $0.language == viewingLanguage && savedResultKinds.contains($0.kind) } == true
@@ -456,8 +519,8 @@ struct StudioCommands: Commands {
         Menu("Filter Projects by Language", systemImage: "translate") {
             if let allProjects {
                 Toggle("All Languages", isOn: Binding(get: { allProjects.languageFilter.wrappedValue == "all" }, set: { if $0 { allProjects.languageFilter.wrappedValue = "all" } }))
-                ForEach(OutputLanguage.options) { language in
-                    Toggle(language.title, isOn: Binding(get: { allProjects.languageFilter.wrappedValue == language.id }, set: { if $0 { allProjects.languageFilter.wrappedValue = language.id } }))
+                ForEach(allProjects.languageOptions) { language in
+                    Toggle(language.title, isOn: Binding(get: { allProjects.languageFilter.wrappedValue == language.id }, set: { if $0, allProjects.languageOptions.contains(language) { allProjects.languageFilter.wrappedValue = language.id } }))
                 }
             }
         }.accessibilityIdentifier("projects-language-filter")
@@ -501,6 +564,11 @@ struct StudioCommands: Commands {
 
     var body: some Commands {
         CommandGroup(after: .newItem) {
+            if let allProjects {
+                Button("Open in New Window", systemImage: "macwindow.badge.plus") { allProjects.run("open-gallery-window") }
+                    .disabled(!allProjects.canRun("open-gallery-window"))
+                Divider()
+            }
             if youtubeMenusVisible {
                 Button("My YouTube Videos…", systemImage: "play.rectangle") { studio.runYouTube("youtube-browser"); openWindow(id: "youtube-browser") }.keyboardShortcut("y", modifiers: [.command, .option]).disabled(studio.busy)
             }
@@ -627,7 +695,12 @@ struct StudioCommands: Commands {
                 openSettings()
             }
         }
-        CommandGroup(after: .pasteboard) {
+        CommandGroup(replacing: .pasteboard) { }
+        CommandMenu("Edit") {
+            if let allProjects {
+                Button("Rename Project…", systemImage: "pencil") { allProjects.run("rename-project") }
+                    .disabled(!allProjects.canRun("rename-project"))
+            }
             if allProjects == nil {
                 if editor?.isCommandVisible("copy-to") == true {
                     Button("Copy and Translate…", systemImage: "doc.on.doc") { editor?.run("copy-to") }
@@ -642,12 +715,79 @@ struct StudioCommands: Commands {
                     .keyboardShortcut("e", modifiers: [.command, .option])
                     .disabled(editor?.canRun("segment-edit-mode") != true)
                 }
+                if editor?.segmentEditMode == true && editor?.canFilterSegments == true {
+                    Divider()
+                    Button("Select All Segments", systemImage: "checkmark.square") { editor?.run("segment-select-all") }
+                        .keyboardShortcut("a", modifiers: [.command, .option])
+                        .disabled(editor?.canRun("segment-select-all") != true)
+                    Button("Deselect All Segments", systemImage: "square") { editor?.run("segment-deselect-all") }
+                        .keyboardShortcut("u", modifiers: [.command, .option, .shift])
+                        .disabled(editor?.canRun("segment-deselect-all") != true)
+                    Divider()
+                    if editor?.isCommandVisible("segment-one-edit") == true {
+                        Button(editor?.segmentCommandTitle("segment-one-edit") ?? "Segment", systemImage: "pencil") { editor?.run("segment-one-edit") }
+                            .accessibilityIdentifier("segment-one-edit")
+                            .disabled(editor?.canRun("segment-one-edit") != true)
+                    }
+                    if editor?.isCommandVisible("segment-one-play") == true {
+                        Button(editor?.segmentCommandTitle("segment-one-play") ?? "Segment", systemImage: "play.fill") { editor?.run("segment-one-play") }
+                            .accessibilityIdentifier("segment-one-play")
+                            .disabled(editor?.canRun("segment-one-play") != true)
+                    }
+                    if editor?.isCommandVisible("segment-one-skip") == true {
+                        Button(editor?.segmentCommandTitle("segment-one-skip") ?? "Segment", systemImage: "forward.end.fill") { editor?.run("segment-one-skip") }
+                            .accessibilityIdentifier("segment-one-skip")
+                            .disabled(editor?.canRun("segment-one-skip") != true)
+                    }
+                    if editor?.isCommandVisible("segment-one-synthesize") == true {
+                        Button(editor?.segmentCommandTitle("segment-one-synthesize") ?? "Segment", systemImage: "waveform") { editor?.run("segment-one-synthesize") }
+                            .accessibilityIdentifier("segment-one-synthesize")
+                            .disabled(editor?.canRun("segment-one-synthesize") != true)
+                    }
+                    if editor?.isCommandVisible("segment-one-rewrite") == true {
+                        Button(editor?.segmentCommandTitle("segment-one-rewrite") ?? "Segment", systemImage: "sparkles") { editor?.run("segment-one-rewrite") }
+                            .accessibilityIdentifier("segment-one-rewrite")
+                            .disabled(editor?.canRun("segment-one-rewrite") != true)
+                    }
+                    if editor?.isCommandVisible("segment-one-import-audio") == true {
+                        Button(editor?.segmentCommandTitle("segment-one-import-audio") ?? "Segment", systemImage: "square.and.arrow.down") { editor?.run("segment-one-import-audio") }
+                            .accessibilityIdentifier("segment-one-import-audio")
+                            .disabled(editor?.canRun("segment-one-import-audio") != true)
+                    }
+                    if editor?.isCommandVisible("segment-one-delete-audio") == true {
+                        Button(editor?.segmentCommandTitle("segment-one-delete-audio") ?? "Segment", systemImage: "speaker.slash") { editor?.run("segment-one-delete-audio") }
+                            .accessibilityIdentifier("segment-one-delete-audio")
+                            .disabled(editor?.canRun("segment-one-delete-audio") != true)
+                    }
+                    if editor?.isCommandVisible("segment-one-reanalyze") == true {
+                        Button(editor?.segmentCommandTitle("segment-one-reanalyze") ?? "Segment", systemImage: "sparkles") { editor?.run("segment-one-reanalyze") }
+                            .accessibilityIdentifier("segment-one-reanalyze")
+                            .disabled(editor?.canRun("segment-one-reanalyze") != true)
+                    }
+                    Button("Delete Selected Segments…", systemImage: "trash", role: .destructive) { editor?.run("segment-delete-selected") }
+                        .accessibilityIdentifier("segment-delete-selected")
+                        .disabled(editor?.canRun("segment-delete-selected") != true)
+                }
             }
         }
+        CommandGroup(replacing: .undoRedo) { }
         CommandGroup(replacing: .textEditing) { }
         CommandGroup(replacing: .textFormatting) { }
         if allProjects == nil {
             CommandMenu("Playback") {
+                if editor?.isCommandVisible("segment-one-preview") == true {
+                    Menu("Segment Narration", systemImage: "speaker.wave.2") {
+                        Button(editor?.segmentCommandTitle("segment-one-preview") ?? "Play Narration", systemImage: editor?.selectedSegmentPreviewing == true && editor?.segmentPreviewPaused != true ? "pause.circle" : "play.circle") { editor?.run("segment-one-preview") }
+                            .accessibilityIdentifier("segment-one-preview")
+                            .disabled(editor?.canRun("segment-one-preview") != true)
+                        if editor?.isCommandVisible("segment-one-preview-stop") == true {
+                            Button(editor?.segmentCommandTitle("segment-one-preview-stop") ?? "Stop Narration", systemImage: "stop.circle") { editor?.run("segment-one-preview-stop") }
+                                .accessibilityIdentifier("segment-one-preview-stop")
+                                .disabled(editor?.canRun("segment-one-preview-stop") != true)
+                        }
+                    }
+                    Divider()
+                }
                 shortcutEntries(StudioShortcut.editor.filter { $0.group == "Playback" })
                 if editor?.captionControlsAvailable == true {
                     Divider()
@@ -894,7 +1034,7 @@ struct StudioCommands: Commands {
     }
     @ViewBuilder private func shortcutEntries(_ shortcuts: [StudioShortcut]) -> some View {
         ForEach(shortcuts.filter { editor?.isCommandVisible($0.id) == true }) { shortcut in
-            Button(shortcut.title, systemImage: shortcut.icon) { editor?.run(shortcut.id) }
+            Button(shortcut.id == "play" ? (editor?.videoIsPlaying == true ? "Pause Video" : "Play Video") : shortcut.title, systemImage: shortcut.id == "play" ? (editor?.videoIsPlaying == true ? "pause.fill" : "play.fill") : shortcut.icon) { editor?.run(shortcut.id) }
                 .keyboardShortcut(shortcut.key, modifiers: shortcut.modifiers)
                 .disabled(editor?.canRun(shortcut.id) != true)
         }

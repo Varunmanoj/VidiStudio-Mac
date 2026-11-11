@@ -73,6 +73,8 @@ struct ProjectBrowserPage: View {
     let export: (StudioProject) -> Void
     let clear: (StudioProject) -> Void
 
+    private var languageOptions: [OutputLanguage] { OutputLanguage.projectFilterOptions(projects) }
+
     private var filteredProjects: [StudioProject] {
         projects.filter {
             (search.isEmpty || $0.name.localizedStandardContains(search)) && sourceFilter.matches($0) && $0.matchesLanguage(languageFilter)
@@ -281,13 +283,17 @@ struct ProjectBrowserPage: View {
             perform: { action, project in
                 switch action {
                 case "open-selected-project": openEditor(project)
+                case "open-gallery-window": openNewWindow(project)
                 case "export": export(project)
                 case "delete-content": clear(project)
                 case "delete-project": delete(project)
                 default: process(project, action)
                 }
-            }
+            }, languageOptions: languageOptions
         ))
+        .onChange(of: languageOptions, initial: true) { _, options in
+            if languageFilter != "all" && !options.contains(where: { $0.id == languageFilter }) { languageFilter = "all" }
+        }
         .onChange(of: filteredProjects.map(\.id)) { _, visibleIDs in
             if let selection, !visibleIDs.contains(selection) { self.selection = nil }
         }
@@ -295,7 +301,7 @@ struct ProjectBrowserPage: View {
         .searchable(text: $search, placement: .toolbar, prompt: "Search projects")
         .toolbar {
             ToolbarItemGroup(placement: .primaryAction) {
-                OutputLanguagePicker(title: "Project language filter", selection: $languageFilter, includesAll: true)
+                OutputLanguagePicker(title: "Project language filter", selection: $languageFilter, includesAll: true, options: languageOptions)
                 Picker("Project source", selection: $sourceFilter) {
                     ForEach(ProjectSourceFilter.allCases) { filter in
                         Label(filter.title, systemImage: filter.iconName)

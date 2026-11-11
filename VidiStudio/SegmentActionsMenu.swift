@@ -7,6 +7,7 @@ struct SegmentActionsMenu: NSViewRepresentable {
         let title: String
         let systemImage: String
         var enabled = true
+        var separatorBefore = false
         let perform: () -> Void
     }
 
@@ -27,8 +28,7 @@ struct SegmentActionsMenu: NSViewRepresentable {
 
     func updateNSView(_ button: NSPopUpButton, context: Context) {
         let enabled = context.environment.isEnabled
-        context.coordinator.actions = actions
-        context.coordinator.enabled = enabled
+        guard context.coordinator.updateActions(actions, enabled: enabled) else { return }
         let menu = NSMenu()
         menu.autoenablesItems = false
         let trigger = NSMenuItem(title: "", action: nil, keyEquivalent: "")
@@ -36,6 +36,7 @@ struct SegmentActionsMenu: NSViewRepresentable {
         if #available(macOS 27.0, *) { trigger.preferredImageVisibility = .visible }
         menu.addItem(trigger)
         for (index, action) in actions.enumerated() {
+            if action.separatorBefore { menu.addItem(.separator()) }
             let item = NSMenuItem(title: action.title, action: #selector(Coordinator.performAction(_:)), keyEquivalent: "")
             item.target = context.coordinator
             item.tag = index
@@ -56,6 +57,25 @@ struct SegmentActionsMenu: NSViewRepresentable {
     final class Coordinator: NSObject {
         var actions: [Action] = []
         var enabled = true
+
+        private struct Presentation: Equatable {
+            let title: String
+            let systemImage: String
+            let enabled: Bool
+            let separatorBefore: Bool
+        }
+        private var presentation: [Presentation]?
+
+        func updateActions(_ actions: [Action], enabled: Bool) -> Bool {
+            // Refresh closures even when the native items do not need rebuilding.
+            self.actions = actions
+            self.enabled = enabled
+            let next = actions.map { Presentation(title: $0.title, systemImage: $0.systemImage,
+                enabled: enabled && $0.enabled, separatorBefore: $0.separatorBefore) }
+            guard presentation != next else { return false }
+            presentation = next
+            return true
+        }
 
         @objc func performAction(_ sender: NSMenuItem) {
             guard enabled, actions.indices.contains(sender.tag), actions[sender.tag].enabled else { return }

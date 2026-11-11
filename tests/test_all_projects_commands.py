@@ -8,8 +8,13 @@ start=src.index('@MainActor\nstruct AllProjectsActions');end=src.index('private 
 stubs='''import SwiftUI
 import Foundation
 @MainActor final class StudioModel {
+ var listedProjects=[StudioProject]()
+ func canManageProject(_ action:String,project:StudioProject)->Bool { !busy && project.folder != nil }
+ func requestProjectManagement(_ action:String,project:StudioProject) {}
+ func removeProjectFromList(_ project:StudioProject) {}
  var busy=false; var hasApiKey=true; var apiKeyVerified: Bool?=true; var isAIProcessingBlocked=false
 }
+struct OutputLanguage {}
 enum ProjectSourceFilter { case all, local, youtube }
 struct StudioProject {
  var id: String; var folder: URL?=URL(fileURLWithPath:"/tmp/project"); var integrityPlaceholder: Bool?=false

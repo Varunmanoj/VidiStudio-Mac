@@ -69,7 +69,7 @@ struct StudioProject {
 }
 enum OnlineService { case gemini, youtube }
 struct ConnectivityService { static let shared = ConnectivityService(); func available(_ service: OnlineService) -> Bool { true } }
-@MainActor
+@MainActor @Observable
 """ + production + """
 @main struct Main { @MainActor static func main() {
     let actions = EditorShortcutActions()
@@ -113,6 +113,54 @@ struct ConnectivityService { static let shared = ConnectivityService(); func ava
     actions.available = false
     precondition(actions.isCommandVisible("import-summary") && !actions.canRun("import-summary"))
     calls = []; actions.run("import-summary"); precondition(calls.isEmpty)
+    let rowActions = ["segment-one-edit", "segment-one-play", "segment-one-skip", "segment-one-preview", "segment-one-preview-stop", "segment-one-synthesize", "segment-one-rewrite", "segment-one-import-audio", "segment-one-delete-audio", "segment-one-reanalyze", "segment-one-delete"]
+    actions.available = true; actions.youtubeProject = false; actions.ttsUsesGemini = false
+    actions.hasApiKey = true; actions.selectedSegmentHasAudio = true; actions.selectedSegmentAudioReady = true
+    for tab in ["transcript", "summary", "descriptions", "ad-overview", "ad-transcript"] {
+      actions.activeSection = tab; actions.summaryEditing = false
+      for editing in [false, true] { actions.segmentEditMode = editing
+        for count in [0, 1, 2] { actions.selectedSegmentCount = count
+          precondition(actions.canRun("segment-delete-selected") == (["transcript", "descriptions", "ad-transcript"].contains(tab) && editing && count > 0), "bulk delete selection guard")
+          for kind in ["transcript", "descriptions"] { actions.selectedSegmentKind = count == 1 ? kind : nil
+            for command in rowActions {
+              let timed = ["transcript", "descriptions", "ad-transcript"].contains(tab)
+              let kindAllowed = tab == "ad-transcript" || tab == kind
+              let descriptionOnly = ["segment-one-preview", "segment-one-preview-stop", "segment-one-synthesize", "segment-one-rewrite", "segment-one-import-audio", "segment-one-delete-audio"].contains(command)
+              let actionAllowed = command != "segment-one-preview-stop" && (!descriptionOnly || kind == "descriptions") && (command != "segment-one-reanalyze" || kind == "transcript")
+              let expected = timed && editing && count == 1 && kindAllowed && actionAllowed
+              precondition(actions.canRun(command) == expected, "single selection guard")
+              calls = []; actions.run(command); precondition(calls == (expected ? [command] : []))
+              precondition(actions.canRunRowCommand(command, kind: kind, hasAudio: true, audioReady: true) == (timed && kindAllowed && actionAllowed), "context row policy")
+            }
+          }
+        }
+      }
+    }
+    actions.activeSection = "ad-transcript"; actions.segmentEditMode = true; actions.selectedSegmentCount = 1; actions.selectedSegmentKind = "descriptions"
+    actions.hasApiKey = false; actions.ttsUsesGemini = true; actions.selectedSegmentHasAudio = false; actions.selectedSegmentAudioReady = false
+    for command in ["segment-one-rewrite", "segment-one-synthesize", "segment-one-delete-audio", "segment-one-preview"] { precondition(!actions.canRun(command)) }
+    actions.selectedSegmentPreviewing = true; actions.segmentPreviewPaused = false
+    precondition(actions.canRun("segment-one-preview") && actions.canRun("segment-one-preview-stop"))
+    precondition(actions.segmentCommandTitle("segment-one-preview") == "Pause Narration")
+    precondition(actions.segmentCommandTitle("segment-one-preview-stop") == "Stop Narration")
+    actions.segmentPreviewPaused = true
+    precondition(actions.segmentCommandTitle("segment-one-preview") == "Resume Narration")
+    actions.selectedSegmentPreviewing = false
+    precondition(!actions.canRun("segment-one-preview-stop"))
+    precondition(actions.segmentCommandTitle("segment-one-preview") == "Play Narration")
+    actions.videoPlaybackStarted = false; precondition(!actions.isCommandVisible("stop") && !actions.canRun("stop"))
+    actions.videoPlaybackStarted = true; precondition(actions.isCommandVisible("stop") && actions.canRun("stop"))
+    actions.videoPlaybackStarted = false
+    actions.available = false; precondition(!actions.canRun("segment-one-edit"))
+    final class MenuChanges: @unchecked Sendable { var count = 0 }
+    let menuChanges = MenuChanges()
+    actions.activeSection = "transcript"; actions.segmentEditMode = true; actions.selectedSegmentCount = 1; actions.selectedSegmentKind = "transcript"; actions.available = true
+    withObservationTracking { _ = actions.canRun("segment-one-edit") } onChange: { menuChanges.count += 1 }
+    actions.handler = { calls.append("latest:" + $0) }
+    precondition(menuChanges.count == 0, "Replacing a callback must not recreate the visible menu")
+    actions.run("segment-one-edit"); precondition(calls.last == "latest:segment-one-edit")
+    actions.selectedSegmentCount = 2
+    precondition(menuChanges.count == 1, "A real selection change must still invalidate menu availability")
     print("PASS: all tabs, both source types, hidden dispatch rejection, active dispatch and busy guards")
 } }
 """
@@ -126,13 +174,16 @@ struct ConnectivityService { static let shared = ConnectivityService(); func ava
     def test_windows_production_visibility_across_all_tabs_and_sources(self):
         if not shutil.which('dotnet'): self.skipTest('.NET SDK required')
         source = (WIN / 'Vidi Studio Windows/MainWindow.Menus.cs').read_text()
-        production = declaration(source, '    private bool EditorCommandVisible(') + declaration(source, '    private bool EditorCommandVisibleInMode(') + declaration(source, '    private string[] CopyDefaultKinds(') + declaration(source, '    private string CurrentSectionCopyTitle') + ';'
+        production = declaration(source, '    private bool RowCommandVisible(') + declaration(source, '    private bool EditorCommandVisible(') + declaration(source, '    private bool EditorCommandVisibleInMode(') + declaration(source, '    private string[] CopyDefaultKinds(') + declaration(source, '    private string CurrentSectionCopyTitle') + ';'
         harness = """using System;
 using System.Linq;
 class Picker { public int SelectedIndex; }
 class Project { public bool IsYouTube; }
 class Studio { public Project? Project = new(); }
 class Check {
+    class Row { public bool IsDescription; }
+    Row? SingleSelectedSegment() => null;
+    Row? previewingSegment; bool videoPlaybackStarted;
     Picker Section = new(); Studio Model = new(); bool editMode, summaryEditMode;
 """ + production + """
     static void Main() {

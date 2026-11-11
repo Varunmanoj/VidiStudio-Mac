@@ -14,6 +14,11 @@ struct OutputLanguage: Identifiable, Hashable {
             .sorted { $0.title.localizedStandardCompare($1.title) == .orderedAscending }
     }()
     static func title(_ code: String) -> String { options.first { $0.id == code }?.title ?? code }
+    static func projectFilterOptions(_ projects: [StudioProject]) -> [OutputLanguage] {
+        let codes = Set(projects.flatMap(\.projectFilterLanguageCodes))
+        return codes.map { OutputLanguage(id: $0, title: title($0)) }
+            .sorted { $0.title.localizedStandardCompare($1.title) == .orderedAscending }
+    }
 }
 
 struct SavedLanguagePayload: Codable {
@@ -147,12 +152,13 @@ extension StudioProject {
         if let languageResults { return languageResults }
         var results: [SavedLanguageResult] = []
         for kind in ["transcript", "summary", "descriptions", "adAudio"] {
-            let content = kind == "transcript" ? !transcript.isEmpty : kind == "summary" ? !summary.isEmpty : kind == "descriptions" ? !cues.isEmpty : importedAudioDescription != nil
+            let content = kind == "transcript" ? !transcript.isEmpty : kind == "summary" ? !summary.isEmpty : kind == "descriptions" ? (!cues.isEmpty || importedADTranscript?.segments.isEmpty == false) : importedAudioDescription != nil
             if content {
                 results.append(SavedLanguageResult(id: id + "-legacy-" + kind, kind: kind, language: "auto", version: 1,
                     createdAt: createdAt, updatedAt: updatedAt, origin: kind == "summary" ? summaryOrigin ?? "unknown" : "unknown", state: "saved",
                     payload: SavedLanguagePayload(transcript: kind == "transcript" ? transcript : nil, summary: kind == "summary" ? summary : nil,
-                        cues: kind == "descriptions" ? cues : nil, importedAudioDescription: kind == "adAudio" ? importedAudioDescription : nil)))
+                        cues: kind == "descriptions" ? cues : nil, importedAudioDescription: kind == "adAudio" ? importedAudioDescription : nil,
+                        importedADTranscript: kind == "descriptions" ? importedADTranscript : nil)))
             }
         }
         return results
@@ -184,7 +190,12 @@ extension StudioProject {
         }
     }
     var resultLanguages: [String] { Array(Set(savedLanguageResults.map(\.language))).sorted() }
-    func matchesLanguage(_ code: String) -> Bool { code == "all" || savedLanguageResults.contains { $0.language == code } }
+    var projectFilterLanguageCodes: [String] {
+        Array(Set(savedLanguageResults.filter {
+            $0.state == "saved" && $0.hasContent && !$0.language.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+        }.map(\.language))).sorted()
+    }
+    func matchesLanguage(_ code: String) -> Bool { code == "all" || projectFilterLanguageCodes.contains(code) }
 }
 
 struct OutputLanguagePicker: View {
@@ -193,11 +204,12 @@ struct OutputLanguagePicker: View {
     var includesAll = false
     var includesAuto = true
     var includesFollowProject = false
+    var options: [OutputLanguage] = OutputLanguage.options
     var body: some View {
         Picker(title, selection: $selection) {
             if includesAll { Text("All Languages").tag("all") }
             if includesFollowProject { Text("Follow Project Language").tag("project") }
-            ForEach(OutputLanguage.options.filter { includesAuto || $0.id != "auto" }) { option in Text(option.title).tag(option.id) }
+            ForEach(options.filter { includesAuto || $0.id != "auto" }) { option in Text(option.title).tag(option.id) }
         }.pickerStyle(.menu)
             .accessibilityLabel(title)
     }

@@ -30,8 +30,8 @@ class SegmentEditAccessTests(unittest.TestCase):
         win = ROOT.parent / 'Vidi-Studio-Windows/Vidi Studio Windows'
         menu = (win / 'MainWindow.Commands.cs').read_text()
         editor = declaration((win / 'MainWindow.xaml.cs').read_text(), '    private async Task EditSegment(')
-        self.assertIn('Item("Edit segment", async (_, _) => await EditSegment(segment));', menu)
+        self.assertIn('case "segment-one-edit": await EditSegment(segment); break;', menu)
         self.assertNotIn('!editMode', editor)
-        self.assertIn('.disabled(!canOpenSegmentEditor)', mac)
+        self.assertIn('.disabled(!canRunSegmentRowAction("segment-one-edit", row: row))', mac)
         self.assertIn('.onTapGesture(count: 2) {\n                                guard segmentEditMode else { return }', mac)
         self.assertNotIn('Enter Edit mode to edit segment text and timing', mac)

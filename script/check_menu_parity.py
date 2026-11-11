@@ -20,6 +20,11 @@ contract['check_row_more_actions'](
     (workspace / 'Vidi-Studio-Windows/Vidi Studio Windows/MainWindow.Commands.cs').read_text(),
     (workspace / 'VidiStudio Mac/VidiStudio/LanguageResults.swift').read_text(),
     (workspace / 'Vidi-Studio-Windows/Vidi Studio Windows/MainWindow.LanguageResults.cs').read_text())
+contract['check_single_segment_commands'](
+    (workspace / 'VidiStudio Mac/VidiStudio/KeyboardShortcuts.swift').read_text(),
+    (workspace / 'Vidi-Studio-Windows/Vidi Studio Windows/MainWindow.Menus.cs').read_text(),
+    (workspace / 'VidiStudio Mac/VidiStudio/ContentView.swift').read_text(),
+    (workspace / 'Vidi-Studio-Windows/Vidi Studio Windows/MainWindow.Commands.cs').read_text())
 print('PASS: desktop tab/source/mode guards and row More Actions match.')
 
 runpy.run_path(str(checker), run_name='__main__')

@@ -15,6 +15,8 @@ struct EditorProjectBrowser: View {
     @State private var source = "all"
     @State private var languageFilter = "all"
 
+    private var languageOptions: [OutputLanguage] { OutputLanguage.projectFilterOptions(projects) }
+
     private var filtered: [StudioProject] {
         projects.filter { (search.isEmpty || $0.name.localizedCaseInsensitiveContains(search)) &&
             (source == "all" || $0.isYouTubeURLProject == (source == "youtube")) && $0.matchesLanguage(languageFilter) }
@@ -30,7 +32,10 @@ struct EditorProjectBrowser: View {
                 Text("Local videos").tag("local")
                 Text("YouTube videos").tag("youtube")
             }.labelsHidden()
-            OutputLanguagePicker(title: "Project language filter", selection: $languageFilter, includesAll: true)
+            OutputLanguagePicker(title: "Project language filter", selection: $languageFilter, includesAll: true, options: languageOptions)
+                .onChange(of: languageOptions, initial: true) { _, options in
+                    if languageFilter != "all" && !options.contains(where: { $0.id == languageFilter }) { languageFilter = "all" }
+                }
             if summaryEditing {
                 Text("Finish editing the summary to switch projects.")
                     .font(.caption).foregroundStyle(.secondary)

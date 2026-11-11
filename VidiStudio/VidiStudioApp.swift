@@ -1,52 +1,145 @@
 import SwiftUI
 import AppKit
 
+@MainActor
 final class VidiStudioAppDelegate: NSObject, NSApplicationDelegate {
     private var menuObservers: [NSObjectProtocol] = []
     private var menuRefreshPending = false
+    private var applyingMenuDecoration = false
+    private var textShortcutMonitor: Any?
+    private var trackingMenus: Set<ObjectIdentifier> = []
 
     func applicationDidFinishLaunching(_ notification: Notification) {
+        NativeMenuIcons.shortcutSymbols = Dictionary(
+            (StudioShortcut.editor + StudioShortcut.youtube).map { ($0.title, $0.icon) },
+            uniquingKeysWith: { first, _ in first })
+        textShortcutMonitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { event in
+            MainActor.assumeIsolated { Self.handleTextShortcut(event) }
+        }
         for name in [NSMenu.didAddItemNotification, NSMenu.didChangeItemNotification] {
             menuObservers.append(NotificationCenter.default.addObserver(
                 forName: name, object: nil, queue: .main
             ) { [weak self] notification in
-                if let menu = notification.object as? NSMenu, menu !== NSApp.mainMenu {
-                    NativeMenuIcons.apply(to: menu, isMenuBar: false)
+                MainActor.assumeIsolated {
+                    guard let self, !self.applyingMenuDecoration else { return }
+                    if self.trackingMenus.isEmpty { self.scheduleMenuRefresh() }
+                    else if let menu = notification.object as? NSMenu, menu !== NSApp.mainMenu {
+                        self.decorateApplicationItems(menu)
+                    }
                 }
-                self?.scheduleMenuRefresh()
             })
         }
         menuObservers.append(NotificationCenter.default.addObserver(
             forName: NSMenu.didBeginTrackingNotification, object: nil, queue: .main
-        ) { notification in
-            guard let menu = notification.object as? NSMenu else { return }
-            NativeMenuIcons.apply(to: menu, isMenuBar: menu === NSApp.mainMenu)
-            DispatchQueue.main.async {
-                NativeMenuIcons.apply(to: menu, isMenuBar: menu === NSApp.mainMenu)
+        ) { [weak self] notification in
+            MainActor.assumeIsolated {
+                guard let self, let menu = notification.object as? NSMenu else { return }
+                self.trackingMenus.insert(ObjectIdentifier(menu))
+                self.removeSystemEditCommands()
+                // A menu-bar notification names the root, so only prepare the
+                // app-owned Edit submenu. Context popups name their own menu.
+                if menu === NSApp.mainMenu {
+                    if let edit = menu.items.first(where: { $0.title == "Edit" })?.submenu {
+                        self.decorateApplicationItems(edit)
+                    }
+                } else { self.decorateApplicationItems(menu) }
+            }
+        })
+        menuObservers.append(NotificationCenter.default.addObserver(
+            forName: NSMenu.didEndTrackingNotification, object: nil, queue: .main
+        ) { [weak self] notification in
+            MainActor.assumeIsolated {
+                guard let self, let menu = notification.object as? NSMenu else { return }
+                self.trackingMenus.remove(ObjectIdentifier(menu))
+                self.scheduleMenuRefresh()
             }
         })
         scheduleMenuRefresh()
     }
 
-    func applicationDidBecomeActive(_ notification: Notification) {
-        scheduleMenuRefresh()
-    }
+    func applicationDidBecomeActive(_ notification: Notification) { scheduleMenuRefresh() }
 
     func applicationWillTerminate(_ notification: Notification) {
         menuObservers.forEach { NotificationCenter.default.removeObserver($0) }
         menuObservers.removeAll()
+        if let textShortcutMonitor { NSEvent.removeMonitor(textShortcutMonitor) }
+        textShortcutMonitor = nil
+    }
+
+    private func removeSystemEditCommands() {
+        guard let root = NSApp.mainMenu, let edit = root.items.first(where: { $0.title == "Edit" }), let menu = edit.submenu else { return }
+        if trackingMenus.isEmpty,
+           let editIndex = root.items.firstIndex(where: { $0 === edit }),
+           let viewIndex = root.items.firstIndex(where: { $0.title == "View" }), editIndex > viewIndex {
+            root.removeItem(edit)
+            root.insertItem(edit, at: viewIndex)
+        }
+        let systemTitles: Set<String> = [
+            "Undo", "Redo", "Cut", "Copy", "Paste", "Paste and Match Style", "Delete", "Select All",
+            "AutoFill", "Start Dictation", "Start Dictation…", "Emoji & Symbols", "Writing Tools"
+        ]
+        let systemActions: Set<String> = [
+            "undo:", "redo:", "cut:", "copy:", "paste:", "pasteAsPlainText:", "pasteAsRichText:",
+            "delete:", "selectAll:", "startDictation:", "orderFrontCharacterPalette:"
+        ]
+        for item in menu.items where !item.isSeparatorItem {
+            if systemTitles.contains(item.title) || item.action.map({ systemActions.contains(NSStringFromSelector($0)) }) == true {
+                menu.removeItem(item)
+            }
+        }
+        var previousWasSeparator = true
+        for item in menu.items {
+            if item.isSeparatorItem && previousWasSeparator { menu.removeItem(item) }
+            else { previousWasSeparator = item.isSeparatorItem }
+        }
+        if menu.items.last?.isSeparatorItem == true { menu.removeItem(at: menu.numberOfItems - 1) }
+        if edit.isHidden { edit.isHidden = false }
+    }
+
+    static func handleTextShortcut(_ event: NSEvent) -> NSEvent? {
+        let modifiers = event.modifierFlags.intersection(.deviceIndependentFlagsMask).subtracting(.capsLock)
+        guard modifiers == .command || modifiers == [.command, .shift],
+              let text = NSApp.keyWindow?.firstResponder as? NSTextView,
+              let key = event.charactersIgnoringModifiers?.lowercased() else { return event }
+        if key == "z" {
+            guard let manager = text.undoManager else { return event }
+            if modifiers.contains(.shift) {
+                guard manager.canRedo else { return event }; manager.redo()
+            } else {
+                guard manager.canUndo else { return event }; manager.undo()
+            }
+            return nil
+        }
+        guard modifiers == .command else { return event }
+        let actions = ["x": "cut:", "c": "copy:", "v": "paste:", "a": "selectAll:"]
+        guard let action = actions[key], NSApp.sendAction(NSSelectorFromString(action), to: text, from: nil) else { return event }
+        return nil
+    }
+
+    private func decorateApplicationItems(_ menu: NSMenu) {
+        guard !applyingMenuDecoration else { return }
+        applyingMenuDecoration = true
+        defer { applyingMenuDecoration = false }
+        NativeMenuIcons.applyApplicationItems(to: menu)
+    }
+
+    private func decorate(_ menu: NSMenu) {
+        guard !applyingMenuDecoration else { return }
+        applyingMenuDecoration = true
+        defer { applyingMenuDecoration = false }
+        NativeMenuIcons.apply(to: menu, isMenuBar: menu === NSApp.mainMenu)
     }
 
     private func scheduleMenuRefresh() {
-        guard !menuRefreshPending else { return }
+        guard !menuRefreshPending, trackingMenus.isEmpty, !applyingMenuDecoration else { return }
         menuRefreshPending = true
         DispatchQueue.main.async { [weak self] in
             guard let self else { return }
+            defer { self.menuRefreshPending = false }
+            guard self.trackingMenus.isEmpty else { return }
             self.removeEmptyFormatMenu()
-            if let menu = NSApp.mainMenu {
-                NativeMenuIcons.apply(to: menu, isMenuBar: true)
-            }
-            self.menuRefreshPending = false
+            self.removeSystemEditCommands()
+            if let menu = NSApp.mainMenu { self.decorate(menu) }
         }
     }
 

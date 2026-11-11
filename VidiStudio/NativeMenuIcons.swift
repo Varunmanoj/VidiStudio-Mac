@@ -30,7 +30,158 @@ enum NativeMenuIcons {
         }
     }
 
+    // SwiftUI materializes some items only while opening their menu. Decorate
+    // those app-owned items once; never touch system commands during tracking.
+    static func applyApplicationItems(to menu: NSMenu) {
+        for item in menu.items where !item.isSeparatorItem {
+            if item.image == nil, let symbol = symbol(for: item) {
+                item.image = NSImage(systemSymbolName: symbol, accessibilityDescription: nil)
+            }
+            if #available(macOS 27.0, *), item.image != nil, item.preferredImageVisibility != .visible {
+                item.preferredImageVisibility = .visible
+            }
+            if let submenu = item.submenu { applyApplicationItems(to: submenu) }
+        }
+    }
+
+    private static let menuSymbols: [String: String] = [
+        "AD Segment Generation": "sparkles",
+        "AD Transcript Saved Results": "doc.text",
+        "About VidiStudio": "info.circle",
+        "Add Description Segment": "plus",
+        "Add Segment": "plus",
+        "Add Transcript Segment": "plus",
+        "All Projects": "square.stack",
+        "Analysis": "sparkles",
+        "Analyze Video…": "sparkles",
+        "Choose What to Delete…": "eraser",
+        "Clear Filter": "xmark.circle",
+        "Clear Sort": "arrow.uturn.backward",
+        "Close": "xmark",
+        "Close All": "xmark",
+        "Copy and Translate…": "doc.on.doc",
+        "Delete Descriptions…": "trash",
+        "Delete Project…": "trash",
+        "Delete Selected Segments…": "trash",
+        "Description Saved Results": "doc.text",
+        "Deselect All Segments": "square",
+        "Edit Audio description Segments": "pencil",
+        "Edit Selected Segments…": "square.and.pencil",
+        "Editor Sections": "rectangle.split.3x1",
+        "Exit Full-Screen Video": "arrow.down.right.and.arrow.up.left",
+        "Export…": "square.and.arrow.up",
+        "Filter AD Transcript…": "line.3.horizontal.decrease.circle",
+        "Filter Descriptions…": "line.3.horizontal.decrease.circle",
+        "Filter Projects by Language": "translate",
+        "Filter Projects by Source": "line.3.horizontal.decrease.circle",
+        "Filter Transcripts…": "line.3.horizontal.decrease.circle",
+        "Full-Screen Video": "arrow.up.left.and.arrow.down.right",
+        "Generate Missing or Changed AD Audio": "waveform",
+        "Hide Inspector": "sidebar.right",
+        "Hide Preview": "video.slash",
+        "Hide Project List": "sidebar.left",
+        "Hide Thumbnail Images": "photo.on.rectangle",
+        "Hide Timeline": "timeline.selection",
+        "Import": "square.and.arrow.down",
+        "Import AD Audio…": "waveform",
+        "Import Descriptions…": "text.below.photo",
+        "Import Existing Assets…": "square.and.arrow.down",
+        "Import Original Audio…": "waveform",
+        "Import Summary…": "text.alignleft",
+        "Import Transcript…": "text.bubble",
+        "Import YouTube Captions…": "captions.bubble",
+        "Language and Saved Results…": "translate",
+        "Load More Playlists": "plus",
+        "Load More Videos": "plus",
+        "Local Video Projects": "film",
+        "Move Project to Bin…": "trash",
+        "My YouTube Videos…": "play.rectangle",
+        "Narration Audio": "speaker.wave.2",
+        "New Project…": "plus",
+        "Open Project Configuration": "doc.text",
+        "Open Project Folder…": "folder",
+        "Open Project Settings…": "gearshape",
+        "Open Selected Project": "macwindow",
+        "Open in Editor": "pencil",
+        "Open in New Window": "macwindow.badge.plus",
+        "Open in YouTube": "arrow.up.right.square",
+        "Pause Video": "pause.fill",
+        "Play Video": "play.fill",
+        "Project Grid View": "square.grid.2x2",
+        "Project List View": "list.bullet",
+        "Read Selected Summary Text": "quote.bubble",
+        "Read Summary from Selection": "text.cursor",
+        "Read Summary from Start": "forward.end",
+        "Refresh Videos": "arrow.clockwise",
+        "Refresh YouTube Details": "arrow.clockwise",
+        "Remove from List": "minus.circle",
+        "Rename Project…": "pencil",
+        "Reset Project Filters": "line.3.horizontal.decrease.circle",
+        "Review Narration Issues…": "list.bullet.clipboard",
+        "Review Narration Voices…": "person.wave.2",
+        "Saved Results": "doc.text",
+        "Segment Narration": "speaker.wave.2",
+        "Segments": "timeline.selection",
+        "Select All Segments": "checkmark.square",
+        "Settings…": "gearshape",
+        "Show Inspector": "sidebar.right",
+        "Show Preview": "video",
+        "Show Project List": "sidebar.left",
+        "Show Project in Finder": "folder",
+        "Show Thumbnail Images": "photo.on.rectangle",
+        "Show Timeline": "timeline.selection",
+        "Sort AD Transcript…": "arrow.up.arrow.down",
+        "Sort Descriptions…": "arrow.up.arrow.down",
+        "Sort Options…": "arrow.up.arrow.down",
+        "Sort Transcripts…": "arrow.up.arrow.down",
+        "Stop Narration": "stop.fill",
+        "Summary Reading": "speaker.wave.2",
+        "Summary Saved Results": "doc.text",
+        "Transcript Saved Results": "doc.text",
+        "Video Details…": "info.circle",
+        "VidiStudio Help": "questionmark.circle",
+        "YouTube": "play.rectangle",
+        "YouTube Accounts…": "person.crop.circle",
+        "YouTube Projects": "play.rectangle",
+    ]
+    static var shortcutSymbols: [String: String] = [:]
+
+    private static func applicationSymbol(for title: String) -> String? {
+        if let symbol = menuSymbols[title] ?? shortcutSymbols[title] { return symbol }
+        switch title {
+        case "Copy and Translate…": return "doc.on.doc"
+        case "Select All Segments": return "checkmark.square"
+        case "Deselect All Segments": return "square"
+        case "Done Editing Segments", "Done Editing Summary": return "checkmark"
+        case "Edit Transcript Segments", "Edit Audio Description Segments", "Edit AD Transcript Segments", "Edit Descriptions Segments", "Edit Summary", "Edit Segments", "Rename", "Rename Project…",
+             "Edit Audio description Segment…", "Edit Audio Description Segment…", "Edit Transcript Segment…", "Edit Segment…": return "pencil"
+        case "Open in New Window", "Open Selected Project": return "macwindow.badge.plus"
+        case "Open in YouTube": return "arrow.up.right.square"
+        case "Open Project Settings…": return "gearshape"
+        case "Open in Project Folder", "Show Project in Finder": return "folder"
+        case "Open Project Configuration": return "doc.text"
+        case "Remove from List": return "minus.circle"
+        case "Analysis", "Analyze Video…", "Rewrite to Fit", "Re-Analyze This Segment…", "Generate Audio Descriptions", "Regenerate Audio Descriptions…": return "sparkles"
+        case "Export…": return "square.and.arrow.up"
+        case "Choose Content to Delete…", "Choose What to Delete…": return "eraser"
+        case "Delete Project…", "Delete Segment…", "Delete Selected Segments…": return "trash"
+        case "Generate Transcript", "Regenerate Transcript…": return "text.bubble"
+        case "Generate Summary", "Regenerate Summary…": return "text.alignleft"
+        case "Generate Video Details & Timeline Pictures", "Regenerate Video Details & Timeline Pictures…": return "photo.on.rectangle.angled"
+        case "Segment Narration", "Play Narration", "Resume Narration": return "speaker.wave.2"
+        case "Pause Narration": return "pause.fill"
+        case "Stop Narration": return "stop.fill"
+        case "Play from Transcript", "Play from Audio description", "Play from Audio Description": return "play.fill"
+        case "Skip to Transcript", "Skip to Audio description", "Skip to Audio Description": return "forward.end.fill"
+        case "Synthesize This Segment", "Regenerate Segment Narration": return "waveform"
+        case "Import Narration Audio…": return "square.and.arrow.down"
+        case "Delete Segment Audio…": return "speaker.slash"
+        default: return nil
+        }
+    }
+
     private static func symbol(for item: NSMenuItem) -> String? {
+        if let symbol = applicationSymbol(for: item.title) { return symbol }
         // Responder selectors cover system-owned commands without depending on
         // their localized titles or replacing their targets and enabled states.
         if let action = item.action {

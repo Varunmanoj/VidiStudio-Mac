@@ -33,13 +33,14 @@ struct VideoPlaybackControls: View {
             .accessibilityHint(shortcut("play"))
             .help("\(playback.playbackActive ? "Pause" : "Play") video (\(shortcut("play")))")
 
-            Button { playback.stopPlayback() } label: {
-                icon("stop.fill")
+            if playback.videoPlaybackStarted {
+                Button { playback.stopPlayback() } label: {
+                    icon("stop.fill")
+                }
+                .accessibilityLabel("Stop video")
+                .accessibilityHint("Stops video and narration and returns to the beginning. \(shortcut("stop"))")
+                .help("Stop video and return to the beginning (\(shortcut("stop")))")
             }
-            .accessibilityLabel("Stop video")
-            .accessibilityHint("Stops video and narration and returns to the beginning. \(shortcut("stop"))")
-            .help("Stop video and return to the beginning (\(shortcut("stop")))")
-            .disabled(!playback.playbackActive && playback.time <= 0)
 
             Button { playback.seekRelative(5, duration: duration) } label: {
                 icon("goforward.5")

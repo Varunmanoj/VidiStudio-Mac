@@ -98,10 +98,16 @@ final class PlaybackModel {
             if event.keyCode == 53 { self?.exitVideoFullScreen(); return nil }; return event
         }
     }
+    var videoPlaybackStarted = false
     var playing = false {
-        didSet { if !playing { stopNarration(); originalAudioPlayer.pause() } }
+        didSet {
+            if oldValue != playing {
+                if playing && !videoPlaybackStarted { videoPlaybackStarted = true }
+                if !playing { stopNarration(); originalAudioPlayer.pause() }
+            }
+        }
     }
-    var buffering = false
+    var buffering = false { didSet { if buffering && !videoPlaybackStarted { videoPlaybackStarted = true } } }
     private let originalAudioPlayer = AVPlayer()
     private var originalAudioURL: URL?
     private var originalAudioSeeking = false
@@ -299,8 +305,12 @@ final class PlaybackModel {
             MainActor.assumeIsolated {
                 guard let self, time.seconds.isFinite, self.webView == nil, !self.isScrubbing else { return }
                 self.time = time.seconds
-                self.playing = self.player.timeControlStatus == .playing
-                self.buffering = self.player.timeControlStatus == .waitingToPlayAtSpecifiedRate
+                let playing = self.player.timeControlStatus == .playing
+                let buffering = self.player.timeControlStatus == .waitingToPlayAtSpecifiedRate
+                if self.playing != playing { self.playing = playing }
+                if self.buffering != buffering { self.buffering = buffering }
+                if !self.playbackActive, let duration = self.player.currentItem?.duration.seconds,
+                   duration.isFinite, duration > 0, self.time >= duration - 0.01 { self.videoPlaybackStarted = false }
             }
         }
     }
@@ -418,6 +428,7 @@ final class PlaybackModel {
         }
     }
     func stop() {
+        videoPlaybackStarted = false
         originalAudioPlayer.pause()
         originalAudioPlayer.replaceCurrentItem(with: nil)
         originalAudioURL = nil
@@ -533,6 +544,7 @@ final class PlaybackModel {
     /// or full-screen surface. Play can start again from the first frame.
     func stopPlayback() {
         pausePlayback()
+        videoPlaybackStarted = false
         indicatedSegment = nil
         time = 0
         if let webView {
@@ -612,8 +624,11 @@ struct YouTubePlayer: NSViewRepresentable {
             let state = data["state"] as? Int
             if let rate = data["rate"] as? Double { playback.youtubeRate = Float(rate) }
             if let volume = data["volume"] as? Double { playback.youtubeVolume = Float(volume / 100) }
-            playback.playing = state == 1
-            playback.buffering = state == 3
+            let playing = state == 1
+            let buffering = state == 3
+            if playback.playing != playing { playback.playing = playing }
+            if playback.buffering != buffering { playback.buffering = buffering }
+            if state == 0 || state == -1 || state == 5 { playback.videoPlaybackStarted = false }
             if let duration = data["duration"] as? Double, duration.isFinite { playback.duration = duration }
         }
     }

@@ -121,13 +121,13 @@ class DesktopMenuParity(unittest.TestCase):
     def test_copy_to_edit_menu_cannot_be_omitted_on_either_platform(self):
         self.checker.compare_sources(self.mac, self.app, self.windows)
         for mac, windows in ((self.mac.replace('editor?.run("copy-to")', 'editor?.run("missing-copy")'), self.windows),
-                             (self.mac, self.windows.replace('Menu("Edit", Command("copy-to"), Command("segment-edit-mode"))', 'Menu("Edit", Command("segment-edit-mode"))'))):
+                             (self.mac, self.windows.replace('Command("copy-to"), Command("segment-edit-mode"),', 'Command("segment-edit-mode"),', 1))):
             with self.assertRaises(ValueError): self.checker.compare_sources(mac, self.app, windows)
 
     def test_edit_mode_is_adjacent_to_copy_and_cannot_be_omitted(self):
         self.checker.compare_sources(self.mac, self.app, self.windows)
         for mac, windows in (
-            (self.mac, self.windows.replace('Menu("Edit", Command("copy-to"), Command("segment-edit-mode"))', 'Menu("Edit", Command("copy-to"))')),
+            (self.mac, self.windows.replace('Command("copy-to"), Command("segment-edit-mode"),', 'Command("copy-to"),', 1)),
             (self.mac.replace('.accessibilityIdentifier("segment-edit-mode")\n                    .keyboardShortcut("e", modifiers: [.command, .option])\n                    .disabled(editor?.canRun("segment-edit-mode") != true)', '.accessibilityIdentifier("segment-edit-mode")'), self.windows),
         ):
             with self.assertRaises(ValueError): self.checker.compare_sources(mac, self.app, windows)
@@ -252,8 +252,8 @@ class DesktopMenuParity(unittest.TestCase):
         check(mac, win, mac_language, win_language)
         mutations = [
             (mac.replace('SegmentActionsMenu(actions: [', 'SegmentActionsMenu(actions: [\n.init(title: "Copy and Translate…"),', 1), win, mac_language, win_language),
-            (mac.replace('Button("Edit \\(row.kind) Segment…"', 'Button("Copy and Translate…"'), win, mac_language, win_language),
-            (mac, win.replace('Item("Edit segment"', 'Item("Copy and Translate…"'), mac_language, win_language),
+            (mac.replace('.contextMenu { segmentRowContextMenu(row) }', '.contextMenu { Button("Copy and Translate…") {} }'), win, mac_language, win_language),
+            (mac, win.replace('Text = SegmentCommandTitle(id, segment)', 'Text = "Copy and Translate…"'), mac_language, win_language),
             (mac, win, mac_language.replace('Button(editorActions.currentSectionCopyTitle,', 'Button("Missing",'), win_language),
             (mac, win, mac_language, win_language.replace('Content = CurrentSectionCopyTitle', 'Content = "Missing"')),
             (mac, win, mac_language.replace('Button(editorActions.currentSectionCopyTitle,', 'Button(editorActions.currentSectionCopyTitle,); Button(editorActions.currentSectionCopyTitle,'), win_language),

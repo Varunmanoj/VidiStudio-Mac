@@ -175,6 +175,7 @@ struct AllProjectsActions {
     let languageFilter: Binding<String>
     let search: Binding<String>
     let perform: (String, StudioProject) -> Void
+    var languageOptions: [OutputLanguage] = []
 
     func canRun(_ action: String) -> Bool {
         if action.hasPrefix("projects-source-") { return true }
@@ -183,9 +184,13 @@ struct AllProjectsActions {
         }
         guard !studio.busy, let project else { return false }
         if action == "delete-project" { return project.folder != nil }
+        if action == "remove-from-list" { return project.folder != nil && studio.listedProjects.contains { $0.id == project.id } }
+        if ["rename-project", "youtube-open-browser", "project-settings", "show-in-finder", "open-configuration"].contains(action) {
+            return studio.canManageProject(action, project: project)
+        }
         guard project.integrityPlaceholder != true else { return false }
         switch action {
-        case "open-selected-project", "export": return project.folder != nil
+        case "open-selected-project", "open-gallery-window", "export": return project.folder != nil
         case "delete-content": return project.hasGeneratedContent
         case "prepare-video": return !project.isYouTubeURLProject || ConnectivityService.shared.available(.youtube)
         case "analyze", "transcribe", "generate-summary", "generate-ad-cues":
@@ -203,6 +208,9 @@ struct AllProjectsActions {
         case "projects-source-youtube": sourceFilter.wrappedValue = .youtube
         case "projects-reset-filters":
             search.wrappedValue = ""; sourceFilter.wrappedValue = .all; languageFilter.wrappedValue = "all"
+        case "rename-project", "youtube-open-browser", "project-settings", "show-in-finder", "open-configuration":
+            if let project { studio.requestProjectManagement(action, project: project) }
+        case "remove-from-list": if let project { studio.removeProjectFromList(project) }
         default: if let project { perform(action, project) }
         }
     }

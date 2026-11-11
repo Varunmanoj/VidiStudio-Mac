@@ -2596,19 +2596,11 @@ struct ProjectEditor: View {
     }
 
     private func previewPrimaryControlTitle(for cue: Segment) -> String {
-        activePreviewCueID == cue.id ? "Stop Narration" : "Play Narration"
+        activePreviewCueID == cue.id ? (previewPaused ? "Resume Narration" : "Pause Narration") : "Play Narration"
     }
 
     private func previewPrimaryControlIcon(for cue: Segment) -> String {
-        activePreviewCueID == cue.id ? "stop.circle" : "speaker.wave.2.circle"
-    }
-
-    private var previewPauseControlTitle: String {
-        previewPaused ? "Resume Narration" : "Pause Narration"
-    }
-
-    private var previewPauseControlIcon: String {
-        previewPaused ? "play.circle" : "pause.circle"
+        activePreviewCueID == cue.id && !previewPaused ? "pause.circle" : "play.circle"
     }
 
     private var previewPane: some View {
@@ -2818,11 +2810,7 @@ struct ProjectEditor: View {
                             }
                             if row.isDescription && (tab == "descriptions" || tab == "ad-transcript") {
                                 Button(previewPrimaryControlTitle(for: cue), systemImage: previewPrimaryControlIcon(for: cue)) {
-                                    if activePreviewCueID == cue.id {
-                                        stopNarrationPreview()
-                                    } else {
-                                        playNarrationPreview(for: cue)
-                                    }
+                                    runSegmentRowAction("segment-one-preview", row: row)
                                 }
                                     .labelStyle(.iconOnly)
                                     .disabled(studio.busy || playableNarrationURL(for: cue) == nil)
@@ -2830,12 +2818,12 @@ struct ProjectEditor: View {
                                         ? "Generate synchronized audio for this AD segment first"
                                         : "\(previewPrimaryControlTitle(for: cue)) for this AD segment")
                                 if activePreviewCueID == cue.id {
-                                    Button(previewPauseControlTitle, systemImage: previewPauseControlIcon) {
-                                        toggleNarrationPreviewPause()
+                                    Button("Stop Narration", systemImage: "stop.circle") {
+                                        runSegmentRowAction("segment-one-preview-stop", row: row)
                                     }
                                     .labelStyle(.iconOnly)
                                     .disabled(studio.busy)
-                                    .help("\(previewPauseControlTitle) for this AD segment")
+                                    .help("Stop narration for this AD segment")
                                 }
                             }
                             if segmentEditMode {
@@ -2847,48 +2835,34 @@ struct ProjectEditor: View {
                                 .help("Edit \(row.kind.lowercased()) text and timing")
                                 if row.isDescription {
                                     SegmentActionsMenu(actions: [
-                                        .init(title: "Rewrite to Fit", systemImage: "sparkles", enabled: studio.hasValidApiKey) {
-                                            studio.execute("rewrite-cue", extra: ["--segment", cue.id])
+                                        .init(title: shortcutActions.segmentCommandTitle("segment-one-rewrite", kind: row.isDescription ? "descriptions" : "transcript", hasAudio: cue.audio != nil), systemImage: "sparkles", enabled: canRunSegmentRowAction("segment-one-rewrite", row: row)) {
+                                            runSegmentRowAction("segment-one-rewrite", row: row)
                                         },
-                                        .init(
-                                            title: isNarratingCue
-                                                ? "Generating Audio for AD Segment \(adNumber ?? 0)…"
-                                                : isQueuedCue
-                                                    ? "Queued for Audio Generation (AD \(adNumber ?? 0))…"
-                                                    : (cue.audio == nil ? "Synthesize This Segment" : "Regenerate Segment Narration"),
-                                            systemImage: isNarratingCue ? "rays" : isQueuedCue ? "clock.arrow.circlepath" : "waveform",
-                                            enabled: !studio.busy && (studio.settings.ttsMode != "gemini" || studio.hasValidApiKey)
-                                        ) {
-                                            studio.execute("synthesize-tts", extra: ["--segment", cue.id])
+                                        .init(title: shortcutActions.segmentCommandTitle("segment-one-synthesize", kind: row.isDescription ? "descriptions" : "transcript", hasAudio: cue.audio != nil), systemImage: "waveform", enabled: canRunSegmentRowAction("segment-one-synthesize", row: row)) {
+                                            runSegmentRowAction("segment-one-synthesize", row: row)
                                         },
-                                        .init(title: "Import Narration Audio…", systemImage: "square.and.arrow.down", enabled: !studio.busy) {
-                                            chooseNarrationAudio(for: cue)
+                                        .init(title: shortcutActions.segmentCommandTitle("segment-one-import-audio", kind: row.isDescription ? "descriptions" : "transcript", hasAudio: cue.audio != nil), systemImage: "square.and.arrow.down", enabled: canRunSegmentRowAction("segment-one-import-audio", row: row)) {
+                                            runSegmentRowAction("segment-one-import-audio", row: row)
                                         },
-                                        .init(title: "Delete Segment Audio…", systemImage: "speaker.slash", enabled: cue.audio != nil) {
-                                            studio.confirmDeleteSegmentAudio(project, cue: cue) {
-                                                stopNarrationPreview()
-                                                playback.stopNarrationPlayback()
-                                            }
+                                        .init(title: shortcutActions.segmentCommandTitle("segment-one-delete-audio", kind: row.isDescription ? "descriptions" : "transcript", hasAudio: cue.audio != nil), systemImage: "speaker.slash", enabled: canRunSegmentRowAction("segment-one-delete-audio", row: row), separatorBefore: true) {
+                                            runSegmentRowAction("segment-one-delete-audio", row: row)
                                         },
-                                        .init(title: "Delete Segment…", systemImage: "trash") {
-                                            studio.confirmDeleteSegment(project, cue: cue) {
-                                                stopNarrationPreview()
-                                                playback.stopNarrationPlayback()
-                                            }
+                                        .init(title: shortcutActions.segmentCommandTitle("segment-one-delete", kind: row.isDescription ? "descriptions" : "transcript", hasAudio: cue.audio != nil), systemImage: "trash", enabled: canRunSegmentRowAction("segment-one-delete", row: row)) {
+                                            runSegmentRowAction("segment-one-delete", row: row)
                                         },
                                     ])
                                     .fixedSize()
                                     .disabled(studio.busy)
                                 } else {
                                     SegmentActionsMenu(actions: [
-                                        .init(title: "Edit Segment…", systemImage: "pencil") {
-                                            presentSegmentEditor(row)
+                                        .init(title: shortcutActions.segmentCommandTitle("segment-one-edit", kind: row.isDescription ? "descriptions" : "transcript", hasAudio: cue.audio != nil), systemImage: "pencil", enabled: canRunSegmentRowAction("segment-one-edit", row: row)) {
+                                            runSegmentRowAction("segment-one-edit", row: row)
                                         },
-                                        .init(title: "Re-Analyze This Segment…", systemImage: "sparkles", enabled: studio.hasValidApiKey) {
-                                            studio.reanalyzeSegment(cue, hint: "", isDescription: false)
+                                        .init(title: shortcutActions.segmentCommandTitle("segment-one-reanalyze", kind: row.isDescription ? "descriptions" : "transcript", hasAudio: cue.audio != nil), systemImage: "sparkles", enabled: canRunSegmentRowAction("segment-one-reanalyze", row: row)) {
+                                            runSegmentRowAction("segment-one-reanalyze", row: row)
                                         },
-                                        .init(title: "Delete Segment…", systemImage: "trash") {
-                                            studio.confirmDeleteSegments(project, transcriptIDs: [cue.id], descriptionIDs: [], beforeDelete: {})
+                                        .init(title: shortcutActions.segmentCommandTitle("segment-one-delete", kind: row.isDescription ? "descriptions" : "transcript", hasAudio: cue.audio != nil), systemImage: "trash", enabled: canRunSegmentRowAction("segment-one-delete", row: row), separatorBefore: true) {
+                                            runSegmentRowAction("segment-one-delete", row: row)
                                         },
                                     ])
                                     .fixedSize()
@@ -2916,104 +2890,7 @@ struct ProjectEditor: View {
                                 }
                             }
                             .accessibilityValue(validationHighlightID == row.id ? "Timing validation issue" : "")
-                            .contextMenu {
-                                Button("Edit \(row.kind) Segment…", systemImage: "pencil") {
-                                    presentSegmentEditor(row)
-                                }
-                                .disabled(!canOpenSegmentEditor)
-                                .help("Edit \(row.kind.lowercased()) text and timing in a dialog")
-                                .accessibilityLabel("Edit \(row.kind.lowercased()) segment starting at \(timecode(cue.start))")
-
-                                Button("Play from \(row.kind)", systemImage: "play.fill") {
-                                    if row.isDescription { playback.narrationEnabled = true }
-                                    playback.play(from: cue.start)
-                                }
-                                .help("Play the video from this \(row.kind.lowercased())'s start time")
-                                .accessibilityLabel("Play from \(row.kind.lowercased()) starting at \(timecode(cue.start))")
-
-                                Button("Skip to \(row.kind)", systemImage: "forward.end.fill") {
-                                    playback.seek(cue.start)
-                                    playback.pausePlayback()
-                                }
-                                .help("Move the playhead to this \(row.kind.lowercased())'s start time and pause the video")
-                                .accessibilityLabel("Skip to \(row.kind.lowercased()) at \(timecode(cue.start)) and pause")
-
-                                if row.isDescription {
-                                    Button(
-                                        isNarratingCue
-                                            ? "Generating Audio for AD Segment \(adNumber ?? 0)…"
-                                            : isQueuedCue
-                                                ? "Queued for Audio Generation (AD \(adNumber ?? 0))…"
-                                                : (cue.audio == nil ? "Synthesize This Segment" : "Regenerate Segment Narration"),
-                                        systemImage: isNarratingCue ? "rays" : isQueuedCue ? "clock.arrow.circlepath" : "waveform"
-                                    ) {
-                                        studio.execute("synthesize-tts", extra: ["--segment", cue.id])
-                                    }
-                                    .disabled(studio.busy || (studio.settings.ttsMode == "gemini" && !studio.hasValidApiKey))
-                                    .help(studio.settings.ttsMode == "gemini" && !studio.hasApiKey
-                                        ? "Enter your Gemini API key in Settings → Gemini API to synthesize narration with Gemini TTS"
-                                        : studio.settings.ttsMode == "gemini" && studio.isApiKeyInvalid
-                                            ? "Gemini API key is invalid — enter a valid key in Settings → Gemini API to synthesize narration with Gemini TTS"
-                                            : cue.audio == nil
-                                                ? "Generate narration audio for this Audio Description segment"
-                                                : "Regenerate narration audio for this Audio Description segment")
-                                    .requiresInternet(studio.settings.ttsMode == "gemini" ? .gemini : nil)
-                                    .accessibilityLabel(
-                                        "\(cue.audio == nil ? "Synthesize" : "Regenerate") narration audio for segment starting at \(timecode(cue.start))"
-                                    )
-
-                                    if studio.isSynthesizingNarration && !isNarratingCue, let activeIdx = studio.narratingSegmentIndex {
-                                        Button("Currently Generating AD Segment \(activeIdx)…", systemImage: "rays") {}
-                                            .disabled(true)
-                                    }
-
-                                    Button("Rewrite to Fit", systemImage: "sparkles") {
-                                        studio.execute("rewrite-cue", extra: ["--segment", cue.id])
-                                    }
-                                    .disabled(studio.busy || !studio.hasValidApiKey)
-                                    .help(!studio.hasApiKey ? "Enter your Gemini API key in Settings → Gemini API to rewrite description text" : studio.isApiKeyInvalid ? "Gemini API key is invalid — enter a valid key in Settings → Gemini API to rewrite description text" : "Rewrite this description to fit into the silent pause")
-                                    .requiresInternet(.gemini)
-
-                                    Button("Import Narration Audio…", systemImage: "square.and.arrow.down") {
-                                        chooseNarrationAudio(for: cue)
-                                    }
-                                    .disabled(studio.busy)
-                                    .help(cue.audio == nil ? "Import a WAV, MP3, M4A, AAC, or FLAC narration file for this description" : "Replace this description's narration with an imported audio file")
-                                    .accessibilityLabel("Import narration audio for segment starting at \(timecode(cue.start))")
-
-                                    if cue.audio != nil {
-                                        Button("Delete Segment Audio…", systemImage: "speaker.slash", role: .destructive) {
-                                            studio.confirmDeleteSegmentAudio(project, cue: cue) {
-                                                stopNarrationPreview()
-                                                playback.stopNarrationPlayback()
-                                            }
-                                        }
-                                        .disabled(studio.busy)
-                                        .help("Delete only the generated narration audio for this segment")
-                                    }
-                                } else {
-                                    Button("Re-Analyze This Segment…", systemImage: "sparkles") {
-                                        studio.reanalyzeSegment(cue, hint: "", isDescription: false)
-                                    }
-                                    .disabled(studio.busy || !studio.hasValidApiKey)
-                                    .help(!studio.hasApiKey ? "Enter your Gemini API key in Settings → Gemini API to re-analyze segment" : studio.isApiKeyInvalid ? "Gemini API key is invalid — enter a valid key in Settings → Gemini API to re-analyze segment" : "Re-analyze this segment with Gemini")
-                                    .requiresInternet(.gemini)
-                                }
-
-                                Divider()
-
-                                Button("Delete Segment…", systemImage: "trash", role: .destructive) {
-                                    if row.isDescription {
-                                        studio.confirmDeleteSegment(project, cue: cue) {
-                                            stopNarrationPreview()
-                                            playback.stopNarrationPlayback()
-                                        }
-                                    } else {
-                                        studio.confirmDeleteSegments(project, transcriptIDs: [cue.id], descriptionIDs: [], beforeDelete: {})
-                                    }
-                                }
-                                .disabled(studio.busy)
-                            }
+                            .contextMenu { segmentRowContextMenu(row) }
                     }.listStyle(.inset)
                     .onAppear { if let id = validationHighlightID { reader.scrollTo(id, anchor: .center) } }
                     .onChange(of: validationHighlightID) { _, id in
@@ -3076,7 +2953,131 @@ struct ProjectEditor: View {
         }
     }
 
+    private func canRunSegmentRowAction(_ action: String, row: TranscriptRow) -> Bool {
+        let kind = row.isDescription ? "descriptions" : "transcript"
+        guard shortcutActions.available, shortcutActions.rowCommandVisible(action, kind: kind) else { return false }
+        let isPreviewing = row.isDescription && activePreviewCueID == row.segment.id
+        return shortcutActions.canRunRowCommand(action, kind: kind, hasAudio: row.segment.audio != nil,
+            audioReady: action == "segment-one-preview" && !isPreviewing && playableNarrationURL(for: row.segment) != nil,
+            isPreviewing: isPreviewing)
+    }
+
+    @ViewBuilder private func segmentRowContextMenu(_ row: TranscriptRow) -> some View {
+        if shortcutActions.rowCommandVisible("segment-one-edit", kind: row.isDescription ? "descriptions" : "transcript") {
+            Button(shortcutActions.segmentCommandTitle("segment-one-edit", kind: row.isDescription ? "descriptions" : "transcript", hasAudio: row.segment.audio != nil, isPreviewing: row.isDescription && activePreviewCueID == row.segment.id, isPaused: previewPaused), systemImage: "pencil") {
+                runSegmentRowAction("segment-one-edit", row: row)
+            }
+            .disabled(!canRunSegmentRowAction("segment-one-edit", row: row))
+        }
+        Divider()
+        if shortcutActions.rowCommandVisible("segment-one-play", kind: row.isDescription ? "descriptions" : "transcript") {
+            Button(shortcutActions.segmentCommandTitle("segment-one-play", kind: row.isDescription ? "descriptions" : "transcript", hasAudio: row.segment.audio != nil, isPreviewing: row.isDescription && activePreviewCueID == row.segment.id, isPaused: previewPaused), systemImage: "play.fill") {
+                runSegmentRowAction("segment-one-play", row: row)
+            }
+            .disabled(!canRunSegmentRowAction("segment-one-play", row: row))
+        }
+        if shortcutActions.rowCommandVisible("segment-one-skip", kind: row.isDescription ? "descriptions" : "transcript") {
+            Button(shortcutActions.segmentCommandTitle("segment-one-skip", kind: row.isDescription ? "descriptions" : "transcript", hasAudio: row.segment.audio != nil, isPreviewing: row.isDescription && activePreviewCueID == row.segment.id, isPaused: previewPaused), systemImage: "forward.end.fill") {
+                runSegmentRowAction("segment-one-skip", row: row)
+            }
+            .disabled(!canRunSegmentRowAction("segment-one-skip", row: row))
+        }
+        if row.isDescription { Divider() }
+        if shortcutActions.rowCommandVisible("segment-one-preview", kind: row.isDescription ? "descriptions" : "transcript") {
+            Button(shortcutActions.segmentCommandTitle("segment-one-preview", kind: row.isDescription ? "descriptions" : "transcript", hasAudio: row.segment.audio != nil, isPreviewing: row.isDescription && activePreviewCueID == row.segment.id, isPaused: previewPaused), systemImage: previewPrimaryControlIcon(for: row.segment)) {
+                runSegmentRowAction("segment-one-preview", row: row)
+            }
+            .disabled(!canRunSegmentRowAction("segment-one-preview", row: row))
+        }
+        if row.isDescription && activePreviewCueID == row.segment.id {
+            Button("Stop Narration", systemImage: "stop.circle") {
+                runSegmentRowAction("segment-one-preview-stop", row: row)
+            }
+            .disabled(!canRunSegmentRowAction("segment-one-preview-stop", row: row))
+        }
+        if row.isDescription { Divider() }
+        if shortcutActions.rowCommandVisible("segment-one-synthesize", kind: row.isDescription ? "descriptions" : "transcript") {
+            Button(shortcutActions.segmentCommandTitle("segment-one-synthesize", kind: row.isDescription ? "descriptions" : "transcript", hasAudio: row.segment.audio != nil, isPreviewing: row.isDescription && activePreviewCueID == row.segment.id, isPaused: previewPaused), systemImage: "waveform") {
+                runSegmentRowAction("segment-one-synthesize", row: row)
+            }
+            .disabled(!canRunSegmentRowAction("segment-one-synthesize", row: row))
+        }
+        if shortcutActions.rowCommandVisible("segment-one-rewrite", kind: row.isDescription ? "descriptions" : "transcript") {
+            Button(shortcutActions.segmentCommandTitle("segment-one-rewrite", kind: row.isDescription ? "descriptions" : "transcript", hasAudio: row.segment.audio != nil, isPreviewing: row.isDescription && activePreviewCueID == row.segment.id, isPaused: previewPaused), systemImage: "sparkles") {
+                runSegmentRowAction("segment-one-rewrite", row: row)
+            }
+            .disabled(!canRunSegmentRowAction("segment-one-rewrite", row: row))
+        }
+        if shortcutActions.rowCommandVisible("segment-one-import-audio", kind: row.isDescription ? "descriptions" : "transcript") {
+            Button(shortcutActions.segmentCommandTitle("segment-one-import-audio", kind: row.isDescription ? "descriptions" : "transcript", hasAudio: row.segment.audio != nil, isPreviewing: row.isDescription && activePreviewCueID == row.segment.id, isPaused: previewPaused), systemImage: "square.and.arrow.down") {
+                runSegmentRowAction("segment-one-import-audio", row: row)
+            }
+            .disabled(!canRunSegmentRowAction("segment-one-import-audio", row: row))
+        }
+        if row.isDescription { Divider() }
+        if shortcutActions.rowCommandVisible("segment-one-delete-audio", kind: row.isDescription ? "descriptions" : "transcript") {
+            Button(shortcutActions.segmentCommandTitle("segment-one-delete-audio", kind: row.isDescription ? "descriptions" : "transcript", hasAudio: row.segment.audio != nil, isPreviewing: row.isDescription && activePreviewCueID == row.segment.id, isPaused: previewPaused), systemImage: "speaker.slash") {
+                runSegmentRowAction("segment-one-delete-audio", row: row)
+            }
+            .disabled(!canRunSegmentRowAction("segment-one-delete-audio", row: row))
+        }
+        if !row.isDescription { Divider() }
+        if shortcutActions.rowCommandVisible("segment-one-reanalyze", kind: row.isDescription ? "descriptions" : "transcript") {
+            Button(shortcutActions.segmentCommandTitle("segment-one-reanalyze", kind: row.isDescription ? "descriptions" : "transcript", hasAudio: row.segment.audio != nil, isPreviewing: row.isDescription && activePreviewCueID == row.segment.id, isPaused: previewPaused), systemImage: "sparkles") {
+                runSegmentRowAction("segment-one-reanalyze", row: row)
+            }
+            .disabled(!canRunSegmentRowAction("segment-one-reanalyze", row: row))
+        }
+        if !row.isDescription { Divider() }
+        if shortcutActions.rowCommandVisible("segment-one-delete", kind: row.isDescription ? "descriptions" : "transcript") {
+            Button(shortcutActions.segmentCommandTitle("segment-one-delete", kind: row.isDescription ? "descriptions" : "transcript", hasAudio: row.segment.audio != nil, isPreviewing: row.isDescription && activePreviewCueID == row.segment.id, isPaused: previewPaused), systemImage: "trash") {
+                runSegmentRowAction("segment-one-delete", row: row)
+            }
+            .disabled(!canRunSegmentRowAction("segment-one-delete", row: row))
+        }
+    }
+
+    private func runSegmentRowAction(_ action: String, row: TranscriptRow) {
+        guard transcriptRows.contains(where: { $0.id == row.id }) else { return }
+        guard canRunSegmentRowAction(action, row: row) else { return }
+        let cue = row.segment
+        switch action {
+        case "segment-one-edit": presentSegmentEditor(row)
+        case "segment-one-play":
+            if row.isDescription { playback.narrationEnabled = true }
+            playback.play(from: cue.start)
+        case "segment-one-skip": playback.seek(cue.start); playback.pausePlayback()
+        case "segment-one-preview":
+            if activePreviewCueID == cue.id { toggleNarrationPreviewPause() }
+            else { playNarrationPreview(for: cue) }
+        case "segment-one-preview-stop": stopNarrationPreview()
+        case "segment-one-synthesize": studio.execute("synthesize-tts", extra: ["--segment", cue.id])
+        case "segment-one-rewrite": studio.execute("rewrite-cue", extra: ["--segment", cue.id])
+        case "segment-one-import-audio": chooseNarrationAudio(for: cue)
+        case "segment-one-delete-audio":
+            studio.confirmDeleteSegmentAudio(project, cue: cue) {
+                stopNarrationPreview(); playback.stopNarrationPlayback()
+            }
+        case "segment-one-reanalyze": studio.reanalyzeSegment(cue, hint: "", isDescription: false)
+        case "segment-one-delete":
+            if row.isDescription {
+                studio.confirmDeleteSegment(project, cue: cue) {
+                    stopNarrationPreview(); playback.stopNarrationPlayback()
+                }
+            } else {
+                studio.confirmDeleteSegments(project, transcriptIDs: [cue.id], descriptionIDs: [], beforeDelete: {})
+            }
+        default: break
+        }
+    }
+
     private func runEditorShortcut(_ action: String) {
+        if action.hasPrefix("segment-one-") {
+            guard shortcutActions.canRun(action), selectedSegmentIDs.count == 1, selectedRows.count == 1,
+                  let row = selectedRows.first else { return }
+            runSegmentRowAction(action, row: row)
+            return
+        }
         switch action {
         case "preview": playback.exitVideoFullScreen(); previewHidden.toggle()
         case "toggle-timeline": timelineVisible.toggle()
@@ -3269,13 +3270,17 @@ struct ProjectEditor: View {
         }
         shortcutActions.hasCopyableResults = project.savedLanguageResults.contains { ["transcript", "summary", "descriptions"].contains($0.kind) && $0.state == "saved" && $0.hasContent }
         shortcutActions.hasUnsavedSummaryEdits = hasUnsavedSummaryEdits
+        shortcutActions.videoIsPlaying = playback.playbackActive
+        shortcutActions.videoPlaybackStarted = playback.videoPlaybackStarted
         shortcutActions.previewHidden = previewHidden
         shortcutActions.isVideoFullScreen = playback.isVideoFullScreen
         shortcutActions.timelineVisible = timelineVisible
         shortcutActions.thumbnailImagesVisible = thumbnailImagesVisible
         shortcutActions.available = !shortcutsBlocked && !studio.busy && segmentToEdit == nil && segmentBatchToEdit == nil && studio.screenText == nil
         shortcutActions.activeSection = tab
-        shortcutActions.resultProject = project
+        if shortcutActions.resultProject?.id != project.id || shortcutActions.resultProject?.updatedAt != project.updatedAt || shortcutActions.resultProject?.languageCode != project.languageCode {
+            shortcutActions.resultProject = project
+        }
         shortcutActions.viewingLanguage = project.languageCode
         shortcutActions.viewingLanguages = OutputLanguage.options.filter { project.availableViewingLanguages.contains($0.id) }
             .map { OutputLanguage(id: $0.id, title: project.viewingLanguageTitle($0.id)) }
@@ -3309,7 +3314,13 @@ struct ProjectEditor: View {
         shortcutActions.segmentSort = segmentSort.rawValue
         }
         shortcutActions.segmentCount = transcriptRows.count
-        shortcutActions.selectedSegmentCount = selectedSegmentIDs.count
+        shortcutActions.selectedSegmentCount = selectedRows.count
+        let singleRow = selectedSegmentIDs.count == 1 && selectedRows.count == 1 ? selectedRows.first : nil
+        shortcutActions.selectedSegmentKind = singleRow.map { $0.isDescription ? "descriptions" : "transcript" }
+        shortcutActions.selectedSegmentHasAudio = singleRow?.segment.audio != nil
+        shortcutActions.selectedSegmentAudioReady = singleRow.map { playableNarrationURL(for: $0.segment) != nil } ?? false
+        shortcutActions.selectedSegmentPreviewing = singleRow.map { $0.isDescription && activePreviewCueID == $0.segment.id } ?? false
+        shortcutActions.segmentPreviewPaused = shortcutActions.selectedSegmentPreviewing && previewPaused
         shortcutActions.canGenerateDescriptions = project.canGenerateDescriptions
         shortcutActions.canUndoSegment = !(tab == "transcript" ? project.transcriptUndoStack ?? [] : project.undoStack ?? []).isEmpty
         shortcutActions.canRedoSegment = !(tab == "transcript" ? project.transcriptRedoStack ?? [] : project.redoStack ?? []).isEmpty
@@ -3359,6 +3370,7 @@ struct ProjectEditor: View {
         editorWithProjectUpdates
         .onChange(of: playback.time) { _, _ in playback.syncNarration(project, settings: studio.settings) }
         .onChange(of: playback.playing) { _, _ in playback.syncNarration(project, settings: studio.settings) }
+        .onChange(of: playback.videoPlaybackStarted) { _, _ in refreshEditorShortcutActions() }
         .onChange(of: project.audioSources) { _, _ in playback.syncNarration(project, settings: studio.settings) }
         .onChange(of: project.originalAudio) { _, _ in playback.syncNarration(project, settings: studio.settings) }
         .onChange(of: project.duration) { _, _ in playback.syncNarration(project, settings: studio.settings) }
@@ -3375,6 +3387,8 @@ struct ProjectEditor: View {
                   playback.narrationEnabled != enabled else { return }
             playback.narrationEnabled = enabled
         }
+        .onChange(of: activePreviewCueID) { _, _ in refreshEditorShortcutActions() }
+        .onChange(of: previewPaused) { _, _ in refreshEditorShortcutActions() }
         .onChange(of: followTranscript) { _, enabled in
             ProjectPlaybackPreferences.setFollowEnabled(enabled, folder: project.folder, projectID: project.id)
         }
@@ -3402,9 +3416,16 @@ struct ProjectEditor: View {
             stopNarrationPreview()
             playback.stopNarrationPlayback()
         }
-        .onReceive(Timer.publish(every: 0.2, on: .main, in: .common).autoconnect()) { _ in
-            guard activePreviewCueID != nil, !previewPaused, audioPreview?.isPlaying != true else { return }
-            stopNarrationPreview()
+        .task(id: activePreviewCueID) {
+            guard let cueID = activePreviewCueID else { return }
+            while !Task.isCancelled {
+                do { try await Task.sleep(for: .milliseconds(200)) } catch { return }
+                guard activePreviewCueID == cueID else { return }
+                if !previewPaused, audioPreview?.isPlaying != true {
+                    stopNarrationPreview()
+                    return
+                }
+            }
         }
     }
 
@@ -3460,7 +3481,9 @@ struct ProjectEditor: View {
         }
         .onChange(of: playback.playing) { _, playing in
             if playing { summaryReader.stop() }
+            refreshEditorShortcutActions()
         }
+        .onChange(of: playback.buffering) { _, _ in refreshEditorShortcutActions() }
         .onChange(of: studio.settings.captionDisplayMode) { _, _ in refreshEditorShortcutActions() }
         .onChange(of: studio.hasApiKey) { _, _ in refreshEditorShortcutActions() }
         .onChange(of: studio.apiKeyVerified) { _, _ in refreshEditorShortcutActions() }

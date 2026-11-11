@@ -19,6 +19,13 @@ class ProjectLanguageActions(unittest.TestCase):
         harness = '''import SwiftUI
 import AppKit
 struct OutputLanguage { let id: String; let title: String }
+struct SavedLanguageResult { let id:String; let language:String; let kind:String }
+struct StudioProject {
+ var savedLanguageResults:[SavedLanguageResult]=[]
+ func languageResults(kind:String,includingDrafts:Bool)->[SavedLanguageResult] {[]}
+ func activeLanguageResultID(_ kind:String)->String? {nil}
+}
+
 enum OnlineService { case gemini, youtube }
 struct ConnectivityService { static let shared = ConnectivityService(); func available(_ service: OnlineService) -> Bool { true } }
 @MainActor
