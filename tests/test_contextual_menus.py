@@ -92,7 +92,18 @@ struct ConnectivityService { static let shared = ConnectivityService(); func ava
             harness += f'precondition(actions.isCommandVisible("{command}") == {str(expected).lower()}, "visibility: {section} {youtube} {command}")\n'
             if not expected:
                 harness += f'precondition(!actions.canRun("{command}")); calls = []; actions.run("{command}"); precondition(calls.isEmpty, "hidden command dispatched: {command}")\n'
+        defaults = [['transcript'], ['summary'], ['descriptions'], ['descriptions'], ['transcript', 'descriptions']]
+        titles = ['Transcript', 'Summary', 'Descriptions', 'Descriptions', 'AD Transcript']
+        for section, kinds, title in zip(SECTIONS, defaults, titles):
+            harness += f'actions.activeSection = "{section}"; precondition(actions.copyKinds(currentSectionOnly: true) == {json.dumps(kinds)}); precondition(actions.copyKinds(currentSectionOnly: false) == ["transcript", "summary", "descriptions"]); precondition(actions.currentSectionCopyTitle == "Copy and Translate {title}…")\n'
         harness += """
+    actions.activeSection = "transcript"; actions.available = true
+    var copyScopes: [Bool] = []
+    actions.copyHandler = { copyScopes.append($0) }
+    actions.copyCurrentSection(); actions.run("copy-to")
+    precondition(copyScopes == [true, false])
+    actions.available = false; actions.copyCurrentSection(); actions.run("copy-to")
+    precondition(copyScopes == [true, false])
     actions.activeSection = "descriptions"; actions.available = true
     calls = []; actions.run("synthesize-tts"); precondition(calls == ["synthesize-tts"])
     actions.activeSection = "transcript"; actions.youtubeProject = true
@@ -115,8 +126,9 @@ struct ConnectivityService { static let shared = ConnectivityService(); func ava
     def test_windows_production_visibility_across_all_tabs_and_sources(self):
         if not shutil.which('dotnet'): self.skipTest('.NET SDK required')
         source = (WIN / 'Vidi Studio Windows/MainWindow.Menus.cs').read_text()
-        production = declaration(source, '    private bool EditorCommandVisible(') + declaration(source, '    private bool EditorCommandVisibleInMode(')
+        production = declaration(source, '    private bool EditorCommandVisible(') + declaration(source, '    private bool EditorCommandVisibleInMode(') + declaration(source, '    private string[] CopyDefaultKinds(') + declaration(source, '    private string CurrentSectionCopyTitle') + ';'
         harness = """using System;
+using System.Linq;
 class Picker { public int SelectedIndex; }
 class Project { public bool IsYouTube; }
 class Studio { public Project? Project = new(); }
@@ -130,6 +142,11 @@ class Check {
             harness += f'check.editMode = {str(editing).lower()}; check.summaryEditMode = {str(section == "summary" and editing).lower()};\n'
             harness += f'check.Section.SelectedIndex = {SECTIONS.index(section)}; check.Model.Project!.IsYouTube = {str(youtube).lower()};\n'
             harness += f'if (check.EditorCommandVisible("{command}") != {str(expected).lower()}) throw new Exception("{section} {youtube} {command}");\n'
+        defaults = [['transcript'], ['summary'], ['descriptions'], ['descriptions'], ['transcript', 'descriptions']]
+        titles = ['Transcript', 'Summary', 'Descriptions', 'Descriptions', 'AD Transcript']
+        for index, (kinds, title) in enumerate(zip(defaults, titles)):
+            expected = 'new[] { ' + ', '.join(json.dumps(kind) for kind in kinds) + ' }'
+            harness += f'check.Section.SelectedIndex = {index}; if (!check.CopyDefaultKinds(true).SequenceEqual({expected}) || !check.CopyDefaultKinds(false).SequenceEqual(new[] {{ "transcript", "summary", "descriptions" }}) || check.CurrentSectionCopyTitle != "Copy and Translate {title}…") throw new Exception("Copy defaults {index}");\n'
         harness += 'Console.WriteLine("PASS: Windows production tab/source visibility matrix"); } }'
         with tempfile.TemporaryDirectory() as folder:
             path = Path(folder); (path / 'Program.cs').write_text(harness)

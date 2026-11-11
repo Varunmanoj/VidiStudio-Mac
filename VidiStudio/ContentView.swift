@@ -737,7 +737,7 @@ struct ProjectEditorWindow: View {
         .contextMenu {
             if let project = studio.selected {
                 if editorShortcutActions.isCommandVisible("copy-to") {
-                    Button("Copy to…", systemImage: "doc.on.doc") { editorShortcutActions.run("copy-to") }
+                    Button("Copy and Translate…", systemImage: "doc.on.doc") { editorShortcutActions.run("copy-to") }
                         .disabled(!editorShortcutActions.canRun("copy-to"))
                 }
                 Button("Open Project Settings…", systemImage: "gearshape") { studio.requestProjectManagement("project-settings", project: project) }
@@ -2847,10 +2847,6 @@ struct ProjectEditor: View {
                                 .help("Edit \(row.kind.lowercased()) text and timing")
                                 if row.isDescription {
                                     SegmentActionsMenu(actions: [
-                                        .init(title: "Copy to…", systemImage: "doc.on.doc", enabled: shortcutActions.canRun("copy-to")) {
-                                            let kind = row.isDescription ? "descriptions" : "transcript"
-                                            copySelection = LanguageCopySelection(kinds: [kind], segmentIDs: [kind: [cue.id]])
-                                        },
                                         .init(title: "Rewrite to Fit", systemImage: "sparkles", enabled: studio.hasValidApiKey) {
                                             studio.execute("rewrite-cue", extra: ["--segment", cue.id])
                                         },
@@ -2885,10 +2881,6 @@ struct ProjectEditor: View {
                                     .disabled(studio.busy)
                                 } else {
                                     SegmentActionsMenu(actions: [
-                                        .init(title: "Copy to…", systemImage: "doc.on.doc", enabled: shortcutActions.canRun("copy-to")) {
-                                            let kind = row.isDescription ? "descriptions" : "transcript"
-                                            copySelection = LanguageCopySelection(kinds: [kind], segmentIDs: [kind: [cue.id]])
-                                        },
                                         .init(title: "Edit Segment…", systemImage: "pencil") {
                                             presentSegmentEditor(row)
                                         },
@@ -2925,10 +2917,6 @@ struct ProjectEditor: View {
                             }
                             .accessibilityValue(validationHighlightID == row.id ? "Timing validation issue" : "")
                             .contextMenu {
-                                Button("Copy to…", systemImage: "doc.on.doc") {
-                                    let kind = row.isDescription ? "descriptions" : "transcript"
-                                    copySelection = LanguageCopySelection(kinds: [kind], segmentIDs: [kind: [cue.id]])
-                                }.disabled(!shortcutActions.canRun("copy-to"))
                                 Button("Edit \(row.kind) Segment…", systemImage: "pencil") {
                                     presentSegmentEditor(row)
                                 }
@@ -3124,10 +3112,7 @@ struct ProjectEditor: View {
             selectedSegmentIDs.removeAll()
             refreshEditorShortcutActions()
         case "segment-edit-selected": presentBulkSegmentEditor()
-        case "copy-to":
-            var ids: [String: [String]] = [:]
-            for row in selectedRows { ids[row.isDescription ? "descriptions" : "transcript", default: []].append(row.segment.id) }
-            copySelection = LanguageCopySelection(segmentIDs: ids)
+        case "copy-to": presentCopyAndTranslate(currentSectionOnly: false)
         case "language-results": showingLanguageResults = true
         case "filter-segments": if filterableTab { showingSegmentFilter = true }
         case "sort-segments": if filterableTab { showingSegmentSort = true }
@@ -3267,9 +3252,17 @@ struct ProjectEditor: View {
         }
     }
 
+    private func presentCopyAndTranslate(currentSectionOnly: Bool) {
+        guard shortcutActions.canRun("copy-to") else { return }
+        var ids: [String: [String]] = [:]
+        for row in selectedRows { ids[row.isDescription ? "descriptions" : "transcript", default: []].append(row.segment.id) }
+        copySelection = LanguageCopySelection(kinds: shortcutActions.copyKinds(currentSectionOnly: currentSectionOnly), segmentIDs: ids)
+    }
+
     private func refreshEditorShortcutActions(updateHandler: Bool = false) {
         if updateHandler {
             shortcutActions.handler = { action in runEditorShortcut(action) }
+            shortcutActions.copyHandler = { currentSectionOnly in presentCopyAndTranslate(currentSectionOnly: currentSectionOnly) }
             shortcutActions.exportHandler = showExportDialog
             shortcutActions.languageAction = { command, arguments in runLanguageAction(command, arguments: arguments) }
             shortcutActions.settingsLanguageAction = { command, arguments, editing in runLanguageAction(command, arguments: arguments, settingsEditMode: editing, fromSettings: true) }
@@ -3507,6 +3500,7 @@ struct ProjectEditor: View {
             shortcutActions.available = false
             shortcutActions.summaryEditing = false
             shortcutActions.handler = nil
+            shortcutActions.copyHandler = nil
             shortcutActions.exportHandler = nil
             playback.stop()
             summaryReader.stop()

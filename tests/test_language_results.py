@@ -46,14 +46,27 @@ class LanguageResultsTests(unittest.TestCase):
         self.assertEqual(lr.active(self.p, 'transcript', 'auto')['payload']['transcript'][0]['text'], 'Original')
         self.assertIn('audio-description/history.mp3', lr.referenced_paths(self.p))
 
-    def test_copy_to_existing_or_same_language_keeps_all_previous_versions(self):
+    def test_copy_to_existing_language_keeps_all_previous_versions(self):
         previous = copy.deepcopy(lr.active(self.p, 'summary'))
-        for code in ('hi', 'hi', 'auto'):
+        for code in ('hi', 'hi'):
             lr.copy_results(self.p, dict(sourceLanguage='auto', targetLanguage=code, kinds=['summary']))
         self.assertEqual(lr.find(self.p, previous['id']), previous)
-        self.assertEqual(lr.active(self.p, 'summary', 'auto')['version'], 2)
+        self.assertEqual(lr.active(self.p, 'summary', 'auto')['version'], 1)
         self.assertEqual(lr.active(self.p, 'summary', 'hi')['version'], 2)
-        self.assertEqual(len([r for r in self.p['languageResults'] if r['kind'] == 'summary']), 4)
+        self.assertEqual(len([r for r in self.p['languageResults'] if r['kind'] == 'summary']), 3)
+
+    def test_same_language_copy_and_translation_preserve_every_result_and_skip_translator(self):
+        from unittest.mock import Mock
+        lr.copy_results(self.p, dict(sourceLanguage='auto', targetLanguage='en', kinds=['transcript', 'summary', 'descriptions']))
+        before = copy.deepcopy(self.p)
+        for code in ('auto', 'en'):
+            for translating in (False, True):
+                translator = Mock() if translating else None
+                request = dict(sourceLanguage=code, targetLanguage=code, kinds=['transcript', 'summary', 'descriptions'])
+                with self.subTest(code=code, translating=translating), self.assertRaises(ValueError):
+                    lr.copy_results(self.p, request, translator=translator)
+                self.assertEqual(self.p, before)
+                if translator is not None: translator.assert_not_called()
 
     def test_copy_selected_segments_retains_timing_audio_without_unselected_history(self):
         self.p['cues'].append(dict(id='b', start=6, end=8, text='Other'))
@@ -484,6 +497,22 @@ class LanguageResultCLITests(unittest.TestCase):
         self.assertEqual(p['summary'], 'Original summary')
         self.assertEqual(p['transcript'][0]['text'], 'Original dialogue')
         self.assertFalse(any(r.get('origin') == 'ai' for r in p.get('languageResults', [])))
+
+    def test_same_language_cli_rejection_preserves_manifest_bytes_and_assets(self):
+        p = self.read()
+        lr.migrate(p)
+        lr.copy_results(p, dict(sourceLanguage='auto', targetLanguage='en', kinds=['summary']))
+        self.project.write_text(json.dumps(p))
+        audio = self.root / 'kept-audio.wav'
+        audio.write_bytes(b'unchanged saved narration')
+        request = self.root / 'same-language.json'
+        for command, code in [('copy-results', 'auto'), ('copy-results', 'en'), ('translate-results', 'en')]:
+            request.write_text(json.dumps(dict(sourceLanguage=code, targetLanguage=code, kinds=['summary'])))
+            before = self.project.read_bytes()
+            result = self.cli(command, '--input', request, succeeds=False)
+            self.assertIn('different from the source', result.stdout + result.stderr)
+            self.assertEqual(self.project.read_bytes(), before)
+            self.assertEqual(audio.read_bytes(), b'unchanged saved narration')
 
     def test_copy_cli_preserves_sources_existing_targets_and_shared_audio(self):
         p = self.read()

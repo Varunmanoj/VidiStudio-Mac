@@ -3200,6 +3200,8 @@ def main():
         emit('Import complete',project=str(root),progress=1); return
     if not args.project: raise ValueError('--project is required.')
     root=args.project.resolve()
+    if args.command in ('copy-results', 'translate-results'):
+        language_results.validate_copy_languages(json.loads(args.input.read_text(encoding='utf-8')), translating=args.command == 'translate-results')
     with project_lock(root):
         p=migrate_project_schema(root,json.loads((root/'project.json').read_text()))
         if args.command not in ('clear-youtube-data', 'update-youtube-metadata'):

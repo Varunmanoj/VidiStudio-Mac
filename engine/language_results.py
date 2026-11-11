@@ -149,10 +149,19 @@ def capture(p):
             p['activeResultIDs'].setdefault(p['selectedLanguage'], {})[kind] = r['id']
 
 
-def copy_results(p, request, translator=None):
-    """Validate all sources, then translate/duplicate without partial result writes."""
+def validate_copy_languages(request, translating=False):
     source = language(request.get('sourceLanguage'))
     target = language(request.get('targetLanguage'))
+    if translating and target == 'auto':
+        raise ValueError('Choose a specific target language for translation.')
+    if source == target:
+        raise ValueError('Choose a target language different from the source language.')
+    return source, target
+
+
+def copy_results(p, request, translator=None):
+    """Validate all sources, then translate/duplicate without partial result writes."""
+    source, target = validate_copy_languages(request, translating=translator is not None)
     kinds = request.get('kinds')
     if not isinstance(kinds, list) or not kinds or len(set(kinds)) != len(kinds) or any(k not in ('transcript', 'summary', 'descriptions') for k in kinds):
         raise ValueError('Choose transcript, summary, or descriptions to copy.')
@@ -183,7 +192,6 @@ def copy_results(p, request, translator=None):
             raise ValueError('The selected ' + kind + ' is empty.')
         sources.append((kind, r, data))
     if translator is not None:
-        if target == 'auto': raise ValueError('Choose a specific target language for translation.')
         translator(sources, source, target)
     made = []
     for kind, r, data in sources:
@@ -472,6 +480,10 @@ def run(args, root, p, core, dispatch):
 
 def _run(args, root, p, core, dispatch):
     global _export_language
+    copy_request = None
+    if args.command in ('copy-results', 'translate-results'):
+        copy_request = json.loads(args.input.read_text(encoding='utf-8'))
+        validate_copy_languages(copy_request, translating=args.command == 'translate-results')
     migrate(p)
     capture(p)
     organize_exports(root, p, core, recover_only=True)
@@ -551,7 +563,7 @@ def _run(args, root, p, core, dispatch):
     elif command in ('copy-results', 'translate-results'):
         core.emit('Translating content' if command == 'translate-results' else 'Copying content', contentTransferProgress=0.0)
         translator = (lambda sources, source, target: translate_payloads(sources, source, target, core)) if command == 'translate-results' else None
-        made = copy_results(p, json.loads(args.input.read_text(encoding='utf-8')), translator=translator)
+        made = copy_results(p, copy_request, translator=translator)
         core.emit('Saving translated content' if translator else 'Saving copied content', copiedResultIDs=made, contentTransferProgress=0.95)
     elif command == 'assign-result-language':
         r = find(p, args.result_id, saved_only=True)

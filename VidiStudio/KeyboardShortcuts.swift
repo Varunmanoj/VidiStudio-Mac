@@ -105,6 +105,7 @@ final class EditorShortcutActions {
     /// A non-empty summary text selection (read-selection content).
     var summaryHasTextSelection = false
     var handler: ((String) -> Void)?
+    var copyHandler: ((Bool) -> Void)?
     var exportHandler: (() -> Void)?
 
     var captionControlsAvailable: Bool {
@@ -203,8 +204,35 @@ final class EditorShortcutActions {
         return true
     }
 
+    var currentSectionCopyTitle: String {
+        switch activeSection {
+        case "transcript": return "Copy and Translate Transcript…"
+        case "summary": return "Copy and Translate Summary…"
+        case "descriptions", "ad-overview": return "Copy and Translate Descriptions…"
+        case "ad-transcript": return "Copy and Translate AD Transcript…"
+        default: return "Copy and Translate…"
+        }
+    }
+
+    func copyKinds(currentSectionOnly: Bool) -> [String] {
+        guard currentSectionOnly else { return ["transcript", "summary", "descriptions"] }
+        switch activeSection {
+        case "transcript": return ["transcript"]
+        case "summary": return ["summary"]
+        case "descriptions", "ad-overview": return ["descriptions"]
+        case "ad-transcript": return ["transcript", "descriptions"]
+        default: return []
+        }
+    }
+
+    func copyCurrentSection() {
+        guard canRun("copy-to") else { return }
+        copyHandler?(true)
+    }
+
     func run(_ action: String) {
         guard canRun(action) else { return }
+        if action == "copy-to" { copyHandler?(false); return }
         if ["youtube-details", "youtube-refresh", "youtube-captions"].contains(action) { youtubeHandler?(action); return }
         handler?(action)
     }
@@ -602,7 +630,7 @@ struct StudioCommands: Commands {
         CommandGroup(after: .pasteboard) {
             if allProjects == nil {
                 if editor?.isCommandVisible("copy-to") == true {
-                    Button("Copy to…", systemImage: "doc.on.doc") { editor?.run("copy-to") }
+                    Button("Copy and Translate…", systemImage: "doc.on.doc") { editor?.run("copy-to") }
                         .accessibilityIdentifier("copy-to")
                         .disabled(editor?.canRun("copy-to") != true)
                 }

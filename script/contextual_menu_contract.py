@@ -31,6 +31,9 @@ def check_contextual_menus(mac, windows):
         'guard available, handler != nil, isCommandVisible(action) else',
         'guard canRun(action) else',
         'guard isCommandVisibleInMode(action) else',
+        'if action == "copy-to" { copyHandler?(false); return }',
+        'func copyCurrentSection()',
+        'copyHandler?(true)',
         'if editor?.segmentEditMode == true {',
         'return segmentEditMode',
         'if activeSection == "summary", summaryEditing {',
@@ -57,6 +60,8 @@ def check_contextual_menus(mac, windows):
         'menu.Title == "YouTube" && !YouTubeMenusVisible',
         'if (!YouTubeMenusVisible) return false;',
         'if (!CanRunDesktopCommand(id)) return;',
+        'private async Task RunDesktopCommandAsync(string id, bool copyCurrentSectionOnly = false)',
+        'await ShowCopyToAsync(initialKinds: CopyDefaultKinds(copyCurrentSectionOnly)',
         '() => CanRunDesktopCommand(id)',
         'if (id.StartsWith("summary-", StringComparison.Ordinal)) return Section.SelectedIndex == 1;',
         'if (name == "Segments") group.Visibility = timedSection',
@@ -68,3 +73,26 @@ def check_contextual_menus(mac, windows):
     for platform, source, guards in [('Mac', mac, mac_guards), ('Windows', windows, win_guards)]:
         for guard in guards:
             if guard not in source: raise ValueError(platform + ' contextual menu guard missing: ' + guard)
+
+
+def check_row_more_actions(mac_content, windows_commands, mac_language, windows_language):
+    more_menus = re.findall(r'SegmentActionsMenu\(actions: \[(.*?)\n\s*\]\)', mac_content, re.S)
+    if len(more_menus) != 2 or any('Copy' in menu for menu in more_menus):
+        raise ValueError('Mac row More Actions must omit copying for transcript and description rows')
+    context = mac_content.split('.accessibilityValue(validationHighlightID == row.id ? "Timing validation issue" : "")', 1)[1]
+    context = context.split('.contextMenu {', 1)[1].split('}.listStyle(.inset)', 1)[0]
+    if 'Copy' in context:
+        raise ValueError('Mac individual row context menu must omit copying')
+    row_branch = windows_commands.split('\n        if (segment != null)\n        {', 1)[1].split('\n        else\n        {', 1)[0]
+    if 'Copy' in row_branch or 'ShowCopyToAsync' in row_branch:
+        raise ValueError('Windows individual row context and More Actions must omit copying')
+    if 'Button(editorActions.currentSectionCopyTitle,' not in mac_language or 'Content = CurrentSectionCopyTitle' not in windows_language:
+        raise ValueError('Inspector must retain the current-section Copy and Translate action')
+    if 'editorActions.copyCurrentSection()' not in mac_language or 'copyAll.Click += async (_, _) => await RunDesktopCommandAsync("copy-to", copyCurrentSectionOnly: true)' not in windows_language:
+        raise ValueError('Inspector must use the guarded current-section copy command')
+    if mac_language.count('Button(editorActions.currentSectionCopyTitle,') != 1 or windows_language.count('Content = CurrentSectionCopyTitle') != 1:
+        raise ValueError('Inspector must offer exactly one Copy and Translate action')
+    if '_selectedOnly = State(initialValue: false)' not in mac_language or 'Content = "Selected Segments Only", IsChecked = false' not in windows_language:
+        raise ValueError('Copy dialog must initially allow all preselected content types')
+    if 'Text("Copy and Translate")' not in mac_language or 'Title = "Copy and Translate"' not in windows_language:
+        raise ValueError('Copy and Translate dialog titles must match')

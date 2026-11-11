@@ -241,6 +241,31 @@ class DesktopMenuParity(unittest.TestCase):
         self.assertIn('ProjectManagementTarget() => desktopEditorVisible ? Model.Project : SelectedGalleryProject()', self.windows)
         self.assertIn('return CanManageProject(id);', self.windows)
 
+    def test_row_more_actions_omit_copy_but_inspector_entries_remain(self):
+        import runpy
+        root = Path(os.environ.get('VIDISTUDIO_DESKTOP_WORKSPACE', Path(__file__).resolve().parents[2]))
+        check = runpy.run_path(str(Path(__file__).resolve().parents[1] / 'script/contextual_menu_contract.py'))['check_row_more_actions']
+        mac = (root / 'VidiStudio Mac/VidiStudio/ContentView.swift').read_text()
+        win = (root / 'Vidi-Studio-Windows/Vidi Studio Windows/MainWindow.Commands.cs').read_text()
+        mac_language = (root / 'VidiStudio Mac/VidiStudio/LanguageResults.swift').read_text()
+        win_language = (root / 'Vidi-Studio-Windows/Vidi Studio Windows/MainWindow.LanguageResults.cs').read_text()
+        check(mac, win, mac_language, win_language)
+        mutations = [
+            (mac.replace('SegmentActionsMenu(actions: [', 'SegmentActionsMenu(actions: [\n.init(title: "Copy and Translate…"),', 1), win, mac_language, win_language),
+            (mac.replace('Button("Edit \\(row.kind) Segment…"', 'Button("Copy and Translate…"'), win, mac_language, win_language),
+            (mac, win.replace('Item("Edit segment"', 'Item("Copy and Translate…"'), mac_language, win_language),
+            (mac, win, mac_language.replace('Button(editorActions.currentSectionCopyTitle,', 'Button("Missing",'), win_language),
+            (mac, win, mac_language, win_language.replace('Content = CurrentSectionCopyTitle', 'Content = "Missing"')),
+            (mac, win, mac_language.replace('Button(editorActions.currentSectionCopyTitle,', 'Button(editorActions.currentSectionCopyTitle,); Button(editorActions.currentSectionCopyTitle,'), win_language),
+            (mac, win, mac_language, win_language.replace('Content = CurrentSectionCopyTitle', 'Content = CurrentSectionCopyTitle; Content = CurrentSectionCopyTitle')),
+            (mac, win, mac_language, win_language.replace('copyCurrentSectionOnly: true', 'copyCurrentSectionOnly: false')),
+            (mac, win, mac_language.replace('editorActions.copyCurrentSection()', 'editorActions.run("copy-to")'), win_language),
+        ]
+        for args in mutations:
+            with self.assertRaises(ValueError): check(*args)
+        self.assertIn('Button("Copy and Translate…"', self.mac)
+        self.assertIn('"copy-to" => "Copy and Translate…"', self.windows)
+
     def test_actual_menus_and_shortcuts_match(self):
         self.assertGreater(self.checker.compare_sources(self.mac, self.app, self.windows), 30)
 

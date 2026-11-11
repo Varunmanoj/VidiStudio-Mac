@@ -68,6 +68,15 @@ class CopyTranslationTests(unittest.TestCase):
         self.core.client_and_model.assert_not_called()
         self.assertEqual(self.p, self.before)
 
+    def test_same_language_translation_never_opens_gemini(self):
+        lr.copy_results(self.p, dict(sourceLanguage='auto', targetLanguage='en', kinds=['transcript', 'summary', 'descriptions']))
+        before = copy.deepcopy(self.p)
+        self.request.update(sourceLanguage='en', targetLanguage='en')
+        with self.assertRaisesRegex(ValueError, 'different from the source'):
+            self.run_translation()
+        self.core.client_and_model.assert_not_called()
+        self.assertEqual(self.p, before)
+
     def test_missing_or_duplicate_response_items_never_save_partial_results(self):
         invalid = [[], [dict(index=0, text='one')] * 3,
                    [dict(index=i, text=' ') for i in range(3)],
