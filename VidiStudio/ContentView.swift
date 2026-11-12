@@ -1627,6 +1627,7 @@ struct ProjectEditor: View {
     @State private var showingLanguageResults = false
     @State private var showingSegmentFilter = false
     @State private var showingSegmentSort = false
+    @State private var showingJumpToTime = false
     @State private var segmentFilters: [String: SegmentFilter] = [:]
     private var segmentFilter: SegmentFilter {
         get { segmentFilters[segmentFilterKey] ?? SegmentFilter() }
@@ -3095,6 +3096,7 @@ struct ProjectEditor: View {
         case "stop": playback.stopPlayback()
         case "back": playback.seekRelative(-5, duration: project.duration)
         case "forward": playback.seekRelative(5, duration: project.duration)
+        case "jump-to-time": showingJumpToTime = true
         case "narration": playback.narrationEnabled.toggle()
         case "caption-cycle": cycleCaptionDisplayMode()
         case "caption-off": studio.settings.captionDisplayMode = "off"
@@ -3273,13 +3275,14 @@ struct ProjectEditor: View {
         }
         shortcutActions.hasCopyableResults = project.savedLanguageResults.contains { ["transcript", "summary", "descriptions"].contains($0.kind) && $0.state == "saved" && $0.hasContent }
         shortcutActions.hasUnsavedSummaryEdits = hasUnsavedSummaryEdits
+        shortcutActions.canJumpToTime = project.duration.isFinite && project.duration > 0
         shortcutActions.videoIsPlaying = playback.playbackActive
         shortcutActions.videoPlaybackStarted = playback.videoPlaybackStarted
         shortcutActions.previewHidden = previewHidden
         shortcutActions.isVideoFullScreen = playback.isVideoFullScreen
         shortcutActions.timelineVisible = timelineVisible
         shortcutActions.thumbnailImagesVisible = thumbnailImagesVisible
-        shortcutActions.available = !shortcutsBlocked && !studio.busy && segmentToEdit == nil && segmentBatchToEdit == nil && studio.screenText == nil
+        shortcutActions.available = !shortcutsBlocked && !studio.busy && !showingJumpToTime && segmentToEdit == nil && segmentBatchToEdit == nil && studio.screenText == nil
         shortcutActions.activeSection = tab
         if shortcutActions.resultProject?.id != project.id || shortcutActions.resultProject?.updatedAt != project.updatedAt || shortcutActions.resultProject?.languageCode != project.languageCode {
             shortcutActions.resultProject = project
@@ -3469,6 +3472,7 @@ struct ProjectEditor: View {
         editorWithSummaryUpdates
         .onChange(of: previewHidden) { _, _ in refreshEditorShortcutActions() }
         .onChange(of: shortcutsBlocked) { _, _ in refreshEditorShortcutActions() }
+        .onChange(of: showingJumpToTime) { _, _ in refreshEditorShortcutActions() }
         .onChange(of: segmentToEdit?.id) { _, _ in refreshEditorShortcutActions() }
         .onChange(of: segmentBatchToEdit?.id) { _, _ in refreshEditorShortcutActions() }
         .onChange(of: studio.screenText) { _, _ in refreshEditorShortcutActions() }
@@ -3611,6 +3615,13 @@ struct ProjectEditor: View {
         }
         .sheet(isPresented: $showingLanguageResults) {
             ScrollView { LanguageResultControls(studio: studio, project: project, editorActions: shortcutActions).padding(24) }.frame(width: 520, height: 600)
+        }
+        .sheet(isPresented: $showingJumpToTime) {
+            JumpToTimeView(position: playback.time, duration: project.duration) { seconds in
+                guard !studio.busy else { return }
+                stopNarrationPreview()
+                playback.goTo(seconds)
+            }
         }
         .sheet(isPresented: $showingSegmentSort) {
             VStack(alignment: .leading, spacing: 16) {

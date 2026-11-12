@@ -153,3 +153,26 @@ def check_single_segment_commands(mac, windows, content, commands):
         raise ValueError('Stop narration must be hidden without an active preview for the selected row')
     if 'if action == "stop" { return videoPlaybackStarted }' not in mac or 'if (id == "stop") return videoPlaybackStarted;' not in windows:
         raise ValueError('Stop Video must be hidden before playback and after stopping')
+
+
+def check_jump_to_time(mac, windows, context, playback, dialog, win_dialog):
+    required = [
+        ('jump-to-time', mac), ('Jump to Time…', mac),
+        ('["play", "back", "forward", "jump-to-time"].contains(action)', mac),
+        ('case "jump-to-time": return canJumpToTime', mac),
+        ('Command("jump-to-time")', windows), ('case "jump-to-time": await ShowJumpToTimeAsync()', windows),
+        ('"play" or "back" or "forward" or "jump-to-time"', windows),
+        ('case "jump-to-time": return double.IsFinite(p.Duration) && p.Duration > 0', windows),
+        ('playback.goTo(seconds)', context), ('!showingJumpToTime', context),
+        ('if playbackActive { play(from: seconds) }', playback),
+        ('player?.pauseVideo()', playback),
+        ('JumpTime.parse(time, duration: duration)', dialog), ('.disabled(target == nil)', dialog),
+        ('Button("Jump", action: submit)', dialog), ('Button("Cancel")', dialog), ('.contextMenu', dialog),
+        ('var wasPlaying = IsVideoPlaying()', win_dialog), ('await SeekAsync(target)', win_dialog),
+        ('wasPlaying ? "window.vidiPlay?.()" : "window.vidiPause?.()"', win_dialog),
+        ('JumpTime.Parse(input.Text, project.Duration)', win_dialog),
+        ('dialog.PrimaryButtonClick', win_dialog), ('content.ContextFlyout = menu', win_dialog),
+    ]
+    for token, source in required:
+        if token not in source:
+            raise ValueError('Jump to Time transport/dialog contract missing: ' + token)

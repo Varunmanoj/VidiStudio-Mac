@@ -514,7 +514,14 @@ final class PlaybackModel {
     /// jump and leave the video paused. Used by the left play control on rows.
     func goTo(_ seconds: Double) {
         guard seconds.isFinite else { return }
-        if playbackActive { play(from: seconds) } else { seek(seconds) }
+        if playbackActive { play(from: seconds) }
+        else {
+            pausePlayback()
+            seek(seconds)
+            // Seeking a cued or ended YouTube video can start it. Keep the
+            // requested paused state after moving the playhead.
+            webView?.evaluateJavaScript("player?.pauseVideo()", completionHandler: nil)
+        }
     }
     func seek(_ seconds: Double) {
         guard seconds.isFinite else { return }

@@ -61,6 +61,7 @@ final class EditorShortcutActions {
     var selectedSegmentAudioReady = false
     var videoIsPlaying = false
     var videoPlaybackStarted = false
+    var canJumpToTime = false
     var selectedSegmentPreviewing = false
     var segmentPreviewPaused = false
 
@@ -298,7 +299,7 @@ final class EditorShortcutActions {
 
     func canRun(_ action: String) -> Bool {
         guard available, handler != nil, isCommandVisible(action) else { return false }
-        if ["play", "back", "forward"].contains(action), youtubeProject, !ConnectivityService.shared.available(.youtube) { return false }
+        if ["play", "back", "forward", "jump-to-time"].contains(action), youtubeProject, !ConnectivityService.shared.available(.youtube) { return false }
         if ["youtube-details", "youtube-refresh", "youtube-captions"].contains(action) { return youtubeHandler != nil }
         if action.hasPrefix("segment-one-") {
             guard segmentEditMode, selectedSegmentCount == 1, let kind = selectedSegmentKind else { return false }
@@ -306,6 +307,7 @@ final class EditorShortcutActions {
         }
         if action.hasPrefix("summary-") { return canRunSummary(action) }
         switch action {
+        case "jump-to-time": return canJumpToTime
         case "saved-results": return !hasUnsavedSummaryEdits && resultProject?.savedLanguageResults.contains { $0.language == viewingLanguage && savedResultKinds.contains($0.kind) } == true
         case "project-language": return !hasUnsavedSummaryEdits && !viewingLanguages.isEmpty
         case "copy-to": return hasCopyableResults && !hasUnsavedSummaryEdits
@@ -407,6 +409,7 @@ struct StudioShortcut: Identifiable {
         case "fullscreen": return "arrow.up.left.and.arrow.down.right"
         case "play": return "playpause"
         case "stop": return "stop.fill"
+        case "jump-to-time": return "clock"
         case "back": return "gobackward.5"
         case "forward": return "goforward.5"
         case "narration": return "speaker.wave.2"
@@ -464,6 +467,7 @@ struct StudioShortcut: Identifiable {
         .init(id: "stop", title: "Stop Video", key: ".", modifiers: [.command, .shift], spoken: "Command + Shift + Period", group: "Playback"),
         .init(id: "back", title: "Rewind 5 Seconds", key: .leftArrow, modifiers: [.command, .option], spoken: "Command + Option + Left Arrow", group: "Playback"),
         .init(id: "forward", title: "Fast Forward 5 Seconds", key: .rightArrow, modifiers: [.command, .option], spoken: "Command + Option + Right Arrow", group: "Playback"),
+        .init(id: "jump-to-time", title: "Jump to Time…", key: "j", modifiers: [.command, .shift], spoken: "Command + Shift + J", group: "Playback"),
         .init(id: "narration", title: "Toggle Narration", key: "d", modifiers: [.command, .shift], spoken: "Command + Shift + D", group: "Playback"),
         .init(id: "caption-cycle", title: "Cycle Transcript Overlay", key: "c", modifiers: [.command, .shift], spoken: "Command + Shift + C", group: "Captions"),
         .init(id: "caption-off", title: "Turn Transcript Overlay Off", key: "0", modifiers: [.command, .control], spoken: "Command + Control + 0", group: "Captions"),
