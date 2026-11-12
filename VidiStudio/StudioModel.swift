@@ -1166,11 +1166,14 @@ struct StudioSettings: Codable, Equatable {
     var soundWhenNarrationOff = true
     var soundWhenNarrationMissing = true
     var soundWhenTimingInvalid = true
+    var soundAfterExport = true
     var systemVoice = ""
     var piperVoice = ""
     var systemSpeechRate = 1.0
     var systemSpeechPitch = 1.0
     var systemSpeechVolume = 1.0
+    var summarySentenceHighlightEnabled = true
+    var summaryWordHighlightEnabled = true
     var summarySentenceHighlight = SummaryHighlightColor.defaultSentenceHex
     var summaryWordHighlight = SummaryHighlightColor.defaultWordHex
     var captionDisplayMode = "off"
@@ -1278,6 +1281,8 @@ struct StudioSettings: Codable, Equatable {
     }
 
     mutating func restoreSummaryHighlightDefaults() {
+        summarySentenceHighlightEnabled = true
+        summaryWordHighlightEnabled = true
         summarySentenceHighlight = SummaryHighlightColor.defaultSentenceHex
         summaryWordHighlight = SummaryHighlightColor.defaultWordHex
     }
@@ -2772,6 +2777,7 @@ final class StudioModel {
         }
         var completedExportPath: String?
         var completedExportPaths: [String] = []
+        var exportFailed = false
         var exportSummaryMessage: String?
         let canRecoverYouTubeAudio = target?.isYouTubeURLProject == true &&
             ["export-youtube-original-audio", "export-youtube-described-audio", "combine-imported-audio"].contains(command)
@@ -2974,6 +2980,7 @@ final class StudioModel {
                        importReports.last?.id != report.id {
                         importReports.append(report)
                     }
+                    if eventIsError { exportFailed = true }
                     if eventIsError && !connectionWatch.interrupted {
                         let detail = eventMessage ?? "The operation stopped without further details."
                         if OnlineRequirements.services(command, project: target, settings: settings, extra: extra).contains(.gemini), let aiIssue = AIServiceIssue.detect(detail) {
@@ -3002,6 +3009,7 @@ final class StudioModel {
                     }
                 }
             } catch {
+                exportFailed = true
                 if !isKeyCheck || checkedKey == settings.apiKey.trimmingCharacters(in: .whitespacesAndNewlines) {
                 let detail = error.localizedDescription
                 if OnlineRequirements.services(command, project: target, settings: settings, extra: extra).contains(.gemini), let aiIssue = AIServiceIssue.detect(detail) {
@@ -3038,6 +3046,7 @@ final class StudioModel {
                         try await AppleAccessibilityMetadataWriter().verifyVideoTracks(at: folder.appendingPathComponent(path), requiresDescription: described)
                         message = "Video export complete"
                     } catch {
+                        exportFailed = true
                         present(.exportMetadata, technicalDetails: error.localizedDescription, context: "Finish export accessibility information")
                     }
                 }
@@ -3101,6 +3110,10 @@ final class StudioModel {
                     }
                 }
             }
+            ExportCompletionSound.shared.complete(
+                command: command, enabled: settings.soundAfterExport,
+                succeeded: task.terminationStatus == 0 && !exportFailed && !connectionWatch.interrupted,
+                cancelled: operationWasCancelled, hasOutput: !completedExportPaths.isEmpty)
             completion?(task.terminationStatus == 0 ? completedProject : nil)
         }
     }

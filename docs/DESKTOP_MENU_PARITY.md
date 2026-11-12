@@ -215,3 +215,15 @@ Deletion icons: Windows command IDs and display labels resolve through the share
 ## Jump to Time
 
 Playback > Jump to Time… (`jump-to-time`) follows Fast Forward 5 Seconds on both desktops. Command-Shift-J translates to Ctrl-Shift-J. It requires an idle editor, finite positive video duration and an available connection for YouTube projects. The native Time field accepts seconds, m:ss or h:mm:ss, including fractional seconds. Jump validates the range, preserves playing/paused/stopped transport intent, and resets active narration to the new position. Opening and cancelling do not change playback. Jump and Cancel are also exposed in the dialog context menu; Enter/Escape activate the native dialog buttons. No project data is rewritten.
+
+
+### Export completion sound
+Settings > Narration > Play sound after export is enabled by default on both desktops. Its context menu exposes the same checked toggle (`export-completion-sound-menu`), sharing `soundAfterExport` with the control. The choice persists per device and applies to all projects. It plays the bundled descend.wav once only after a successful whole export operation; failed, cancelled, interrupted, and all-skipped operations are silent. No shortcut is assigned.
+
+Each of the four Narration sound rows now has an icon-only preview and a matching context-menu action. Play sound: [setting name] changes to Pause sound: [setting name] during playback, then returns to Play on completion. Both routes share the same per-Settings preview player and pause/resume state; preview remains available when the corresponding toggle is off. Preview IDs use each row ID plus -preview and -preview-menu. Only one sound preview plays at once; changing Settings sections or closing stops it.
+
+Narration groups are aligned: engine/playback, four sound switches with preview, Voice controls (rate, pitch, volume, Restore Defaults), Voices, then Summary readback. Restore Defaults and Restore Highlight Defaults have matching context menu IDs restore-speech-defaults-menu and restore-summary-highlight-defaults-menu. Windows retains native OneCore/SAPI/Piper/Gemini provider choices and its voice picker; Mac retains Apple/Piper/Gemini and the Apple voice browser.
+
+
+### Summary readback highlighting in Appearance (1.0.295)
+Both desktops place sentence/word highlight toggles, their color pickers and Restore Highlight Defaults in Settings > Appearance. Narration contains no summary-highlighting controls. The toggles expose checked context-menu items summary-sentence-highlight-menu and summary-word-highlight-menu through the same shared state; restore-summary-highlight-defaults-menu stays with the moved reset button. Both highlights default on and work independently; restoring defaults turns both on and resets only highlight colors. Settings apply immediately to open summary views without restarting speech. Existing colors and Windows toggle choices are preserved.

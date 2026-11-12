@@ -606,7 +606,9 @@ final class SummaryReadbackModel: NSObject, AVSpeechSynthesizerDelegate, AVAudio
     func displayContent(
         sentenceBackground: NSColor,
         wordBackground: NSColor,
-        wordForeground: NSColor
+        wordForeground: NSColor,
+        highlightSentence: Bool = true,
+        highlightWord: Bool = true
     ) -> NSAttributedString {
         let result = NSMutableAttributedString()
         guard cachedLines.count == sentences.count,
@@ -634,8 +636,10 @@ final class SummaryReadbackModel: NSObject, AVSpeechSynthesizerDelegate, AVAudio
             paragraph.lineBreakMode = .byWordWrapping
             storage.addAttribute(.paragraphStyle, value: paragraph, range: fullRange)
             if currentIndex == sentence.id {
-                storage.addAttribute(.backgroundColor, value: sentenceBackground, range: fullRange)
-                if let wordRange, wordRange.length > 0, wordRange.location != NSNotFound {
+                if highlightSentence {
+                    storage.addAttribute(.backgroundColor, value: sentenceBackground, range: fullRange)
+                }
+                if highlightWord, let wordRange, wordRange.length > 0, wordRange.location != NSNotFound {
                     let local = NSRange(
                         location: wordRange.location - cachedLineRanges[index].location,
                         length: wordRange.length
@@ -1059,11 +1063,14 @@ struct SummarySentenceTextView: NSViewRepresentable {
             wordBackground: SummaryHighlightColor.nsColor(
                 from: settings.summaryWordHighlight, alpha: 1),
             wordForeground: SummaryHighlightColor.nsTextColor(
-                forWordHex: settings.summaryWordHighlight)
+                forWordHex: settings.summaryWordHighlight),
+            highlightSentence: settings.summarySentenceHighlightEnabled,
+            highlightWord: settings.summaryWordHighlightEnabled
         )
         let signature = "\(model.zoom):\(content.string.hashValue):\(model.currentIndex ?? -1):" +
             "\(model.wordRange?.location ?? -1):\(model.wordRange?.length ?? 0):" +
-            "\(settings.summarySentenceHighlight):\(settings.summaryWordHighlight)"
+            "\(settings.summarySentenceHighlight):\(settings.summaryWordHighlight):" +
+            "\(settings.summarySentenceHighlightEnabled):\(settings.summaryWordHighlightEnabled)"
         if signature != coordinator.lastContentSignature, !userSelecting {
             coordinator.lastContentSignature = signature
             if let storage = textView.textStorage, !storage.isEqual(to: content) {

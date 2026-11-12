@@ -68,6 +68,22 @@ import SwiftUI
             check(view.layoutManager!.usedRect(for: view.textContainer!).width <= view.textContainer!.size.width + 1, "Zoom caused horizontal overflow")
             return content
         }
+        let activeRange = model.lineRange(forSentence: model.currentIndex!)!
+        let word = model.wordRange!
+        let sentenceProbe = (activeRange.location..<NSMaxRange(activeRange)).first { !NSLocationInRange($0, word) }!
+        let baseline = model.displayContent(sentenceBackground: .blue, wordBackground: .yellow, wordForeground: .black, highlightSentence: false, highlightWord: false)
+        for sentenceOn in [false, true] {
+            for wordOn in [false, true] {
+                let content = model.displayContent(sentenceBackground: .blue, wordBackground: .yellow, wordForeground: .black, highlightSentence: sentenceOn, highlightWord: wordOn)
+                check(content.string == baseline.string, "Highlight choices changed the summary text")
+                check((content.attribute(.backgroundColor, at: sentenceProbe, effectiveRange: nil) as? NSColor) == (sentenceOn ? .blue : nil), "Sentence toggle did not independently control its background")
+                check((content.attribute(.backgroundColor, at: word.location, effectiveRange: nil) as? NSColor) == (wordOn ? .yellow : sentenceOn ? .blue : nil), "Word toggle did not independently control its background")
+                let foreground = content.attribute(.foregroundColor, at: word.location, effectiveRange: nil) as? NSColor
+                let expected = wordOn ? NSColor.black : baseline.attribute(.foregroundColor, at: word.location, effectiveRange: nil) as? NSColor
+                check(foreground == expected, "Disabling the word highlight left its foreground styling behind")
+                check(model.wordRange == word && model.lineRange(forSentence: model.currentIndex!) == activeRange, "Toggling highlights changed readback position")
+            }
+        }
         var previousHeight: CGFloat = 0
         for zoom in [0.5, 1.0, 2.0, 4.0] {
             model.setZoom(zoom)
@@ -93,7 +109,7 @@ import SwiftUI
         model.setZoom(1.56); model.zoomIn(); check(model.zoomPercent == 160, "Zoom In after pinch")
         model.setZoom(1.56); model.zoomOut(); check(model.zoomPercent == 150, "Zoom Out after pinch")
         model.setZoom(1); check(model.zoomPercent == 100, "100% reset")
-        print("PASS: native 50/100/200/400% wrapping, fonts, multilingual UTF-16 speech/highlights, selection, viewport anchor, zoom steps/bounds/reset")
+        print("PASS: independent sentence/word highlight combinations; native 50/100/200/400% wrapping, fonts, multilingual UTF-16 speech/highlights, selection, viewport anchor, zoom steps/bounds/reset")
     }
 }
 '''

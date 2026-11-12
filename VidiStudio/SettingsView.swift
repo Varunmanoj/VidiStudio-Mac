@@ -69,6 +69,7 @@ struct SettingsView: View {
         guard let requestedProject, !requestedProjectWasOpen || openProjects.projects.contains(where: { $0.id == requestedProject.id }) else { return openProjects.projects }
         return [requestedProject] + openProjects.projects.filter { $0.id != requestedProject.id }
     }
+    @State private var soundPreview = SettingsSoundPreview()
     @State private var shortcutReferenceExpanded = false
     @State private var expandedPromptStages: Set<String> = []
     @State private var finderExtensionEnabled = FIFinderSyncController.isExtensionEnabled
@@ -182,14 +183,18 @@ struct SettingsView: View {
                         Label("Play synthesized narration", systemImage: "play.circle").tag("generated")
                         Label("Preview segment text with the selected voice", systemImage: "text.bubble").tag("device")
                     }
-                    Toggle("Sound when narration is off", isOn: $studio.settings.soundWhenNarrationOff)
-                    Toggle("Sound when synthesized audio is unavailable", isOn: $studio.settings.soundWhenNarrationMissing)
-                    Toggle("Sound when timing validation fails", isOn: $studio.settings.soundWhenTimingInvalid)
-                        .accessibilityIdentifier("timing-validation-sound")
-                        .contextMenu {
-                            Toggle("Sound when timing validation fails", isOn: $studio.settings.soundWhenTimingInvalid)
-                                .accessibilityIdentifier("timing-validation-sound-menu")
-                        }
+                    SettingsSoundRow(title: "Sound when narration is off", resource: "Boink3",
+                        identifier: "narration-off-sound", menuIdentifier: "narration-off-sound-menu",
+                        enabled: $studio.settings.soundWhenNarrationOff, preview: soundPreview)
+                    SettingsSoundRow(title: "Sound when synthesized audio is unavailable", resource: "ascend",
+                        identifier: "narration-missing-sound", menuIdentifier: "narration-missing-sound-menu",
+                        enabled: $studio.settings.soundWhenNarrationMissing, preview: soundPreview)
+                    SettingsSoundRow(title: "Play sound after export", resource: "descend",
+                        identifier: "export-completion-sound", menuIdentifier: "export-completion-sound-menu",
+                        enabled: $studio.settings.soundAfterExport, preview: soundPreview)
+                    SettingsSoundRow(title: "Sound when timing validation fails", resource: "Buzzer1",
+                        identifier: "timing-validation-sound", menuIdentifier: "timing-validation-sound-menu",
+                        enabled: $studio.settings.soundWhenTimingInvalid, preview: soundPreview)
                 }
                 if studio.settings.ttsMode == "gemini" {
                     GeminiVoiceBrowser(studio: studio)
@@ -203,6 +208,10 @@ struct SettingsView: View {
                             studio.settings.restoreSystemSpeechDefaults()
                         }
                         .accessibilityHint("Restores speech rate, pitch, and volume to their original values")
+                        .contextMenu {
+                            Button("Restore Defaults") { studio.settings.restoreSystemSpeechDefaults() }
+                                .accessibilityIdentifier("restore-speech-defaults-menu")
+                        }
                     }
                     PiperVoiceSettingsView(settings: $studio.settings)
                 }
@@ -215,21 +224,14 @@ struct SettingsView: View {
                             studio.settings.restoreSystemSpeechDefaults()
                         }
                         .accessibilityHint("Restores speech rate, pitch, and volume to their original values")
+                        .contextMenu {
+                            Button("Restore Defaults") { studio.settings.restoreSystemSpeechDefaults() }
+                                .accessibilityIdentifier("restore-speech-defaults-menu")
+                        }
                     }
                     SystemVoiceBrowser(settings: $studio.settings)
                 }
-                Section("Summary readback") {
-                    ColorPicker("Sentence highlight", selection: summaryColorBinding(\.summarySentenceHighlight))
-                    .accessibilityLabel("Sentence highlight background color")
-                    .accessibilityHint("Background color used for the summary text being read")
-                    ColorPicker("Spoken word highlight", selection: summaryColorBinding(\.summaryWordHighlight))
-                    .accessibilityLabel("Spoken word highlight background color")
-                    .accessibilityHint("Background color used for the word currently spoken in the summary")
-                    Button("Restore Highlight Defaults", systemImage: "arrow.counterclockwise") {
-                        studio.settings.restoreSummaryHighlightDefaults()
-                    }
-                    .accessibilityHint("Restores the summary text and word highlight colors")
-                }
+
             }
             if section == "Developer prompts" { Section("Developer prompts") {
                 ForEach(orderedPromptStages, id: \.self) { stage in
@@ -320,6 +322,8 @@ struct SettingsView: View {
         }
         .safeAreaInset(edge: .top, spacing: 0) { ActiveExportProgressView() }
         .navigationSplitViewStyle(.balanced)
+        .onChange(of: section) { _, _ in soundPreview.stop() }
+        .onDisappear { soundPreview.stop() }
         .safeAreaInset(edge: .top, spacing: 0) {
             VStack(spacing: 0) {
                 ConnectivityBanner()
@@ -451,12 +455,45 @@ struct SettingsView: View {
             }
             .accessibilityHint("Restores caption size, colors, opacity, and position")
         }
+        summaryHighlightSection
         Section {
             Toggle("Developer mode", isOn: $studio.settings.developerMode)
                 .accessibilityHint("Shows project configuration controls, Developer prompts, and advanced tool paths")
         } header: {
             Text("Advanced")
         } footer: {
+        }
+    }
+
+    @ViewBuilder
+    private var summaryHighlightSection: some View {
+        Section("Summary readback") {
+            Toggle("Highlight the spoken sentence", isOn: $studio.settings.summarySentenceHighlightEnabled)
+                .accessibilityIdentifier("summary-sentence-highlight")
+                .contextMenu {
+                    Toggle("Highlight the spoken sentence", isOn: $studio.settings.summarySentenceHighlightEnabled)
+                        .accessibilityIdentifier("summary-sentence-highlight-menu")
+                }
+            ColorPicker("Sentence highlight", selection: summaryColorBinding(\.summarySentenceHighlight))
+                .accessibilityLabel("Sentence highlight background color")
+                .accessibilityHint("Background color used for the summary text being read")
+            Toggle("Highlight the spoken word", isOn: $studio.settings.summaryWordHighlightEnabled)
+                .accessibilityIdentifier("summary-word-highlight")
+                .contextMenu {
+                    Toggle("Highlight the spoken word", isOn: $studio.settings.summaryWordHighlightEnabled)
+                        .accessibilityIdentifier("summary-word-highlight-menu")
+                }
+            ColorPicker("Spoken word highlight", selection: summaryColorBinding(\.summaryWordHighlight))
+                .accessibilityLabel("Spoken word highlight background color")
+                .accessibilityHint("Background color used for the word currently spoken in the summary")
+            Button("Restore Highlight Defaults", systemImage: "arrow.counterclockwise") {
+                studio.settings.restoreSummaryHighlightDefaults()
+            }
+            .accessibilityHint("Restores the summary text and word highlight colors")
+            .contextMenu {
+                Button("Restore Highlight Defaults") { studio.settings.restoreSummaryHighlightDefaults() }
+                    .accessibilityIdentifier("restore-summary-highlight-defaults-menu")
+            }
         }
     }
 

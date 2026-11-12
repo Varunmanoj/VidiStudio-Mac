@@ -32,6 +32,15 @@ contract['check_jump_to_time'](
     (workspace / 'VidiStudio Mac/VidiStudio/PlaybackModel.swift').read_text(),
     (workspace / 'VidiStudio Mac/VidiStudio/JumpToTime.swift').read_text(),
     (workspace / 'Vidi-Studio-Windows/Vidi Studio Windows/MainWindow.JumpToTime.cs').read_text())
+contract['check_export_completion_sound'](
+    (workspace / 'VidiStudio Mac/VidiStudio/SettingsView.swift').read_text() + (workspace / 'VidiStudio Mac/VidiStudio/SettingsSoundPreview.swift').read_text(),
+    (workspace / 'Vidi-Studio-Windows/Vidi Studio Windows/Views/SettingsDialog.cs').read_text() + (workspace / 'Vidi-Studio-Windows/Vidi Studio Windows/Views/SettingsDialog.Appearance.cs').read_text())
+contract['check_summary_highlight_appearance'](
+    (workspace / 'VidiStudio Mac/VidiStudio/SettingsView.swift').read_text(),
+    (workspace / 'VidiStudio Mac/VidiStudio/StudioModel.swift').read_text(),
+    (workspace / 'VidiStudio Mac/VidiStudio/SummaryReadback.swift').read_text(),
+    (workspace / 'Vidi-Studio-Windows/Vidi Studio Windows/Views/SettingsDialog.Appearance.cs').read_text(),
+    (workspace / 'Vidi-Studio-Windows/Vidi Studio Windows/Views/SettingsDialog.Voices.cs').read_text())
 layout = runpy.run_path(str(Path(__file__).with_name('context_menu_layout_contract.py')))
 layout['check_context_menu_layouts'](workspace)
 print('PASS: desktop tab/source/mode guards and row More Actions match.')
