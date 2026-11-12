@@ -26,6 +26,15 @@ struct AboutSettingsView: View {
                 .accessibilityLabel("App version, \(AppVersionInfo.version)")
         }
 
+        Section("Keyboard shortcuts") {
+            if let shortcut = StudioShortcut.editor.first(where: { $0.id == "jump-to-time" }) {
+                LabeledContent(shortcut.title, value: shortcut.spoken)
+                    .accessibilityElement(children: .ignore)
+                    .accessibilityLabel("\(shortcut.title): \(shortcut.spoken)")
+                    .accessibilityIdentifier("about-jump-time-shortcut")
+            }
+        }
+
         Section("FFmpeg") {
             Text("VidiStudio bundles FFmpeg and FFprobe for media processing and export.")
             if let mediaLicense {

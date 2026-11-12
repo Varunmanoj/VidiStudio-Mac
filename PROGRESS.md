@@ -3234,3 +3234,21 @@ Native packaged Windows JumpOnly smoke passes: menu label/shortcut and availabil
 Final Windows discovery check: Get-AppxPackage reports exactly one 1.0.290.0 package, Get-StartApps reports one matching entry, no generated Vidi Studio Windows.exe remains under bin, and the rollback directory is absent. Both installed desktop copies and their Help are current.
 
 The final installed Windows frozen-engine media/native-speech pipeline also passes (25.2 seconds), with VIDISTUDIO_TEST_ENGINE and VIDISTUDIO_SPEECH_HOST pointing at the registered installation.
+
+
+## 2026-11-12 — 1.0.291: Jump to Time shortcut in About and website reference
+
+The user specifically requested the new Command-Shift-J / Ctrl-Shift-J Jump to Time shortcut in the app's About page and across website documentation. Desktop Help and Settings > Help already listed it from the shared command definitions. Added a concise read-only Keyboard shortcuts section in About on both desktops, using the existing command definition/reference for the label and key combination. No new interactive action or menu item was added. Mac and Windows versions advanced together to 1.0.291 / package 1.0.291.0, Mac build 291.
+
+Added Jump to Time… to the website guide's essential shortcuts table and the searchable /shortcuts reference under Playback & Transport, alongside the existing playback guide. Updated the About documentation in canonical Help and the website Settings chapter. Local browser verification found a pre-existing shortcut-search identity issue: the memoized search index retained earlier item objects while each render recreated the source list. Matching stable category/action keys fixes result filtering when typing or switching platforms. Verified that searching Jump to Time returns its row with Command-Shift-J on macOS and Ctrl-Shift-J on Windows, including its time-entry and play/pause behavior.
+
+Validation: canonical Help generation validates all 14 Mac pages/internal links and generates 13 Windows pages. Both desktop menu checkers pass hierarchy/order and 50 translated shortcuts; both desktop menu suites pass 39 tests. Website TypeScript and production build pass with the existing bundle-size advisory. No extra tests were added for this read-only reference row.
+
+Mac: script/build_and_run.sh --verify built, signed, installed and launched 1.0.291/build 291 with matching Share/Finder extensions and stable team LLVWNNUV26/signing continuity. verify_extensions.py --registered passes; Spotlight lists only /Applications/VidiStudio.app. Native About shows App version 1.0.291 and an accessible Jump to Time…: Command + Shift + J row. An older 1.0.290 process had remained open during the build; automatic approval review rejected force-quitting it because unsaved state might be lost. Used the normal Quit command and reopened the installed app successfully, without bypassing that rejection or discarding an unsaved-edit prompt. Installed Help includes the new About guidance. No playback/engine behavior changed in this release and prior 1.0.290 playback validation remains applicable.
+
+Website source updates and local build are complete; live publication remains pending the earlier Cloudflare account-lookup approval block. No cloud write, deployment, commit or push was performed in this follow-up.
+
+
+Windows follow-up release: ARM64 Debug 1.0.291.0 package built and passes manifest/architecture/assets inspection. Replaced the prior registered installation at C:\Users\personal\Documents\Vidi Studio Windows\build\installed-ARM64 and removed generated runnable layouts and the rollback payload. Installed packaged engine doctor reports sslReady true. Native packaged GallerySettingsOnly smoke passes light/dark gallery layouts, shared Settings navigation (including About), headings and bounded scrolling. The About shortcut row is read from DesktopShortcutReference, which provides Jump to Time… / Ctrl+Shift+J. Windows Help was included in the replacement payload. Build retains existing PRI249 CP312-WIN_AMD64 warnings. No separate live Windows YouTube or Gemini run was needed or claimed. Final Mac Spotlight and LaunchServices checks show only /Applications/VidiStudio.app and its two embedded extensions.
+
+Final Windows discovery reports one package at 1.0.291.0, one Start entry, zero generated app executables under bin, and no rollback directory.
