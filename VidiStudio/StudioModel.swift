@@ -279,7 +279,7 @@ struct ExportMediaInformation: Codable, Hashable {
 
     var durationDescription: String {
         guard let duration, duration.isFinite, duration > 0 else { return "Not available" }
-        return NarrationTimeFormat.timestamp(duration)
+        return NarrationTimeFormat.projectDuration(duration)
     }
 
     var frameRateDescription: String {
@@ -942,6 +942,7 @@ struct ProjectVideoInformation {
     let sourceDetail: String
     let sourceURL: String?
     let duration: String
+    let spokenDuration: String
     let frameRate: String
     let resolution: String
     let videoCodec: String
@@ -973,7 +974,9 @@ struct ProjectVideoInformation {
         }
 
         let probedDuration = Self.number(format?["duration"]) ?? Self.number(video?["duration"])
-        duration = Self.duration(project.duration > 0 ? project.duration : probedDuration)
+        let resolvedDuration = project.duration.isFinite && project.duration > 0 ? project.duration : probedDuration
+        duration = Self.duration(resolvedDuration)
+        spokenDuration = NarrationTimeFormat.spokenProjectDuration(resolvedDuration)
 
         let width = project.width > 0 ? project.width : Self.integer(video?["width"])
         let height = project.height > 0 ? project.height : Self.integer(video?["height"])
@@ -1074,7 +1077,7 @@ struct ProjectVideoInformation {
 
     private static func duration(_ value: Double?) -> String {
         guard let value, value.isFinite, value > 0 else { return "Not available" }
-        return NarrationTimeFormat.timestamp(value)
+        return NarrationTimeFormat.projectDuration(value)
     }
 
     private static func codecDescription(_ stream: [String: Any]?) -> String? {
@@ -3401,6 +3404,7 @@ final class StudioModel {
 
 func timecode(_ seconds: Double) -> String {
     guard seconds.isFinite else { return "00:00" }
+    if seconds >= 3600 { return NarrationTimeFormat.timestamp(seconds) }
     let value = max(0, Int(seconds))
     return String(format: "%02d:%02d", value / 60, value % 60)
 }

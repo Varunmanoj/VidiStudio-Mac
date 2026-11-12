@@ -21,17 +21,17 @@ struct ProjectSourcesSettingsView: View {
         Group {
             if let project {
                 let info = ProjectVideoInformation(project: project)
-                Section("Language and Saved Results") {
+                Section {
                     LanguageResultControls(studio: model, project: project, editorActions: languageActions, showsSection: false, showsCopyControls: false,
                         kindsOverride: ["transcript", "summary", "descriptions", "adAudio"], editModeToggle: {
                             languageActions.segmentEditMode.toggle()
                         })
-                }
-                Section("Project and media details") {
+                } header: { Text("Language and Saved Results").accessibilityAddTraits(.isHeader).accessibilityHeading(.h2) }
+                Section {
                 DisclosureGroup("Show media details") {
                     InspectorInformationRow(label: "Name", value: project.name)
                     InspectorInformationRow(label: "Type", value: info.projectType)
-                    InspectorInformationRow(label: "Duration", value: info.duration)
+                    InspectorInformationRow(label: "Duration", value: info.duration, spokenValue: info.spokenDuration)
                     InspectorInformationRow(label: "Folder", value: info.projectFolder)
                     InspectorInformationRow(label: info.sourceDetailLabel, value: info.sourceDetail)
                     if let url = info.sourceURL { InspectorInformationRow(label: "Source URL", value: url) }
@@ -40,24 +40,24 @@ struct ProjectSourcesSettingsView: View {
                     InspectorInformationRow(label: "Video format", value: info.videoCodec)
                     InspectorInformationRow(label: "Audio", value: info.audio)
                 }
-                }
-                Section("Content sources") {
+                } header: { Text("Project and media details").accessibilityAddTraits(.isHeader).accessibilityHeading(.h2) }
+                Section {
                         InspectorInformationRow(label: "Transcript", value: project.transcript.isEmpty ? "Not available" : project.transcriptAudioSource?.label ?? "Source not recorded")
                         InspectorInformationRow(label: "Summary", value: project.summary.isEmpty ? "Not available" : project.summaryOriginLabel.title + (project.summaryOriginSource.map { " · \($0)" } ?? ""))
                         InspectorInformationRow(label: "AD transcript", value: project.importedADTranscript?.sourceName ?? (project.cues.isEmpty ? "Not available" : "Project descriptions"))
                         InspectorInformationRow(label: "AD audio", value: project.importedAudioDescription?.sourceName ?? (project.hasNarrationAudio ? "Generated narration" : "Not available"))
                         if !project.isYouTubeURLProject { InspectorInformationRow(label: "Playback and export audio", value: "Original audio in the project video") }
-                }
+                } header: { Text("Content sources").accessibilityAddTraits(.isHeader).accessibilityHeading(.h2) }
                 if project.isYouTubeURLProject {
-                    Section("Audio sources") {
+                    Section {
                         YouTubeAudioSourceControls(studio: model, project: project, showsSection: false).padding(.vertical, 6)
-                    }
-                    Section("YouTube video") { HStack {
+                    } header: { Text("Audio sources").accessibilityAddTraits(.isHeader).accessibilityHeading(.h2) }
+                    Section { HStack {
                         Button("YouTube Details & Captions…", systemImage: "captions.bubble") { youtubeDetails = true }
                         Button("Open in YouTube", systemImage: "arrow.up.right.square") { model.openYouTubeInBrowser(project) }
-                    }.disabled(model.busy) }
+                    }.disabled(model.busy) } header: { Text("YouTube video").accessibilityAddTraits(.isHeader).accessibilityHeading(.h2) }
                 }
-                Section("Import into this project") {
+                Section {
                     VStack(alignment: .leading, spacing: 8) {
                         HStack {
                             importButton("Import Transcript…", scope: .transcript)
@@ -72,8 +72,8 @@ struct ProjectSourcesSettingsView: View {
                             if project.isYouTubeURLProject { importButton("Import Original Audio…", scope: .originalAudio) }
                         }
                     }.disabled(model.busy)
-                }
-                Section("Project actions") {
+                } header: { Text("Import into this project").accessibilityAddTraits(.isHeader).accessibilityHeading(.h2) }
+                Section {
                 HStack {
                     Button("Export…", systemImage: "square.and.arrow.up") { exporting = true }
                     Button("Open in Editor", systemImage: "pencil") { openWindow(id: "project-editor", value: project.id) }
@@ -82,7 +82,7 @@ struct ProjectSourcesSettingsView: View {
                     Button("Open Project Folder", systemImage: "folder") { if let folder = project.folder { NSWorkspace.shared.open(folder) } }
                     Button("Rename…", systemImage: "pencil.line") { rename(project) }
                 }.disabled(model.busy)
-                }
+                } header: { Text("Project actions").accessibilityAddTraits(.isHeader).accessibilityHeading(.h2) }
                 if model.busy {
                     HStack { ProgressView().controlSize(.small); Text(model.message); Button("Cancel") { model.cancelCurrentOperation() } }
                 }

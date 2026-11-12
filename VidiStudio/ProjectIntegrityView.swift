@@ -263,7 +263,7 @@ struct ProjectIntegrityDetailsSheet: View {
             VStack(alignment: .leading, spacing: 5) {
                 HStack(alignment: .firstTextBaseline, spacing: 10) {
                     Text("Project File Issues")
-                        .font(.title2.bold())
+                        .font(.title2.bold()).accessibilityAddTraits(.isHeader).accessibilityHeading(.h1)
                         .accessibilityAddTraits(.isHeader)
                     Text(statusTitle)
                         .font(.caption.weight(.semibold))

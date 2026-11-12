@@ -16,7 +16,7 @@ struct InspectorSection<Content: View>: View {
             DisclosureGroup(isExpanded: $expanded) {
                 content.padding(.top, 6).frame(maxWidth: .infinity, alignment: .leading)
             } label: {
-                Text(title).font(.caption.weight(.semibold))
+                Text(title).font(.caption.weight(.semibold)).accessibilityAddTraits(.isHeader).accessibilityHeading(.h2)
             }
             .frame(maxWidth: .infinity, alignment: .leading)
             .accessibilityIdentifier("inspector-section-\(title)")

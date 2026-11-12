@@ -20,22 +20,22 @@ struct AboutSettingsView: View {
     }
 
     var body: some View {
-        Section("VidiStudio") {
+        Section {
             LabeledContent("App version", value: AppVersionInfo.version)
                 .accessibilityElement(children: .ignore)
                 .accessibilityLabel("App version, \(AppVersionInfo.version)")
-        }
+        } header: { Text("VidiStudio").accessibilityAddTraits(.isHeader).accessibilityHeading(.h2) }
 
-        Section("Keyboard shortcuts") {
+        Section {
             if let shortcut = StudioShortcut.editor.first(where: { $0.id == "jump-to-time" }) {
                 LabeledContent(shortcut.title, value: shortcut.spoken)
                     .accessibilityElement(children: .ignore)
                     .accessibilityLabel("\(shortcut.title): \(shortcut.spoken)")
                     .accessibilityIdentifier("about-jump-time-shortcut")
             }
-        }
+        } header: { Text("Keyboard shortcuts").accessibilityAddTraits(.isHeader).accessibilityHeading(.h2) }
 
-        Section("FFmpeg") {
+        Section {
             Text("VidiStudio bundles FFmpeg and FFprobe for media processing and export.")
             if let mediaLicense {
                 LabeledContent("Bundled version", value: mediaLicense.version)
@@ -52,9 +52,9 @@ struct AboutSettingsView: View {
             }
             .accessibilityHint("Opens the GPL version 3 license included with the bundled FFmpeg build")
             Link("FFmpeg licensing and source information", destination: URL(string: "https://ffmpeg.org/legal.html")!)
-        }
+        } header: { Text("FFmpeg").accessibilityAddTraits(.isHeader).accessibilityHeading(.h2) }
 
-        Section("Piper voices") {
+        Section {
             Text("VidiStudio bundles the Piper speech engine (piper-tts 1.8.0) for on-device neural narration.")
             LabeledContent("License", value: "GNU GPL version 3 or later")
             Text("Copyright © The Home Assistant Authors. Includes the g2pW component under the Apache License 2.0.")
@@ -72,9 +72,9 @@ struct AboutSettingsView: View {
             Text("Piper voices are downloaded on demand. Each voice remains subject to the license and terms published with that voice.")
                 .font(.caption)
                 .foregroundStyle(.secondary)
-        }
+        } header: { Text("Piper voices").accessibilityAddTraits(.isHeader).accessibilityHeading(.h2) }
 
-        Section("Third-party notices") {
+        Section {
             Text("License files for bundled libraries, engine packages, and fonts.")
                 .font(.caption)
                 .foregroundStyle(.secondary)
@@ -85,7 +85,7 @@ struct AboutSettingsView: View {
                 guard let licensesURL else { return }
                 open(licensesURL)
             }
-        }
+        } header: { Text("Third-party notices").accessibilityAddTraits(.isHeader).accessibilityHeading(.h2) }
         .alert("Could Not Open License File", isPresented: Binding(
             get: { openError != nil },
             set: { if !$0 { openError = nil } }

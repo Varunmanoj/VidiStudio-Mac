@@ -202,6 +202,7 @@ struct SystemVoiceBrowser: View {
     @State private var search = ""
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
+            Text("Voices").font(.headline).accessibilityAddTraits(.isHeader).accessibilityHeading(.h2)
             Picker("Language and region", selection: $language) {
                 Text("All languages").tag("all")
                 ForEach(languageGroups) { group in

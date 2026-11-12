@@ -31,7 +31,9 @@ struct YouTubeVideo: Codable, Identifiable, Hashable {
     var playlistLookupStatus: String?
     var id: String { videoID }
     var url: String { "https://www.youtube.com/watch?v=\(videoID)" }
-    var durationLabel: String { NarrationTimeFormat.timestamp(duration) }
+    var spokenDuration: String { NarrationTimeFormat.spokenProjectDuration(duration) }
+    var spokenDetail: String { "\(visibility.capitalized), duration \(spokenDuration), \(channelTitle)" }
+    var durationLabel: String { NarrationTimeFormat.projectDuration(duration) }
     var publishedLabel: String {
         let parser = ISO8601DateFormatter(); parser.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
         return (parser.date(from: publishedAt) ?? ISO8601DateFormatter().date(from: publishedAt))?.formatted(date: .abbreviated, time: .omitted) ?? publishedAt

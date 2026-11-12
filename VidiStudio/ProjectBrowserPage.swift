@@ -98,7 +98,7 @@ struct ProjectBrowserPage: View {
     var body: some View {
         VStack(spacing: 0) {
             VStack(alignment: .leading, spacing: 3) {
-                Text("All Projects").font(.largeTitle.bold())
+                Text("All Projects").font(.largeTitle.bold()).accessibilityAddTraits(.isHeader).accessibilityHeading(.h1)
                 Text("\(filteredProjects.count) of \(projects.count) projects")
                     .font(.caption)
                     .foregroundStyle(.secondary)
@@ -229,9 +229,10 @@ struct ProjectBrowserPage: View {
                     }
                     .width(min: 92, ideal: 108, max: 140)
                     TableColumn("Duration") { project in
-                        Text(NarrationTimeFormat.timestamp(project.duration))
+                        Text(NarrationTimeFormat.projectDuration(project.duration))
+                            .lineLimit(nil)
                             .monospacedDigit()
-                            .accessibilityLabel("Duration: \(NarrationTimeFormat.timestamp(project.duration))")
+                            .accessibilityLabel("Duration: \(NarrationTimeFormat.spokenProjectDuration(project.duration))")
                     }
                     .width(min: 112, ideal: 125, max: 150)
                     TableColumn("AD Segments") { project in

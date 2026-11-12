@@ -97,6 +97,7 @@ struct GeminiVoiceBrowser: View {
     private let voices = ["Aoede", "Callirrhoe", "Charon", "Fenrir", "Kore", "Leda", "Orus", "Puck", "Zephyr"]
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
+            Text("Voices").font(.headline).accessibilityAddTraits(.isHeader).accessibilityHeading(.h2)
             Picker("Gemini voice", selection: $studio.settings.geminiVoice) {
                 ForEach(voices, id: \.self) { Text($0).tag($0) }
                 if !voices.contains(studio.settings.geminiVoice) { Text(studio.settings.geminiVoice).tag(studio.settings.geminiVoice) }

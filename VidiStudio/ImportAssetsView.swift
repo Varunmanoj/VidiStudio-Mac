@@ -215,7 +215,7 @@ struct ImportExistingAssetsView: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
             Text(title ?? scope.title)
-                .font(.title2.bold())
+                .font(.title2.bold()).accessibilityAddTraits(.isHeader).accessibilityHeading(.h1)
                 .padding(.horizontal, 20).padding(.top, 20).padding(.bottom, 4)
             Text(scope == .all
                  ? "Bring a transcript, summary, AD transcript, or AD audio into “\(project.name)”. Files are copied into the project folder."
@@ -569,7 +569,7 @@ struct TXTImportTimingView: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
             Text(fileURL.pathExtension.lowercased() == "txt" ? "Set TXT Timing" : "Review Timing")
-                .font(.title2.bold()).padding(20)
+                .font(.title2.bold()).accessibilityAddTraits(.isHeader).accessibilityHeading(.h1).padding(20)
                 .padding(.horizontal, 20).padding(.bottom, 10)
             HStack {
                 Button("Distribute Evenly", systemImage: "arrow.left.and.right") { distribute() }
@@ -714,7 +714,7 @@ struct ImportReportSheet: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
             Text("Import Report")
-                .font(.title2.bold()).padding(.horizontal, 20).padding(.top, 20)
+                .font(.title2.bold()).accessibilityAddTraits(.isHeader).accessibilityHeading(.h1).padding(.horizontal, 20).padding(.top, 20)
                 .padding(.horizontal, 20).padding(.bottom, 10)
             ScrollView {
                 VStack(alignment: .leading, spacing: 16) {
@@ -869,7 +869,7 @@ struct TranscriptTimingEditorView: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
             Text("Edit Transcript Timings")
-                .font(.title2.bold()).padding(.horizontal, 20).padding(.top, 20)
+                .font(.title2.bold()).accessibilityAddTraits(.isHeader).accessibilityHeading(.h1).padding(.horizontal, 20).padding(.top, 20)
                 .padding(.horizontal, 20).padding(.bottom, 10)
             HStack {
                 Button("Distribute Evenly", systemImage: "arrow.left.and.right") { distribute() }

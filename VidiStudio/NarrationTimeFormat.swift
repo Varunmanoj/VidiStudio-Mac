@@ -9,9 +9,10 @@ enum NarrationTimeFormat {
 
     static func timestamp(_ seconds: Double) -> String {
         let total = milliseconds(seconds)
-        return String(format: "%02d:%02d:%02d.%03d",
-                      total / 3_600_000, total / 60_000 % 60,
-                      total / 1_000 % 60, total % 1_000)
+        let clock = String(format: "%02d:%02d:%02d.%03d",
+                           total / 3_600_000 % 24, total / 60_000 % 60,
+                           total / 1_000 % 60, total % 1_000)
+        return total >= 86_400_000 ? "\(total / 86_400_000)d \(clock)" : clock
     }
 
     static func duration(_ seconds: Double) -> String {
@@ -25,13 +26,29 @@ enum NarrationTimeFormat {
 
     static func spokenTime(_ seconds: Double) -> String {
         let total = milliseconds(seconds)
-        return [unit(total / 3_600_000, "hour"), unit(total / 60_000 % 60, "minute"),
-                unit(total / 1_000 % 60, "second"), unit(total % 1_000, "millisecond")]
-            .joined(separator: ", ")
+        let parts = [(total / 86_400_000, "day"), (total / 3_600_000 % 24, "hour"), (total / 60_000 % 60, "minute"),
+                     (total / 1_000 % 60, "second"), (total % 1_000, "millisecond")]
+            .filter { $0.0 > 0 }.map { unit($0.0, $0.1) }
+        return parts.isEmpty ? "0 seconds" : parts.joined(separator: ", ")
     }
 
-    static func spokenDuration(_ seconds: Double) -> String {
+    static func spokenDuration(_ seconds: Double) -> String { spokenTime(seconds) }
+
+    static func mediaDuration(_ seconds: Double) -> String {
         let total = milliseconds(seconds)
-        return "\(unit(total / 1_000, "second")), \(unit(total % 1_000, "millisecond"))"
+        let parts = [(total / 86_400_000, "d"), (total / 3_600_000 % 24, "h"),
+                     (total / 60_000 % 60, "m"), (total / 1_000 % 60, "s"), (total % 1_000, "ms")]
+            .filter { $0.0 > 0 }.map { "\($0.0)\($0.1)" }
+        return parts.isEmpty ? "0s" : parts.joined(separator: " ")
+    }
+
+    static func projectDuration(_ seconds: Double?) -> String {
+        guard let seconds, seconds.isFinite, seconds > 0 else { return "Unavailable" }
+        return mediaDuration(seconds)
+    }
+
+    static func spokenProjectDuration(_ seconds: Double?) -> String {
+        guard let seconds, seconds.isFinite, seconds > 0 else { return "unavailable" }
+        return spokenDuration(seconds)
     }
 }

@@ -683,6 +683,7 @@ struct PiperVoiceSettingsView: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
+            Text("Voices").font(.headline).accessibilityAddTraits(.isHeader).accessibilityHeading(.h2)
             if manager.downloadedVoices.isEmpty {
                 Text("No Piper voices are downloaded yet. Choose Download or Remove Voices to add one.")
                     .font(.callout)

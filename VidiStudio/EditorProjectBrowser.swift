@@ -25,6 +25,7 @@ struct EditorProjectBrowser: View {
 
     var body: some View {
         VStack(spacing: 10) {
+            Text("Projects").font(.headline).accessibilityAddTraits(.isHeader).accessibilityHeading(.h2)
             TextField("Search projects", text: $search)
                 .accessibilityLabel("Search projects in this editor")
             Picker("Project source", selection: $source) {
@@ -88,7 +89,7 @@ struct EditorProjectBrowser: View {
                         .frame(height: 76).frame(maxWidth: .infinity).clipped()
                 }
                 Text(project.name).lineLimit(2)
-                if thumbnail { Text(NarrationTimeFormat.timestamp(project.duration)).font(.caption).foregroundStyle(.secondary) }
+                if thumbnail { Text(NarrationTimeFormat.projectDuration(project.duration)).font(.caption).foregroundStyle(.secondary) }
             }
             .padding(8).frame(maxWidth: .infinity, alignment: .leading)
             .background(thumbnail && project.id == selectedID ? Color.accentColor.opacity(0.18) : Color.clear,
@@ -97,6 +98,7 @@ struct EditorProjectBrowser: View {
         .buttonStyle(.plain)
         .disabled(busy || summaryEditing)
         .accessibilityLabel(project.name)
+        .accessibilityValue("Duration: \(NarrationTimeFormat.spokenProjectDuration(project.duration))")
         .accessibilityHint("Open this project in the current editor window")
         .accessibilityAddTraits(project.id == selectedID ? [.isSelected] : [])
         .contextMenu {

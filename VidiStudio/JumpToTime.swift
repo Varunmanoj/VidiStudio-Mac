@@ -48,7 +48,7 @@ struct JumpToTimeView: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 16) {
-            Text("Jump to Time").font(.title2.bold())
+            Text("Jump to Time").font(.title2.bold()).accessibilityAddTraits(.isHeader).accessibilityHeading(.h1)
             TextField("Time", text: $time, prompt: Text("hh:mm:ss.sss"))
                 .monospacedDigit()
                 .focused($timeFocused)

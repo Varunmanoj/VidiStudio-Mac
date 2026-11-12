@@ -83,7 +83,7 @@ struct GeminiAPISettingsView: View {
 
     var body: some View {
         outputLanguageSections
-        Section("Connect to Gemini") {
+        Section {
             if !hasApiKey {
                 HStack(alignment: .top, spacing: 10) {
                     Image(systemName: "exclamationmark.triangle.fill")
@@ -224,7 +224,7 @@ struct GeminiAPISettingsView: View {
                     .font(.caption)
                     .foregroundStyle(.secondary)
             }
-        }
+        } header: { Text("Connect to Gemini").accessibilityAddTraits(.isHeader).accessibilityHeading(.h2) }
         .onChange(of: studio.apiKeyVerificationMessage) { _, result in
             if let result {
                 NSAccessibility.post(element: NSApp as Any, notification: .announcementRequested,
@@ -244,7 +244,7 @@ struct GeminiAPISettingsView: View {
         }
 
         if hasApiKey {
-            Section("Account Plan") {
+            Section {
                 HStack {
                     Text("Plan Tier")
                         .fontWeight(.medium)
@@ -295,7 +295,7 @@ struct GeminiAPISettingsView: View {
                         .font(.caption)
                         .foregroundStyle(.secondary)
                 }
-            }
+            } header: { Text("Account Plan").accessibilityAddTraits(.isHeader).accessibilityHeading(.h2) }
         }
 
         Section {
@@ -303,7 +303,7 @@ struct GeminiAPISettingsView: View {
                 modelPicker(row)
             }
         } header: {
-            Text("Local video")
+            Text("Local video").accessibilityAddTraits(.isHeader).accessibilityHeading(.h2)
         }
 
         Section {
@@ -311,7 +311,7 @@ struct GeminiAPISettingsView: View {
                 modelPicker(row)
             }
         } header: {
-            Text("YouTube video")
+            Text("YouTube video").accessibilityAddTraits(.isHeader).accessibilityHeading(.h2)
         } footer: {
         }
         Section {
@@ -328,13 +328,13 @@ struct GeminiAPISettingsView: View {
 
     @ViewBuilder
     private var outputLanguageSections: some View {
-        Section("Language") {
+        Section {
             OutputLanguagePicker(title: "Default Language for New Projects", selection: Binding(get: {
                 if let value = studio.settings.defaultOutputLanguage { return value }
                 let values = Set(["transcript", "summary", "audio_descriptions"].map { studio.settings.outputLanguages[$0] ?? "auto" })
                 return values.count == 1 ? values.first! : "auto"
             }, set: { studio.settings.defaultOutputLanguage = $0 }))
-        }
+        } header: { Text("Language").accessibilityAddTraits(.isHeader).accessibilityHeading(.h2) }
     }
 
     private func modelBinding(_ stage: String) -> Binding<String> {
@@ -347,11 +347,11 @@ struct GeminiAPISettingsView: View {
     private func modelPicker(_ row: GeminiModelRow) -> some View {
         Picker(row.label, selection: modelBinding(row.id)) {
             ForEach(modelGroups(for: row.id)) { modelGroup in
-                Section(modelGroup.group.title) {
+                Section {
                     ForEach(modelGroup.options) { option in
                         Text(modelDisplayName(option.name)).tag(option.name)
                     }
-                }
+                } header: { Text(modelGroup.group.title).accessibilityAddTraits(.isHeader).accessibilityHeading(.h2) }
             }
         }
         .disabled(!studio.geminiModelsLoaded)

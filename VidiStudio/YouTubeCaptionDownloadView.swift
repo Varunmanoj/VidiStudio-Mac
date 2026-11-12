@@ -16,7 +16,7 @@ struct YouTubeCaptionDownloadView: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 14) {
-            Text("Download YouTube Captions").font(.title2)
+            Text("Download YouTube Captions").font(.title2).accessibilityAddTraits(.isHeader).accessibilityHeading(.h1)
             Picker("Caption account", selection: $account) {
                 Text("Choose an account").tag("")
                 ForEach(service.connections) { Text($0.label).tag($0.id) }

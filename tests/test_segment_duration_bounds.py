@@ -59,13 +59,13 @@ extension TimecodeInput {
         }
         var local = StudioProject()
         local.duration = 713.955
-        precondition(ProjectVideoInformation(project: local).duration == "00:11:53.955")
+        precondition(ProjectVideoInformation(project: local).duration == "11m 53s 955ms")
         local.isYouTubeURLProject = true
-        precondition(ProjectVideoInformation(project: local).duration == "00:11:53.955")
+        precondition(ProjectVideoInformation(project: local).duration == "11m 53s 955ms")
         local.duration = 714
-        precondition(ProjectVideoInformation(project: local).duration == "00:11:54.000")
+        precondition(ProjectVideoInformation(project: local).duration == "11m 54s")
         precondition(NarrationTimeFormat.timestamp(59.9996) == "00:01:00.000")
-        precondition(NarrationTimeFormat.timestamp(90061.123) == "25:01:01.123")
+        precondition(NarrationTimeFormat.timestamp(90061.123) == "1d 01:01:01.123")
         print("PASS: transcript/AD timing bounds, corrected input and millisecond video durations")
     }
 }

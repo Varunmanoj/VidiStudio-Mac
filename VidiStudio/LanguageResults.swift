@@ -247,7 +247,7 @@ struct LanguageResultControls: View {
         .sheet(item: $review) { result in LanguageResultReview(studio: studio, project: project, result: result, resolveAction: { run("review-result", $0) }) }
         .sheet(item: $assigning) { result in
             VStack(alignment: .leading, spacing: 18) {
-                Text("Assign Language").font(.title2.bold())
+                Text("Assign Language").font(.title2.bold()).accessibilityAddTraits(.isHeader).accessibilityHeading(.h1)
                 Text("\(result.kindTitle) · \(result.title)")
                 OutputLanguagePicker(selection: $assignment)
                 HStack {
@@ -341,7 +341,7 @@ private struct LanguageResultReview: View {
     @State private var audioPreview: AVPlayer?
     var body: some View {
         VStack(alignment: .leading, spacing: 16) {
-            Text("Review \(OutputLanguage.title(result.language)) \(result.kindTitle)").font(.title2.bold())
+            Text("Review \(OutputLanguage.title(result.language)) \(result.kindTitle)").font(.title2.bold()).accessibilityAddTraits(.isHeader).accessibilityHeading(.h1)
             HStack(alignment: .top) {
                 preview("Selected saved result", project.savedLanguageResults.first { $0.id == result.replacesResultID }?.payload.preview ?? "No previous result")
                 preview("New result", result.payload.preview)
@@ -502,7 +502,7 @@ struct LanguageCopyView: View {
     }
     var body: some View {
         VStack(alignment: .leading, spacing: 18) {
-            Text("Copy and Translate").font(.title2.bold())
+            Text("Copy and Translate").font(.title2.bold()).accessibilityAddTraits(.isHeader).accessibilityHeading(.h1)
             OutputLanguagePicker(title: "Source Language", selection: $source)
                 .disabled(selectedOnly)
                 .onChange(of: source) { versions = [:] }
@@ -516,7 +516,7 @@ struct LanguageCopyView: View {
             }
             if !selection.segmentIDs.isEmpty { Toggle("Selected Segments Only", isOn: $selectedOnly).onChange(of: selectedOnly) { if selectedOnly { source = project.languageCode; versions = [:] } } }
             HStack {
-                Text("Content").font(.headline)
+                Text("Content").font(.headline).accessibilityAddTraits(.isHeader).accessibilityHeading(.h2)
                 Spacer()
                 Button("Select All") { kinds = Set(copyKinds); selectedOnly = false }
             }

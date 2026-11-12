@@ -83,7 +83,7 @@ struct GeneratedContentDeletionView: View {
     }
     var body: some View {
         VStack(alignment: .leading, spacing: 16) {
-            Text("Delete Content by Language").font(.title2.bold())
+            Text("Delete Content by Language").font(.title2.bold()).accessibilityAddTraits(.isHeader).accessibilityHeading(.h1)
                 .fixedSize(horizontal: false, vertical: true).layoutPriority(1)
             Picker("Language filter", selection: $language) {
                 Text("All Languages").tag("all")
@@ -93,14 +93,14 @@ struct GeneratedContentDeletionView: View {
             }.pickerStyle(.menu)
             ScrollView {
                 VStack(alignment: .leading, spacing: 10) {
-                    Text("Content types").font(.headline)
+                    Text("Content types").font(.headline).accessibilityAddTraits(.isHeader).accessibilityHeading(.h2)
                     ForEach(["transcript", "summary", "descriptions", "adAudio", "narration", "history", "thumbnails"], id: \.self) { kind in
                         Toggle(deletionTitle(kind), isOn: componentMembership(kind))
 
                     }
                     Divider()
                     HStack {
-                        Text("Saved results").font(.headline)
+                        Text("Saved results").font(.headline).accessibilityAddTraits(.isHeader).accessibilityHeading(.h2)
                         Spacer()
                         Button("Select Visible Results") { selection.formUnion(results.map(\.id)) }
                     }
@@ -114,7 +114,7 @@ struct GeneratedContentDeletionView: View {
                             .accessibilityIdentifier("delete-saved-result-" + result.id)
                     }
                     Divider()
-                    Text("Optional exports").font(.headline)
+                    Text("Optional exports").font(.headline).accessibilityAddTraits(.isHeader).accessibilityHeading(.h2)
                     ForEach(exports, id: \.self) { path in
                         Toggle(URL(fileURLWithPath: path).lastPathComponent, isOn: membership(path, in: $exportPaths))
                     }

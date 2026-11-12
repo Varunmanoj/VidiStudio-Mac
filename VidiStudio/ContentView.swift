@@ -64,7 +64,7 @@ private struct NewProjectView: View {
             Button("My YouTube Videos…") { openWindow(id: "youtube-browser") }
             if source == .youtube { Toggle("Choose YouTube captions after creating", isOn: $chooseYouTubeCaptions) }
             Text("New Project")
-                .font(.title2.bold())
+                .font(.title2.bold()).accessibilityAddTraits(.isHeader).accessibilityHeading(.h1)
                 .accessibilityAddTraits(.isHeader)
                 .padding(.horizontal, 20)
                 .padding(.top, 20)
@@ -750,7 +750,7 @@ struct ProjectEditorWindow: View {
         .toolbar {
             ToolbarItem(placement: .principal) {
                 HStack(spacing: 6) {
-                    Text(studio.selected?.name ?? "Project Editor").font(.headline).lineLimit(1)
+                    Text(studio.selected?.name ?? "Project Editor").font(.headline).accessibilityElement(children: .ignore).accessibilityLabel(studio.selected?.name ?? "Project Editor").accessibilityAddTraits(.isHeader).accessibilityHeading(.h1).lineLimit(1)
                     Button("Rename Project", systemImage: "pencil") {
                         if let project = studio.selected { studio.requestProjectManagement("rename-project", project: project) }
                     }
@@ -760,6 +760,7 @@ struct ProjectEditorWindow: View {
                     .help("Rename this project")
                     .disabled(studio.selected.map { !studio.canManageProject("rename-project", project: $0) } ?? true)
                 }
+                .accessibilityElement(children: .contain)
             }
             ToolbarItem(placement: .navigation) {
                 Button(showProjects ? "Hide Project List" : "Show Project List", systemImage: "sidebar.left") { projectBrowserVisibility.wrappedValue.toggle() }
@@ -1404,7 +1405,7 @@ private struct ProjectVideoInformationView: View {
                     if let sourceURL = information.sourceURL {
                         informationRow("Source URL", sourceURL)
                     }
-                    informationRow("Duration", information.duration)
+                    InspectorInformationRow(label: "Duration", value: information.duration, spokenValue: information.spokenDuration)
                     informationRow("Frame Rate", information.frameRate)
                     informationRow("Resolution", information.resolution)
                     informationRow("Video", information.videoCodec)
@@ -1478,8 +1479,14 @@ private struct TranscriptRow: Identifiable, Hashable {
     var id: String { (isDescription ? "ad:" : "transcript:") + segment.id }
     var kind: String { isDescription ? "Audio description" : "Transcript" }
     var color: Color { isDescription ? .purple : .blue }
+    var timingAnnouncement: String {
+        "Start time: \(NarrationTimeFormat.spokenTime(segment.start)), End time: \(NarrationTimeFormat.spokenTime(segment.end))"
+    }
+    func accessibilityLabel(segmentNumber: Int) -> String {
+        "\(kind) segment \(segmentNumber), \(timingAnnouncement), Duration: \(NarrationTimeFormat.spokenDuration(max(0, segment.end - segment.start))), \(segment.text)"
+    }
     var playbackLabel: String {
-        "Play \(kind.lowercased()) from \(String(format: "%.3f", segment.start)) to \(String(format: "%.3f", segment.end)) seconds: \(segment.text)"
+        "Play \(kind.lowercased()). \(timingAnnouncement). \(segment.text)"
     }
 }
 
@@ -2176,7 +2183,7 @@ struct ProjectEditor: View {
 
     private var screenTextReview: some View {
         VStack(alignment: .leading, spacing: 20) {
-            Text("Screen Text").font(.title2)
+            Text("Screen Text").font(.title2).accessibilityAddTraits(.isHeader).accessibilityHeading(.h1)
             ScrollView {
                 Text(studio.screenText?.isEmpty == false ? studio.screenText! : "No readable text in this frame.")
                     .textSelection(.enabled)
@@ -2396,14 +2403,14 @@ struct ProjectEditor: View {
 
 
     private func segmentDurationText(_ segment: Segment) -> String {
-        String(format: "%.2fs", max(0, segment.end - segment.start))
+        NarrationTimeFormat.mediaDuration(max(0, segment.end - segment.start))
     }
 
     private func segmentDurationLabel(for segment: Segment) -> some View {
         Text(segmentDurationText(segment))
             .font(.caption.monospacedDigit())
             .foregroundStyle(.secondary)
-            .accessibilityLabel("Duration \(segmentDurationText(segment))")
+            .accessibilityLabel("Duration \(NarrationTimeFormat.spokenDuration(max(0, segment.end - segment.start)))")
     }
 
     private func segmentHasAudio(_ segment: Segment) -> Bool {
@@ -2657,6 +2664,8 @@ struct ProjectEditor: View {
                 .background(Color.orange.opacity(0.12))
                 .accessibilityElement(children: .combine)
             }
+            Text(["transcript": "Transcript", "summary": "Summary", "descriptions": "Descriptions", "ad-overview": "AD Overview", "ad-transcript": "AD Transcript"][tab] ?? "Editor")
+                .font(.headline).accessibilityAddTraits(.isHeader).accessibilityHeading(.h2).padding(.horizontal, 12)
             editorToolbar
             if let error = playback.speechError { Text(error).foregroundStyle(.red).padding(8) }
             Divider()
@@ -2723,10 +2732,10 @@ struct ProjectEditor: View {
                         let isQueuedCue = row.isDescription && studio.isSegmentQueuedForNarration(cue.id)
                         HStack(alignment: .top, spacing: 16) {
                             if segmentEditMode {
-                                Toggle("Select \(row.kind.lowercased()) segment at \(timecode(cue.start))", isOn: selectionBinding(for: row.id))
+                                Toggle("Select \(row.kind.lowercased()) segment at \(NarrationTimeFormat.spokenTime(cue.start))", isOn: selectionBinding(for: row.id))
                                     .toggleStyle(.checkbox)
                                     .labelsHidden()
-                                    .accessibilityLabel("Select \(row.kind.lowercased()) segment at \(timecode(cue.start))")
+                                    .accessibilityLabel("Select \(row.kind.lowercased()) segment at \(NarrationTimeFormat.spokenTime(cue.start))")
                             }
                             Button {
                                 if row.isDescription { playback.narrationEnabled = true }
@@ -2744,7 +2753,10 @@ struct ProjectEditor: View {
                                 .accessibilityLabel("\(row.kind) segment \(segmentNumber)")
                             Button { playback.seek(cue.start) } label: {
                                 VStack { Text(timecode(cue.start)); Text(timecode(cue.end)).foregroundStyle(.secondary) }.monospacedDigit().font(.caption)
-                            }.buttonStyle(.plain).help("Seek to \(timecode(cue.start))")
+                            }.buttonStyle(.plain)
+                                .accessibilityLabel("Seek to segment start. \(row.timingAnnouncement)")
+                                .accessibilityHint("Moves the video to this segment’s start time")
+                                .help("Seek to \(timecode(cue.start))")
                             VStack(alignment: .leading, spacing: 6) {
                                 if tab == "ad-transcript" {
                                     HStack(spacing: 6) {
@@ -2875,6 +2887,7 @@ struct ProjectEditor: View {
                             }
                         }.padding(.vertical, 8)
                             .accessibilityElement(children: .contain)
+                            .accessibilityLabel(row.accessibilityLabel(segmentNumber: segmentNumber))
                             .id(row.id)
                             .contentShape(Rectangle())
                             .onTapGesture(count: 2) {
@@ -3694,7 +3707,7 @@ struct ProjectEditor: View {
         panel.allowsMultipleSelection = false
         panel.canChooseDirectories = false
         panel.prompt = "Import Narration"
-        panel.message = "Choose narration audio for AD segment at \(timecode(cue.start)). It must fit inside the segment."
+        panel.message = "Choose narration audio for AD segment at \(NarrationTimeFormat.spokenTime(cue.start)). It must fit inside the segment."
         guard panel.runModal() == .OK, let url = panel.url else { return }
         if cue.audio != nil {
             let alert = NSAlert()
@@ -3765,7 +3778,10 @@ struct TimelineView: View {
             .font(.caption2)
             .lineLimit(1)
             .frame(width: trackLabelWidth, height: height, alignment: .leading)
+            .accessibilityElement(children: .ignore)
+            .accessibilityLabel(title)
             .accessibilityAddTraits(.isHeader)
+            .accessibilityHeading(.h3)
     }
 
     private let playheadRed = Color(red: 229 / 255, green: 43 / 255, blue: 50 / 255)
@@ -3801,7 +3817,7 @@ struct TimelineView: View {
                     Slider(value: timelineValue, in: 0...max(0.001, duration)) {
                         Text("Video timeline")
                     }
-                    .accessibilityValue("\(preciseTimecode(playback.time)) of \(preciseTimecode(duration))")
+                    .accessibilityValue("\(NarrationTimeFormat.spokenTime(playback.time)) of \(NarrationTimeFormat.spokenProjectDuration(duration))")
                     .accessibilityHint("Adjust to seek through the video")
                 }
             }
@@ -3873,7 +3889,7 @@ struct TimelineView: View {
                 .buttonStyle(.plain)
                 .frame(width: max(4, width * (end - start) / max(1, duration)))
                 .offset(x: width * start / max(1, duration))
-                .accessibilityLabel("\(title) at \(timecode(start)): \(segment.text)")
+                .accessibilityLabel("\(title) at \(NarrationTimeFormat.spokenTime(start)): \(segment.text)")
                 .accessibilityHint("Activate to seek to this segment")
             }
             seekSurface(width: width, accessible: false)
@@ -3885,12 +3901,12 @@ struct TimelineView: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
             HStack {
-                Label("Timeline", systemImage: "film").font(.caption)
+                Label("Timeline", systemImage: "film").font(.caption).accessibilityElement(children: .ignore).accessibilityLabel("Timeline").accessibilityAddTraits(.isHeader).accessibilityHeading(.h2)
                 Spacer()
                 Text("\(preciseTimecode(playback.time)) / \(preciseTimecode(duration))")
                     .font(.caption)
                     .monospacedDigit()
-                    .accessibilityLabel("Current time \(preciseTimecode(playback.time)), duration \(preciseTimecode(duration))")
+                    .accessibilityLabel("Current time \(NarrationTimeFormat.spokenTime(playback.time)), duration \(NarrationTimeFormat.spokenProjectDuration(duration))")
             }
             GeometryReader { geometry in
                 let timelineWidth = max(1, geometry.size.width - trackLabelWidth - trackSpacing)
@@ -4097,12 +4113,7 @@ struct TimecodeInput: View {
 }
 
 private func preciseSegmentTimecode(_ seconds: Double) -> String {
-    let milliseconds = Int((max(0, seconds) * 1000).rounded())
-    let hours = milliseconds / 3_600_000
-    let minutes = (milliseconds / 60_000) % 60
-    let wholeSeconds = (milliseconds / 1000) % 60
-    let remainder = milliseconds % 1000
-    return String(format: "%02d:%02d:%02d.%03d", hours, minutes, wholeSeconds, remainder)
+    NarrationTimeFormat.timestamp(seconds)
 }
 
 private func segmentExcerpt(_ text: String) -> String {
@@ -4258,7 +4269,7 @@ private struct SegmentEditor: View {
 
     var body: some View {
         VStack(spacing: 0) {
-            Text(editorTitle).font(.title2.bold())
+            Text(editorTitle).font(.title2.bold()).accessibilityAddTraits(.isHeader).accessibilityHeading(.h1)
                 .accessibilityAddTraits(.isHeader)
                 .frame(maxWidth: .infinity, alignment: .leading)
                 .padding(.horizontal, 20).padding(.vertical, 16)
@@ -4274,7 +4285,7 @@ private struct SegmentEditor: View {
                             .font(.title3.bold())
                             .monospacedDigit()
                             .foregroundStyle(.secondary)
-                            .accessibilityLabel("Segment duration: \(segmentDuration)")
+                            .accessibilityLabel("Segment duration: \(NarrationTimeFormat.spokenDuration(max(0, row.segment.end - row.segment.start)))")
                     }
                     TimecodeInput(label: "End time", value: $row.segment.end)
                     if !timingErrors.isEmpty {
@@ -4489,7 +4500,7 @@ private struct BulkSegmentEditor: View {
                         .padding(.vertical, 4)
                         .tag(row.id)
                         .accessibilityElement(children: .combine)
-                        .accessibilityLabel("\(row.kind) segment at \(timecode(row.segment.start)): \(row.segment.text)")
+                        .accessibilityLabel("\(row.kind) segment at \(NarrationTimeFormat.spokenTime(row.segment.start)): \(row.segment.text)")
                     }
                 }
                 .frame(minWidth: 220, idealWidth: 260, maxWidth: 300)
@@ -4591,7 +4602,7 @@ private struct BulkShiftTimingView: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
             Text("Shift Selected Timing")
-                .font(.title2.bold()).padding(.horizontal, 20).padding(.top, 20).padding(.bottom, 4)
+                .font(.title2.bold()).accessibilityAddTraits(.isHeader).accessibilityHeading(.h1).padding(.horizontal, 20).padding(.top, 20).padding(.bottom, 4)
             Text("Selected segments")
                 .font(.callout).foregroundStyle(.secondary)
                 .padding(.horizontal, 20).padding(.bottom, 12)
@@ -4663,7 +4674,7 @@ private struct SegmentFilterView: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
-            Text(title).font(.title2.bold()).padding(.horizontal, 20).padding(.top, 20).padding(.bottom, 4)
+            Text(title).font(.title2.bold()).accessibilityAddTraits(.isHeader).accessibilityHeading(.h1).padding(.horizontal, 20).padding(.top, 20).padding(.bottom, 4)
                 .font(.callout).foregroundStyle(.secondary)
                 .padding(.horizontal, 20).padding(.bottom, 12)
             Form {
@@ -4733,7 +4744,7 @@ private struct SegmentSortView: View {
     }
     var body: some View {
         VStack(alignment: .leading, spacing: 20) {
-            Text(title).font(.title2.bold())
+            Text(title).font(.title2.bold()).accessibilityAddTraits(.isHeader).accessibilityHeading(.h1)
             Picker("Sort by", selection: $sort) {
                 ForEach(SegmentSort.allCases, id: \.self) { Text($0.title).tag($0) }
             }.pickerStyle(.radioGroup)

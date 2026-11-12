@@ -4,6 +4,7 @@ import SwiftUI
 struct InspectorInformationRow: View {
     let label: String
     let value: String
+    var spokenValue: String? = nil
     var body: some View {
         ViewThatFits(in: .horizontal) {
             HStack(alignment: .firstTextBaseline, spacing: 8) {
@@ -20,6 +21,6 @@ struct InspectorInformationRow: View {
         }
         .frame(maxWidth: .infinity, alignment: .leading)
         .accessibilityElement(children: .ignore)
-        .accessibilityLabel("\(label): \(value)")
+        .accessibilityLabel("\(label): \(spokenValue ?? value)")
     }
 }

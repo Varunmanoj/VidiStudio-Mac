@@ -51,7 +51,7 @@ struct ADOverviewView: View {
                     alignment: .leading,
                     spacing: 16
                 ) {
-                    GroupBox("Audio description overview") {
+                    GroupBox {
                         VStack(alignment: .leading, spacing: 10) {
                             statistic("Viewing language", value: OutputLanguage.title(sourceProject.overviewLanguageCode))
                             Divider()
@@ -79,8 +79,8 @@ struct ADOverviewView: View {
                             statistic("Description timing", value: project.hasDescriptionTimingIssues ? "\(project.descriptionTimingIssueCount) need retiming" : "Ready")
                         }
                         .padding(.vertical, 4)
-                    }
-                    GroupBox("Description origins") {
+                    } label: { Text("Audio description overview").accessibilityAddTraits(.isHeader).accessibilityHeading(.h3) }
+                    GroupBox {
                         VStack(alignment: .leading, spacing: 10) {
                             ForEach(DescriptionOrigin.allCases, id: \.rawValue) { origin in
                                 HStack {
@@ -96,12 +96,12 @@ struct ADOverviewView: View {
                             }
                         }
                         .padding(.vertical, 4)
-                    }
+                    } label: { Text("Description origins").accessibilityAddTraits(.isHeader).accessibilityHeading(.h3) }
                 }
                 if !sourceProject.overviewMatchesEditingResult {
                     Text("To generate narration for this overview language, choose the same language in View Project Language.").font(.callout).foregroundStyle(.secondary)
                 }
-                GroupBox("Create narration audio") {
+                GroupBox {
                     VStack(alignment: .leading, spacing: 10) {
                         Picker("Speech engine", selection: $studio.settings.ttsMode) {
                             Text("Apple Voices").tag("system")
@@ -215,7 +215,7 @@ struct ADOverviewView: View {
                         .help("Open Settings → Narration to choose the engine, voice, and speech settings")
                     }
                     .padding(.vertical, 4)
-                }
+                } label: { Text("Create narration audio").accessibilityAddTraits(.isHeader).accessibilityHeading(.h3) }
             }
             .frame(maxWidth: .infinity, alignment: .leading)
             .padding(20)
@@ -345,7 +345,7 @@ struct NarrationVoicesView: View {
             }
             .accessibilityElement(children: .combine)
             if !report.importedFiles.isEmpty {
-                GroupBox("Imported audio sources") {
+                GroupBox {
                     VStack(alignment: .leading, spacing: 6) {
                         ForEach(report.importedFiles, id: \.self) { file in
                             Label(file, systemImage: "waveform")
@@ -354,10 +354,10 @@ struct NarrationVoicesView: View {
                     }
                     .frame(maxWidth: .infinity, alignment: .leading)
                     .padding(.vertical, 4)
-                }
+                } label: { Text("Imported audio sources").accessibilityAddTraits(.isHeader).accessibilityHeading(.h3) }
             }
             if !report.voiceSummaries.isEmpty {
-                GroupBox("Voice usage by segment count") {
+                GroupBox {
                     VStack(alignment: .leading, spacing: 8) {
                         ForEach(report.voiceSummaries) { summary in
                             let segmentText = summary.segmentNumbers.isEmpty
@@ -379,7 +379,7 @@ struct NarrationVoicesView: View {
                         }
                     }
                     .padding(.vertical, 4)
-                }
+                } label: { Text("Voice usage by segment count").accessibilityAddTraits(.isHeader).accessibilityHeading(.h3) }
             }
             if !report.allSegments.isEmpty {
                 if !report.differentSegments.isEmpty {

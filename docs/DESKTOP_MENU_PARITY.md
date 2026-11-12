@@ -227,3 +227,6 @@ Narration groups are aligned: engine/playback, four sound switches with preview,
 
 ### Summary readback highlighting in Appearance (1.0.295)
 Both desktops place sentence/word highlight toggles, their color pickers and Restore Highlight Defaults in Settings > Appearance. Narration contains no summary-highlighting controls. The toggles expose checked context-menu items summary-sentence-highlight-menu and summary-word-highlight-menu through the same shared state; restore-summary-highlight-defaults-menu stays with the moved reset button. Both highlights default on and work independently; restoring defaults turns both on and resets only highlight colors. Settings apply immediately to open summary views without restarting speech. Existing colors and Windows toggle choices are preserved.
+
+
+1.0.297 accessibility/gallery follow-up: Windows All Projects exposes New Project as an icon-only plus button and adds Open Project Folder beside it, with the existing File menu actions/guards and accessible names; both destinations already exist on Mac. Search stays centered above these controls. Read-only heading semantics and spoken media-unit labels add no new application action or shortcut. Timing editing and native slider adjustment retain their existing routes.

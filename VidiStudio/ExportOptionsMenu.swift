@@ -447,7 +447,7 @@ struct ExportDialog: View {
             VStack(alignment: .leading, spacing: 0) {
                 VStack(alignment: .leading, spacing: 3) {
                     Text(category.title)
-                        .font(.title2.bold())
+                        .font(.title2.bold()).accessibilityAddTraits(.isHeader).accessibilityHeading(.h1)
                         .accessibilityAddTraits(.isHeader)
                     Text(project.name)
                         .font(.subheadline)

@@ -518,7 +518,7 @@ struct MarkdownHelpView: View {
     ]
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
-            Text("Markdown Help").font(.title2.bold())
+            Text("Markdown Help").font(.title2.bold()).accessibilityAddTraits(.isHeader).accessibilityHeading(.h1)
             Text("Supported: headings, paragraphs, bold, italic, strikethrough, bulleted/numbered/task lists, blockquotes, inline and fenced code, links, tables, and horizontal rules. Images insert Markdown and render as alt text and a link; remote images, math, Mermaid, and footnotes are not included.")
                 .font(.callout).foregroundStyle(.secondary)
             ScrollView {

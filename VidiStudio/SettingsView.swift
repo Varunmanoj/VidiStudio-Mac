@@ -139,41 +139,42 @@ struct SettingsView: View {
                 .navigationSplitViewColumnWidth(min: 210, ideal: 240, max: 300)
         } detail: {
         Form {
+            Text(section).font(.title2.bold()).accessibilityAddTraits(.isHeader).accessibilityHeading(.h1)
             if section == "About" { AboutSettingsView() }
-            if section == "Help" { Section("Help and keyboard shortcuts") {
+            if section == "Help" { Section {
                 Button("Open VidiStudio Help", systemImage: "questionmark.circle") { StudioHelp.open() }
                 DisclosureGroup("Keyboard shortcut reference", isExpanded: $shortcutReferenceExpanded) { ShortcutReferenceView() }
                     .animation(interfaceAnimation, value: shortcutReferenceExpanded)
-            }
+            } header: { Text("Help and keyboard shortcuts").accessibilityAddTraits(.isHeader).accessibilityHeading(.h2) }
             }
             if section == "Appearance" { appearanceSections }
             if section == "Projects" {
                 if settingsProjects.isEmpty {
-                    Section("Open projects") {
+                    Section {
                         ContentUnavailableView("No Open Projects", systemImage: "rectangle.stack", description: Text("Open a project to manage its project-specific playback settings."))
-                    }
+                    } header: { Text("Open projects").accessibilityAddTraits(.isHeader).accessibilityHeading(.h2) }
                 } else {
-                    Section("Project") {
+                    Section {
                         Picker("Project settings for", selection: $selectedSettingsProjectID) {
                             ForEach(settingsProjects) { Text($0.name).tag($0.id) }
                         }
-                    }
+                    } header: { Text("Project").accessibilityAddTraits(.isHeader).accessibilityHeading(.h2) }
                     if let project = settingsProjects.first(where: { $0.id == selectedSettingsProjectID }) ?? settingsProjects.first {
-                        Section(project.name) {
+                        Section {
                             ProjectPlaybackPreferenceControls(
                                 folder: project.folder,
                                 projectID: project.id,
                                 projectName: project.name
                             )
                             .id("\(project.id)-\(project.folder?.path ?? "")")
-                        }
+                        } header: { Text(project.name).accessibilityAddTraits(.isHeader).accessibilityHeading(.h2) }
                         ProjectSourcesSettingsView(reference: project, appSettings: studio.settings, openProjects: openProjects).id(project.id)
                     }
                 }
             }
             if section == "Gemini API" { GeminiAPISettingsView(studio: studio) }
             if section == "Narration" {
-                Section("Narration") {
+                Section {
                     Picker("Speech engine", selection: $studio.settings.ttsMode) {
                         Label("Apple Voices", systemImage: "speaker.wave.2").tag("system")
                         Label("Piper Voices", systemImage: "waveform.circle").tag("piper")
@@ -195,12 +196,12 @@ struct SettingsView: View {
                     SettingsSoundRow(title: "Sound when timing validation fails", resource: "Buzzer1",
                         identifier: "timing-validation-sound", menuIdentifier: "timing-validation-sound-menu",
                         enabled: $studio.settings.soundWhenTimingInvalid, preview: soundPreview)
-                }
+                } header: { Text("Narration").accessibilityAddTraits(.isHeader).accessibilityHeading(.h2) }
                 if studio.settings.ttsMode == "gemini" {
                     GeminiVoiceBrowser(studio: studio)
                 }
                 if studio.settings.ttsMode == "piper" {
-                    Section("Voice controls") {
+                    Section {
                         speechSlider("Speech rate", value: $studio.settings.systemSpeechRate, range: 0.5...2.0)
                         speechSlider("Pitch", value: $studio.settings.systemSpeechPitch, range: 0.5...2.0)
                         speechSlider("Speech volume", value: $studio.settings.systemSpeechVolume, range: 0...1.0)
@@ -212,11 +213,11 @@ struct SettingsView: View {
                             Button("Restore Defaults") { studio.settings.restoreSystemSpeechDefaults() }
                                 .accessibilityIdentifier("restore-speech-defaults-menu")
                         }
-                    }
+                    } header: { Text("Voice controls").accessibilityAddTraits(.isHeader).accessibilityHeading(.h2) }
                     PiperVoiceSettingsView(settings: $studio.settings)
                 }
                 if studio.settings.ttsMode == "system" {
-                    Section("Voice controls") {
+                    Section {
                         speechSlider("Speech rate", value: $studio.settings.systemSpeechRate, range: 0.5...2.0)
                         speechSlider("Pitch", value: $studio.settings.systemSpeechPitch, range: 0.5...2.0)
                         speechSlider("Speech volume", value: $studio.settings.systemSpeechVolume, range: 0...1.0)
@@ -228,12 +229,12 @@ struct SettingsView: View {
                             Button("Restore Defaults") { studio.settings.restoreSystemSpeechDefaults() }
                                 .accessibilityIdentifier("restore-speech-defaults-menu")
                         }
-                    }
+                    } header: { Text("Voice controls").accessibilityAddTraits(.isHeader).accessibilityHeading(.h2) }
                     SystemVoiceBrowser(settings: $studio.settings)
                 }
 
             }
-            if section == "Developer prompts" { Section("Developer prompts") {
+            if section == "Developer prompts" { Section {
                 ForEach(orderedPromptStages, id: \.self) { stage in
                     DisclosureGroup(
                         promptTitle(stage),
@@ -246,10 +247,10 @@ struct SettingsView: View {
                     }
                     .animation(interfaceAnimation, value: expandedPromptStages.contains(stage))
                 }
-            }
+            } header: { Text("Developer prompts").accessibilityAddTraits(.isHeader).accessibilityHeading(.h2) }
             }
             if section == "YouTube Accounts" { YouTubeAccountsView() }
-            if section == "Storage" { Section("Local storage and tools") {
+            if section == "Storage" { Section {
                 LabeledContent("Default folder for new projects") {
                     HStack {
                         TextField("Project folder", text: $studio.settings.libraryPath)
@@ -311,7 +312,7 @@ struct SettingsView: View {
                         .font(.caption)
                         .foregroundStyle(.red)
                 }
-            }
+            } header: { Text("Local storage and tools").accessibilityAddTraits(.isHeader).accessibilityHeading(.h2) }
             }
             if section == "Gemini API" {
             }
@@ -402,10 +403,10 @@ struct SettingsView: View {
             }
             .accessibilityHint("Choose whether video previews show no app transcript, spoken dialogue, or dialogue and audio descriptions")
         } header: {
-            Text("Appearance and playback")
+            Text("Appearance and playback").accessibilityAddTraits(.isHeader).accessibilityHeading(.h2)
         } footer: {
         }
-        Section("Caption appearance") {
+        Section {
             LabeledContent("Text size") {
                 HStack {
                     Slider(value: $studio.settings.captionFontSize, in: 14...48, step: 1)
@@ -418,20 +419,20 @@ struct SettingsView: View {
                         .frame(width: 48, alignment: .trailing)
                 }
             }
-        }
-        Section("Dialogue captions") {
+        } header: { Text("Caption appearance").accessibilityAddTraits(.isHeader).accessibilityHeading(.h2) }
+        Section {
             ColorPicker("Dialogue text color", selection: captionColorBinding(\.captionTextColor))
                 .accessibilityHint("Changes dialogue caption text in the video preview and future open-caption exports")
             ColorPicker("Dialogue background color", selection: captionColorBinding(\.captionBackgroundColor))
                 .accessibilityHint("Changes dialogue caption backgrounds in the video preview and future open-caption exports")
-        }
-        Section("Audio description captions") {
+        } header: { Text("Dialogue captions").accessibilityAddTraits(.isHeader).accessibilityHeading(.h2) }
+        Section {
             ColorPicker("Audio description text color", selection: captionColorBinding(\.adCaptionTextColor))
                 .accessibilityHint("Changes audio description caption text in the video preview and future AD Transcript open-caption exports")
             ColorPicker("Audio description background color", selection: captionColorBinding(\.adCaptionBackgroundColor))
                 .accessibilityHint("Changes audio description caption backgrounds in the video preview and future AD Transcript open-caption exports")
-        }
-        Section("Caption placement and preview") {
+        } header: { Text("Audio description captions").accessibilityAddTraits(.isHeader).accessibilityHeading(.h2) }
+        Section {
             LabeledContent("Background opacity") {
                 HStack {
                     Slider(value: $studio.settings.captionBackgroundOpacity, in: 0...1, step: 0.05)
@@ -454,20 +455,20 @@ struct SettingsView: View {
                 studio.settings.restoreCaptionAppearanceDefaults()
             }
             .accessibilityHint("Restores caption size, colors, opacity, and position")
-        }
+        } header: { Text("Caption placement and preview").accessibilityAddTraits(.isHeader).accessibilityHeading(.h2) }
         summaryHighlightSection
         Section {
             Toggle("Developer mode", isOn: $studio.settings.developerMode)
                 .accessibilityHint("Shows project configuration controls, Developer prompts, and advanced tool paths")
         } header: {
-            Text("Advanced")
+            Text("Advanced").accessibilityAddTraits(.isHeader).accessibilityHeading(.h2)
         } footer: {
         }
     }
 
     @ViewBuilder
     private var summaryHighlightSection: some View {
-        Section("Summary readback") {
+        Section {
             Toggle("Highlight the spoken sentence", isOn: $studio.settings.summarySentenceHighlightEnabled)
                 .accessibilityIdentifier("summary-sentence-highlight")
                 .contextMenu {
@@ -494,7 +495,7 @@ struct SettingsView: View {
                 Button("Restore Highlight Defaults") { studio.settings.restoreSummaryHighlightDefaults() }
                     .accessibilityIdentifier("restore-summary-highlight-defaults-menu")
             }
-        }
+        } header: { Text("Summary readback").accessibilityAddTraits(.isHeader).accessibilityHeading(.h2) }
     }
 
     private func summaryColorBinding(_ keyPath: WritableKeyPath<StudioSettings, String>) -> Binding<Color> {

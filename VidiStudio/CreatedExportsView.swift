@@ -23,7 +23,7 @@ struct CreatedExportsView: View {
         VStack(alignment: .leading, spacing: 12) {
             Text("Created Exports")
                 .font(.headline)
-                .accessibilityAddTraits(.isHeader)
+                .accessibilityAddTraits(.isHeader).accessibilityHeading(.h3)
 
             ExportOptionPicker("Export language filter", selection: $languageFilter) {
                 Text("All Languages").tag("all")
@@ -39,14 +39,14 @@ struct CreatedExportsView: View {
                 VStack(alignment: .leading, spacing: 8) {
                     Text(group == "multilingual" ? "Multilingual" : OutputLanguage.title(group))
                         .font(.subheadline.bold())
-                        .accessibilityAddTraits(.isHeader)
+                        .accessibilityAddTraits(.isHeader).accessibilityHeading(.h3)
                     ForEach(ExportCategory.allCases) { kind in
                         let paths = filteredPaths.filter { project.languageGroupForExport($0) == group && ExportCategory.resolve(path: $0) == kind }
                         if !paths.isEmpty {
                             VStack(alignment: .leading, spacing: 6) {
                                 Label(kind == .text ? "Text and Subtitles" : kind.title, systemImage: kind.icon)
                                     .font(.caption.bold())
-                                    .accessibilityAddTraits(.isHeader)
+                                    .accessibilityAddTraits(.isHeader).accessibilityHeading(.h3)
                                 ForEach(paths, id: \.self) { path in
                                     VStack(alignment: .leading, spacing: 3) {
                                         exportRow(path: path, kind: kind)

@@ -47,7 +47,7 @@ private struct YouTubeLoadingIndicator: View {
     @State private var disconnecting: YouTubeConnection?
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
-            HStack { Text("YouTube Accounts").font(.title2); Spacer(); if showsDone { Button("Done") { dismiss() }.keyboardShortcut(.cancelAction) } }
+            HStack { Text("YouTube Accounts").font(.title2).accessibilityAddTraits(.isHeader).accessibilityHeading(.h1); Spacer(); if showsDone { Button("Done") { dismiss() }.keyboardShortcut(.cancelAction) } }
             ForEach(service.connections) { connection in
                 HStack {
                     AsyncImage(url: URL(string: connection.photo)) { image in image.resizable().scaledToFit() } placeholder: { Image(systemName: "person.circle") }.frame(width: 40, height: 40).accessibilityLabel("Google profile photo")
@@ -122,7 +122,7 @@ private struct YouTubeLoadingIndicator: View {
     }
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
-            Text("My YouTube Videos").font(.title)
+            Text("My YouTube Videos").font(.title).accessibilityAddTraits(.isHeader).accessibilityHeading(.h1)
             HStack {
                 Picker("Google account and channel", selection: $service.selectedID) {
                     Text("Choose an account").tag("")
@@ -167,7 +167,7 @@ private struct YouTubeLoadingIndicator: View {
                     HStack {
                         AsyncImage(url: URL(string: video.thumbnailURL)) { image in image.resizable().scaledToFit() } placeholder: { Image(systemName: "film") }.frame(width: 100, height: 60).accessibilityHidden(true)
                         VStack(alignment: .leading) {
-                            Text(video.title).font(.headline); Text(video.detail)
+                            Text(video.title).font(.headline); Text(video.detail).accessibilityLabel(video.spokenDetail)
                             Text("Published: \(video.publishedAt) · Views: \(video.viewCount ?? "Unavailable") · Likes: \(video.likeCount ?? "Unavailable") · Comments: \(video.commentCount ?? "Unavailable")").font(.caption)
                             Text(video.captionsAvailable ? "Captions available" : "Caption availability not reported").font(.caption)
                         }
@@ -246,7 +246,7 @@ private struct YouTubeLoadingIndicator: View {
             TableColumn("Title", value: \.title).width(min: 180, ideal: 260)
             TableColumn("Channel", value: \.channelTitle).width(min: 100, ideal: 150)
             TableColumn("Visibility") { Text($0.visibility.capitalized) }.width(85)
-            TableColumn("Duration") { Text($0.durationLabel).monospacedDigit() }.width(120)
+            TableColumn("Duration") { Text($0.durationLabel).monospacedDigit().accessibilityLabel("Duration: \($0.spokenDuration)") }.width(120)
             TableColumn("Published") { Text($0.publishedLabel) }.width(min: 100, ideal: 140)
             TableColumn("Views") { Text($0.viewCount ?? "Unavailable") }.width(85)
             TableColumn("Likes") { Text($0.likeCount ?? "Unavailable") }.width(85)
@@ -335,9 +335,9 @@ private struct YouTubeLoadingIndicator: View {
     @State private var replacing: YouTubeCaption?
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
-            Text("YouTube Details").font(.title2)
+            Text("YouTube Details").font(.title2).accessibilityAddTraits(.isHeader).accessibilityHeading(.h1)
             if let v = video {
-                Text(v.title).font(.headline); Text(v.detail); Text(v.description)
+                Text(v.title).font(.headline); Text(v.detail).accessibilityLabel(v.spokenDetail); Text(v.description)
                 Text("Published: \(v.publishedAt)\nViews: \(v.viewCount ?? "Unavailable") · Likes: \(v.likeCount ?? "Unavailable") · Comments: \(v.commentCount ?? "Unavailable")\nLanguage: \(v.language ?? "Unavailable") · Audio language: \(v.audioLanguage ?? "Unavailable")\nCategory: \(v.categoryID ?? "Unavailable") · Embedding: \(v.embeddable.map { $0 ? "Allowed" : "Not allowed" } ?? "Unavailable")\nProcessing: \(v.uploadStatus ?? "Unavailable") · Live status: \(v.liveStatus ?? "Unavailable")\nTags: \(v.tags.joined(separator: ", "))").textSelection(.enabled)
             }
             Picker("Caption account", selection: $account) { Text("Choose an account").tag(""); ForEach(YouTubeService.shared.connections) { Text($0.label).tag($0.id) } }

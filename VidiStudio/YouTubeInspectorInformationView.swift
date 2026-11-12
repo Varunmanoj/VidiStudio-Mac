@@ -15,7 +15,7 @@ struct YouTubeInspectorInformationView: View {
                     row("YouTube title", video.title)
                     row("Channel", video.channelTitle)
                     row("Visibility", video.visibility.capitalized)
-                    row("Duration", video.durationLabel)
+                    InspectorInformationRow(label: "Duration", value: video.durationLabel, spokenValue: video.spokenDuration)
                     row("Published", date(video.publishedAt))
                     row("Views", video.viewCount ?? "Unavailable")
                     row("Likes", video.likeCount ?? "Unavailable")
