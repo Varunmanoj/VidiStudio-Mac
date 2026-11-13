@@ -238,3 +238,5 @@ Both desktops place sentence/word highlight toggles, their color pickers and Res
 Panel visibility accessibility (1.0.301): Project List and Inspector toolbar controls use native toggle semantics tied to the same panel state as the existing View Show/Hide commands. No new menu action, shortcut or hierarchy change.
 
 Editor import toolbar parity (1.0.304): Windows now matches the existing Mac Import Existing Assets button before the section picker and centers the section heading above the toolbar. The button reuses Project > Import > Import Existing Assets, import-assets, the shared guard and Ctrl-Alt-Shift-I; no new command, shortcut or menu hierarchy was added.
+
+Import review parity (1.0.305): removed the legacy Windows-only Replace existing assets after validation checkbox and its import selection flag. Imports retain the shared saved-result review workflow. Existing import/review menu commands and shortcuts are unchanged.
