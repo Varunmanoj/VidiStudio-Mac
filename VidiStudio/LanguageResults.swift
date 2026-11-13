@@ -287,9 +287,11 @@ struct LanguageResultControls: View {
                     Text(project.viewingLanguageTitle(option.id)).tag(option.id)
                 }
             }.pickerStyle(.menu).disabled(!editorActions.available || editorActions.hasUnsavedSummaryEdits || (!editorActions.segmentEditMode && project.availableViewingLanguages.isEmpty))
-            Button("Keep All Sections in Sync") { run("sync-section-languages") }
-                .help("Return every section to Follow Project Language; saved results are preserved")
-                .disabled(!editorActions.canChangeLanguage)
+            if editorActions.segmentEditMode {
+                Button("Keep All Sections in Sync") { run("sync-section-languages") }
+                    .help("Return every section to Follow Project Language; saved results are preserved")
+                    .disabled(!editorActions.canChangeLanguage)
+            }
             ForEach(visibleKinds, id: \.self) { kind in
                 OutputLanguagePicker(title: "\(SavedLanguageResult.kindTitle(kind)) Generation Language", selection: Binding(get: {
                     project.sectionLanguages?[kind] ?? "project"

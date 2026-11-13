@@ -13,13 +13,25 @@ struct InspectorSection<Content: View>: View {
 
     var body: some View {
         GroupBox {
-            DisclosureGroup(isExpanded: $expanded) {
-                content.padding(.top, 6).frame(maxWidth: .infinity, alignment: .leading)
-            } label: {
-                Text(title).font(.caption.weight(.semibold)).accessibilityAddTraits(.isHeader).accessibilityHeading(.h2)
+            VStack(alignment: .leading, spacing: 6) {
+                HStack(spacing: 4) {
+                    // Keep the native disclosure role separate from the heading role.
+                    DisclosureGroup(isExpanded: $expanded) { EmptyView() } label: { EmptyView() }
+                        .fixedSize()
+                        .accessibilityLabel(title)
+                        .accessibilityHint(expanded ? "Collapse \(title)" : "Expand \(title)")
+                        .accessibilityIdentifier("inspector-section-\(title)")
+                    Text(title)
+                        .font(.caption.weight(.semibold))
+                        .accessibilityAddTraits(.isHeader)
+                        .accessibilityHeading(.h2)
+                    Spacer(minLength: 0)
+                }
+                if expanded {
+                    content.frame(maxWidth: .infinity, alignment: .leading)
+                }
             }
             .frame(maxWidth: .infinity, alignment: .leading)
-            .accessibilityIdentifier("inspector-section-\(title)")
         }
     }
 }

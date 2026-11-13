@@ -230,3 +230,7 @@ Both desktops place sentence/word highlight toggles, their color pickers and Res
 
 
 1.0.297 accessibility/gallery follow-up: Windows All Projects exposes New Project as an icon-only plus button and adds Open Project Folder beside it, with the existing File menu actions/guards and accessible names; both destinations already exist on Mac. Search stays centered above these controls. Read-only heading semantics and spoken media-unit labels add no new application action or shortcut. Timing editing and native slider adjustment retain their existing routes.
+
+1.0.299 inspector accessibility: disclosure names and native expanded/collapsed semantics are preserved independently of section headings. Keep All Sections in Sync is present only in the existing language edit mode, using the same guarded sync action; view-language and saved-result actions retain their view-mode availability. No new action or shortcut is introduced.
+
+1.0.300: View > Editor Sections duplicates the existing Project > Editor Sections subtree in the same Transcript/Summary/Descriptions/AD Overview/AD Transcript order. Both copies reuse shared section IDs, guarded dispatch and existing shortcuts. Editor window titles and visible title headings include the current project and section, independently for each window.

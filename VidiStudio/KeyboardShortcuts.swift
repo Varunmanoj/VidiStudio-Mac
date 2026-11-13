@@ -10,6 +10,16 @@ final class EditorShortcutActions {
     var thumbnailImagesVisible = false
     var available = false
     var activeSection = "transcript"
+    var activeSectionTitle: String {
+        switch activeSection {
+        case "summary": return "Summary"
+        case "descriptions": return "Descriptions"
+        case "ad-overview": return "AD Overview"
+        case "ad-transcript": return "AD Transcript"
+        default: return "Transcript"
+        }
+    }
+    func windowTitle(projectName: String) -> String { "\(projectName) — \(activeSectionTitle)" }
     var savedResultKinds: [String] {
         switch activeSection {
         case "transcript": return ["transcript"]
@@ -626,6 +636,10 @@ struct StudioCommands: Commands {
                 Divider()
             }
             if allProjects == nil {
+                Menu("Editor Sections", systemImage: "rectangle.split.3x1") {
+                    shortcutEntries(StudioShortcut.editor.filter { ["transcript", "summary", "descriptions", "ad-overview", "ad-transcript"].contains($0.id) })
+                }
+                Divider()
                 projectLanguageMenu()
                 Divider()
                 savedResultsMenu()

@@ -19,6 +19,17 @@ class DesktopMenuParity(unittest.TestCase):
         windows_root = Path(os.environ.get('VIDISTUDIO_WINDOWS_ROOT', root / 'Vidi-Studio-Windows'))
         cls.windows = (windows_root / 'Vidi Studio Windows/MainWindow.Menus.cs').read_text(encoding='utf-8')
 
+    def test_editor_sections_are_available_in_view_and_project(self):
+        expected = ('Editor Sections', ['transcript', 'summary', 'descriptions', 'ad-overview', 'ad-transcript'])
+        rows = self.checker.shortcut_rows(self.mac)
+        for marker in ['CommandGroup(after: .sidebar)', 'CommandMenu("Project")']:
+            self.assertIn(expected, self.checker.swift_group(self.mac, marker, rows))
+        start = self.windows.index('MenuBarItem[] Layout()')
+        layout = self.windows[start:self.windows.index('galleryMenus.AddRange(Layout())', start)]
+        menus = dict(self.checker.windows_nodes(layout))
+        for title in ['View', 'Project']:
+            self.assertIn(expected, menus[title])
+
     def test_clear_segment_view_actions_hide_when_inactive(self):
         root = Path(os.environ.get('VIDISTUDIO_DESKTOP_WORKSPACE', Path(__file__).resolve().parents[2]))
         content = (root/'VidiStudio Mac/VidiStudio/ContentView.swift').read_text()

@@ -545,6 +545,9 @@ struct ProjectEditorWindow: View {
     @Environment(\.dismissWindow) private var dismissWindow
     @State private var studio: StudioModel
     @State private var editorShortcutActions = EditorShortcutActions()
+    private var editorWindowTitle: String {
+        studio.selected.map { editorShortcutActions.windowTitle(projectName: $0.name) } ?? "Project Editor"
+    }
     @State private var youtubeOpening = false
     @State private var youtubeOpeningIssue: String?
     @State private var showInspector = true
@@ -745,12 +748,12 @@ struct ProjectEditorWindow: View {
                     .disabled(!studio.canManageProject("project-settings", project: project))
             }
         }
-        .navigationTitle(studio.selected?.name ?? "Project Editor")
+        .navigationTitle(editorWindowTitle)
         .toolbar(removing: .title)
         .toolbar {
             ToolbarItem(placement: .principal) {
                 HStack(spacing: 6) {
-                    Text(studio.selected?.name ?? "Project Editor").font(.headline).accessibilityElement(children: .ignore).accessibilityLabel(studio.selected?.name ?? "Project Editor").accessibilityAddTraits(.isHeader).accessibilityHeading(.h1).lineLimit(1)
+                    Text(editorWindowTitle).font(.headline).accessibilityElement(children: .ignore).accessibilityLabel(editorWindowTitle).accessibilityAddTraits(.isHeader).accessibilityHeading(.h1).lineLimit(1)
                     Button("Rename Project", systemImage: "pencil") {
                         if let project = studio.selected { studio.requestProjectManagement("rename-project", project: project) }
                     }
