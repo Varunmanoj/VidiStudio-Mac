@@ -236,3 +236,5 @@ Both desktops place sentence/word highlight toggles, their color pickers and Res
 1.0.300: View > Editor Sections duplicates the existing Project > Editor Sections subtree in the same Transcript/Summary/Descriptions/AD Overview/AD Transcript order. Both copies reuse shared section IDs, guarded dispatch and existing shortcuts. Editor window titles and visible title headings include the current project and section, independently for each window.
 
 Panel visibility accessibility (1.0.301): Project List and Inspector toolbar controls use native toggle semantics tied to the same panel state as the existing View Show/Hide commands. No new menu action, shortcut or hierarchy change.
+
+Editor import toolbar parity (1.0.304): Windows now matches the existing Mac Import Existing Assets button before the section picker and centers the section heading above the toolbar. The button reuses Project > Import > Import Existing Assets, import-assets, the shared guard and Ctrl-Alt-Shift-I; no new command, shortcut or menu hierarchy was added.
