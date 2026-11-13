@@ -37,9 +37,13 @@ class MediaTimeAccessibilityTests(unittest.TestCase):
 precondition(timecode(90061.123) == "1d 01:01:01.123")
 for ad in [false, true] {
     let row = TranscriptRow(segment: Segment(start: 90061.123, end: 90062.124), isDescription: ad)
-    precondition(row.timingAnnouncement == "Start time: 1 day, 1 hour, 1 minute, 1 second, 123 milliseconds, End time: 1 day, 1 hour, 1 minute, 2 seconds, 124 milliseconds")
+    precondition(row.timingAnnouncement == "Start time: 1 day, 1 hour, 1 minute, 1 second, 123 milliseconds, End time: 1 day, 1 hour, 1 minute, 2 seconds, 124 milliseconds, Duration: 1 second, 1 millisecond")
     precondition(row.accessibilityLabel(segmentNumber: 2).contains("Duration: 1 second, 1 millisecond"))
     precondition(row.playbackLabel.contains(row.timingAnnouncement))
+    for label in [row.accessibilityLabel(segmentNumber: 2), row.playbackLabel] {
+        precondition(label.range(of: "Duration:")!.lowerBound < label.range(of: "Test content")!.lowerBound)
+        precondition(label.components(separatedBy: "Duration:").count == 2)
+    }
 }
 ''' 
             (tmp / 'main.swift').write_text(source + '\nlet values: [Double] = [' + values + ''']
@@ -59,14 +63,17 @@ print(String(data: try JSONSerialization.data(withJSONObject: result), encoding:
             (tmp / 'check.csproj').write_text('<Project Sdk="Microsoft.NET.Sdk"><PropertyGroup><OutputType>Exe</OutputType><TargetFramework>net' + major + '.0</TargetFramework></PropertyGroup></Project>')
             (tmp / 'Format.cs').write_text((windows / 'Models/NarrationTimeFormat.cs').read_text())
             segment_source = (windows / 'Models/StudioProject.cs').read_text()
-            segment_properties = '\n'.join(line.replace('[JsonIgnore] ', '') for line in segment_source.splitlines() if any('public string ' + name + ' =>' in line for name in ['StartLabel', 'EndLabel', 'Timing', 'StartAnnouncement', 'EndAnnouncement', 'TimingAnnouncement']))
-            (tmp / 'SegmentTimes.cs').write_text('using System; using Vidi_Studio_Windows.Models; class SegmentTimes { public double Start = 90061.123; public double End = 90062.124;\n' + segment_properties + '\n}')
+            segment_properties = '\n'.join(line.replace('[JsonIgnore] ', '') for line in segment_source[:segment_source.index('public sealed class StudioProject')].splitlines() if any('public string ' + name + ' =>' in line for name in ['StartLabel', 'EndLabel', 'Timing', 'StartAnnouncement', 'EndAnnouncement', 'TimingAnnouncement', 'DurationAnnouncement', 'PlayLabel', 'PreviewLabel']))
+            (tmp / 'SegmentTimes.cs').write_text('using System; using Vidi_Studio_Windows.Models; class SegmentTimes { public double Start = 90061.123; public double End = 90062.124; public string Text = "Test content"; bool isPreviewing = false; bool PreviewPaused = false;\n' + segment_properties + '\n}')
             (tmp / 'Program.cs').write_text('''using System;
 using System.Linq;
 using System.Text.Json;
 using Vidi_Studio_Windows.Models;
 var times = new SegmentTimes();
 if (times.StartLabel != "1d 01:01:01.123" || times.EndLabel != "1d 01:01:02.124" || !times.TimingAnnouncement.Contains("Start time: 1 day") || !times.TimingAnnouncement.Contains("End time: 1 day")) throw new Exception("Segment boundary formatting");
+foreach (var label in new[] {times.PlayLabel, times.PreviewLabel}) {
+    if (!label.Contains("Duration: 1 second, 1 millisecond") || label.IndexOf("Duration:") >= label.IndexOf("Test content")) throw new Exception("Duration must precede segment text");
+}
 var values = new double[] {''' + values + '''};
 if (NarrationTimeFormat.SpokenProjectDuration(null) != "unavailable" || NarrationTimeFormat.SpokenProjectDuration(double.NaN) != "unavailable" || NarrationTimeFormat.SpokenProjectDuration(double.PositiveInfinity) != "unavailable" || NarrationTimeFormat.Timestamp(90061.123) != "1d 01:01:01.123") throw new Exception("Invalid/long duration handling");
 Console.WriteLine("RESULT:" + JsonSerializer.Serialize(values.Select(value => new[] { NarrationTimeFormat.SpokenDuration(value), NarrationTimeFormat.MediaDuration(value) })));

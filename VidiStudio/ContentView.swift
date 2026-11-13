@@ -766,12 +766,18 @@ struct ProjectEditorWindow: View {
                 .accessibilityElement(children: .contain)
             }
             ToolbarItem(placement: .navigation) {
-                Button(showProjects ? "Hide Project List" : "Show Project List", systemImage: "sidebar.left") { projectBrowserVisibility.wrappedValue.toggle() }
+                Toggle(isOn: projectBrowserVisibility) { Label("Project List", systemImage: "sidebar.left") }
+                    .toggleStyle(.button)
+                    .accessibilityValue(showProjects ? "Shown" : "Hidden")
+                    .accessibilityIdentifier("show-projects")
                     .labelStyle(.iconOnly)
                     .help(showProjects ? "Hide the project list" : "Show projects to switch in this window")
             }
             ToolbarItem(placement: .primaryAction) {
-                Button(showInspector ? "Hide Inspector" : "Show Inspector", systemImage: "sidebar.right") { showInspector.toggle() }
+                Toggle(isOn: $showInspector) { Label("Inspector", systemImage: "sidebar.right") }
+                    .toggleStyle(.button)
+                    .accessibilityValue(showInspector ? "Shown" : "Hidden")
+                    .accessibilityIdentifier("show-inspector")
                     .labelStyle(.iconOnly)
                     .help(showInspector ? "Hide the inspector" : "Show project and section details")
             }
@@ -1483,10 +1489,10 @@ private struct TranscriptRow: Identifiable, Hashable {
     var kind: String { isDescription ? "Audio description" : "Transcript" }
     var color: Color { isDescription ? .purple : .blue }
     var timingAnnouncement: String {
-        "Start time: \(NarrationTimeFormat.spokenTime(segment.start)), End time: \(NarrationTimeFormat.spokenTime(segment.end))"
+        "Start time: \(NarrationTimeFormat.spokenTime(segment.start)), End time: \(NarrationTimeFormat.spokenTime(segment.end)), Duration: \(NarrationTimeFormat.spokenDuration(max(0, segment.end - segment.start)))"
     }
     func accessibilityLabel(segmentNumber: Int) -> String {
-        "\(kind) segment \(segmentNumber), \(timingAnnouncement), Duration: \(NarrationTimeFormat.spokenDuration(max(0, segment.end - segment.start))), \(segment.text)"
+        "\(kind) segment \(segmentNumber), \(timingAnnouncement), \(segment.text)"
     }
     var playbackLabel: String {
         "Play \(kind.lowercased()). \(timingAnnouncement). \(segment.text)"

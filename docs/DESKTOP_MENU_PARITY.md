@@ -234,3 +234,5 @@ Both desktops place sentence/word highlight toggles, their color pickers and Res
 1.0.299 inspector accessibility: disclosure names and native expanded/collapsed semantics are preserved independently of section headings. Keep All Sections in Sync is present only in the existing language edit mode, using the same guarded sync action; view-language and saved-result actions retain their view-mode availability. No new action or shortcut is introduced.
 
 1.0.300: View > Editor Sections duplicates the existing Project > Editor Sections subtree in the same Transcript/Summary/Descriptions/AD Overview/AD Transcript order. Both copies reuse shared section IDs, guarded dispatch and existing shortcuts. Editor window titles and visible title headings include the current project and section, independently for each window.
+
+Panel visibility accessibility (1.0.301): Project List and Inspector toolbar controls use native toggle semantics tied to the same panel state as the existing View Show/Hide commands. No new menu action, shortcut or hierarchy change.
