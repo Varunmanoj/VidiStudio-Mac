@@ -47,5 +47,13 @@ struct InspectorSection<Content: View>: View {
             }
             .frame(maxWidth: .infinity, alignment: .leading)
         }
+        .accessibilityGroup(title)
+    }
+}
+
+extension View {
+    /// Keep every child control reachable while exposing the visual section as a named group.
+    func accessibilityGroup(_ name: String) -> some View {
+        accessibilityElement(children: .contain).accessibilityLabel(name)
     }
 }

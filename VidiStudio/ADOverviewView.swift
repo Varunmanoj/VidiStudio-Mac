@@ -80,6 +80,7 @@ struct ADOverviewView: View {
                         }
                         .padding(.vertical, 4)
                     } label: { Text("Audio description overview").accessibilityAddTraits(.isHeader).accessibilityHeading(.h3) }
+                    .accessibilityGroup("Audio description overview")
                     GroupBox {
                         VStack(alignment: .leading, spacing: 10) {
                             ForEach(DescriptionOrigin.allCases, id: \.rawValue) { origin in
@@ -97,6 +98,7 @@ struct ADOverviewView: View {
                         }
                         .padding(.vertical, 4)
                     } label: { Text("Description origins").accessibilityAddTraits(.isHeader).accessibilityHeading(.h3) }
+                    .accessibilityGroup("Description origins")
                 }
                 if !sourceProject.overviewMatchesEditingResult {
                     Text("To generate narration for this overview language, choose the same language in View Project Language.").font(.callout).foregroundStyle(.secondary)
@@ -216,6 +218,7 @@ struct ADOverviewView: View {
                     }
                     .padding(.vertical, 4)
                 } label: { Text("Create narration audio").accessibilityAddTraits(.isHeader).accessibilityHeading(.h3) }
+                    .accessibilityGroup("Create narration audio")
             }
             .frame(maxWidth: .infinity, alignment: .leading)
             .padding(20)

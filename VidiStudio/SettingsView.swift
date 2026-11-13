@@ -319,6 +319,7 @@ struct SettingsView: View {
         }
         .lineLimit(nil)
         .formStyle(.grouped)
+        .accessibilityGroup("\(section) settings")
         .navigationTitle(section)
         }
         .safeAreaInset(edge: .top, spacing: 0) { ActiveExportProgressView() }

@@ -217,9 +217,7 @@ struct ImportExistingAssetsView: View {
             Text(title ?? scope.title)
                 .font(.title2.bold()).accessibilityAddTraits(.isHeader).accessibilityHeading(.h1)
                 .padding(.horizontal, 20).padding(.top, 20).padding(.bottom, 4)
-            Text(scope == .all
-                 ? "Bring a transcript, summary, AD transcript, or AD audio into “\(project.name)”. Files are copied into the project folder."
-                 : "\(scope.detail) Files are copied into “\(project.name)”.")
+            Text(project.name)
                 .font(.callout).foregroundStyle(.secondary)
                 .padding(.horizontal, 20).padding(.bottom, 10)
             Form {
@@ -279,8 +277,10 @@ struct ImportExistingAssetsView: View {
                             .help("Choose narration-only audio or a full AD mix.")
                             Text(selection.adAudioMode.detail).font(.caption).foregroundStyle(.secondary)
                         }
-                        Text(project.isYouTubeURLProject ? "Import & Combine creates described audio using the selected original soundtrack. A full AD mix is used directly." : "Create Project & Combine creates Original Audio and language-labelled Audio Description tracks. Viewers can switch between them.")
-                            .font(.caption).foregroundStyle(.secondary)
+                        if selection.adAudio != nil {
+                            Text(project.isYouTubeURLProject ? "Combine: described audio." : "Combine: selectable Original Audio and Audio Description tracks.")
+                                .font(.caption).foregroundStyle(.secondary)
+                        }
                 }
                 }
                 if let localError {

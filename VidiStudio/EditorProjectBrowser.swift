@@ -75,10 +75,11 @@ struct EditorProjectBrowser: View {
                     .accessibilityLabel("Delete selected project")
                     .disabled(selected == nil || busy || summaryEditing)
             }.controlSize(.small)
+            .accessibilityGroup("Project list controls")
         }
         .padding(12)
         .frame(minWidth: 220, idealWidth: 260, maxWidth: 340, maxHeight: .infinity)
-        .accessibilityLabel("Projects in this editor")
+        .accessibilityGroup("Projects in this editor")
     }
 
     private func projectButton(_ project: StudioProject, thumbnail: Bool) -> some View {

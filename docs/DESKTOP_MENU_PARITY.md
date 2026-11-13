@@ -240,3 +240,9 @@ Panel visibility accessibility (1.0.301): Project List and Inspector toolbar con
 Editor import toolbar parity (1.0.304): Windows now matches the existing Mac Import Existing Assets button before the section picker and centers the section heading above the toolbar. The button reuses Project > Import > Import Existing Assets, import-assets, the shared guard and Ctrl-Alt-Shift-I; no new command, shortcut or menu hierarchy was added.
 
 Import review parity (1.0.305): removed the legacy Windows-only Replace existing assets after validation checkbox and its import selection flag. Imports retain the shared saved-result review workflow. Existing import/review menu commands and shortcuts are unchanged.
+
+Import presentation parity (1.0.306): Windows groups the existing Language/Text assets/AD audio controls and reveals native radio choices after file selection, matching Mac. Existing choice values, import/review actions and shortcuts are unchanged. Both dialogs use concise project/output copy without a hardcoded English track label. No command/choice was added.
+
+Windows native menu access (1.0.307): Alt/F10 focuses the menu bar with native contrast-aware key-tip boxes; F/E/V/L/P/Y/H identifies File/Edit/View/Playback/Project/YouTube/Help. Nested choices get unique scoped access keys. Existing hierarchy, stable command IDs, guards and shortcuts are unchanged. This is an OS navigation exception: macOS retains system menu-bar navigation and Command shortcuts. Named accessibility containers preserve existing controls/actions; they add no new UI action.
+
+Context access keys (1.0.307): app-owned Windows MenuFlyouts share unique scoped access keys and native key-tip display; existing keyboard ContextRequested dispatch targets the focused row/selection. At the user's request, macOS keeps its existing native context menus and shortcuts with no added context letter equivalents. The original guarded actions, menu hierarchy and confirmations are unchanged.

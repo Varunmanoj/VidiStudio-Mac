@@ -1252,6 +1252,7 @@ struct ProcessingInspector: View {
                 .help("Open VidiStudio Settings")
                 .accessibilityLabel("Settings")
             }
+            .accessibilityGroup("Inspector utilities")
             .controlSize(.regular)
             .padding(.horizontal, 16)
             .padding(.vertical, 10)
@@ -1717,6 +1718,10 @@ struct ProjectEditor: View {
         captionControlsAvailable
     }
 
+    private var editorSectionAccessibilityTitle: String {
+        ["transcript": "Transcript", "summary": "Summary", "descriptions": "Descriptions", "ad-overview": "AD Overview", "ad-transcript": "AD Transcript"][tab] ?? "Editor"
+    }
+
     private var segmentSectionTitle: String {
         switch tab {
         case "transcript": return "Transcript"
@@ -2133,6 +2138,7 @@ struct ProjectEditor: View {
         .controlSize(.small)
         .padding(12)
         .fixedSize(horizontal: false, vertical: true)
+        .accessibilityGroup("\(editorSectionAccessibilityTitle) controls")
     }
 
     @ViewBuilder
@@ -2671,7 +2677,7 @@ struct ProjectEditor: View {
                 }
                 .padding(.horizontal, 12).padding(.vertical, 7)
                 .background(Color.orange.opacity(0.12))
-                .accessibilityElement(children: .combine)
+                .accessibilityGroup("Description timing issues")
             }
             Text(["transcript": "Transcript", "summary": "Summary", "descriptions": "Descriptions", "ad-overview": "AD Overview", "ad-transcript": "AD Transcript"][tab] ?? "Editor")
                 .font(.headline).accessibilityAddTraits(.isHeader).accessibilityHeading(.h2).padding(.horizontal, 12)
@@ -2918,6 +2924,7 @@ struct ProjectEditor: View {
                             .accessibilityValue(validationHighlightID == row.id ? "Timing validation issue" : "")
                             .contextMenu { segmentRowContextMenu(row) }
                     }.listStyle(.inset)
+                    .accessibilityLabel("\(editorSectionAccessibilityTitle) segments")
                     .onAppear { if let id = validationHighlightID { reader.scrollTo(id, anchor: .center) } }
                     .onChange(of: validationHighlightID) { _, id in
                         if let id { reader.scrollTo(id, anchor: .center) }
@@ -2930,6 +2937,7 @@ struct ProjectEditor: View {
             }
         }
         .frame(minHeight: 180)
+        .accessibilityGroup("\(editorSectionAccessibilityTitle) editor")
     }
 
     private var editorLayout: some View {
@@ -4015,6 +4023,7 @@ struct TimelineView: View {
             }
             .frame(height: tracksHeight)
         }.padding(12)
+        .accessibilityGroup("Timeline")
     }
 }
 
