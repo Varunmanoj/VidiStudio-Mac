@@ -3,6 +3,12 @@ import AppKit
 
 @MainActor @Observable
 final class EditorShortcutActions {
+    var searchAvailable = false
+    var searchActive = false
+    var importedCombinedTranscript = false
+    var hasSearchText = false
+    var canOpenSearchResult = false
+    var searchResultTitle = "Open Result"
     var previewHidden = false
     var isVideoFullScreen = false
     var fullScreenTitle: String { isVideoFullScreen ? "Exit Full-Screen Video" : "Full-Screen Video" }
@@ -239,6 +245,7 @@ final class EditorShortcutActions {
     /// Visibility follows the focused editor's tab; busy/prerequisite state only disables relevant actions.
     func isCommandVisible(_ action: String) -> Bool {
         guard isCommandVisibleInMode(action) else { return false }
+        if action == "open-search-result" { return searchActive }
         if action == "stop" { return videoPlaybackStarted }
         if action.hasPrefix("segment-one-") { return segmentEditMode && rowCommandVisible(action, kind: selectedSegmentKind) && (action != "segment-one-preview-stop" || selectedSegmentPreviewing) }
         if action.hasPrefix("summary-") { return activeSection == "summary" }
@@ -265,6 +272,7 @@ final class EditorShortcutActions {
     }
 
     func isCommandVisibleInMode(_ action: String) -> Bool {
+        if (searchActive || importedCombinedTranscript) && (action.hasPrefix("segment-") || action.hasPrefix("summary-") || ["filter-segments", "sort-segments", "clear-segment-filter", "clear-segment-sort", "sort-start", "sort-duration-asc", "sort-duration-desc", "sort-origin", "add", "undo", "redo", "reanalyze-selection"].contains(action)) { return false }
         if ["segment-select-all", "segment-deselect-all", "segment-edit-selected", "segment-delete-selected", "reanalyze-selection", "undo", "redo"].contains(action) {
             return segmentEditMode
         }
@@ -308,6 +316,8 @@ final class EditorShortcutActions {
     }
 
     func canRun(_ action: String) -> Bool {
+        if action == "focus-search" { return searchAvailable && handler != nil }
+        if action == "clear-search" { return searchAvailable && handler != nil && hasSearchText }
         guard available, handler != nil, isCommandVisible(action) else { return false }
         if ["play", "back", "forward", "jump-to-time"].contains(action), youtubeProject, !ConnectivityService.shared.available(.youtube) { return false }
         if ["youtube-details", "youtube-refresh", "youtube-captions"].contains(action) { return youtubeHandler != nil }
@@ -317,6 +327,7 @@ final class EditorShortcutActions {
         }
         if action.hasPrefix("summary-") { return canRunSummary(action) }
         switch action {
+        case "open-search-result": return searchActive && canOpenSearchResult && !hasUnsavedSummaryEdits
         case "jump-to-time": return canJumpToTime
         case "saved-results": return !hasUnsavedSummaryEdits && resultProject?.savedLanguageResults.contains { $0.language == viewingLanguage && savedResultKinds.contains($0.kind) } == true
         case "project-language": return !hasUnsavedSummaryEdits && !viewingLanguages.isEmpty
@@ -415,6 +426,7 @@ struct StudioShortcut: Identifiable {
     let group: String
     var icon: String {
         switch id {
+        case "focus-search": return "magnifyingglass"
         case "preview": return "video"
         case "fullscreen": return "arrow.up.left.and.arrow.down.right"
         case "play": return "playpause"
@@ -470,6 +482,7 @@ struct StudioShortcut: Identifiable {
         .init(id: "youtube-load-playlists", title: "Load More Playlists", key: "l", modifiers: [.command, .option, .shift], spoken: "Command + Option + Shift + L", group: "YouTube")
     ]
     static let editor: [StudioShortcut] = [
+        .init(id: "focus-search", title: "Search Project…", key: "f", modifiers: .command, spoken: "Command + F", group: "Search"),
         .init(id: "export", title: "Export…", key: "e", modifiers: [.command, .shift], spoken: "Command + Shift + E", group: "File"),
         .init(id: "preview", title: "Show or Hide Preview", key: "v", modifiers: [.command, .shift], spoken: "Command + Shift + V", group: "Playback"),
         .init(id: "fullscreen", title: "Full-Screen Video", key: "f", modifiers: [.command, .option], spoken: "Command + Option + F; Escape to return", group: "Playback"),
@@ -721,6 +734,23 @@ struct StudioCommands: Commands {
         }
         CommandGroup(replacing: .pasteboard) { }
         CommandMenu("Edit") {
+            let editor = self.editor
+            let allProjects = self.allProjects
+            Button(allProjects != nil ? "Search Projects…" : "Search Project…", systemImage: "magnifyingglass") {
+                if let allProjects { allProjects.run("focus-search") } else { editor?.run("focus-search") }
+            }.keyboardShortcut("f", modifiers: .command)
+                .accessibilityIdentifier("focus-search")
+                .disabled(allProjects != nil ? allProjects?.canRun("focus-search") != true : editor?.canRun("focus-search") != true)
+            Button("Clear Search", systemImage: "xmark.circle") {
+                if let allProjects { allProjects.run("clear-search") } else { editor?.run("clear-search") }
+            }.accessibilityIdentifier("clear-search")
+                .disabled(allProjects != nil ? allProjects?.canRun("clear-search") != true : editor?.canRun("clear-search") != true)
+            if editor?.searchActive == true && allProjects == nil {
+                Button(editor?.searchResultTitle ?? "Open Result", systemImage: "arrow.up.right.square") { editor?.run("open-search-result") }
+                    .accessibilityIdentifier("open-search-result")
+                    .disabled(editor?.canRun("open-search-result") != true)
+            }
+            Divider()
             if let allProjects {
                 Button("Rename Project…", systemImage: "pencil") { allProjects.run("rename-project") }
                     .disabled(!allProjects.canRun("rename-project"))
@@ -796,6 +826,7 @@ struct StudioCommands: Commands {
         }
         CommandGroup(replacing: .undoRedo) { }
         CommandGroup(replacing: .textEditing) { }
+        CommandGroup(replacing: .textFormatting) { }
         CommandGroup(replacing: .textFormatting) { }
         if allProjects == nil {
             CommandMenu("Playback") {

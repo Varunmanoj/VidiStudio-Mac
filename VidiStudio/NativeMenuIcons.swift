@@ -52,6 +52,8 @@ enum NativeMenuIcons {
         "Add Segment": "plus",
         "Add Transcript Segment": "plus",
         "All Projects": "square.stack",
+        "Sort Projects": "arrow.up.arrow.down",
+        "VidiStudio Website": "globe",
         "Analysis": "sparkles",
         "Analyze Video…": "sparkles",
         "Choose What to Delete…": "eraser",
@@ -209,6 +211,10 @@ enum NativeMenuIcons {
             }
         }
         switch item.title {
+        case "Search Project…", "Search Projects…": return "magnifyingglass"
+        case "Clear Search": return "xmark.circle"
+        case "Open Result": return "arrow.up.right.square"
+        case "Review Draft…": return "doc.text.magnifyingglass"
         case "Settings…", "Settings...": return "gearshape"
         case "Services": return "gearshape.2"
         case "Summary Reading": return "speaker.wave.2"

@@ -50,6 +50,7 @@ struct ProjectBrowserPage: View {
     let studio: StudioModel
     let projects: [StudioProject]
     @Binding var search: String
+    @FocusState private var searchFocused: Bool
     @State private var languageFilter = "all"
     @State private var projectSort = ProjectListSort.lastOpened
     @AppStorage("projectLastOpened") private var projectOpenHistory = Data()
@@ -292,7 +293,7 @@ struct ProjectBrowserPage: View {
                 case "delete-project": delete(project)
                 default: process(project, action)
                 }
-            }, languageOptions: languageOptions
+            }, languageOptions: languageOptions, focusSearch: { searchFocused = true }
         ))
         .onChange(of: languageOptions, initial: true) { _, options in
             if languageFilter != "all" && !options.contains(where: { $0.id == languageFilter }) { languageFilter = "all" }
@@ -302,6 +303,7 @@ struct ProjectBrowserPage: View {
         }
         .navigationTitle("All Projects")
         .searchable(text: $search, placement: .toolbar, prompt: "Search projects")
+        .searchFocused($searchFocused)
         .toolbar {
             ToolbarItemGroup(placement: .primaryAction) {
                 OutputLanguagePicker(title: "Project language filter", selection: $languageFilter, includesAll: true, options: languageOptions)

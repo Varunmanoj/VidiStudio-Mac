@@ -183,7 +183,7 @@ class Studio { public Project? Project = new(); }
 class Check {
     class Row { public bool IsDescription; }
     Row? SingleSelectedSegment() => null;
-    Row? previewingSegment; bool videoPlaybackStarted;
+    Row? previewingSegment; bool videoPlaybackStarted; bool IsProjectSearching, IsImportedCombinedTranscript;
     Picker Section = new(); Studio Model = new(); bool editMode, summaryEditMode;
 """ + production + """
     static void Main() {

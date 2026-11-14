@@ -154,6 +154,8 @@ struct StudioShortcut {
     def test_edit_group_replaces_native_defaults_and_routes_text_shortcuts(self):
         commands=(MAC/'VidiStudio/KeyboardShortcuts.swift').read_text()
         app=(MAC/'VidiStudio/VidiStudioApp.swift').read_text()
+        self.assertIn('CommandMenu("Edit") {',commands)
+        self.assertIn('CommandGroup(replacing: .textFormatting) { }',commands)
         self.assertIn('CommandGroup(replacing: .pasteboard)',commands)
         self.assertIn('CommandGroup(replacing: .undoRedo) { }',commands)
         self.assertIn('self.removeSystemEditCommands()',app)

@@ -545,6 +545,8 @@ struct ProjectEditorWindow: View {
     @Environment(\.dismissWindow) private var dismissWindow
     @State private var studio: StudioModel
     @State private var editorShortcutActions = EditorShortcutActions()
+    @State private var projectSearch = ProjectSearchState()
+    @FocusState private var projectSearchFocused: Bool
     private var editorWindowTitle: String {
         studio.selected.map { editorShortcutActions.windowTitle(projectName: $0.name) } ?? "Project Editor"
     }
@@ -688,6 +690,7 @@ struct ProjectEditorWindow: View {
                             studio: studio,
                             project: project,
                             shortcutActions: editorShortcutActions,
+                            search: projectSearch,
                             inspectorVisible: showInspector,
                             showExportDialog: { showingExportDialog = true },
                             renameProject: { studio.requestProjectManagement("rename-project", project: project) },
@@ -748,6 +751,9 @@ struct ProjectEditorWindow: View {
                     .disabled(!studio.canManageProject("project-settings", project: project))
             }
         }
+        .searchable(text: $projectSearch.text, placement: .toolbar, prompt: "Search project")
+        .searchFocused($projectSearchFocused)
+        .onChange(of: projectSearch.focusRequest) { _, _ in projectSearchFocused = true }
         .navigationTitle(editorWindowTitle)
         .toolbar(removing: .title)
         .toolbar {
@@ -1602,6 +1608,14 @@ struct ProjectEditor: View {
     @Bindable var studio: StudioModel
     let project: StudioProject
     let shortcutActions: EditorShortcutActions
+    @Bindable var search: ProjectSearchState
+    @State private var searchDraft: SavedLanguageResult?
+    @State private var searchRevealID: String?
+    @State private var searchRevealedID: String?
+    @State private var searchSummarySelection: String?
+    private var searching: Bool { search.query.applies(to: tab) }
+    private var importedCombinedTranscript: Bool { tab == "ad-transcript" && project.importedADTranscript?.mode == "combined" && project.importedADTranscript?.segments.isEmpty == false }
+    private var canOpenSearchResult: Bool { !studio.busy && !hasUnsavedSummaryEdits && !languageContextChanging && segmentToEdit == nil && segmentBatchToEdit == nil }
     let inspectorVisible: Bool
     let showExportDialog: () -> Void
     let renameProject: () -> Void
@@ -1669,7 +1683,7 @@ struct ProjectEditor: View {
         let descriptionNumbers = project.segmentNumbers(isDescription: true)
         return sortRows(rows.filter {
             segmentFilter.matches($0, project: project, number: ($0.isDescription ? descriptionNumbers : transcriptNumbers)[$0.segment.id] ?? 0)
-                || $0.id == validationHighlightID
+                || $0.id == validationHighlightID || $0.id == searchRevealedID
         })
     }
 
@@ -1715,7 +1729,7 @@ struct ProjectEditor: View {
     }
 
     private var segmentEditingAvailable: Bool {
-        captionControlsAvailable
+        captionControlsAvailable && !importedCombinedTranscript
     }
 
     private var editorSectionAccessibilityTitle: String {
@@ -2681,10 +2695,20 @@ struct ProjectEditor: View {
             }
             Text(["transcript": "Transcript", "summary": "Summary", "descriptions": "Descriptions", "ad-overview": "AD Overview", "ad-transcript": "AD Transcript"][tab] ?? "Editor")
                 .font(.headline).accessibilityAddTraits(.isHeader).accessibilityHeading(.h2).padding(.horizontal, 12)
-            editorToolbar
+            if searching {
+                Picker("Editor section", selection: $tab) {
+                    Text("Transcript").tag("transcript")
+                    Text("Summary").tag("summary")
+                    Text("Descriptions").tag("descriptions")
+                    Text("AD Overview").tag("ad-overview")
+                    Text("AD Transcript").tag("ad-transcript")
+                }.pickerStyle(.menu).padding(.horizontal, 12).padding(.vertical, 8)
+            } else { editorToolbar }
             if let error = playback.speechError { Text(error).foregroundStyle(.red).padding(8) }
             Divider()
-            if currentProcessingState.isProcessing {
+            if searching {
+                ProjectSearchResultsView(search: search, settings: studio.settings, section: tab, canOpen: canOpenSearchResult, open: openSearchResult)
+            } else if currentProcessingState.isProcessing {
                 SectionProcessingIndicator(
                     title: currentProcessingState == .queued ? "Waiting to process \(sectionProcessingName)" : studio.processingStageTitle,
                     detail: currentProcessingState == .queued
@@ -2717,7 +2741,24 @@ struct ProjectEditor: View {
                         origin: project.summary.isEmpty ? nil : project.summaryOriginLabel,
                         showZoomSlider: previewHidden,
                         onEdit: { startSummaryEditing() }
-                    )
+                    ).onAppear {
+                        if let text = searchSummarySelection {
+                            summaryReader.configure(markdown: project.summary, settings: studio.settings)
+                            let range = (summaryReader.plainText as NSString).range(of: text)
+                            if range.location != NSNotFound { summaryReader.searchRevealRange = range }
+                            searchSummarySelection = nil
+                        }
+                    }
+                }
+            } else if importedCombinedTranscript, let imported = project.importedADTranscript {
+                ScrollViewReader { reader in
+                    List(imported.segments) { segment in
+                        VStack(alignment: .leading, spacing: 6) {
+                            Text("\(timecode(segment.start))–\(timecode(segment.end))").font(.caption).foregroundStyle(.secondary)
+                            Text(segment.text).textSelection(.enabled)
+                        }.id(segment.id)
+                    }.accessibilityLabel("Imported combined AD Transcript")
+                        .onAppear { if let id = searchRevealID { reader.scrollTo(id, anchor: .center); searchRevealID = nil } }
                 }
             } else {
                 let segments = transcriptRows
@@ -2925,7 +2966,10 @@ struct ProjectEditor: View {
                             .contextMenu { segmentRowContextMenu(row) }
                     }.listStyle(.inset)
                     .accessibilityLabel("\(editorSectionAccessibilityTitle) segments")
-                    .onAppear { if let id = validationHighlightID { reader.scrollTo(id, anchor: .center) } }
+                    .onAppear {
+                        if let id = searchRevealID { reader.scrollTo(id, anchor: .center); searchRevealID = nil }
+                        else if let id = validationHighlightID { reader.scrollTo(id, anchor: .center) }
+                    }
                     .onChange(of: validationHighlightID) { _, id in
                         if let id { reader.scrollTo(id, anchor: .center) }
                     }
@@ -3105,6 +3149,27 @@ struct ProjectEditor: View {
         }
     }
 
+    private func openSearchResult(_ hit: ProjectSearchHit) {
+        guard canOpenSearchResult, hit.section == tab,
+              let result = project.savedLanguageResults.first(where: { $0.id == hit.resultID && $0.language == project.languageCode }),
+              ["saved", "draft"].contains(result.state) else { return }
+        if result.state == "draft" { searchDraft = result; return }
+        func reveal() {
+            selectedSegmentIDs.removeAll()
+            searchRevealID = hit.segmentID.map { hit.importedCombined ? $0 : (hit.isDescription ? "ad:" : "transcript:") + $0 }
+            searchRevealedID = searchRevealID
+            searchSummarySelection = hit.section == "summary" ? hit.text : nil
+            search.text = ""
+            refreshEditorShortcutActions()
+        }
+        if project.activeLanguageResultID(result.kind) == result.id { reveal() }
+        else {
+            runLanguageAction("select-result", arguments: ["--result-id", result.id]) { updated in
+                if updated?.activeLanguageResultID(result.kind) == result.id { reveal() }
+            }
+        }
+    }
+
     private func runEditorShortcut(_ action: String) {
         if action.hasPrefix("segment-one-") {
             guard shortcutActions.canRun(action), selectedSegmentIDs.count == 1, selectedRows.count == 1,
@@ -3113,6 +3178,9 @@ struct ProjectEditor: View {
             return
         }
         switch action {
+        case "focus-search": search.focusRequest += 1
+        case "clear-search": search.text = ""; search.focusRequest += 1
+        case "open-search-result": if let hit = search.selectedHit { openSearchResult(hit) }
         case "preview": playback.exitVideoFullScreen(); previewHidden.toggle()
         case "toggle-timeline": timelineVisible.toggle()
         case "toggle-thumbnail-images": thumbnailImagesVisible.toggle()
@@ -3251,7 +3319,7 @@ struct ProjectEditor: View {
             || summaryDraftOrigin != project.summaryOriginLabel)
     }
 
-    private func runLanguageAction(_ command: String, arguments: [String], settingsEditMode: Bool = false, fromSettings: Bool = false) {
+    private func runLanguageAction(_ command: String, arguments: [String], settingsEditMode: Bool = false, fromSettings: Bool = false, completion: ((StudioProject?) -> Void)? = nil) {
         guard !studio.busy, !languageContextChanging, !hasUnsavedSummaryEdits,
               segmentToEdit == nil, segmentBatchToEdit == nil else { return }
         let changesLanguage = ["select-section-language", "sync-section-languages", "assign-result-language"].contains(command)
@@ -3266,6 +3334,7 @@ struct ProjectEditor: View {
             }
             languageContextChanging = false
             refreshEditorShortcutActions()
+            completion?(updated)
             if fromSettings { NotificationCenter.default.post(name: .vidiStudioLanguageDidChange, object: nil, userInfo: ["projectID": project.id]) }
         }
     }
@@ -3304,6 +3373,12 @@ struct ProjectEditor: View {
             shortcutActions.settingsLanguageAction = { command, arguments, editing in runLanguageAction(command, arguments: arguments, settingsEditMode: editing, fromSettings: true) }
         }
         shortcutActions.hasCopyableResults = project.savedLanguageResults.contains { ["transcript", "summary", "descriptions"].contains($0.kind) && $0.state == "saved" && $0.hasContent }
+        shortcutActions.searchAvailable = !shortcutsBlocked && !showingJumpToTime && searchDraft == nil && segmentToEdit == nil && segmentBatchToEdit == nil && studio.screenText == nil
+        shortcutActions.searchActive = searching
+        shortcutActions.importedCombinedTranscript = importedCombinedTranscript
+        shortcutActions.hasSearchText = !search.text.isEmpty
+        shortcutActions.canOpenSearchResult = canOpenSearchResult && search.selectedHit?.section == tab
+        shortcutActions.searchResultTitle = search.selectedHit.flatMap { hit in project.savedLanguageResults.first { $0.id == hit.resultID } }?.state == "draft" ? "Review Draft…" : "Open Result"
         shortcutActions.hasUnsavedSummaryEdits = hasUnsavedSummaryEdits
         shortcutActions.canJumpToTime = project.duration.isFinite && project.duration > 0
         shortcutActions.videoIsPlaying = playback.playbackActive
@@ -3375,7 +3450,7 @@ struct ProjectEditor: View {
         shortcutActions.isSynthesizingNarration = studio.isSynthesizingNarration
         shortcutActions.narratingSegmentIndex = studio.narratingSegmentIndex
         shortcutActions.narratingTotalCount = studio.narratingTotalCount > 0 ? studio.narratingTotalCount : project.cues.count
-        shortcutActions.summaryActive = (tab == "summary")
+        shortcutActions.summaryActive = (tab == "summary") && !searching
         shortcutActions.summaryEditing = (tab == "summary" && summaryEditMode)
         shortcutActions.summaryReadable = !project.summary.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty && !studio.busy
         shortcutActions.summaryZoom = summaryReader.zoom
@@ -3487,7 +3562,10 @@ struct ProjectEditor: View {
             if !editing { segmentToEdit = nil; segmentBatchToEdit = nil }
             refreshEditorShortcutActions()
         }
-        .onChange(of: summaryEditMode) { _, _ in refreshEditorShortcutActions() }
+        .onChange(of: summaryEditMode) { _, editing in
+            if !editing, let destination = search.query.section, destination != tab { tab = destination }
+            refreshEditorShortcutActions()
+        }
         .onChange(of: summaryDraftText) { _, _ in refreshEditorShortcutActions() }
         .onChange(of: summaryDraftOrigin) { _, _ in refreshEditorShortcutActions() }
         .onChange(of: summaryReader.zoom) { _, _ in refreshEditorShortcutActions() }
@@ -3500,6 +3578,17 @@ struct ProjectEditor: View {
 
     private var editorWithShortcutUpdates: some View {
         editorWithSummaryUpdates
+        .onChange(of: search.text) { _, _ in
+            if !search.text.isEmpty { searchRevealedID = nil }
+            selectedSegmentIDs.removeAll()
+            summaryReader.stop()
+            if let destination = search.query.section, destination != tab {
+                if !hasUnsavedSummaryEdits { tab = destination }
+            }
+            refreshEditorShortcutActions()
+        }
+        .onChange(of: search.selectedHitID) { _, _ in refreshEditorShortcutActions() }
+        .onChange(of: "\(project.id):\(project.languageCode):\(project.updatedAt)", initial: true) { _, _ in search.update(project) }
         .onChange(of: previewHidden) { _, _ in refreshEditorShortcutActions() }
         .onChange(of: shortcutsBlocked) { _, _ in refreshEditorShortcutActions() }
         .onChange(of: showingJumpToTime) { _, _ in refreshEditorShortcutActions() }
@@ -3526,6 +3615,7 @@ struct ProjectEditor: View {
         .onChange(of: studio.apiKeyVerified) { _, _ in refreshEditorShortcutActions() }
         .onChange(of: studio.settings.ttsMode) { _, _ in refreshEditorShortcutActions() }
         .onChange(of: tab) { oldTab, _ in
+            searchRevealedID = nil
             if oldTab == "summary" && summaryEditMode {
                 commitSummaryEdits()
             }
@@ -3549,6 +3639,15 @@ struct ProjectEditor: View {
                     .padding()
             }
         }
+        .sheet(item: $searchDraft) { result in
+            LanguageResultReview(studio: studio, project: project, result: result) { arguments in
+                runLanguageAction("review-result", arguments: arguments) { updated in
+                    if let updated, updated.activeLanguageResultID(result.kind) == result.id,
+                       updated.savedLanguageResults.contains(where: { $0.id == result.id && $0.state == "saved" }) { search.text = "" }
+                }
+            }
+        }
+        .onChange(of: searchDraft?.id) { _, _ in refreshEditorShortcutActions() }
         .onAppear {
             preparePlayback()
             refreshEditorShortcutActions(updateHandler: true)

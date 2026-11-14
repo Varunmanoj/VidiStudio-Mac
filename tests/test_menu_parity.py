@@ -19,6 +19,27 @@ class DesktopMenuParity(unittest.TestCase):
         windows_root = Path(os.environ.get('VIDISTUDIO_WINDOWS_ROOT', root / 'Vidi-Studio-Windows'))
         cls.windows = (windows_root / 'Vidi Studio Windows/MainWindow.Menus.cs').read_text(encoding='utf-8')
 
+    def test_search_highlight_setting_menus_share_controls(self):
+        import runpy
+        root = Path(os.environ.get('VIDISTUDIO_DESKTOP_WORKSPACE', Path(__file__).resolve().parents[2]))
+        check = runpy.run_path(str(root/'VidiStudio Mac/script/contextual_menu_contract.py'))['check_search_highlight_settings']
+        mac = (root/'VidiStudio Mac/VidiStudio/SettingsView.swift').read_text()
+        windows = (root/'Vidi-Studio-Windows/Vidi Studio Windows/Views/SettingsDialog.Appearance.cs').read_text()
+        check(mac, windows)
+        for left, right in [(mac.replace('search-highlight-menu', ''), windows), (mac, windows.replace('search-highlight-color-menu', '')), (mac.replace('well.activate(true)', ''), windows), (mac, windows.replace('searchColor.Flyout.ShowAt(searchColor)', ''))]:
+            with self.assertRaises(ValueError): check(left, right)
+
+    def test_restore_defaults_includes_all_highlights(self):
+        import runpy
+        root = Path(os.environ.get('VIDISTUDIO_DESKTOP_WORKSPACE', Path(__file__).resolve().parents[2]))
+        check = runpy.run_path(str(root/'VidiStudio Mac/script/contextual_menu_contract.py'))['check_all_highlight_defaults']
+        mac = (root/'VidiStudio Mac/VidiStudio/SettingsView.swift').read_text()
+        model = (root/'VidiStudio Mac/VidiStudio/StudioModel.swift').read_text()
+        windows = (root/'Vidi-Studio-Windows/Vidi Studio Windows/Views/SettingsDialog.Appearance.cs').read_text()
+        check(mac, model, windows)
+        for changed_model, changed_windows in [(model.replace('searchHighlightEnabled = true', 'searchHighlightEnabled = false'), windows), (model, windows.replace('draft["searchHighlightColor"] = MainWindow.DefaultSearchHighlightColor;', ''))]:
+            with self.assertRaises(ValueError): check(mac, changed_model, changed_windows)
+
     def test_editor_sections_are_available_in_view_and_project(self):
         expected = ('Editor Sections', ['transcript', 'summary', 'descriptions', 'ad-overview', 'ad-transcript'])
         rows = self.checker.shortcut_rows(self.mac)

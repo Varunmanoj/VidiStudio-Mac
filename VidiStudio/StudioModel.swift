@@ -1179,6 +1179,8 @@ struct StudioSettings: Codable, Equatable {
     var summaryWordHighlightEnabled = true
     var summarySentenceHighlight = SummaryHighlightColor.defaultSentenceHex
     var summaryWordHighlight = SummaryHighlightColor.defaultWordHex
+    var searchHighlightEnabled = true
+    var searchHighlightColor = ProjectSearchHighlight.defaultColor
     var captionDisplayMode = "off"
     var captionFontSize = 24.0
     var captionTextColor = "#FFFFFF"
@@ -1283,11 +1285,13 @@ struct StudioSettings: Codable, Equatable {
         systemSpeechVolume = 1.0
     }
 
-    mutating func restoreSummaryHighlightDefaults() {
+    mutating func restoreHighlightDefaults() {
         summarySentenceHighlightEnabled = true
         summaryWordHighlightEnabled = true
         summarySentenceHighlight = SummaryHighlightColor.defaultSentenceHex
         summaryWordHighlight = SummaryHighlightColor.defaultWordHex
+        searchHighlightEnabled = true
+        searchHighlightColor = ProjectSearchHighlight.defaultColor
     }
 
     mutating func restoreCaptionAppearanceDefaults() {

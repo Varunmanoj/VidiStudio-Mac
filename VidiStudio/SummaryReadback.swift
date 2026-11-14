@@ -241,6 +241,7 @@ final class SummaryReadbackModel: NSObject, AVSpeechSynthesizerDelegate, AVAudio
     var error: String?
     /// Current text selection in display-text coordinates, reported by the text view.
     var selectedRange: NSRange?
+    var searchRevealRange: NSRange?
     @ObservationIgnored private let synthesizer = AVSpeechSynthesizer()
     @ObservationIgnored private var settings = StudioSettings()
     @ObservationIgnored private var speakingIndex: Int?
@@ -1057,6 +1058,16 @@ struct SummarySentenceTextView: NSViewRepresentable {
         guard let textView = scrollView.documentView as? SummaryTextView else { return }
         // Never fight an active mouse selection: defer highlight refreshes until release.
         let userSelecting = textView.isSelectingText
+        if let range = model.searchRevealRange, !userSelecting {
+            DispatchQueue.main.async { [weak textView, weak model] in
+                guard let textView, let model, model.searchRevealRange == range,
+                      NSMaxRange(range) <= (textView.string as NSString).length else { return }
+                textView.setSelectedRange(range)
+                textView.scrollRangeToVisible(range)
+                model.selectedRange = range
+                model.searchRevealRange = nil
+            }
+        }
         let content = model.displayContent(
             sentenceBackground: SummaryHighlightColor.nsColor(
                 from: settings.summarySentenceHighlight, alpha: 0.38),

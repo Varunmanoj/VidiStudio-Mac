@@ -210,7 +210,7 @@ def check_export_completion_sound(mac, windows):
                   'soundPreview.Dispose();'):
         if token not in windows: raise ValueError('Windows preview/menu state contract missing: ' + token)
 
-    for token in ('restore-speech-defaults-menu', 'restore-summary-highlight-defaults-menu'):
+    for token in ('restore-speech-defaults-menu', 'restore-highlight-defaults-menu'):
         if token not in mac or token not in windows: raise ValueError('Missing matching Narration restore menu: ' + token)
 
 
@@ -232,3 +232,31 @@ def check_summary_highlight_appearance(mac, model, readback, windows, voices):
         if token not in windows: raise ValueError('Windows highlight state/menu route missing: ' + token)
     if 'if highlightSentence {' not in readback or 'if highlightWord, let wordRange' not in readback:
         raise ValueError('Summary highlighting must be independent')
+
+
+def check_search_highlight_settings(mac, windows):
+    for label in ('Highlight search matches', 'Search highlight color', 'Search Highlight Color…'):
+        if label not in mac or label not in windows: raise ValueError('Search highlight setting/menu label differs: ' + label)
+    for identifier in ('search-highlight-menu', 'search-highlight-color-menu'):
+        if identifier not in mac or identifier not in windows: raise ValueError('Missing search highlight menu: ' + identifier)
+    if mac.count('Toggle("Highlight search matches", isOn: $studio.settings.searchHighlightEnabled)') != 2:
+        raise ValueError('Mac search highlight toggle/menu must share state')
+    if 'well.activate(true)' not in mac or 'searchHighlightColorRequest += 1' not in mac:
+        raise ValueError('Mac search color menu must activate its native color well')
+    for token in ('searchHighlightChoice.IsChecked = searchHighlight.IsOn', 'searchHighlight.IsOn = searchHighlightChoice.IsChecked', 'searchColor.Flyout.ShowAt(searchColor)'):
+        if token not in windows: raise ValueError('Windows search highlight menu dispatch missing: ' + token)
+
+
+def check_all_highlight_defaults(mac, model, windows):
+    for source, marker in ((mac, 'private var appearanceSections:'), (windows, 'private void BuildAppearance(')):
+        body = source[source.index(marker):]
+        if body.index('Search highlight color') >= body.index('Button("Restore Highlight Defaults"' if source == mac else 'var restoreHighlights = new Button'):
+            raise ValueError('Restore Highlight Defaults must be below search highlighting')
+        if 'restore-highlight-defaults-menu' not in source: raise ValueError('Missing shared all-highlight restore menu')
+    if mac.count('studio.settings.restoreHighlightDefaults()') != 2: raise ValueError('Mac restore control/menu must share the all-highlight action')
+    action = model[model.index('mutating func restoreHighlightDefaults()'):model.index('mutating func restoreCaptionAppearanceDefaults()')]
+    for token in ('summarySentenceHighlightEnabled = true', 'summaryWordHighlightEnabled = true', 'searchHighlightEnabled = true', 'searchHighlightColor = ProjectSearchHighlight.defaultColor'):
+        if token not in action: raise ValueError('Mac restore omits a highlight preference: ' + token)
+    action = windows[windows.index('void RestoreHighlights()'):windows.index('restoreHighlights.Click')]
+    for key in ('summarySentenceHighlightColor', 'summaryWordHighlightColor', 'summarySentenceHighlight', 'summaryWordHighlight', 'searchHighlightEnabled', 'searchHighlightColor'):
+        if 'draft["' + key + '"] =' not in action: raise ValueError('Windows restore omits ' + key)

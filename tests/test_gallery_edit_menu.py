@@ -10,6 +10,7 @@ class GalleryEditMenu(unittest.TestCase):
         production=declaration((MAC/'VidiStudio/ProjectGridView.swift').read_text(),'struct AllProjectsActions')
         harness='''import SwiftUI
 struct OutputLanguage {}
+enum ProjectListSort {case lastOpened, name, duration, type}
 enum ProjectSourceFilter {case all, local, youtube}
 struct StudioProject {var id="one"; var folder:URL?=URL(fileURLWithPath:"/tmp/project");var integrityPlaceholder:Bool?=false;var hasGeneratedContent=true;var isYouTubeURLProject=false;var canGenerateDescriptions=true}
 @MainActor final class ConnectivityService {static let shared=ConnectivityService();enum Service {case youtube,gemini};func available(_ service:Service)->Bool {true}}
@@ -28,7 +29,7 @@ struct StudioProject {var id="one"; var folder:URL?=URL(fileURLWithPath:"/tmp/pr
 @main struct Main { @MainActor static func main() {
  let model=StudioModel();var calls=[String]()
  func actions(_ project:StudioProject?)->AllProjectsActions {
-  AllProjectsActions(studio:model,project:project,sourceFilter:.constant(.all),languageFilter:.constant("all"),search:.constant(""),perform:{calls.append($0+":"+$1.id)})
+  AllProjectsActions(studio:model,project:project,sourceFilter:.constant(.all),languageFilter:.constant("all"),search:.constant(""),projectSort:.constant(.lastOpened),perform:{calls.append($0+":"+$1.id)})
  }
  let ids=["open-gallery-window","rename-project","youtube-open-browser","project-settings","show-in-finder","open-configuration","analyze","prepare-video","transcribe","generate-summary","generate-ad-cues","export","remove-from-list","delete-content","delete-project"]
  for id in ids {precondition(!actions(nil).canRun(id)); actions(nil).run(id)}
@@ -57,9 +58,9 @@ struct StudioProject {var id="one"; var folder:URL?=URL(fileURLWithPath:"/tmp/pr
     def test_gallery_edit_wiring_on_both_desktops(self):
         mac=(MAC/'VidiStudio/KeyboardShortcuts.swift').read_text()
         win=(WIN/'Vidi Studio Windows/MainWindow.Menus.cs').read_text()
-        edit = declaration(mac[mac.index('CommandMenu("Edit")'):], 'if let allProjects')
-        self.assertEqual(__import__('re').findall(r'allProjects.run\("([^"]+)"\)', edit), ['rename-project'])
-        self.assertIn('Menu("Edit", Command("rename-project", libraryOnly: true),',win)
+        edit = mac[mac.index('CommandMenu("Edit")'):mac.index('CommandMenu("Playback")')]
+        self.assertEqual(__import__('re').findall(r'allProjects.run\("([^"]+)"\)', edit), ['focus-search', 'clear-search', 'rename-project'])
+        self.assertIn('Menu("Edit", Command("focus-search"), Command("clear-search"), Command("open-search-result"), Separator(), Command("rename-project", libraryOnly: true),',win)
         win_edit = win[win.index('Menu("Edit",'):win.index('Menu("View",')]
         self.assertEqual(__import__('re').findall(r'Command\("([^"]+)", libraryOnly: true\)',win_edit), ['rename-project'])
         mac_file = declaration(mac,'CommandGroup(after: .newItem)')

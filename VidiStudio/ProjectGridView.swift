@@ -179,8 +179,11 @@ struct AllProjectsActions {
     let projectSort: Binding<ProjectListSort>
     let perform: (String, StudioProject) -> Void
     var languageOptions: [OutputLanguage] = []
+    var focusSearch: (() -> Void)? = nil
 
     func canRun(_ action: String) -> Bool {
+        if action == "focus-search" { return focusSearch != nil }
+        if action == "clear-search" { return !search.wrappedValue.isEmpty }
         if action.hasPrefix("projects-source-") { return true }
         if action.hasPrefix("projects-sort-") { return true }
         if action == "projects-reset-filters" {
@@ -207,6 +210,8 @@ struct AllProjectsActions {
     func run(_ action: String) {
         guard canRun(action) else { return }
         switch action {
+        case "focus-search": focusSearch?()
+        case "clear-search": search.wrappedValue = ""; focusSearch?()
         case "projects-sort-opened": projectSort.wrappedValue = .lastOpened
         case "projects-sort-name": projectSort.wrappedValue = .name
         case "projects-sort-duration": projectSort.wrappedValue = .duration

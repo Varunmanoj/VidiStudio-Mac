@@ -57,6 +57,39 @@ private struct ProjectPlaybackPreferenceControls: View {
     }
 }
 
+/// Both the color swatch and its context-menu command activate this native well.
+private struct SearchHighlightColorWell: NSViewRepresentable {
+    @Binding var color: Color
+    let activationRequest: Int
+
+    final class Coordinator: NSObject {
+        var color: Binding<Color>
+        var lastActivationRequest = 0
+        init(color: Binding<Color>) { self.color = color }
+        @objc func changed(_ sender: NSColorWell) { color.wrappedValue = Color(nsColor: sender.color) }
+    }
+    func makeCoordinator() -> Coordinator { Coordinator(color: $color) }
+    func makeNSView(context: Context) -> NSColorWell {
+        let well = NSColorWell()
+        well.colorWellStyle = .minimal
+        well.isContinuous = true
+        well.target = context.coordinator
+        well.action = #selector(Coordinator.changed(_:))
+        well.setAccessibilityLabel("Search highlight color")
+        well.setAccessibilityIdentifier("search-highlight-color")
+        return well
+    }
+    func updateNSView(_ well: NSColorWell, context: Context) {
+        context.coordinator.color = $color
+        well.color = NSColor(color)
+        if context.coordinator.lastActivationRequest != activationRequest {
+            context.coordinator.lastActivationRequest = activationRequest
+            DispatchQueue.main.async { well.activate(true) }
+        }
+    }
+    static func dismantleNSView(_ well: NSColorWell, coordinator: Coordinator) { well.deactivate() }
+}
+
 struct SettingsView: View {
     @Bindable var studio: StudioModel
     @Bindable var openProjects: OpenProjectRegistry
@@ -71,6 +104,7 @@ struct SettingsView: View {
     }
     @State private var soundPreview = SettingsSoundPreview()
     @State private var shortcutReferenceExpanded = false
+    @State private var searchHighlightColorRequest = 0
     @State private var expandedPromptStages: Set<String> = []
     @State private var finderExtensionEnabled = FIFinderSyncController.isExtensionEnabled
     private var section: String { studio.settingsSection }
@@ -459,6 +493,31 @@ struct SettingsView: View {
         } header: { Text("Caption placement and preview").accessibilityAddTraits(.isHeader).accessibilityHeading(.h2) }
         summaryHighlightSection
         Section {
+            Toggle("Highlight search matches", isOn: $studio.settings.searchHighlightEnabled)
+                .accessibilityIdentifier("search-highlight")
+                .contextMenu {
+                    Toggle("Highlight search matches", isOn: $studio.settings.searchHighlightEnabled)
+                        .accessibilityIdentifier("search-highlight-menu")
+                }
+            LabeledContent("Search highlight color") {
+                SearchHighlightColorWell(color: summaryColorBinding(\.searchHighlightColor), activationRequest: searchHighlightColorRequest)
+                    .frame(width: 44, height: 24)
+                    .contextMenu {
+                        Button("Search Highlight Color…") { searchHighlightColorRequest += 1 }
+                            .accessibilityIdentifier("search-highlight-color-menu")
+                    }
+            }
+            Button("Restore Highlight Defaults", systemImage: "arrow.counterclockwise") {
+                studio.settings.restoreHighlightDefaults()
+            }
+            .accessibilityIdentifier("restore-highlight-defaults")
+            .accessibilityHint("Restores summary and search highlight switches and colors")
+            .contextMenu {
+                Button("Restore Highlight Defaults") { studio.settings.restoreHighlightDefaults() }
+                    .accessibilityIdentifier("restore-highlight-defaults-menu")
+            }
+        } header: { Text("Search highlighting").accessibilityAddTraits(.isHeader).accessibilityHeading(.h2) }
+        Section {
             Toggle("Developer mode", isOn: $studio.settings.developerMode)
                 .accessibilityHint("Shows project configuration controls, Developer prompts, and advanced tool paths")
         } header: {
@@ -488,14 +547,6 @@ struct SettingsView: View {
             ColorPicker("Spoken word highlight", selection: summaryColorBinding(\.summaryWordHighlight))
                 .accessibilityLabel("Spoken word highlight background color")
                 .accessibilityHint("Background color used for the word currently spoken in the summary")
-            Button("Restore Highlight Defaults", systemImage: "arrow.counterclockwise") {
-                studio.settings.restoreSummaryHighlightDefaults()
-            }
-            .accessibilityHint("Restores the summary text and word highlight colors")
-            .contextMenu {
-                Button("Restore Highlight Defaults") { studio.settings.restoreSummaryHighlightDefaults() }
-                    .accessibilityIdentifier("restore-summary-highlight-defaults-menu")
-            }
         } header: { Text("Summary readback").accessibilityAddTraits(.isHeader).accessibilityHeading(.h2) }
     }
 

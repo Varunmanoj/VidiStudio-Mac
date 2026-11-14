@@ -334,7 +334,7 @@ struct LanguageResultControls: View {
 
 }
 
-private struct LanguageResultReview: View {
+struct LanguageResultReview: View {
     @Bindable var studio: StudioModel
     let project: StudioProject
     let result: SavedLanguageResult
