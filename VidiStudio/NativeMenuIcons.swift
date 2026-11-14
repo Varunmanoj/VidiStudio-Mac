@@ -4,20 +4,25 @@ import AppKit
 /// AppKit 27 hides menu images unless their visibility is explicitly requested.
 @MainActor
 enum NativeMenuIcons {
+    // Setting this on insertion also covers images AppKit loads later.
+    static func requestVisibility(for item: NSMenuItem) {
+        guard !item.isSeparatorItem else { return }
+        if #available(macOS 27.0, *), item.preferredImageVisibility != .visible {
+            item.preferredImageVisibility = .visible
+        }
+    }
+
+    static func applyIcon(to item: NSMenuItem) {
+        guard !item.isSeparatorItem else { return }
+        if item.image == nil, let symbol = symbol(for: item) {
+            item.image = NSImage(systemSymbolName: symbol, accessibilityDescription: nil)
+        }
+        requestVisibility(for: item)
+    }
+
     static func apply(to menu: NSMenu, isMenuBar: Bool = false) {
         for item in menu.items where !item.isSeparatorItem {
-            if !isMenuBar {
-                if item.image == nil, let symbol = symbol(for: item) {
-                    item.image = NSImage(systemSymbolName: symbol, accessibilityDescription: nil)
-                }
-                if item.image != nil {
-                    if #available(macOS 27.0, *) {
-                        if item.preferredImageVisibility != .visible {
-                            item.preferredImageVisibility = .visible
-                        }
-                    }
-                }
-            }
+            if !isMenuBar { applyIcon(to: item) }
             // SwiftUI's native menu bridge can discard Label accessibility text.
             // Apply the saved-result icon metadata to the actual NSMenuItem.
             let prefix = "Saved result status: "
@@ -34,12 +39,7 @@ enum NativeMenuIcons {
     // those app-owned items once; never touch system commands during tracking.
     static func applyApplicationItems(to menu: NSMenu) {
         for item in menu.items where !item.isSeparatorItem {
-            if item.image == nil, let symbol = symbol(for: item) {
-                item.image = NSImage(systemSymbolName: symbol, accessibilityDescription: nil)
-            }
-            if #available(macOS 27.0, *), item.image != nil, item.preferredImageVisibility != .visible {
-                item.preferredImageVisibility = .visible
-            }
+            applyIcon(to: item)
             if let submenu = item.submenu { applyApplicationItems(to: submenu) }
         }
     }
@@ -47,6 +47,9 @@ enum NativeMenuIcons {
     private static let menuSymbols: [String: String] = [
         "AD Segment Generation": "sparkles",
         "AD Transcript Saved Results": "doc.text",
+        "VidiStudio": "macwindow",
+        "My YouTube Videos": "play.rectangle",
+        "YouTube Details": "info.circle",
         "About VidiStudio": "info.circle",
         "Add Description Segment": "plus",
         "Add Segment": "plus",
@@ -75,6 +78,7 @@ enum NativeMenuIcons {
         "Filter AD Transcript…": "line.3.horizontal.decrease.circle",
         "Filter Descriptions…": "line.3.horizontal.decrease.circle",
         "Filter Projects by Language": "translate",
+        "Project Language": "globe",
         "Filter Projects by Source": "line.3.horizontal.decrease.circle",
         "Filter Transcripts…": "line.3.horizontal.decrease.circle",
         "Full-Screen Video": "arrow.up.left.and.arrow.down.right",
@@ -279,6 +283,9 @@ enum NativeMenuIcons {
             }
             if item.title.hasPrefix("Queued for Audio") {
                 return "clock.arrow.circlepath"
+            }
+            if item.accessibilityIdentifier().hasPrefix("project-language-") || item.menu?.title == "Project Language" {
+                return "globe"
             }
             // Window-list entries are created dynamically by AppKit.
             if item.menu === NSApp.windowsMenu { return "macwindow" }

@@ -130,7 +130,7 @@ def check_single_segment_commands(mac, windows, content, commands):
     ]:
         for token in tokens:
             if token not in source: raise ValueError('Single-segment command guard missing: ' + token)
-    mac_edit = mac.split('CommandMenu("Edit")', 1)[1].split('CommandGroup(replacing: .textEditing)', 1)[0]
+    mac_edit = mac.split('CommandGroup(replacing: .pasteboard)', 1)[1].split('CommandGroup(replacing: .textEditing)', 1)[0]
     win_edit = windows.split('Menu("Edit",', 1)[1].split('Menu("View",', 1)[0]
     for action in ['edit', 'play', 'skip', 'synthesize', 'rewrite', 'import-audio', 'delete-audio', 'reanalyze']:
         command = 'segment-one-' + action

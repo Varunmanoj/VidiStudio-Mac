@@ -50,7 +50,7 @@ import SwiftUI
 @main struct Main { @MainActor static func main() {
  let app=NSApplication.shared;app.setActivationPolicy(.prohibited)
  NativeMenuIcons.shortcutSymbols = Dictionary((StudioShortcut.editor + StudioShortcut.youtube).map { ($0.title,$0.icon) },uniquingKeysWith:{ first,_ in first })
- let menu=NSMenu(); let names=["New Project…","Open Project Folder…","My YouTube Videos…","Settings…","Close","Language and Saved Results…","Show Transcript","Pause Video","Copy and Translate…","Edit Transcript Segments","Open in New Window","Rename Project…","Open in YouTube","Open Project Settings…","Open in Project Folder","Open Project Configuration","Analysis","Export…","Remove from List","Choose What to Delete…","Delete Project…"]
+ let menu=NSMenu(); let names=["Project Language","VidiStudio","My YouTube Videos","YouTube Details","New Project…","Open Project Folder…","My YouTube Videos…","Settings…","Close","Language and Saved Results…","Show Transcript","Pause Video","Copy and Translate…","Edit Transcript Segments","Open in New Window","Rename Project…","Open in YouTube","Open Project Settings…","Open in Project Folder","Open Project Configuration","Analysis","Export…","Remove from List","Choose What to Delete…","Delete Project…"]
  for name in names + (StudioShortcut.editor + StudioShortcut.youtube).map({ $0.title }) {menu.addItem(NSMenuItem(title:name,action:nil,keyEquivalent:""))}
  let system=NSMenuItem(title:"Ask Siri",action:nil,keyEquivalent:"");menu.addItem(system)
  for name in '''+json.dumps(titles,ensure_ascii=False)+''' {menu.addItem(NSMenuItem(title:name,action:nil,keyEquivalent:""))}
@@ -96,57 +96,91 @@ import SwiftUI
         content=(MAC/'VidiStudio/ContentView.swift').read_text()
         self.assertIn('shortcutActions.resultProject?.updatedAt != project.updatedAt',content)
 
-    def test_native_notification_burst_cannot_redecorate_an_open_menu(self):
-        from tests.test_contextual_menus import declaration
-        source=(MAC/'VidiStudio/VidiStudioApp.swift').read_text()
-        delegate=declaration(source,'final class VidiStudioAppDelegate:')
+    def test_app_owned_presentation_survives_native_rebuilds_without_mutating_sources(self):
         harness='''import AppKit
-struct StudioShortcut {
- let title:String;let icon:String
- static let editor:[StudioShortcut]=[];static let youtube:[StudioShortcut]=[]
+@MainActor final class Target:NSObject {
+ var calls=0
+ @objc func search(_ sender:Any?) {calls+=1}
 }
-@MainActor enum NativeMenuIcons {
- static var shortcutSymbols:[String:String]=[:]
- static var calls=0
- static func applyApplicationItems(to menu:NSMenu) {}
- static func apply(to menu:NSMenu,isMenuBar:Bool=false) {
-  calls+=1
-  NotificationCenter.default.post(name:NSMenu.didChangeItemNotification,object:menu)
- }
-}
-@MainActor
-'''+delegate+'''
 @main struct Main { @MainActor static func main() {
  let app=NSApplication.shared;app.setActivationPolicy(.prohibited)
- let root=NSMenu();let top=NSMenuItem(title:"Edit",action:nil,keyEquivalent:"");let edit=NSMenu(title:"Edit");top.submenu=edit;root.addItem(top);app.mainMenu=root
- edit.addItem(NSMenuItem(title:"Copy",action:NSSelectorFromString("copy:"),keyEquivalent:"c"))
- let autofill=NSMenuItem(title:"AutoFill",action:nil,keyEquivalent:"");autofill.submenu=NSMenu();edit.addItem(autofill)
- edit.addItem(NSMenuItem(title:"Start Dictation",action:NSSelectorFromString("startDictation:"),keyEquivalent:""))
- edit.addItem(NSMenuItem(title:"Copy and Translate…",action:NSSelectorFromString("privateSwiftUIBridgeAction:"),keyEquivalent:""))
- edit.addItem(NSMenuItem(title:"Edit Transcript Segments",action:nil,keyEquivalent:""))
- let delegate=VidiStudioAppDelegate()
- func drain() { RunLoop.main.run(until:Date().addingTimeInterval(0.05)) }
- delegate.applicationDidFinishLaunching(Notification(name:NSApplication.didFinishLaunchingNotification))
- drain();let baseline=NativeMenuIcons.calls
- precondition(baseline==1,"Decoration must not recursively schedule itself")
- precondition(edit.items.map { $0.title }==["Copy and Translate…","Edit Transcript Segments"],"Edit must retain app actions while removing native clipboard, AutoFill and Dictation")
- for _ in 0..<100 {NotificationCenter.default.post(name:NSMenu.didChangeItemNotification,object:edit)}
- drain();precondition(NativeMenuIcons.calls==baseline+1,"Closed-menu bursts must coalesce")
- let beforeOpening=NativeMenuIcons.calls
- NotificationCenter.default.post(name:NSMenu.didBeginTrackingNotification,object:root)
- let opened=NativeMenuIcons.calls
- precondition(opened==beforeOpening,"Beginning menu tracking must not decorate the root menu bar")
- for _ in 0..<100 {NotificationCenter.default.post(name:NSMenu.didChangeItemNotification,object:edit)}
- drain();precondition(NativeMenuIcons.calls==opened,"An open menu must not be repainted asynchronously")
- NotificationCenter.default.post(name:NSMenu.didEndTrackingNotification,object:root)
- drain();precondition(NativeMenuIcons.calls==opened+1,"Closing must flush one deferred decoration pass")
- delegate.applicationWillTerminate(Notification(name:NSApplication.willTerminateNotification))
- print("PASS: 100 changes coalesce while closed, 100 changes cause no repaint while tracking, own changes do not recurse")
+ let model=NSMenu();let target=Target()
+ func branch(_ title:String,_ items:[NSMenuItem])->NSMenuItem {
+  let top=NSMenuItem(title:title,action:nil,keyEquivalent:"");let menu=NSMenu(title:title)
+  menu.autoenablesItems=false;menu.items=items;top.submenu=menu;return top
+ }
+ let search=NSMenuItem(title:"Search Project…",action:#selector(Target.search(_:)),keyEquivalent:"f");search.target=target
+ let clear=NSMenuItem(title:"Clear Search",action:#selector(Target.search(_:)),keyEquivalent:"");clear.target=target;clear.isEnabled=false
+ let custom=branch("Edit",[search,.separator(),clear]);let sourceEdit=custom.submenu!
+ let generated=branch("Edit",[NSMenuItem(title:"Copy",action:nil,keyEquivalent:"c")])
+ let format=branch("Format",[NSMenuItem(title:"Font",action:nil,keyEquivalent:"")])
+ let file=branch("File",[]);let view=branch("View",[])
+ model.items=[file,custom,generated,format,view];app.mainMenu=model
+ // Simulate SwiftUI creating brand-new rows when the user actually opens File.
+ final class Rebuild:NSObject,NSMenuDelegate {
+  func menuNeedsUpdate(_ menu:NSMenu) {
+   menu.items=["New Project…","Export…","Close"].map {NSMenuItem(title:$0,action:nil,keyEquivalent:"")}
+  }
+ }
+ let rebuild=Rebuild();file.submenu!.delegate=rebuild
+ let controller=AppMenuController();controller.start()
+ file.submenu!.delegate?.menuNeedsUpdate?(file.submenu!)
+ precondition(file.submenu!.items.map{$0.title}==["New Project…","Export…","Close"])
+ for item in file.submenu!.items {
+  precondition(item.image != nil,"Opening-time rebuild lost icon for "+item.title)
+  if #available(macOS 27.0,*) {precondition(item.preferredImageVisibility == .visible)}
+ }
+ func drain(){RunLoop.main.run(until:Date().addingTimeInterval(0.04))}
+ let visible=app.mainMenu! // no run-loop drain before the initial layout check
+ precondition(visible === model,"SwiftUI must retain main-menu ownership for focused scene values")
+ precondition(visible.items.map{$0.title}==["File","Edit","View"])
+ precondition(sourceEdit.items.count==3 && search.menu===sourceEdit,"Never modify source command models")
+ let edit=visible.items[1].submenu!;let top=visible.items[1]
+ precondition(top===custom && edit===sourceEdit,"Keep focused native command ownership")
+ precondition(edit.items.map{$0.title}==["Search Project…","","Clear Search"])
+ precondition(edit.items[0].keyEquivalent=="f" && !edit.items[2].isEnabled)
+ edit.performActionForItem(at:0);precondition(target.calls==1,"Forward guarded native actions")
+ let late=NSMenuItem(title:"Export…",action:nil,keyEquivalent:"")
+ NotificationCenter.default.post(name:NSMenu.didBeginTrackingNotification,object:file.submenu!)
+ file.submenu!.addItem(late)
+ if #available(macOS 27.0,*) {precondition(late.preferredImageVisibility == .visible,"New items must request icons before the run loop drains")}
+ late.image=NSImage(systemSymbolName:"square.and.arrow.up",accessibilityDescription:nil)
+ if #available(macOS 27.0,*) {precondition(late.preferredImageVisibility == .visible)}
+ NotificationCenter.default.post(name:NSMenu.didEndTrackingNotification,object:file.submenu!)
+ let originalItems=sourceEdit.items
+ for _ in 0..<100 {NotificationCenter.default.post(name:NSMenu.didChangeItemNotification,object:sourceEdit)}
+ drain();precondition(app.mainMenu===visible && visible.items[1]===top,"Stable menu bar identity")
+ precondition(sourceEdit.items.elementsEqual(originalItems,by:{$0===$1}))
+ NotificationCenter.default.post(name:NSMenu.didBeginTrackingNotification,object:edit)
+ for _ in 0..<50 { NotificationCenter.default.post(name:NSMenu.didChangeItemNotification,object:sourceEdit) }
+ drain();precondition(edit.items.elementsEqual(originalItems,by:{$0===$1}),"Never repaint a tracking menu")
+ NotificationCenter.default.post(name:NSMenu.didEndTrackingNotification,object:edit);drain()
+ sourceEdit.removeItem(search)
+ let replacement=NSMenu();replacement.items=[branch("File",[]),branch("Edit",[search]),branch("Format",[]),branch("View",[])]
+ app.mainMenu=replacement
+ precondition(app.mainMenu===replacement,"Never reenter AppKit during its main-menu setter")
+ drain();precondition(app.mainMenu===replacement && replacement.items.map{$0.title}==["File","Edit","View"])
+ let currentEdit=replacement.items[1].submenu!
+ precondition(currentEdit !== edit && search.menu===currentEdit)
+ let emoji=NSMenuItem(title:"Emoji & Symbols",action:nil,keyEquivalent:"")
+ search.menu!.addItem(emoji)
+ precondition(emoji.menu === currentEdit && !emoji.isHidden, "Never mutate AppKit's backing view during insertion")
+ drain()
+ precondition(emoji.menu == nil, "Filter late commands after native insertion finishes")
+ currentEdit.delegate?.menuNeedsUpdate?(currentEdit)
+ precondition(currentEdit.items.map{$0.title}==["Search Project…"],"Native additions must never appear in the open Edit menu")
+ let focusedSearch=NSMenuItem(title:"Search Projects…",action:#selector(Target.search(_:)),keyEquivalent:"f");focusedSearch.target=target
+ replacement.items=[branch("File",[]),branch("Edit",[focusedSearch]),branch("Format",[]),branch("View",[])]
+ drain();precondition(app.mainMenu===replacement && replacement.items.map{$0.title}==["File","Edit","View"])
+ precondition(replacement.items[1].submenu!.items[0].title=="Search Projects…", "In-place focus updates must refresh the current command model")
+ replacement.items[1].submenu!.performActionForItem(at:0);precondition(target.calls==2)
+ controller.stop()
+ print("PASS: custom Edit remains stable through 100 notifications, 50 open-menu model rebuilds and root replacement; source ownership and actions stay intact")
 } }
 '''
         with tempfile.TemporaryDirectory() as folder:
             path=Path(folder);(path/'Main.swift').write_text(harness)
-            result=subprocess.run(['xcrun','swiftc','-parse-as-library',str(path/'Main.swift'),'-o',str(path/'check')],capture_output=True,text=True)
+            result=subprocess.run(['xcrun','swiftc','-parse-as-library',str(MAC/'VidiStudio/AppMenuController.swift'),str(MAC/'VidiStudio/NativeMenuIcons.swift'),str(path/'Main.swift'),'-o',str(path/'check')],capture_output=True,text=True)
             self.assertEqual(result.returncode,0,result.stdout+result.stderr)
             result=subprocess.run([str(path/'check')],capture_output=True,text=True)
             self.assertEqual(result.returncode,0,result.stdout+result.stderr)
@@ -154,11 +188,13 @@ struct StudioShortcut {
     def test_edit_group_replaces_native_defaults_and_routes_text_shortcuts(self):
         commands=(MAC/'VidiStudio/KeyboardShortcuts.swift').read_text()
         app=(MAC/'VidiStudio/VidiStudioApp.swift').read_text()
-        self.assertIn('CommandMenu("Edit") {',commands)
-        self.assertIn('CommandGroup(replacing: .textFormatting) { }',commands)
+        self.assertIn('CommandGroup(replacing: .pasteboard) {',commands)
+        self.assertNotIn('CommandMenu("Edit")',commands)
+        self.assertEqual(commands.count('CommandGroup(replacing: .pasteboard)'),1)
+        self.assertNotIn('CommandGroup(replacing: .textFormatting)',commands)
         self.assertIn('CommandGroup(replacing: .pasteboard)',commands)
         self.assertIn('CommandGroup(replacing: .undoRedo) { }',commands)
-        self.assertIn('self.removeSystemEditCommands()',app)
-        self.assertIn('systemTitles.contains(item.title)',app)
+        self.assertIn('private let menus = AppMenuController()',app)
+        self.assertIn('menus.start()',app)
         self.assertIn('let actions = ["x": "cut:", "c": "copy:", "v": "paste:", "a": "selectAll:"]',app)
         self.assertIn('text.undoManager',app)

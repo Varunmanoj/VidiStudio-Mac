@@ -1,6 +1,63 @@
 import SwiftUI
 import AppKit
 
+@MainActor
+enum AppWindowLifetime {
+    private static let mainWindows = NSHashTable<NSWindow>.weakObjects()
+    private static weak var settingsWindow: NSWindow?
+    private static var closeObserver: NSObjectProtocol?
+
+    static func registerMainWindow(_ window: NSWindow) {
+        observeClosing()
+        mainWindows.add(window)
+    }
+
+    static func registerSettingsWindow(_ window: NSWindow) {
+        observeClosing()
+        settingsWindow = window
+        closeOrphanedSettings()
+    }
+
+    private static func observeClosing() {
+        guard closeObserver == nil else { return }
+        closeObserver = NotificationCenter.default.addObserver(forName: NSWindow.willCloseNotification, object: nil, queue: .main) { notification in
+            MainActor.assumeIsolated {
+                guard let window = notification.object as? NSWindow else { return }
+                if window === settingsWindow { settingsWindow = nil }
+                guard mainWindows.contains(window) else { return }
+                mainWindows.remove(window)
+                closeOrphanedSettings()
+            }
+        }
+    }
+
+    private static func closeOrphanedSettings() {
+        // Allow an opening replacement window to register in this event cycle.
+        DispatchQueue.main.async {
+            guard mainWindows.allObjects.isEmpty else { return }
+            settingsWindow?.close()
+        }
+    }
+}
+
+struct MainWindowLifetime: NSViewRepresentable {
+    func makeNSView(context: Context) -> LifetimeView { LifetimeView() }
+    func updateNSView(_ view: LifetimeView, context: Context) { }
+    final class LifetimeView: NSView {
+        override func viewDidMoveToWindow() {
+            super.viewDidMoveToWindow()
+            NotificationCenter.default.removeObserver(self, name: NSWindow.didBecomeKeyNotification, object: nil)
+            if let window {
+                AppWindowLifetime.registerMainWindow(window)
+                NotificationCenter.default.addObserver(self, selector: #selector(windowBecameKey), name: NSWindow.didBecomeKeyNotification, object: window)
+            }
+        }
+        @objc private func windowBecameKey(_ notification: Notification) {
+            if let window { AppWindowLifetime.registerMainWindow(window) }
+        }
+    }
+}
+
 /// Settings scenes retain a preferences-window toolbar style unless configured on their NSWindow.
 struct SettingsWindowChrome: NSViewRepresentable {
     func makeNSView(context: Context) -> ChromeView { ChromeView() }
@@ -10,11 +67,13 @@ struct SettingsWindowChrome: NSViewRepresentable {
             super.viewDidMoveToWindow()
             NotificationCenter.default.removeObserver(self, name: NSWindow.didBecomeKeyNotification, object: nil)
             if let window {
+                AppWindowLifetime.registerSettingsWindow(window)
                 NotificationCenter.default.addObserver(self, selector: #selector(windowBecameKey), name: NSWindow.didBecomeKeyNotification, object: window)
             }
             configure(fitToScreen: true)
         }
         @objc private func windowBecameKey(_ notification: Notification) {
+            if let window { AppWindowLifetime.registerSettingsWindow(window) }
             configure(fitToScreen: true)
         }
         func configure(fitToScreen: Bool = false) {

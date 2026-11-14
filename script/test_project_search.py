@@ -43,10 +43,22 @@ for (prefix,section) in [(" Tr : ","transcript"),("SuM:","summary"),("DES:","des
  search.text=prefix;precondition(search.groups.isEmpty && !search.query.applies(to:section))
 }
 precondition(ProjectSearchQuery("café").matches("CAFE\u{301}"))
+for (prefix, section) in [(" Tr ", "transcript"), ("sUm", "summary"), ("DES", "descriptions"), ("AdT", "ad-transcript")] {
+ for value in [prefix, prefix.trimmingCharacters(in: .whitespaces)+":"] {
+  search.text=value;precondition(search.query.section==section && search.query.term.isEmpty && search.groups.isEmpty)
+ }
+}
+for word in ["transfer", "summary", "describe", "adventure", "sum total", "tr beacon"] {precondition(ProjectSearchQuery(word).section==nil)}
 let unicodeText="🎬 CAFE\u{301} and café."
 precondition(ProjectSearchQuery("café").matchingRanges(in:unicodeText).map {NSRange($0,in:unicodeText)} == [NSRange(location:3,length:5),NSRange(location:13,length:4)])
 precondition(ProjectSearchQuery("Tr:beacon").matchingRanges(in:"Beacon beacon BEACON").count==3)
 precondition(ProjectSearchQuery("").matchingRanges(in:"Beacon").isEmpty)
+precondition(SearchResultStatus.editor(query:ProjectSearchQuery("beacon"),section:"transcript",count:2)=="2 search results in Transcript.")
+precondition(SearchResultStatus.editor(query:ProjectSearchQuery("beacon"),section:"summary",count:1)=="1 search result in Summary.")
+precondition(SearchResultStatus.editor(query:ProjectSearchQuery("beacon"),section:"descriptions",count:0)=="No search results in Descriptions.")
+precondition(SearchResultStatus.editor(query:ProjectSearchQuery(""),section:"ad-transcript",count:0)=="Search cleared. All AD Transcript content shown.")
+precondition(SearchResultStatus.gallery(query:"beacon",count:0)=="No projects found.")
+precondition(SearchResultStatus.gallery(query:"",count:1)=="Search cleared. 1 project shown.")
 let plain="Beacon beacon BEACON"
 let highlighted=ProjectSearchHighlight.text(plain,query:ProjectSearchQuery("Tr:beacon"),enabled:true,color:"#102040")
 precondition(String(highlighted.characters)==plain && highlighted.runs.filter{$0.backgroundColor != nil}.count==3)
@@ -84,10 +96,18 @@ Check(summary.Any(h=>h.Text=="Beacon arrives.") && !summary.Any(h=>h.Text.Contai
 var all=new[]{"transcript","summary","descriptions","ad-transcript"}.SelectMany(s=>search.Search(ProjectSearchQuery.Parse("beacon"),s)).SelectMany(g=>g.Hits).ToList();Check(all.Select(h=>h.Id).Distinct().Count()==all.Count);
 foreach(var pair in new[]{(" Tr : ","transcript"),("SuM:","summary"),("DES:","descriptions"),("adt :","ad-transcript")}) {var q=ProjectSearchQuery.Parse(pair.Item1+"Beacon");Check(q.Section==pair.Item2 && q.Applies(pair.Item2));Check(!ProjectSearchQuery.Parse(pair.Item1).Applies(pair.Item2));}
 Check(ProjectSearchQuery.Parse("café").Matches("CAFE\u0301"));
+foreach(var pair in new[]{(" Tr ","transcript"),("sUm","summary"),("DES","descriptions"),("AdT","ad-transcript")})
+ foreach(var value in new[]{pair.Item1,pair.Item1.Trim()+":"}) {var q=ProjectSearchQuery.Parse(value);Check(q.Section==pair.Item2 && q.Term=="" && !q.Applies(pair.Item2));}
+foreach(var word in new[]{"transfer","summary","describe","adventure","sum total","tr beacon"}) Check(ProjectSearchQuery.Parse(word).Section==null);
 var unicodeRanges=ProjectSearchQuery.Parse("café").MatchingRanges("🎬 CAFE\u0301 and café.");
 Check(unicodeRanges.SequenceEqual(new[]{(3,5),(13,4)}),"Original UTF-16 highlight offsets");
 Check(ProjectSearchQuery.Parse("Tr:beacon").MatchingRanges("Beacon beacon BEACON").Count==3);
 Check(ProjectSearchQuery.Parse("").MatchingRanges("Beacon").Count==0);Check(ProjectSearchQuery.Parse("foo: beacon").Section==null);
+Check(SearchResultStatus.Editor(ProjectSearchQuery.Parse("beacon"),"transcript",2)=="2 search results in Transcript.");
+Check(SearchResultStatus.Editor(ProjectSearchQuery.Parse("beacon"),"summary",1)=="1 search result in Summary.");
+Check(SearchResultStatus.Editor(ProjectSearchQuery.Parse("beacon"),"descriptions",0)=="No search results in Descriptions.");
+Check(SearchResultStatus.Editor(ProjectSearchQuery.Parse(""),"ad-transcript",0)=="Search cleared. All AD Transcript content shown.");
+Check(SearchResultStatus.Gallery("beacon",0)=="No projects found.");Check(SearchResultStatus.Gallery("",1)=="Search cleared. 1 project shown.");
 Check(JsonSerializer.Serialize(project,Json.Options)==before,"Searching changed the project");
 project.SelectedLanguage="hi";search.Update(project);Check(search.Search(ProjectSearchQuery.Parse("beacon"),"transcript").Sum(g=>g.Hits.Count)==1);
 Check(search.Search(ProjectSearchQuery.Parse(""),"summary").Count==0 && search.Search(ProjectSearchQuery.Parse("absent"),"summary").Count==0);

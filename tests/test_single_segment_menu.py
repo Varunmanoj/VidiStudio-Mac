@@ -73,7 +73,7 @@ static void Main() {
     def test_shared_context_dispatch_and_bulk_delete_edit_menu_contract(self):
         mac=(MAC/'VidiStudio/KeyboardShortcuts.swift').read_text();content=(MAC/'VidiStudio/ContentView.swift').read_text()
         win=(WIN/'Vidi Studio Windows/MainWindow.Menus.cs').read_text();commands=(WIN/'Vidi Studio Windows/MainWindow.Commands.cs').read_text()
-        mac_edit=mac.split('CommandMenu("Edit")',1)[1].split('CommandGroup(replacing: .textEditing)',1)[0]
+        mac_edit=mac.split('CommandGroup(replacing: .pasteboard)',1)[1].split('CommandGroup(replacing: .textEditing)',1)[0]
         win_edit=win.split('Menu("Edit",',1)[1].split('Menu("View",',1)[0]
         self.assertIn('editor?.run("segment-delete-selected")',mac_edit);self.assertIn('Command("segment-delete-selected")',win_edit)
         for text in [mac_edit,win_edit]:self.assertNotIn('"segment-one-delete"',text)

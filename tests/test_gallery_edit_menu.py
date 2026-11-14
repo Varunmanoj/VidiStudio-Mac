@@ -58,7 +58,7 @@ struct StudioProject {var id="one"; var folder:URL?=URL(fileURLWithPath:"/tmp/pr
     def test_gallery_edit_wiring_on_both_desktops(self):
         mac=(MAC/'VidiStudio/KeyboardShortcuts.swift').read_text()
         win=(WIN/'Vidi Studio Windows/MainWindow.Menus.cs').read_text()
-        edit = mac[mac.index('CommandMenu("Edit")'):mac.index('CommandMenu("Playback")')]
+        edit = mac[mac.index('CommandGroup(replacing: .pasteboard)'):mac.index('CommandMenu("Playback")')]
         self.assertEqual(__import__('re').findall(r'allProjects.run\("([^"]+)"\)', edit), ['focus-search', 'clear-search', 'rename-project'])
         self.assertIn('Menu("Edit", Command("focus-search"), Command("clear-search"), Command("open-search-result"), Separator(), Command("rename-project", libraryOnly: true),',win)
         win_edit = win[win.index('Menu("Edit",'):win.index('Menu("View",')]

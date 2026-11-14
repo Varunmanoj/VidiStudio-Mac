@@ -507,6 +507,16 @@ struct SettingsView: View {
                             .accessibilityIdentifier("search-highlight-color-menu")
                     }
             }
+            Text(ProjectSearchHighlight.text("A person enters the room. The person opens the door.",
+                                             query: ProjectSearchQuery("person"),
+                                             enabled: studio.settings.searchHighlightEnabled,
+                                             color: studio.settings.searchHighlightColor))
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .padding(12)
+                .background(.quaternary.opacity(0.5), in: RoundedRectangle(cornerRadius: 8))
+                .accessibilityLabel("Search highlight preview")
+                .accessibilityValue("A person enters the room. The person opens the door.")
+                .accessibilityIdentifier("search-highlight-preview")
             Button("Restore Highlight Defaults", systemImage: "arrow.counterclockwise") {
                 studio.settings.restoreHighlightDefaults()
             }

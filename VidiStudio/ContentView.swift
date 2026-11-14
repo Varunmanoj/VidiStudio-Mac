@@ -3627,6 +3627,10 @@ struct ProjectEditor: View {
 
     var body: some View {
         editorWithShortcutUpdates
+        .background(SearchResultAnnouncements(query: search.text,
+            status: SearchResultStatus.editor(query: search.query, section: tab,
+                count: (search.groups[tab] ?? []).reduce(0) { $0 + $1.hits.count }))
+            .frame(width: 0, height: 0))
         .disabled(validationShowcaseActive)
         .overlay(alignment: .bottom) {
             if validationShowcaseActive {

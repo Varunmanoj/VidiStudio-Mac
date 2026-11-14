@@ -1,4 +1,38 @@
 import SwiftUI
+import AppKit
+
+@MainActor
+final class SearchAnnouncementDebouncer {
+    private var lastQuery: String?
+    private var lastStatus = ""
+    private var pending: DispatchWorkItem?
+    func update(query: String, status: String, perform: @escaping (String) -> Void) {
+        guard query != lastQuery || status != lastStatus else { return }
+        let previous = lastQuery
+        lastQuery = query; lastStatus = status
+        cancel()
+        guard !query.isEmpty || previous?.isEmpty == false else { return }
+        let work = DispatchWorkItem { perform(status) }
+        pending = work
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.35, execute: work)
+    }
+    func cancel() { pending?.cancel(); pending = nil }
+}
+
+struct SearchResultAnnouncements: NSViewRepresentable {
+    let query: String
+    let status: String
+    func makeNSView(context: Context) -> AnnouncementView { AnnouncementView() }
+    func updateNSView(_ view: AnnouncementView, context: Context) {
+        view.debouncer.update(query: query, status: status) { [weak view] message in
+            guard let window = view?.window, window.isKeyWindow, NSApp.isActive else { return }
+            NSAccessibility.post(element: window, notification: .announcementRequested,
+                userInfo: [.announcement: message, .priority: NSAccessibilityPriorityLevel.medium.rawValue])
+        }
+    }
+    static func dismantleNSView(_ view: AnnouncementView, coordinator: ()) { view.debouncer.cancel() }
+    final class AnnouncementView: NSView { let debouncer = SearchAnnouncementDebouncer() }
+}
 
 enum ProjectSearchHighlight {
     static let defaultColor = "#FFD60A"

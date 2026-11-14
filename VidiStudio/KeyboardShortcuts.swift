@@ -545,9 +545,9 @@ struct StudioCommands: Commands {
     @ViewBuilder private func libraryLanguageMenu() -> some View {
         Menu("Filter Projects by Language", systemImage: "translate") {
             if let allProjects {
-                Toggle("All Languages", isOn: Binding(get: { allProjects.languageFilter.wrappedValue == "all" }, set: { if $0 { allProjects.languageFilter.wrappedValue = "all" } }))
+                Toggle("All Languages", systemImage: "globe", isOn: Binding(get: { allProjects.languageFilter.wrappedValue == "all" }, set: { if $0 { allProjects.languageFilter.wrappedValue = "all" } }))
                 ForEach(allProjects.languageOptions) { language in
-                    Toggle(language.title, isOn: Binding(get: { allProjects.languageFilter.wrappedValue == language.id }, set: { if $0, allProjects.languageOptions.contains(language) { allProjects.languageFilter.wrappedValue = language.id } }))
+                    Toggle(language.title, systemImage: "globe", isOn: Binding(get: { allProjects.languageFilter.wrappedValue == language.id }, set: { if $0, allProjects.languageOptions.contains(language) { allProjects.languageFilter.wrappedValue = language.id } }))
                 }
             }
         }.accessibilityIdentifier("projects-language-filter")
@@ -732,8 +732,7 @@ struct StudioCommands: Commands {
                 openSettings()
             }
         }
-        CommandGroup(replacing: .pasteboard) { }
-        CommandMenu("Edit") {
+        CommandGroup(replacing: .pasteboard) {
             let editor = self.editor
             let allProjects = self.allProjects
             Button(allProjects != nil ? "Search Projects…" : "Search Project…", systemImage: "magnifyingglass") {
@@ -826,8 +825,6 @@ struct StudioCommands: Commands {
         }
         CommandGroup(replacing: .undoRedo) { }
         CommandGroup(replacing: .textEditing) { }
-        CommandGroup(replacing: .textFormatting) { }
-        CommandGroup(replacing: .textFormatting) { }
         if allProjects == nil {
             CommandMenu("Playback") {
                 if editor?.isCommandVisible("segment-one-preview") == true {

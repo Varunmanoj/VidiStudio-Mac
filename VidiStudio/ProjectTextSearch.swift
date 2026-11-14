@@ -7,7 +7,7 @@ struct ProjectSearchQuery: Equatable {
 
     init(_ text: String) {
         let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
-        let pattern = #"^(tr|sum|des|adt)\s*:\s*"#
+        let pattern = #"^(tr|sum|des|adt)(?:\s*:\s*|$)"#
         if let range = trimmed.range(of: pattern, options: [.regularExpression, .caseInsensitive]) {
             let prefix = trimmed[range].split(separator: ":", maxSplits: 1)[0].trimmingCharacters(in: .whitespaces).lowercased()
             section = ["tr": "transcript", "sum": "summary", "des": "descriptions", "adt": "ad-transcript"][prefix]
@@ -51,6 +51,25 @@ struct ProjectSearchHit: Identifiable {
     let start: Double?
     let end: Double?
     let importedCombined: Bool
+}
+
+enum SearchResultStatus {
+    static func sectionName(_ section: String) -> String {
+        ["transcript": "Transcript", "summary": "Summary", "descriptions": "Descriptions", "ad-transcript": "AD Transcript", "ad-overview": "AD Overview"][section] ?? section
+    }
+    static func editor(query: ProjectSearchQuery, section: String, count: Int) -> String {
+        let title = sectionName(section)
+        if query.term.isEmpty {
+            return query.section == nil ? "Search cleared. All \(title) content shown." : "\(sectionName(query.section!)). All content shown."
+        }
+        if let scope = query.section, scope != section { return "\(title). Search is limited to \(sectionName(scope))." }
+        if section == "ad-overview" { return "AD Overview. Search is available in the four text tabs." }
+        return count == 0 ? "No search results in \(title)." : "\(count) search \(count == 1 ? "result" : "results") in \(title)."
+    }
+    static func gallery(query: String, count: Int) -> String {
+        let countText = count == 0 ? "No projects found." : "\(count) \(count == 1 ? "project" : "projects") shown."
+        return query.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? "Search cleared. \(countText)" : countText
+    }
 }
 
 struct ProjectSearchGroup: Identifiable {

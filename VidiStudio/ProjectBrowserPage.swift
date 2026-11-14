@@ -303,6 +303,8 @@ struct ProjectBrowserPage: View {
         }
         .navigationTitle("All Projects")
         .searchable(text: $search, placement: .toolbar, prompt: "Search projects")
+        .background(SearchResultAnnouncements(query: search,
+            status: SearchResultStatus.gallery(query: search, count: filteredProjects.count)).frame(width: 0, height: 0))
         .searchFocused($searchFocused)
         .toolbar {
             ToolbarItemGroup(placement: .primaryAction) {
