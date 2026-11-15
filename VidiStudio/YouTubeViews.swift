@@ -60,14 +60,25 @@ private struct YouTubeLoadingIndicator: View {
                     Button("Sign Out") { service.signOut(connection.id) }.disabled(service.signingIn)
                     Button("Disconnect Google Account…") { disconnecting = connection }.disabled(service.signingIn)
                 }
+                .contextMenu {
+                    Button("Switch Account") { service.selectedID = connection.id }.disabled(service.selectedID == connection.id || service.signingIn)
+                    Button("Sign Out") { service.signOut(connection.id) }.disabled(service.signingIn)
+                    Button("Disconnect Google Account…") { disconnecting = connection }.disabled(service.signingIn)
+                }
             }
             HStack {
                 Button("Add Account") { task = Task { do { try await service.signIn() } catch is CancellationError {} catch { self.error = error.localizedDescription } } }.disabled(service.signingIn)
                 if service.signingIn { ProgressView("Waiting for Google sign-in"); Button("Cancel Sign-in") { task?.cancel() } }
             }
+            .contextMenu {
+                Button("Add Account") { task = Task { do { try await service.signIn() } catch is CancellationError {} catch { self.error = error.localizedDescription } } }.disabled(service.signingIn)
+                Button("Cancel Sign-in") { task?.cancel() }.disabled(!service.signingIn)
+            }
             if let error { Text(error).foregroundStyle(.red).accessibilityAddTraits(.isStaticText) }
             Link("Manage Google account access", destination: URL(string: "https://myaccount.google.com/connections")!)
+                .contextMenu { Button("Manage Google account access") { NSWorkspace.shared.open(URL(string: "https://myaccount.google.com/connections")!) } }
             Link("YouTube Terms of Service", destination: URL(string: "https://www.youtube.com/t/terms")!)
+                .contextMenu { Button("YouTube Terms of Service") { NSWorkspace.shared.open(URL(string: "https://www.youtube.com/t/terms")!) } }
         }
         .padding()
         .confirmationDialog("Disconnect this Google account?", isPresented: Binding(get: { disconnecting != nil }, set: { if !$0 { disconnecting = nil } }), titleVisibility: .visible) {
@@ -83,7 +94,7 @@ private struct YouTubeLoadingIndicator: View {
 @MainActor struct YouTubeBrowserView: View {
     @Bindable var studio: StudioModel
     @Environment(\.openWindow) private var openWindow
-    @Environment(\.dismiss) private var dismiss
+    @Environment(\.dismissWindow) private var dismissWindow
     @State private var service = YouTubeService.shared
     @State private var videos: [YouTubeVideo] = []
     @State private var playlists: [YouTubePlaylist] = []
@@ -130,7 +141,7 @@ private struct YouTubeLoadingIndicator: View {
                 }
                 Button("YouTube Accounts…") { showingAccounts = true }
                 Button("Refresh") { reload() }.disabled(service.selected == nil || loading)
-                Button("Done") { dismiss() }
+                Button("Done") { dismissWindow(id: "youtube-browser") }.keyboardShortcut(.cancelAction)
             }
             if let connection = service.selected {
                 Text("\(connection.email) · YouTube channel: \(connection.channelName)").foregroundStyle(.secondary)

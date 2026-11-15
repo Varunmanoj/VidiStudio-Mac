@@ -25,6 +25,13 @@ def _policy(source, swift):
 
 
 def check_contextual_menus(mac, windows):
+    browser_entries = re.findall(r'if allProjects != nil\s*{\s*Button\("My YouTube Videos…"', mac)
+    if len(browser_entries) != 2:
+        raise ValueError('My YouTube Videos must be scoped to All Projects in both Mac menus')
+    for token in ['if (id == "youtube-browser") return !desktopEditorVisible && youtubeBrowserCanRun == null;',
+                  '"analyze" or "youtube-browser" => false,']:
+        if token not in windows: raise ValueError('Windows YouTube browser scope missing: ' + token)
+
     for token in ['allProjects.projectSort.wrappedValue == .lastOpened',
                   'allProjects.projectSort.wrappedValue == .name',
                   'allProjects.projectSort.wrappedValue == .duration',

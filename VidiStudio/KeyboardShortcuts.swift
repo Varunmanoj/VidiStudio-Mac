@@ -250,7 +250,7 @@ final class EditorShortcutActions {
         if action.hasPrefix("segment-one-") { return segmentEditMode && rowCommandVisible(action, kind: selectedSegmentKind) && (action != "segment-one-preview-stop" || selectedSegmentPreviewing) }
         if action.hasPrefix("summary-") { return activeSection == "summary" }
         switch action {
-        case "analyze": return false // Full-project analysis belongs to All Projects.
+        case "analyze", "youtube-browser": return false // These commands belong to All Projects.
         case "transcribe", "import-transcript", "delete-transcript": return activeSection == "transcript"
         case "generate-summary", "import-summary", "delete-summary": return activeSection == "summary"
         case "generate-ad-cues", "import-descriptions", "delete-descriptions": return activeSection == "descriptions"
@@ -596,7 +596,7 @@ struct StudioCommands: Commands {
                     .disabled(!allProjects.canRun("open-gallery-window"))
                 Divider()
             }
-            if youtubeMenusVisible {
+            if allProjects != nil {
                 Button("My YouTube Videos…", systemImage: "play.rectangle") { studio.runYouTube("youtube-browser"); openWindow(id: "youtube-browser") }.keyboardShortcut("y", modifiers: [.command, .option]).disabled(studio.busy)
             }
             if youtubeMenusVisible && (youtubeBrowser != nil || browser?.canRun("youtube-open-browser") == true) {
@@ -1033,7 +1033,9 @@ struct StudioCommands: Commands {
         }
         if youtubeMenusVisible {
             CommandMenu("YouTube") {
+                if allProjects != nil {
                 Button("My YouTube Videos…", systemImage: "play.rectangle") { studio.runYouTube("youtube-browser"); openWindow(id: "youtube-browser") }.keyboardShortcut("y", modifiers: [.command, .option]).disabled(studio.busy)
+                }
                 Button("YouTube Accounts…", systemImage: "person.crop.circle") { youtubeBrowser?.run("youtube-accounts"); if youtubeBrowser == nil { SettingsSectionRequest.request("YouTube Accounts"); openSettings() } }
                     .keyboardShortcut("y", modifiers: [.command, .option, .shift])
                 if allProjects == nil {

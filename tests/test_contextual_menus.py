@@ -1,5 +1,6 @@
 """Exercise tab/source isolation in the production desktop command policies."""
 import json
+import os
 from pathlib import Path
 import shutil
 import subprocess
@@ -8,8 +9,9 @@ import tempfile
 import unittest
 
 ROOT = Path(__file__).resolve().parents[1]
-MAC = ROOT if (ROOT / 'VidiStudio').exists() else ROOT.parent / 'VidiStudio Mac'
-WIN = ROOT if (ROOT / 'Vidi Studio Windows').exists() else ROOT.parent / 'Vidi-Studio-Windows'
+WORKSPACE = Path(os.environ.get('VIDISTUDIO_DESKTOP_WORKSPACE', ROOT.parent))
+MAC = WORKSPACE / 'VidiStudio Mac'
+WIN = Path(os.environ.get('VIDISTUDIO_WINDOWS_ROOT', WORKSPACE / 'Vidi-Studio-Windows'))
 SECTIONS = ['transcript', 'summary', 'descriptions', 'ad-overview', 'ad-transcript']
 # Expected user-visible destinations, independent of implementation language.
 SCOPES = {
@@ -29,7 +31,7 @@ SCOPES = {
     'transcript': [0,1,2,3,4], 'summary': [0,1,2,3,4], 'descriptions': [0,1,2,3,4],
     'ad-overview': [0,1,2,3,4], 'ad-transcript': [0,1,2,3,4],
     'youtube-captions': [0], 'youtube-details': [0,1,2,3,4], 'youtube-refresh': [0,1,2,3,4],
-    'import-original-audio': [0,1,2,3,4],
+    'import-original-audio': [0,1,2,3,4], 'youtube-browser': [],
 }
 SOURCE_ONLY = {'youtube-captions', 'youtube-details', 'youtube-refresh', 'import-original-audio'}
 
