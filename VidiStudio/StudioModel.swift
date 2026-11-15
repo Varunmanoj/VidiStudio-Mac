@@ -1164,8 +1164,19 @@ struct StudioSettings: Codable, Equatable {
     var theme = "system"
     /// Reveals advanced Settings surfaces such as Developer prompts. Off by default.
     var developerMode = false
-    var ttsMode = "system"
-    var narrationPlayback = "generated"
+    var ttsMode = "system" {
+        didSet { normalizeNarrationPlayback() }
+    }
+    var narrationPlayback = "generated" {
+        didSet { normalizeNarrationPlayback() }
+    }
+    /// Gemini narration is played only from saved, synchronized audio.
+    @discardableResult
+    mutating func normalizeNarrationPlayback() -> Bool {
+        guard ttsMode == "gemini", narrationPlayback != "generated" else { return false }
+        narrationPlayback = "generated"
+        return true
+    }
     var soundWhenNarrationOff = true
     var soundWhenNarrationMissing = true
     var soundWhenTimingInvalid = true
@@ -1911,6 +1922,7 @@ final class StudioModel {
                 migratedSpeechEngine = true
             }
         }
+        let migratedNarrationPlayback = settings.normalizeNarrationPlayback()
         settingsPersistenceEnabled = true
         // One-time migration: move any plaintext key left in config.json into the Keychain,
         // then re-save so the on-disk file no longer contains it.
@@ -1918,7 +1930,7 @@ final class StudioModel {
         if let legacyApiKey, !legacyApiKey.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
             if KeychainStore.containsValue() || KeychainStore.write(legacyApiKey) { migratedApiKey = true }
         }
-        if migratedLibrary || seededCaptionDisplayMode || migratedSpeechEngine || migratedApiKey || migratedVideoProcessing { persistSettings(reloadProjects: false) }
+        if migratedLibrary || seededCaptionDisplayMode || migratedSpeechEngine || migratedApiKey || migratedVideoProcessing || migratedNarrationPlayback { persistSettings(reloadProjects: false) }
         reload()
         selectedID = UserDefaults.standard.string(forKey: "lastProjectID")
     }
@@ -1927,6 +1939,7 @@ final class StudioModel {
         let libraryChanged = settings.libraryPath != updated.libraryPath
         applyingExternalSettings = true
         settings = updated
+        settings.normalizeNarrationPlayback()
         applyingExternalSettings = false
         if libraryChanged { reload() }
     }

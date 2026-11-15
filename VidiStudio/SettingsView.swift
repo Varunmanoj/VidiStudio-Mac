@@ -218,6 +218,7 @@ struct SettingsView: View {
                         Label("Play synthesized narration", systemImage: "play.circle").tag("generated")
                         Label("Preview segment text with the selected voice", systemImage: "text.bubble").tag("device")
                     }
+                    .disabled(studio.settings.ttsMode == "gemini")
                     SettingsSoundRow(title: "Sound when narration is off", resource: "Boink3",
                         identifier: "narration-off-sound", menuIdentifier: "narration-off-sound-menu",
                         enabled: $studio.settings.soundWhenNarrationOff, preview: soundPreview)

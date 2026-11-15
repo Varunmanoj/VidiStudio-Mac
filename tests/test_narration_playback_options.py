@@ -11,7 +11,7 @@ class NarrationPlaybackOptions(unittest.TestCase):
         if not (ROOT/'VidiStudio Mac/VidiStudio/StudioModel.swift').is_file() or not (ROOT/'Vidi-Studio-Windows/Vidi Studio Windows/Services/SettingsStore.cs').is_file():
             raise unittest.SkipTest('Playback option checks require both desktop checkouts.')
 
-    def test_mac_keeps_engine_selection_independent_of_playback_mode(self):
+    def test_mac_keeps_all_engines_selectable_and_locks_gemini_playback(self):
         settings = (ROOT/'VidiStudio Mac/VidiStudio/SettingsView.swift').read_text()
         overview = (ROOT/'VidiStudio Mac/VidiStudio/ADOverviewView.swift').read_text()
         for source in (settings, overview):
@@ -26,24 +26,28 @@ class NarrationPlaybackOptions(unittest.TestCase):
         self.assertIn('if studio.settings.ttsMode == "piper" {', settings)
         self.assertIn('PiperVoiceSettingsView(settings: $studio.settings)', settings)
         self.assertIn('if studio.settings.ttsMode == "system" {', settings)
-        self.assertNotIn('studio.settings.ttsMode != "gemini" || studio.settings.narrationPlayback == "device"', settings)
+        self.assertIn('.disabled(studio.settings.ttsMode == "gemini")', settings)
 
     def test_mac_no_longer_resets_the_engine_for_preview_playback(self):
         source = (ROOT/'VidiStudio Mac/VidiStudio/StudioModel.swift').read_text()
         self.assertNotIn('normalizeNarrationPlaybackEngine', source)
         self.assertNotIn('allowsGeminiNarration', source)
-        self.assertIn('var ttsMode = "system"\n    var narrationPlayback = "generated"', source)
+        self.assertIn('var ttsMode = "system" {', source)
+        self.assertIn('var narrationPlayback = "generated" {', source)
+        self.assertIn('let migratedNarrationPlayback = settings.normalizeNarrationPlayback()', source)
         self.assertIn('case "gemini": return "Gemini Voices"', source)
         self.assertIn('case "system": return "Apple Voices"', source)
 
-    def test_windows_keeps_gemini_selectable_in_preview_playback(self):
+    def test_windows_switches_gemini_to_generated_playback(self):
         source = (ROOT/'Vidi-Studio-Windows/Vidi Studio Windows/Views/SettingsDialog.cs').read_text()
         self.assertNotIn('LocalNarrationPreview', source)
         self.assertIn('new("windows-core", "Windows OneCore")', source)
         self.assertIn('new("sapi5", "Windows SAPI 5")', source)
         self.assertIn('new("piper", "Piper Voices")', source)
         self.assertIn('new("gemini", "Gemini Voices")', source)
-        self.assertIn('draft["ttsMode"] = selected.Id;', source)
+        self.assertIn('draft["ttsMode"] = selected.Id;\n                UpdateNarrationPlaybackChoice();', source)
+        self.assertIn('field.IsEnabled = SettingsStore.GetString(draft["ttsMode"]) != "gemini";', source)
+        self.assertIn('SettingsStore.NormalizeNarrationPlayback(draft);', source)
 
     def test_windows_gemini_voices_show_only_voice_names_and_hide_local_sliders(self):
         gemini = (ROOT/'Vidi-Studio-Windows/Vidi Studio Windows/Views/SettingsDialog.Gemini.cs').read_text()
@@ -58,7 +62,7 @@ class NarrationPlaybackOptions(unittest.TestCase):
     def test_windows_migrates_legacy_engines_without_resetting_preview_choice(self):
         source = (ROOT/'Vidi-Studio-Windows/Vidi Studio Windows/Services/SettingsStore.cs').read_text()
         self.assertNotIn('NormalizeNarrationPlaybackEngine', source)
-        self.assertIn('if (key == "narrationPlayback") NormalizeNarrationPlayback();', source)
+        self.assertIn('if (key is "ttsMode" or "narrationPlayback") NormalizeNarrationPlayback();', source)
         self.assertIn('if (Get("ttsMode") == "windows-natural")', source)
         self.assertIn('if (Get("ttsMode") == "azure")', source)
         self.assertIn('Data["ttsMode"] = "windows-core";', source)
@@ -71,7 +75,8 @@ class NarrationPlaybackOptions(unittest.TestCase):
         self.assertIn('"sapi5" => "Windows SAPI 5"', presentation)
         self.assertIn('"piper" => "Piper Voices"', presentation)
         self.assertIn('_ => "Windows OneCore"', presentation)
-        self.assertIn('"Speech engine: " + EngineTitle(Model.Settings.Get("ttsMode", "windows-core"))', presentation)
+        inspector = (ROOT/'Vidi-Studio-Windows/Vidi Studio Windows/MainWindow.Inspector.cs').read_text()
+        self.assertIn('OverviewVoice.Text = $"Speech engine: {engine}\\nLanguage: {language}\\nSelected voice: {voice}";', inspector)
         apply = window[window.index('    internal void ApplySettingsChanges('):window.index('    private async Task ShowSettingsSectionAsync(')]
         self.assertIn('Model.Settings.Reload();', apply)
         self.assertIn('UpdateCaptions();', apply)
