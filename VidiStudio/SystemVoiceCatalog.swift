@@ -197,10 +197,14 @@ enum SystemSpeechUtterance {
 
 struct SystemVoiceBrowser: View {
     @Binding var settings: StudioSettings
+    var menuPrefix = "local"
+    @FocusState private var voiceSearchFocused: Bool
     @State private var catalog = SystemVoiceCatalog()
     @State private var language = "all"
     @State private var search = ""
+    @State private var sort = "language"
     var body: some View {
+        let selectedName = selectedVoiceLabel
         VStack(alignment: .leading, spacing: 12) {
             Text("Voices").font(.headline).accessibilityAddTraits(.isHeader).accessibilityHeading(.h2)
             Picker("Language and region", selection: $language) {
@@ -213,7 +217,9 @@ struct SystemVoiceBrowser: View {
                     }
                 }
             }
+            .accessibilityIdentifier(menuPrefix + "-language-filter")
             voiceSearchField
+            SpeechChoice(title: "Sort by", id: menuPrefix + "-voice-sort", value: $sort, options: [("language", "Language (A–Z)"), ("name", "Voice name (A–Z)")])
             Text("Selected: \(selectedVoiceLabel)").font(.callout)
             ScrollView {
                 LazyVStack(alignment: .leading, spacing: 12) {
@@ -231,13 +237,17 @@ struct SystemVoiceBrowser: View {
                                 HStack {
                                     Button { settings.systemVoice = voice.name } label: {
                                         HStack {
-                                            Image(systemName: settings.systemVoice == voice.name ? "checkmark.circle.fill" : "circle")
+                                            Image(systemName: selectedName == voice.name ? "checkmark.circle.fill" : "circle")
                                             Text(voice.name)
                                         }
                                     }
                                     .buttonStyle(.plain)
                                     .accessibilityLabel("Select \(voice.name), \(dialect.name)")
-                                    .accessibilityAddTraits(settings.systemVoice == voice.name ? .isSelected : [])
+                                    .accessibilityAddTraits(selectedName == voice.name ? .isSelected : [])
+                                    .contextMenu {
+                                        Button("Select " + voice.name) { settings.systemVoice = voice.name }
+                                        Button("Play Sample") { catalog.preview(voice, settings: settings) }
+                                    }
                                     Spacer()
                                     Button("Speak Sample", systemImage: "play.circle") {
                                         catalog.preview(voice, settings: settings)
@@ -252,7 +262,7 @@ struct SystemVoiceBrowser: View {
                 }.padding(4)
             }.frame(minHeight: 200, idealHeight: 280, maxHeight: 320)
             HStack {
-                Button("Use system default voice") { settings.systemVoice = "" }
+                Button("Use system default voice") { settings.systemVoice = "" }.accessibilityIdentifier(menuPrefix + "-voice-default")
                 Button(
                     catalog.isPlayingSample ? "Stop Sample" : "Play Sample",
                     systemImage: catalog.isPlayingSample ? "stop.circle" : "play.circle"
@@ -267,7 +277,7 @@ struct SystemVoiceBrowser: View {
                         )
                     }
                 }
-                Button("Refresh Voices") { Task { await catalog.refresh() } }
+                Button("Refresh Voices") { Task { await catalog.refresh() } }.accessibilityIdentifier(menuPrefix + "-voices-refresh")
                 Button("Open macOS Voice Settings") {
                     NSWorkspace.shared.open(URL(string: "x-apple.systempreferences:com.apple.preference.universalaccess")!)
                 }
@@ -276,11 +286,27 @@ struct SystemVoiceBrowser: View {
                 .font(.caption)
                 .foregroundStyle(.secondary)
             if let error = catalog.error { Text(error).foregroundStyle(.red) }
-        }.task { await catalog.refresh() }.onDisappear { catalog.stop() }
+        }
+        .contextMenu {
+            Button("Search voices") { voiceSearchFocused = true }.accessibilityIdentifier(menuPrefix + "-search-focus")
+            Button("Use system default voice") { settings.systemVoice = "" }.accessibilityIdentifier(menuPrefix + "-voice-default")
+            Button("Play Sample") { catalog.preview(catalog.voices.first { $0.name == settings.systemVoice } ?? SystemVoice(name: settings.systemVoice, language: "", sample: "This is a sample of the selected voice."), settings: settings) }
+            Button("Stop Sample") { catalog.stop() }.disabled(!catalog.isPlayingSample).accessibilityIdentifier(menuPrefix + "-sample-stop")
+            Button("Refresh Voices") { Task { await catalog.refresh() } }.accessibilityIdentifier(menuPrefix + "-voices-refresh")
+            Button("Open macOS Voice Settings") { NSWorkspace.shared.open(URL(string: "x-apple.systempreferences:com.apple.preference.universalaccess")!) }
+            Button("Clear voice search") { search = "" }.accessibilityIdentifier(menuPrefix + "-search-clear")
+        }
+        .task { await catalog.refresh() }.onDisappear { catalog.stop() }
     }
 
     private var selectedVoiceLabel: String {
-        if !settings.systemVoice.isEmpty { return settings.systemVoice }
+        if !settings.systemVoice.isEmpty {
+            if let voice = SystemSpeechVoiceResolver.selectedVoice(named: settings.systemVoice) {
+                let suffix = voice.quality == .premium ? " (Premium)" : voice.quality == .enhanced ? " (Enhanced)" : ""
+                return voice.name.hasSuffix(suffix) ? voice.name : voice.name + suffix
+            }
+            return settings.systemVoice.hasPrefix("com.apple.") ? "Selected voice unavailable" : settings.systemVoice
+        }
         if let voice = SystemSpeechVoiceResolver.defaultVoiceDisplayName {
             return "System default (\(voice))"
         }
@@ -306,7 +332,7 @@ struct SystemVoiceBrowser: View {
     }
 
     private var visibleLanguageGroups: [SystemVoiceLanguageGroup] {
-        languageGroups.compactMap { group in
+        let filtered: [SystemVoiceLanguageGroup] = languageGroups.compactMap { group -> SystemVoiceLanguageGroup? in
             let dialects = group.dialects.compactMap { dialect -> SystemVoiceDialectGroup? in
                 guard language == "all" || dialect.id == language else { return nil }
                 let voices = dialect.voices.filter {
@@ -321,6 +347,11 @@ struct SystemVoiceBrowser: View {
             guard !dialects.isEmpty else { return nil }
             return SystemVoiceLanguageGroup(id: group.id, name: group.name, dialects: dialects)
         }
+        if sort == "name" {
+            let voices = filtered.flatMap(\.dialects).flatMap(\.voices).sorted { $0.name.localizedStandardCompare($1.name) == .orderedAscending }
+            return voices.isEmpty ? [] : [SystemVoiceLanguageGroup(id: "names", name: "Voices by name", dialects: [SystemVoiceDialectGroup(id: "names", name: "Matching voices", voices: voices)])]
+        }
+        return filtered
     }
 
     private var voiceSearchField: some View {
@@ -331,6 +362,8 @@ struct SystemVoiceBrowser: View {
             TextField("Search voices", text: $search, prompt: Text("Search by voice or language"))
                 .textFieldStyle(.plain)
                 .accessibilityLabel("Search voices")
+                .focused($voiceSearchFocused)
+                .accessibilityIdentifier(menuPrefix + "-voice-search")
                 .accessibilityHint("Filters the available voices by voice name or language")
                 .onExitCommand { search = "" }
             if !search.isEmpty {
@@ -339,6 +372,7 @@ struct SystemVoiceBrowser: View {
                     .labelStyle(.iconOnly)
                     .foregroundStyle(.secondary)
                     .accessibilityHint("Shows all available voices")
+                    .contextMenu { Button("Clear voice search") { search = "" }.accessibilityIdentifier(menuPrefix + "-search-clear") }
             }
         }
         .padding(.horizontal, 10)

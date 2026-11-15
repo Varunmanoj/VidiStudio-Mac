@@ -646,7 +646,7 @@ struct ProjectEditorWindow: View {
                     project: project,
                     report: report,
                     busy: studio.busy,
-                    narrationActionEnabled: studio.settings.ttsMode != "gemini" || studio.hasValidApiKey,
+                    narrationActionEnabled: studio.narrationReady,
                     showInFinder: {
                         if let folder = project.folder { NSWorkspace.shared.open(folder) }
                     },
@@ -990,7 +990,7 @@ struct ProcessingInspector: View {
                         ProjectIntegrityDialogButton(
                             report: report,
                             busy: studio.busy,
-                            narrationActionEnabled: studio.settings.ttsMode != "gemini" || studio.hasValidApiKey,
+                            narrationActionEnabled: studio.narrationReady,
                             showInFinder: {
                                 if let folder = project.folder { NSWorkspace.shared.open(folder) }
                             },
@@ -1172,7 +1172,7 @@ struct ProcessingInspector: View {
                                             : studio.settings.ttsMode == "gemini" && studio.isApiKeyInvalid
                                                 ? "Gemini API key is invalid — enter a valid key in Settings → Gemini API to synthesize Gemini TTS narration"
                                                 : "Create narration audio for all Audio Description segments")
-                                        .requiresInternet(studio.settings.ttsMode == "gemini" ? .gemini : nil)
+                                        .requiresInternet(studio.settings.narrationService)
                                         if studio.isSynthesizingNarration {
                                             ProgressView()
                                                 .controlSize(.small)
@@ -1195,7 +1195,7 @@ struct ProcessingInspector: View {
                                         : studio.settings.ttsMode == "gemini" && studio.isApiKeyInvalid
                                             ? "Gemini API key is invalid — enter a valid key in Settings → Gemini API to synthesize changed segments"
                                             : "Generate missing audio and replace audio with text, timing, or generation issues; keep current audio")
-                                    .requiresInternet(studio.settings.ttsMode == "gemini" ? .gemini : nil)
+                                    .requiresInternet(studio.settings.narrationService)
                                     }
                                 }
                             }
@@ -2472,7 +2472,7 @@ struct ProjectEditor: View {
 
     private var bulkNarrationAvailable: Bool {
         guard !selectedDescriptionIDs.isEmpty, !studio.busy else { return false }
-        return studio.settings.ttsMode != "gemini" || studio.hasValidApiKey
+        return studio.narrationReady
     }
 
     private var bulkNarrationUnavailableReason: String? {
@@ -3446,6 +3446,8 @@ struct ProjectEditor: View {
         shortcutActions.apiKeyVerified = studio.apiKeyVerified
         shortcutActions.aiProcessingBlocked = studio.isAIProcessingBlocked
         shortcutActions.ttsUsesGemini = (studio.settings.ttsMode == "gemini")
+        shortcutActions.ttsUsesSarvam = studio.settings.ttsMode == "sarvam"
+        shortcutActions.sarvamReady = studio.narrationReady
         shortcutActions.hasGeneratedThumbnails = !project.thumbnails.isEmpty
         shortcutActions.isSynthesizingNarration = studio.isSynthesizingNarration
         shortcutActions.narratingSegmentIndex = studio.narratingSegmentIndex
@@ -3613,7 +3615,7 @@ struct ProjectEditor: View {
         .onChange(of: studio.settings.captionDisplayMode) { _, _ in refreshEditorShortcutActions() }
         .onChange(of: studio.hasApiKey) { _, _ in refreshEditorShortcutActions() }
         .onChange(of: studio.apiKeyVerified) { _, _ in refreshEditorShortcutActions() }
-        .onChange(of: studio.settings.ttsMode) { _, _ in refreshEditorShortcutActions() }
+        .onChange(of: studio.narrationMenuSignature) { _, _ in refreshEditorShortcutActions() }
         .onChange(of: tab) { oldTab, _ in
             searchRevealedID = nil
             if oldTab == "summary" && summaryEditMode {

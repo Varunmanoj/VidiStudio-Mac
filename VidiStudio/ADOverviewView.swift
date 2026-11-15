@@ -24,9 +24,10 @@ struct ADOverviewView: View {
         return voiceReport.primaryVoiceLabel ?? selectedVoice
     }
     private var narrationControlsDisabled: Bool {
-        !sourceProject.overviewMatchesEditingResult || studio.busy || project.cues.isEmpty || (studio.settings.ttsMode == "gemini" && !studio.hasValidApiKey)
+        !sourceProject.overviewMatchesEditingResult || studio.busy || project.cues.isEmpty || !studio.narrationReady
     }
     private var selectedVoice: String {
+        if studio.settings.ttsMode == "sarvam" { return studio.settings.currentNarrationVoice }
         if studio.settings.ttsMode == "gemini" { return studio.settings.geminiVoice }
         if studio.settings.ttsMode == "piper" {
             return NarrationVoiceFormatting.voiceDisplayName(studio.settings.piperVoiceSignature)
@@ -109,6 +110,7 @@ struct ADOverviewView: View {
                             Text("Apple Voices").tag("system")
                             Text("Piper Voices").tag("piper")
                             Text("Gemini Voices").tag("gemini")
+                            Text("Sarvam Voices").tag("sarvam")
                         }
                         statistic("Language", value: studio.settings.currentNarrationLanguage)
                         statistic("Selected voice", value: studio.settings.currentNarrationSummary)
@@ -179,13 +181,13 @@ struct ADOverviewView: View {
                                 .help(studio.settings.ttsMode == "gemini" && !studio.hasApiKey
                                     ? "Enter your Gemini API key in Settings → Gemini API to synthesize narration with Gemini TTS"
                                     : "Create narration audio for all Audio Description segments")
-                                .requiresInternet(studio.settings.ttsMode == "gemini" ? .gemini : nil)
+                                .requiresInternet(studio.settings.narrationService)
                                 .disabled(narrationControlsDisabled)
                             Button("Generate Missing or Changed AD Audio") { studio.execute("synthesize-tts", extra: ["--changed"]) }
                                 .help(studio.settings.ttsMode == "gemini" && !studio.hasApiKey
                                     ? "Enter your Gemini API key in Settings → Gemini API to synthesize narration with Gemini TTS"
                                     : "Generate missing narration and regenerate descriptions with text, timing, or generation issues")
-                                .requiresInternet(studio.settings.ttsMode == "gemini" ? .gemini : nil)
+                                .requiresInternet(studio.settings.narrationService)
                                 .disabled(narrationControlsDisabled || !project.canGenerateMissingOrChangedAudio)
                         }
                         HStack {

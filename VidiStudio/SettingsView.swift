@@ -213,12 +213,13 @@ struct SettingsView: View {
                         Label("Apple Voices", systemImage: "speaker.wave.2").tag("system")
                         Label("Piper Voices", systemImage: "waveform.circle").tag("piper")
                         Label("Gemini Voices", systemImage: "sparkles").tag("gemini")
+                        Label("Sarvam Voices", systemImage: "waveform").tag("sarvam")
                     }
                     Picker("Narration during playback", selection: $studio.settings.narrationPlayback) {
                         Label("Play synthesized narration", systemImage: "play.circle").tag("generated")
                         Label("Preview segment text with the selected voice", systemImage: "text.bubble").tag("device")
                     }
-                    .disabled(studio.settings.ttsMode == "gemini")
+                    .disabled(studio.settings.usesCloudNarration)
                     SettingsSoundRow(title: "Sound when narration is off", resource: "Boink3",
                         identifier: "narration-off-sound", menuIdentifier: "narration-off-sound-menu",
                         enabled: $studio.settings.soundWhenNarrationOff, preview: soundPreview)
@@ -232,9 +233,11 @@ struct SettingsView: View {
                         identifier: "timing-validation-sound", menuIdentifier: "timing-validation-sound-menu",
                         enabled: $studio.settings.soundWhenTimingInvalid, preview: soundPreview)
                 } header: { Text("Narration").accessibilityAddTraits(.isHeader).accessibilityHeading(.h2) }
+                if studio.settings.ttsMode == "sarvam" { SarvamVoiceSettingsView(studio: studio) }
                 if studio.settings.ttsMode == "gemini" {
                     GeminiVoiceBrowser(studio: studio)
                 }
+                if studio.settings.usesCloudNarration { SummaryVoiceSettingsView(settings: $studio.settings) }
                 if studio.settings.ttsMode == "piper" {
                     Section {
                         speechSlider("Speech rate", value: $studio.settings.systemSpeechRate, range: 0.5...2.0)

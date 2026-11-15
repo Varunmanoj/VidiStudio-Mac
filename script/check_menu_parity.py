@@ -12,6 +12,9 @@ if not checker.is_file():
     raise SystemExit('Desktop menu parity requires the combined Mac/Windows workspace.')
 workspace = checker.parent.parent
 contract = runpy.run_path(str(Path(__file__).with_name('contextual_menu_contract.py')))
+contract['check_sarvam_settings'](
+    (workspace / 'VidiStudio Mac/VidiStudio/SarvamVoiceSettingsView.swift').read_text() + (workspace / 'VidiStudio Mac/VidiStudio/SarvamVoiceBrowser.swift').read_text(),
+    (workspace / 'Vidi-Studio-Windows/Vidi Studio Windows/Views/SettingsDialog.Sarvam.cs').read_text() + (workspace / 'Vidi-Studio-Windows/Vidi Studio Windows/Views/SettingsDialog.SarvamBrowser.cs').read_text())
 contract['check_contextual_menus'](
     (workspace / 'VidiStudio Mac/VidiStudio/KeyboardShortcuts.swift').read_text(),
     (workspace / 'Vidi-Studio-Windows/Vidi Studio Windows/MainWindow.Menus.cs').read_text())

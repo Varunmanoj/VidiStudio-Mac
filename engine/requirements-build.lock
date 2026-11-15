@@ -42,3 +42,4 @@ urllib3==2.7.0
 websockets==16.1.1
 yt-dlp==2026.8.19
 yt-dlp-ejs==0.8.0
+sarvamai==0.1.46

@@ -267,3 +267,19 @@ def check_all_highlight_defaults(mac, model, windows):
     action = windows[windows.index('void RestoreHighlights()'):windows.index('restoreHighlights.Click')]
     for key in ('summarySentenceHighlightColor', 'summaryWordHighlightColor', 'summarySentenceHighlight', 'summaryWordHighlight', 'searchHighlightEnabled', 'searchHighlightColor'):
         if 'draft["' + key + '"] =' not in action: raise ValueError('Windows restore omits ' + key)
+
+
+def check_sarvam_settings(mac, windows):
+    controls = ['sarvam-search-clear-icon','sarvam-style-filter','sarvam-voice-search','sarvam-voice-sort','sarvam-search-focus','sarvam-search-clear','sarvam-filters-reset','sarvam-key-check','sarvam-key-delete-icon','summary-controls-reset','sarvam-models-refresh','sarvam-model','sarvam-language','sarvam-voice','sarvam-pace','sarvam-temperature',
+                'sarvam-pitch','sarvam-loudness','sarvam-preprocessing','sarvam-sample-rate','sarvam-codec',
+                'sarvam-key-edit','sarvam-key-delete','sarvam-key-dashboard','sarvam-sample-play','sarvam-sample-stop',
+                'summary-engine','summary-voice','summary-rate','summary-pitch','summary-volume','summary-manage-voices']
+    for platform, source in [('Mac',mac),('Windows',windows)]:
+        for identifier in controls:
+            if '"' + identifier + '"' not in source: raise ValueError(platform + ' speech settings menu missing: ' + identifier)
+        for label in ['Speaking speed','Expressiveness','Normalize text','Restore Default','Play Sample','Stop Sample']:
+            if label not in source: raise ValueError(platform + ' speech setting label missing: ' + label)
+    for token in ['.contextMenu', 'value = option.0', 'id + "-increase"', 'id + "-decrease"', 'id + "-reset"', '.disabled(demo == nil || sample.active)']:
+        if token not in mac: raise ValueError('Mac guarded speech menu missing: ' + token)
+    for token in ['picker.ContextFlyout = menu', 'picker.SelectedItem =', 'slider.ContextFlyout = menu', 'button.IsEnabled', 'demo != null']:
+        if token not in windows: raise ValueError('Windows guarded speech menu missing: ' + token)

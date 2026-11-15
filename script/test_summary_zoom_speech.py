@@ -7,7 +7,7 @@ root = Path(__file__).resolve().parents[1]
 source = (root / 'VidiStudio/SummaryReadback.swift').read_text().split('// MARK: - Selectable text view')[0]
 stubs = r'''
 // Use a silent Apple voice for this native transport/delegate integration test.
-struct StudioSettings { var ttsMode = "apple" }
+struct StudioSettings { var ttsMode = "apple"; var resolvedSummarySettings: Self { self } }
 enum TestIssue { case speech }
 enum UserFacingIssueReporter {
     static func message(for error: Error, issue: TestIssue, context: String) -> String { error.localizedDescription }

@@ -342,7 +342,7 @@ final class SummaryReadbackModel: NSObject, AVSpeechSynthesizerDelegate, AVAudio
     }
 
     func configure(markdown: String, settings: StudioSettings) {
-        self.settings = settings
+        self.settings = settings.resolvedSummarySettings
         guard markdown != markdownSignature else { return }
         stop()
         markdownSignature = markdown
@@ -351,13 +351,18 @@ final class SummaryReadbackModel: NSObject, AVSpeechSynthesizerDelegate, AVAudio
         error = nil
     }
 
+    private var pendingSpeechSettings: StudioSettings?
+    var engineMode: String { settings.ttsMode }
     func updateSettings(_ settings: StudioSettings) {
-        self.settings = settings
+        if isReading { pendingSpeechSettings = settings.resolvedSummarySettings; return }
+        self.settings = settings.resolvedSummarySettings
+        pendingSpeechSettings = nil
     }
 
     // MARK: Transport
 
     func play() {
+        if !isReading, let pendingSpeechSettings { self.settings = pendingSpeechSettings; self.pendingSpeechSettings = nil }
         error = nil
         guard !sentences.isEmpty else { return }
         if isPaused {
@@ -1322,11 +1327,11 @@ struct SummaryReaderView: View {
 
     /// Names the engine actually used for summary reading.
     private var speechEngineLabel: String {
-        settings.ttsMode == "piper" ? "Piper Speech" : "Apple Speech"
+        settings.resolvedSummarySettings.ttsMode == "piper" ? "Piper Speech" : "Apple Speech"
     }
 
     private var speechEngineHelp: String {
-        settings.ttsMode == "piper"
+        settings.resolvedSummarySettings.ttsMode == "piper"
             ? "Summary reading uses the Piper voice selected in Settings → Narration"
             : "Summary reading uses the Apple on-device voice selected in Settings → Narration"
     }
@@ -1396,6 +1401,7 @@ struct SummaryReaderView: View {
         .onChange(of: markdown) { _, newValue in model.configure(markdown: newValue, settings: settings) }
         .onChange(of: settings.ttsMode) { _, _ in model.updateSettings(settings) }
         .onChange(of: settings.piperVoice) { _, _ in model.updateSettings(settings) }
+        .onChange(of: settings.summarySpeech) { _, _ in model.updateSettings(settings) }
         .onChange(of: settings.geminiVoice) { _, _ in model.updateSettings(settings) }
         .onChange(of: settings.systemVoice) { _, _ in model.updateSettings(settings) }
         .onChange(of: settings.systemSpeechRate) { _, _ in model.updateSettings(settings) }

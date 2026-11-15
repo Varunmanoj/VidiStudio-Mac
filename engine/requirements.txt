@@ -1,3 +1,4 @@
 google-genai>=1.0,<3
 yt-dlp[default]==2026.8.19
 deno==2.9.7
+sarvamai==0.1.46

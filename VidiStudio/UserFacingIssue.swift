@@ -88,6 +88,7 @@ struct UserFacingIssue: Equatable {
                 message: "Check your connection and that the video is public, then try again. If YouTube blocks the download, import your original video as a local project and export its described audio. Your completed work is safe."
             )
         }
+        if detail.contains("sarvam") { return UserFacingIssue(title: "Sarvam Narration Needs Attention", message: technicalDetails ?? "Check your Sarvam voice settings and try again.") }
         if detail.contains("api key") || detail.contains("unauthenticated") || detail.contains("unauthorized")
             || detail.contains("401") || detail.contains("403") {
             return UserFacingIssue(

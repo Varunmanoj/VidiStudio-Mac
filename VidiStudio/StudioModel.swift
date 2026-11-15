@@ -396,6 +396,7 @@ struct NarrationFailureReport: Identifiable {
 enum NarrationVoiceFormatting {
     static func engineDisplayName(_ engine: String?) -> String {
         switch (engine ?? "").trimmingCharacters(in: .whitespacesAndNewlines).lowercased() {
+        case "sarvam": return "Sarvam Voices"
         case "gemini": return "Gemini Voices"
         case "system": return "Apple Voices"
         case "windows-core": return "Windows OneCore"
@@ -412,6 +413,7 @@ enum NarrationVoiceFormatting {
         if trimmed.isEmpty || trimmed.lowercased().hasPrefix("default:") {
             return "System default"
         }
+        if let sarvam = SarvamCatalog.shared.voices.first(where: { $0.id == trimmed }) { return sarvam.label }
         // Windows Narrator voices are identified by their voice package name.
         if let match = trimmed.firstMatch(of: /MicrosoftWindows\.Voice\.(?<locale>[A-Za-z]{2,3}-[A-Za-z0-9]{2,8})\.(?<speaker>[A-Za-z]+)/) {
             var speaker = String(match.speaker)
@@ -1165,7 +1167,10 @@ struct StudioSettings: Codable, Equatable {
     /// Reveals advanced Settings surfaces such as Developer prompts. Off by default.
     var developerMode = false
     var ttsMode = "system" {
-        didSet { normalizeNarrationPlayback() }
+        didSet {
+            if usesCloudNarration && summarySpeech == nil { summarySpeech = initialSummarySpeech }
+            normalizeNarrationPlayback()
+        }
     }
     var narrationPlayback = "generated" {
         didSet { normalizeNarrationPlayback() }
@@ -1173,7 +1178,7 @@ struct StudioSettings: Codable, Equatable {
     /// Gemini narration is played only from saved, synchronized audio.
     @discardableResult
     mutating func normalizeNarrationPlayback() -> Bool {
-        guard ttsMode == "gemini", narrationPlayback != "generated" else { return false }
+        guard usesCloudNarration, narrationPlayback != "generated" else { return false }
         narrationPlayback = "generated"
         return true
     }
@@ -1200,6 +1205,10 @@ struct StudioSettings: Codable, Equatable {
     var adCaptionBackgroundColor = "#3A2F00"
     var captionBackgroundOpacity = 0.75
     var captionPosition = "bottom"
+    var sarvamSpeech = SarvamSpeechSettings()
+    var sarvamKeyStatus = "unverified"
+    var sarvamCredentialRevision = 0
+    var summarySpeech: LocalSummarySpeech? = nil
     var geminiVoice = "Kore"
     var ffmpegPath = ""
     var ffprobePath = ""
@@ -1207,6 +1216,7 @@ struct StudioSettings: Codable, Equatable {
     static var url: URL { FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent("Library/Application Support/VidiStudio/config.json") }
 
     var narrationSignature: String {
+        if ttsMode == "sarvam" { return sarvamSpeech.signature }
         if ttsMode == "gemini" {
             return "gemini|\(geminiVoice)|\(models["tts_audio"] ?? "")"
         }
@@ -1236,12 +1246,14 @@ struct StudioSettings: Codable, Equatable {
     }
 
     var currentNarrationEngine: String {
+        if ttsMode == "sarvam" { return "sarvam" }
         if ttsMode == "gemini" { return "gemini" }
         if ttsMode == "piper" { return "piper" }
         return "system"
     }
 
     var currentNarrationVoice: String {
+        if ttsMode == "sarvam" { return sarvamSpeech.selected.voice.isEmpty ? "Default voice" : sarvamSpeech.selected.voice }
         if ttsMode == "gemini" {
             let trimmed = geminiVoice.trimmingCharacters(in: .whitespacesAndNewlines)
             return trimmed.isEmpty ? "Kore" : trimmed
@@ -1256,6 +1268,7 @@ struct StudioSettings: Codable, Equatable {
     }
 
     @MainActor var currentNarrationLanguage: String {
+        if ttsMode == "sarvam" { return SarvamCatalog.shared.languages[sarvamSpeech.selected.language] ?? sarvamSpeech.selected.language }
         if ttsMode == "gemini" { return "Multilingual" }
         if ttsMode == "piper" {
             return PiperVoiceManager.shared.voice(id: piperVoiceSignature)?.languageLabel ?? "Unknown"
@@ -1612,6 +1625,49 @@ final class StudioModel {
     var isAIProcessingBlocked: Bool { aiServiceIssue != nil }
     var apiKeyVerificationMessage: String? = nil
     var hasApiKey: Bool { settings.hasApiKey }
+    var sarvamModels = SarvamCatalog.models.map { SarvamModelOption(id: $0, label: SarvamCatalog.modelLabel($0)) }
+    var sarvamModelsRefreshing = false
+    var sarvamModelStatus = ""
+    var sarvamKeyChecking = false
+    var sarvamKeyMessage = ""
+    func checkSarvamApiKey() {
+        guard !busy, !sarvamKeyChecking else { return }
+        guard settings.hasSarvamApiKey else { settings.sarvamKeyStatus = "missing"; sarvamKeyMessage = "No API key entered"; return }
+        let checkedKey = settings.sarvamApiKey
+        sarvamKeyChecking = true; settings.sarvamKeyStatus = "checking"; sarvamKeyMessage = "Checking API key…"
+        Task {
+            defer { sarvamKeyChecking = false }
+            var received = false
+            if let data = try? await SarvamSettingsRequest.run("check-sarvam-key", key: checkedKey), checkedKey == settings.sarvamApiKey {
+                for line in data.split(separator: 10) {
+                    guard let event = try? JSONSerialization.jsonObject(with: Data(line)) as? [String: Any], let status = event["sarvamKeyStatus"] as? String else { continue }
+                    settings.sarvamKeyStatus = status; sarvamKeyMessage = event["sarvamKeyMessage"] as? String ?? ""; received = true
+                }
+            }
+            if !received && checkedKey == settings.sarvamApiKey { settings.sarvamKeyStatus = "unavailable"; sarvamKeyMessage = "Could not check the key. Check your connection." }
+        }
+    }
+    func refreshSarvamModels() {
+        guard !busy, !sarvamModelsRefreshing else { return }
+        sarvamModelsRefreshing = true
+        Task {
+            defer { sarvamModelsRefreshing = false }
+            var received = false
+            if let data = try? await SarvamSettingsRequest.run("list-sarvam-models") {
+                for line in data.split(separator: 10) {
+                    guard let event = try? JSONSerialization.jsonObject(with: Data(line)) as? [String: Any], let rows = event["sarvamModels"] as? [[String: Any]],
+                          let encoded = try? JSONSerialization.data(withJSONObject: rows), let models = try? JSONDecoder().decode([SarvamModelOption].self, from: encoded), !models.isEmpty else { continue }
+                    sarvamModels = models; sarvamModelStatus = event["sarvamModelsCached"] as? Bool == true ? "Using saved models" : "Models updated"; received = true
+                }
+            }
+            if !received { sarvamModelStatus = "Using saved models" }
+        }
+    }
+    var narrationMenuSignature: String { "\(settings.ttsMode)|\(settings.sarvamKeyStatus)|\(settings.sarvamCredentialRevision)|\(narrationReady)" }
+    var narrationReady: Bool {
+        if settings.ttsMode == "sarvam" { return settings.hasSarvamApiKey && settings.sarvamKeyStatus != "invalid" && ConnectivityService.shared.available(.sarvam) }
+        return settings.ttsMode != "gemini" || hasValidApiKey
+    }
     var hasValidApiKey: Bool { hasApiKey && apiKeyVerified != false && !isAIProcessingBlocked && ConnectivityService.shared.available(.gemini) }
     func onlineReason(_ command: String, project: StudioProject? = nil, extra: [String] = []) -> String? {
         OnlineRequirements.services(command, project: project ?? selected, settings: settings, extra: extra)
@@ -2694,7 +2750,7 @@ final class StudioModel {
             error = nil
             engineCheckStatus = .checking
         }
-        let target = project ?? (["import-video", "import-youtube", "doctor", "validate-config", "list-models", "check-api-key"].contains(command) ? nil : selected)
+        let target = project ?? (["check-sarvam-key", "list-sarvam-models", "import-video", "import-youtube", "doctor", "validate-config", "list-models", "check-api-key"].contains(command) ? nil : selected)
         if target?.youtubeMetadata?.visibility == "private" { errorTitle = "Private Video Cannot Be Opened"; error = "Signing in to Google does not give Gemini access to this private video."; completion?(nil); return }
         guard requireInternet(command, project: target, extra: extra) else {
             if let cleanupURL { try? FileManager.default.removeItem(at: cleanupURL) }
@@ -2808,6 +2864,7 @@ final class StudioModel {
         message = UserFacingProgress.message(for: command)
         var temporaryExecutionDirectory: URL?
         var effectiveConfigurationURL = configurationURL
+        let sarvamKey = settings.sarvamApiKey
         let apiKey = settings.apiKey.trimmingCharacters(in: .whitespacesAndNewlines)
         if effectiveConfigurationURL == nil && !apiKey.isEmpty {
             let tempDir = FileManager.default.temporaryDirectory.appendingPathComponent("vidistudio-run-\(UUID().uuidString)")
@@ -2834,6 +2891,7 @@ final class StudioModel {
             "VIDISTUDIO_YOUTUBE_AVAILABLE": ConnectivityService.shared.available(.youtube) ? "1" : "0",
         ]) { _, new in new }
         if !apiKey.isEmpty { environment["VIDISTUDIO_API_KEY"] = apiKey }
+        if settings.hasSarvamApiKey { environment["VIDISTUDIO_SARVAM_API_KEY"] = settings.sarvamApiKey }
         task.environment = environment
         let output = Pipe(); task.standardOutput = output
         let stderr = Pipe(); task.standardError = stderr
@@ -2876,6 +2934,11 @@ final class StudioModel {
                 for try await line in output.fileHandleForReading.bytes.lines {
                     guard let data = line.data(using: .utf8), let event = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else { continue }
                     connectionWatch.consume(event)
+                    if let rows = event["sarvamModels"] as? [[String: Any]], let data = try? JSONSerialization.data(withJSONObject: rows), let models = try? JSONDecoder().decode([SarvamModelOption].self, from: data), !models.isEmpty {
+                        sarvamModels = models
+                        sarvamModelStatus = event["sarvamModelsCached"] as? Bool == true ? "Using saved models" : "Models updated"
+                    }
+                    if event["narrationProvider"] as? String == "sarvam", sarvamKey == settings.sarvamApiKey, let status = event["sarvamKeyStatus"] as? String { settings.sarvamKeyStatus = status; sarvamKeyMessage = event["sarvamKeyMessage"] as? String ?? (status == "verified" ? "API key verified" : "") }
                     if event["failureKind"] as? String == "connectivity" { ConnectivityService.shared.check() }
                     if event["networkActive"] != nil { continue }
                     if isKeyCheck && checkedKey != settings.apiKey.trimmingCharacters(in: .whitespacesAndNewlines) { continue }

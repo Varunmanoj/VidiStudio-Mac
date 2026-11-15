@@ -1,0 +1,2902 @@
+{
+  "source": "https://docs.sarvam.ai/api/api-guides-tutorials/text-to-speech/voices",
+  "languages": {
+    "bn-IN": "Bengali",
+    "en-IN": "English (India)",
+    "gu-IN": "Gujarati",
+    "hi-IN": "Hindi",
+    "kn-IN": "Kannada",
+    "ml-IN": "Malayalam",
+    "mr-IN": "Marathi",
+    "od-IN": "Odia",
+    "pa-IN": "Punjabi",
+    "ta-IN": "Tamil",
+    "te-IN": "Telugu"
+  },
+  "voices": [
+    {
+      "id": "aayan_hi_conversational",
+      "name": "Aayan",
+      "style": "conversational",
+      "model": "bulbul:v4-flash",
+      "languages": [
+        "hi-IN"
+      ]
+    },
+    {
+      "id": "amit_hi_conversational",
+      "name": "Amit",
+      "style": "conversational",
+      "model": "bulbul:v4-flash",
+      "languages": [
+        "hi-IN"
+      ]
+    },
+    {
+      "id": "ashutosh_hi_conversational",
+      "name": "Ashutosh",
+      "style": "conversational",
+      "model": "bulbul:v4-flash",
+      "languages": [
+        "hi-IN"
+      ]
+    },
+    {
+      "id": "kabir_hi_conversational",
+      "name": "Kabir",
+      "style": "conversational",
+      "model": "bulbul:v4-flash",
+      "languages": [
+        "hi-IN"
+      ]
+    },
+    {
+      "id": "kavya_hi_conversational",
+      "name": "Kavya",
+      "style": "conversational",
+      "model": "bulbul:v4-flash",
+      "languages": [
+        "hi-IN"
+      ]
+    },
+    {
+      "id": "manan_hi_conversational",
+      "name": "Manan",
+      "style": "conversational",
+      "model": "bulbul:v4-flash",
+      "languages": [
+        "hi-IN"
+      ]
+    },
+    {
+      "id": "rahul_hi_conversational",
+      "name": "Rahul",
+      "style": "conversational",
+      "model": "bulbul:v4-flash",
+      "languages": [
+        "hi-IN"
+      ]
+    },
+    {
+      "id": "sumit_hi_conversational",
+      "name": "Sumit",
+      "style": "conversational",
+      "model": "bulbul:v4-flash",
+      "languages": [
+        "hi-IN"
+      ]
+    },
+    {
+      "id": "aditya_hi_conversational",
+      "name": "Aditya",
+      "style": "conversational",
+      "model": "bulbul:v4-flash",
+      "languages": [
+        "hi-IN"
+      ]
+    },
+    {
+      "id": "aditya_hi_sales",
+      "name": "Aditya",
+      "style": "sales",
+      "model": "bulbul:v4-flash",
+      "languages": [
+        "hi-IN"
+      ]
+    },
+    {
+      "id": "anand_hi_documentary",
+      "name": "Anand",
+      "style": "documentary",
+      "model": "bulbul:v4-flash",
+      "languages": [
+        "hi-IN"
+      ]
+    },
+    {
+      "id": "anand_hi_news",
+      "name": "Anand",
+      "style": "news",
+      "model": "bulbul:v4-flash",
+      "languages": [
+        "hi-IN"
+      ]
+    },
+    {
+      "id": "aparna_hi_customer",
+      "name": "Aparna",
+      "style": "customer",
+      "model": "bulbul:v4-flash",
+      "languages": [
+        "hi-IN"
+      ]
+    },
+    {
+      "id": "aparna_hi_kyc",
+      "name": "Aparna",
+      "style": "kyc",
+      "model": "bulbul:v4-flash",
+      "languages": [
+        "hi-IN"
+      ]
+    },
+    {
+      "id": "ashok_hi_character",
+      "name": "Ashok",
+      "style": "character",
+      "model": "bulbul:v4-flash",
+      "languages": [
+        "hi-IN"
+      ]
+    },
+    {
+      "id": "ashok_hi_news",
+      "name": "Ashok",
+      "style": "news",
+      "model": "bulbul:v4-flash",
+      "languages": [
+        "hi-IN"
+      ]
+    },
+    {
+      "id": "chhavi_hi_kids",
+      "name": "Chhavi",
+      "style": "kids",
+      "model": "bulbul:v4-flash",
+      "languages": [
+        "hi-IN"
+      ]
+    },
+    {
+      "id": "ishita_hi_ads",
+      "name": "Ishita",
+      "style": "ads",
+      "model": "bulbul:v4-flash",
+      "languages": [
+        "hi-IN"
+      ]
+    },
+    {
+      "id": "ishita_hi_edtech",
+      "name": "Ishita",
+      "style": "edtech",
+      "model": "bulbul:v4-flash",
+      "languages": [
+        "hi-IN"
+      ]
+    },
+    {
+      "id": "ishita_hi_banking",
+      "name": "Ishita",
+      "style": "banking",
+      "model": "bulbul:v4-flash",
+      "languages": [
+        "hi-IN"
+      ]
+    },
+    {
+      "id": "ishita_hi_ads_informal",
+      "name": "Ishita",
+      "style": "ads informal",
+      "model": "bulbul:v4-flash",
+      "languages": [
+        "hi-IN"
+      ]
+    },
+    {
+      "id": "ishita_hi_devotional",
+      "name": "Ishita",
+      "style": "devotional",
+      "model": "bulbul:v4-flash",
+      "languages": [
+        "hi-IN"
+      ]
+    },
+    {
+      "id": "ishita_hi_numbers",
+      "name": "Ishita",
+      "style": "numbers",
+      "model": "bulbul:v4-flash",
+      "languages": [
+        "hi-IN"
+      ]
+    },
+    {
+      "id": "ishita_hi_social",
+      "name": "Ishita",
+      "style": "social",
+      "model": "bulbul:v4-flash",
+      "languages": [
+        "hi-IN"
+      ]
+    },
+    {
+      "id": "kunal_hi_kids",
+      "name": "Kunal",
+      "style": "kids",
+      "model": "bulbul:v4-flash",
+      "languages": [
+        "hi-IN"
+      ]
+    },
+    {
+      "id": "mahesh_hi_documentary",
+      "name": "Mahesh",
+      "style": "documentary",
+      "model": "bulbul:v4-flash",
+      "languages": [
+        "hi-IN"
+      ]
+    },
+    {
+      "id": "mani_hi_devotional",
+      "name": "Mani",
+      "style": "devotional",
+      "model": "bulbul:v4-flash",
+      "languages": [
+        "hi-IN"
+      ]
+    },
+    {
+      "id": "mani_hi_conversational",
+      "name": "Mani",
+      "style": "conversational",
+      "model": "bulbul:v4-flash",
+      "languages": [
+        "hi-IN"
+      ]
+    },
+    {
+      "id": "mohit_hi_conversational",
+      "name": "Mohit",
+      "style": "conversational",
+      "model": "bulbul:v4-flash",
+      "languages": [
+        "hi-IN"
+      ]
+    },
+    {
+      "id": "nachiket_hi_devotional",
+      "name": "Nachiket",
+      "style": "devotional",
+      "model": "bulbul:v4-flash",
+      "languages": [
+        "hi-IN"
+      ]
+    },
+    {
+      "id": "priya_hi_recovery",
+      "name": "Priya",
+      "style": "recovery",
+      "model": "bulbul:v4-flash",
+      "languages": [
+        "hi-IN"
+      ]
+    },
+    {
+      "id": "ratan_hi_latenight",
+      "name": "Ratan",
+      "style": "latenight",
+      "model": "bulbul:v4-flash",
+      "languages": [
+        "hi-IN"
+      ]
+    },
+    {
+      "id": "ratan_hi_customer_expressive",
+      "name": "Ratan",
+      "style": "customer expressive",
+      "model": "bulbul:v4-flash",
+      "languages": [
+        "hi-IN"
+      ]
+    },
+    {
+      "id": "ratan_hi_documentary",
+      "name": "Ratan",
+      "style": "documentary",
+      "model": "bulbul:v4-flash",
+      "languages": [
+        "hi-IN"
+      ]
+    },
+    {
+      "id": "ratan_hi_devotional",
+      "name": "Ratan",
+      "style": "devotional",
+      "model": "bulbul:v4-flash",
+      "languages": [
+        "hi-IN"
+      ]
+    },
+    {
+      "id": "ratan_hi_recovery",
+      "name": "Ratan",
+      "style": "recovery",
+      "model": "bulbul:v4-flash",
+      "languages": [
+        "hi-IN"
+      ]
+    },
+    {
+      "id": "ratan_hi_social",
+      "name": "Ratan",
+      "style": "social",
+      "model": "bulbul:v4-flash",
+      "languages": [
+        "hi-IN"
+      ]
+    },
+    {
+      "id": "ratan_hi_sports",
+      "name": "Ratan",
+      "style": "sports",
+      "model": "bulbul:v4-flash",
+      "languages": [
+        "hi-IN"
+      ]
+    },
+    {
+      "id": "ratan_hi_latenight_warm",
+      "name": "Ratan",
+      "style": "latenight warm",
+      "model": "bulbul:v4-flash",
+      "languages": [
+        "hi-IN"
+      ]
+    },
+    {
+      "id": "rehan_hi_social",
+      "name": "Rehan",
+      "style": "social",
+      "model": "bulbul:v4-flash",
+      "languages": [
+        "hi-IN"
+      ]
+    },
+    {
+      "id": "ritu_hi_customer_utility",
+      "name": "Ritu",
+      "style": "customer utility",
+      "model": "bulbul:v4-flash",
+      "languages": [
+        "hi-IN"
+      ]
+    },
+    {
+      "id": "ritu_hi_kids",
+      "name": "Ritu",
+      "style": "kids",
+      "model": "bulbul:v4-flash",
+      "languages": [
+        "hi-IN"
+      ]
+    },
+    {
+      "id": "ritu_hi_conversation",
+      "name": "Ritu",
+      "style": "conversation",
+      "model": "bulbul:v4-flash",
+      "languages": [
+        "hi-IN"
+      ]
+    },
+    {
+      "id": "ritu_hi_customer",
+      "name": "Ritu",
+      "style": "customer",
+      "model": "bulbul:v4-flash",
+      "languages": [
+        "hi-IN"
+      ]
+    },
+    {
+      "id": "ritu_hi_edtech",
+      "name": "Ritu",
+      "style": "edtech",
+      "model": "bulbul:v4-flash",
+      "languages": [
+        "hi-IN"
+      ]
+    },
+    {
+      "id": "ritu_hi_ads_formal",
+      "name": "Ritu",
+      "style": "ads formal",
+      "model": "bulbul:v4-flash",
+      "languages": [
+        "hi-IN"
+      ]
+    },
+    {
+      "id": "ritu_hi_banking",
+      "name": "Ritu",
+      "style": "banking",
+      "model": "bulbul:v4-flash",
+      "languages": [
+        "hi-IN"
+      ]
+    },
+    {
+      "id": "ritu_hi_ads_informal",
+      "name": "Ritu",
+      "style": "ads informal",
+      "model": "bulbul:v4-flash",
+      "languages": [
+        "hi-IN"
+      ]
+    },
+    {
+      "id": "ritu_hi_insurance",
+      "name": "Ritu",
+      "style": "insurance",
+      "model": "bulbul:v4-flash",
+      "languages": [
+        "hi-IN"
+      ]
+    },
+    {
+      "id": "ritu_hi_edtech_bot",
+      "name": "Ritu",
+      "style": "edtech bot",
+      "model": "bulbul:v4-flash",
+      "languages": [
+        "hi-IN"
+      ]
+    },
+    {
+      "id": "ritu_hi_medical",
+      "name": "Ritu",
+      "style": "medical",
+      "model": "bulbul:v4-flash",
+      "languages": [
+        "hi-IN"
+      ]
+    },
+    {
+      "id": "ritu_hi_sales",
+      "name": "Ritu",
+      "style": "sales",
+      "model": "bulbul:v4-flash",
+      "languages": [
+        "hi-IN"
+      ]
+    },
+    {
+      "id": "ritu_hi_reels",
+      "name": "Ritu",
+      "style": "reels",
+      "model": "bulbul:v4-flash",
+      "languages": [
+        "hi-IN"
+      ]
+    },
+    {
+      "id": "ritu_hi_social",
+      "name": "Ritu",
+      "style": "social",
+      "model": "bulbul:v4-flash",
+      "languages": [
+        "hi-IN"
+      ]
+    },
+    {
+      "id": "ritu_hi_customer_warm",
+      "name": "Ritu",
+      "style": "customer warm",
+      "model": "bulbul:v4-flash",
+      "languages": [
+        "hi-IN"
+      ]
+    },
+    {
+      "id": "ritu_hi_social_lively",
+      "name": "Ritu",
+      "style": "social lively",
+      "model": "bulbul:v4-flash",
+      "languages": [
+        "hi-IN"
+      ]
+    },
+    {
+      "id": "roopa_hi_companion",
+      "name": "Roopa",
+      "style": "companion",
+      "model": "bulbul:v4-flash",
+      "languages": [
+        "hi-IN"
+      ]
+    },
+    {
+      "id": "roopa_hi_narration",
+      "name": "Roopa",
+      "style": "narration",
+      "model": "bulbul:v4-flash",
+      "languages": [
+        "hi-IN"
+      ]
+    },
+    {
+      "id": "roopa_hi_recovery",
+      "name": "Roopa",
+      "style": "recovery",
+      "model": "bulbul:v4-flash",
+      "languages": [
+        "hi-IN"
+      ]
+    },
+    {
+      "id": "roopa_hi_market",
+      "name": "Roopa",
+      "style": "market",
+      "model": "bulbul:v4-flash",
+      "languages": [
+        "hi-IN"
+      ]
+    },
+    {
+      "id": "roopa_hi_conversational",
+      "name": "Roopa",
+      "style": "conversational",
+      "model": "bulbul:v4-flash",
+      "languages": [
+        "hi-IN"
+      ]
+    },
+    {
+      "id": "sanchita_hi_assistant",
+      "name": "Sanchita",
+      "style": "assistant",
+      "model": "bulbul:v4-flash",
+      "languages": [
+        "hi-IN"
+      ]
+    },
+    {
+      "id": "sanchita_hi_edtech",
+      "name": "Sanchita",
+      "style": "edtech",
+      "model": "bulbul:v4-flash",
+      "languages": [
+        "hi-IN"
+      ]
+    },
+    {
+      "id": "sanchita_hi_banking",
+      "name": "Sanchita",
+      "style": "banking",
+      "model": "bulbul:v4-flash",
+      "languages": [
+        "hi-IN"
+      ]
+    },
+    {
+      "id": "sanchita_hi_feedback",
+      "name": "Sanchita",
+      "style": "feedback",
+      "model": "bulbul:v4-flash",
+      "languages": [
+        "hi-IN"
+      ]
+    },
+    {
+      "id": "sanchita_hi_ads_formal",
+      "name": "Sanchita",
+      "style": "ads formal",
+      "model": "bulbul:v4-flash",
+      "languages": [
+        "hi-IN"
+      ]
+    },
+    {
+      "id": "sanchita_hi_ads_informal",
+      "name": "Sanchita",
+      "style": "ads informal",
+      "model": "bulbul:v4-flash",
+      "languages": [
+        "hi-IN"
+      ]
+    },
+    {
+      "id": "sanchita_hi_interview",
+      "name": "Sanchita",
+      "style": "interview",
+      "model": "bulbul:v4-flash",
+      "languages": [
+        "hi-IN"
+      ]
+    },
+    {
+      "id": "sanchita_hi_romantic",
+      "name": "Sanchita",
+      "style": "romantic",
+      "model": "bulbul:v4-flash",
+      "languages": [
+        "hi-IN"
+      ]
+    },
+    {
+      "id": "sanchita_hi_market",
+      "name": "Sanchita",
+      "style": "market",
+      "model": "bulbul:v4-flash",
+      "languages": [
+        "hi-IN"
+      ]
+    },
+    {
+      "id": "sanchita_hi_social",
+      "name": "Sanchita",
+      "style": "social",
+      "model": "bulbul:v4-flash",
+      "languages": [
+        "hi-IN"
+      ]
+    },
+    {
+      "id": "sanchita_hi_kyc",
+      "name": "Sanchita",
+      "style": "kyc",
+      "model": "bulbul:v4-flash",
+      "languages": [
+        "hi-IN"
+      ]
+    },
+    {
+      "id": "sarika_hi_conversation",
+      "name": "Sarika",
+      "style": "conversation",
+      "model": "bulbul:v4-flash",
+      "languages": [
+        "hi-IN"
+      ]
+    },
+    {
+      "id": "shalini_hi_companion",
+      "name": "Shalini",
+      "style": "companion",
+      "model": "bulbul:v4-flash",
+      "languages": [
+        "hi-IN"
+      ]
+    },
+    {
+      "id": "shalini_hi_social",
+      "name": "Shalini",
+      "style": "social",
+      "model": "bulbul:v4-flash",
+      "languages": [
+        "hi-IN"
+      ]
+    },
+    {
+      "id": "shreya_hi_conversational",
+      "name": "Shreya",
+      "style": "conversational",
+      "model": "bulbul:v4-flash",
+      "languages": [
+        "hi-IN"
+      ]
+    },
+    {
+      "id": "shreya_hi_news",
+      "name": "Shreya",
+      "style": "news",
+      "model": "bulbul:v4-flash",
+      "languages": [
+        "hi-IN"
+      ]
+    },
+    {
+      "id": "shruti_hi_edtech",
+      "name": "Shruti",
+      "style": "edtech",
+      "model": "bulbul:v4-flash",
+      "languages": [
+        "hi-IN"
+      ]
+    },
+    {
+      "id": "shubh_hi_customer",
+      "name": "Shubh",
+      "style": "customer",
+      "model": "bulbul:v4-flash",
+      "languages": [
+        "hi-IN"
+      ]
+    },
+    {
+      "id": "shubh_hi_ecomm",
+      "name": "Shubh",
+      "style": "ecomm",
+      "model": "bulbul:v4-flash",
+      "languages": [
+        "hi-IN"
+      ]
+    },
+    {
+      "id": "shubh_hi_stories_mixed",
+      "name": "Shubh",
+      "style": "stories mixed",
+      "model": "bulbul:v4-flash",
+      "languages": [
+        "hi-IN"
+      ]
+    },
+    {
+      "id": "shubh_hi_devotional",
+      "name": "Shubh",
+      "style": "devotional",
+      "model": "bulbul:v4-flash",
+      "languages": [
+        "hi-IN"
+      ]
+    },
+    {
+      "id": "shubh_hi_ads",
+      "name": "Shubh",
+      "style": "ads",
+      "model": "bulbul:v4-flash",
+      "languages": [
+        "hi-IN"
+      ]
+    },
+    {
+      "id": "shubh_hi_recovery",
+      "name": "Shubh",
+      "style": "recovery",
+      "model": "bulbul:v4-flash",
+      "languages": [
+        "hi-IN"
+      ]
+    },
+    {
+      "id": "shubh_hi_stories_dramatic",
+      "name": "Shubh",
+      "style": "stories dramatic",
+      "model": "bulbul:v4-flash",
+      "languages": [
+        "hi-IN"
+      ]
+    },
+    {
+      "id": "simran_hi_assistant",
+      "name": "Simran",
+      "style": "assistant",
+      "model": "bulbul:v4-flash",
+      "languages": [
+        "hi-IN"
+      ]
+    },
+    {
+      "id": "simran_hi_narration",
+      "name": "Simran",
+      "style": "narration",
+      "model": "bulbul:v4-flash",
+      "languages": [
+        "hi-IN"
+      ]
+    },
+    {
+      "id": "simran_hi_automobile",
+      "name": "Simran",
+      "style": "automobile",
+      "model": "bulbul:v4-flash",
+      "languages": [
+        "hi-IN"
+      ]
+    },
+    {
+      "id": "simran_hi_conversation",
+      "name": "Simran",
+      "style": "conversation",
+      "model": "bulbul:v4-flash",
+      "languages": [
+        "hi-IN"
+      ]
+    },
+    {
+      "id": "simran_hi_news_breaking",
+      "name": "Simran",
+      "style": "news breaking",
+      "model": "bulbul:v4-flash",
+      "languages": [
+        "hi-IN"
+      ]
+    },
+    {
+      "id": "simran_hi_social_energetic",
+      "name": "Simran",
+      "style": "social energetic",
+      "model": "bulbul:v4-flash",
+      "languages": [
+        "hi-IN"
+      ]
+    },
+    {
+      "id": "simran_hi_social_excited",
+      "name": "Simran",
+      "style": "social excited",
+      "model": "bulbul:v4-flash",
+      "languages": [
+        "hi-IN"
+      ]
+    },
+    {
+      "id": "simran_hi_latenight",
+      "name": "Simran",
+      "style": "latenight",
+      "model": "bulbul:v4-flash",
+      "languages": [
+        "hi-IN"
+      ]
+    },
+    {
+      "id": "simran_hi_news",
+      "name": "Simran",
+      "style": "news",
+      "model": "bulbul:v4-flash",
+      "languages": [
+        "hi-IN"
+      ]
+    },
+    {
+      "id": "simran_hi_recovery",
+      "name": "Simran",
+      "style": "recovery",
+      "model": "bulbul:v4-flash",
+      "languages": [
+        "hi-IN"
+      ]
+    },
+    {
+      "id": "simran_hi_sales",
+      "name": "Simran",
+      "style": "sales",
+      "model": "bulbul:v4-flash",
+      "languages": [
+        "hi-IN"
+      ]
+    },
+    {
+      "id": "suchitra_hi_ecomm",
+      "name": "Suchitra",
+      "style": "ecomm",
+      "model": "bulbul:v4-flash",
+      "languages": [
+        "hi-IN"
+      ]
+    },
+    {
+      "id": "suhani_hi_social",
+      "name": "Suhani",
+      "style": "social",
+      "model": "bulbul:v4-flash",
+      "languages": [
+        "hi-IN"
+      ]
+    },
+    {
+      "id": "sunny_hi_ads",
+      "name": "Sunny",
+      "style": "ads",
+      "model": "bulbul:v4-flash",
+      "languages": [
+        "hi-IN"
+      ]
+    },
+    {
+      "id": "sunny_hi_reels",
+      "name": "Sunny",
+      "style": "reels",
+      "model": "bulbul:v4-flash",
+      "languages": [
+        "hi-IN"
+      ]
+    },
+    {
+      "id": "tarun_hi_conversational",
+      "name": "Tarun",
+      "style": "conversational",
+      "model": "bulbul:v4-flash",
+      "languages": [
+        "hi-IN"
+      ]
+    },
+    {
+      "id": "tarun_hi_sales",
+      "name": "Tarun",
+      "style": "sales",
+      "model": "bulbul:v4-flash",
+      "languages": [
+        "hi-IN"
+      ]
+    },
+    {
+      "id": "chaitra_hi_customer",
+      "name": "Chaitra",
+      "style": "customer",
+      "model": "bulbul:v4-flash",
+      "languages": [
+        "hi-IN"
+      ]
+    },
+    {
+      "id": "shilpa_hi_narration",
+      "name": "Shilpa",
+      "style": "narration",
+      "model": "bulbul:v4-flash",
+      "languages": [
+        "hi-IN"
+      ]
+    },
+    {
+      "id": "tanya_hi_narration",
+      "name": "Tanya",
+      "style": "narration",
+      "model": "bulbul:v4-flash",
+      "languages": [
+        "hi-IN"
+      ]
+    },
+    {
+      "id": "aarti_hi_customer",
+      "name": "Aarti",
+      "style": "customer",
+      "model": "bulbul:v4-flash",
+      "languages": [
+        "hi-IN"
+      ]
+    },
+    {
+      "id": "advait_hi_character",
+      "name": "Advait",
+      "style": "character",
+      "model": "bulbul:v4-flash",
+      "languages": [
+        "hi-IN"
+      ]
+    },
+    {
+      "id": "aryaman_hi_ads",
+      "name": "Aryaman",
+      "style": "ads",
+      "model": "bulbul:v4-flash",
+      "languages": [
+        "hi-IN"
+      ]
+    },
+    {
+      "id": "chirag_hi_social",
+      "name": "Chirag",
+      "style": "social",
+      "model": "bulbul:v4-flash",
+      "languages": [
+        "hi-IN"
+      ]
+    },
+    {
+      "id": "girish_hi_devotional",
+      "name": "Girish",
+      "style": "devotional",
+      "model": "bulbul:v4-flash",
+      "languages": [
+        "hi-IN"
+      ]
+    },
+    {
+      "id": "mukul_hi_ads",
+      "name": "Mukul",
+      "style": "ads",
+      "model": "bulbul:v4-flash",
+      "languages": [
+        "hi-IN"
+      ]
+    },
+    {
+      "id": "mukul_hi_suspense",
+      "name": "Mukul",
+      "style": "suspense",
+      "model": "bulbul:v4-flash",
+      "languages": [
+        "hi-IN"
+      ]
+    },
+    {
+      "id": "suman_hi_companion",
+      "name": "Suman",
+      "style": "companion",
+      "model": "bulbul:v4-flash",
+      "languages": [
+        "hi-IN"
+      ]
+    },
+    {
+      "id": "vaibhav_hi_social",
+      "name": "Vaibhav",
+      "style": "social",
+      "model": "bulbul:v4-flash",
+      "languages": [
+        "hi-IN"
+      ]
+    },
+    {
+      "id": "vandana_hi_ecomm",
+      "name": "Vandana",
+      "style": "ecomm",
+      "model": "bulbul:v4-flash",
+      "languages": [
+        "hi-IN"
+      ]
+    },
+    {
+      "id": "vipul_hi_social",
+      "name": "Vipul",
+      "style": "social",
+      "model": "bulbul:v4-flash",
+      "languages": [
+        "hi-IN"
+      ]
+    },
+    {
+      "id": "aditi_en_stories",
+      "name": "Aditi",
+      "style": "stories",
+      "model": "bulbul:v4-flash",
+      "languages": [
+        "en-IN"
+      ]
+    },
+    {
+      "id": "aparna_en_companion",
+      "name": "Aparna",
+      "style": "companion",
+      "model": "bulbul:v4-flash",
+      "languages": [
+        "en-IN"
+      ]
+    },
+    {
+      "id": "aparna_en_edtech",
+      "name": "Aparna",
+      "style": "edtech",
+      "model": "bulbul:v4-flash",
+      "languages": [
+        "en-IN"
+      ]
+    },
+    {
+      "id": "ashwin_en_sports",
+      "name": "Ashwin",
+      "style": "sports",
+      "model": "bulbul:v4-flash",
+      "languages": [
+        "en-IN"
+      ]
+    },
+    {
+      "id": "ashwin_en_sports_energetic",
+      "name": "Ashwin",
+      "style": "sports energetic",
+      "model": "bulbul:v4-flash",
+      "languages": [
+        "en-IN"
+      ]
+    },
+    {
+      "id": "chandrika_en_stories",
+      "name": "Chandrika",
+      "style": "stories",
+      "model": "bulbul:v4-flash",
+      "languages": [
+        "en-IN"
+      ]
+    },
+    {
+      "id": "dev_en_recovery",
+      "name": "Dev",
+      "style": "recovery",
+      "model": "bulbul:v4-flash",
+      "languages": [
+        "en-IN"
+      ]
+    },
+    {
+      "id": "dev_en_conversational",
+      "name": "Dev",
+      "style": "conversational",
+      "model": "bulbul:v4-flash",
+      "languages": [
+        "en-IN"
+      ]
+    },
+    {
+      "id": "deven_en_conversation",
+      "name": "Deven",
+      "style": "conversation",
+      "model": "bulbul:v4-flash",
+      "languages": [
+        "en-IN"
+      ]
+    },
+    {
+      "id": "ishita_en_customer",
+      "name": "Ishita",
+      "style": "customer",
+      "model": "bulbul:v4-flash",
+      "languages": [
+        "en-IN"
+      ]
+    },
+    {
+      "id": "ishita_en_medical",
+      "name": "Ishita",
+      "style": "medical",
+      "model": "bulbul:v4-flash",
+      "languages": [
+        "en-IN"
+      ]
+    },
+    {
+      "id": "ishita_en_numbers",
+      "name": "Ishita",
+      "style": "numbers",
+      "model": "bulbul:v4-flash",
+      "languages": [
+        "en-IN"
+      ]
+    },
+    {
+      "id": "ishita_en_social",
+      "name": "Ishita",
+      "style": "social",
+      "model": "bulbul:v4-flash",
+      "languages": [
+        "en-IN"
+      ]
+    },
+    {
+      "id": "ishita_en_stories",
+      "name": "Ishita",
+      "style": "stories",
+      "model": "bulbul:v4-flash",
+      "languages": [
+        "en-IN"
+      ]
+    },
+    {
+      "id": "kalpit_en_edtech",
+      "name": "Kalpit",
+      "style": "edtech",
+      "model": "bulbul:v4-flash",
+      "languages": [
+        "en-IN"
+      ]
+    },
+    {
+      "id": "nachiket_en_ads",
+      "name": "Nachiket",
+      "style": "ads",
+      "model": "bulbul:v4-flash",
+      "languages": [
+        "en-IN"
+      ]
+    },
+    {
+      "id": "neha_en_customer",
+      "name": "Neha",
+      "style": "customer",
+      "model": "bulbul:v4-flash",
+      "languages": [
+        "en-IN"
+      ]
+    },
+    {
+      "id": "neha_en_latenight",
+      "name": "Neha",
+      "style": "latenight",
+      "model": "bulbul:v4-flash",
+      "languages": [
+        "en-IN"
+      ]
+    },
+    {
+      "id": "nupur_en_kids",
+      "name": "Nupur",
+      "style": "kids",
+      "model": "bulbul:v4-flash",
+      "languages": [
+        "en-IN"
+      ]
+    },
+    {
+      "id": "ojas_en_social",
+      "name": "Ojas",
+      "style": "social",
+      "model": "bulbul:v4-flash",
+      "languages": [
+        "en-IN"
+      ]
+    },
+    {
+      "id": "ritu_en_edtech",
+      "name": "Ritu",
+      "style": "edtech",
+      "model": "bulbul:v4-flash",
+      "languages": [
+        "en-IN"
+      ]
+    },
+    {
+      "id": "ritu_en_latenight",
+      "name": "Ritu",
+      "style": "latenight",
+      "model": "bulbul:v4-flash",
+      "languages": [
+        "en-IN"
+      ]
+    },
+    {
+      "id": "ritu_en_medical",
+      "name": "Ritu",
+      "style": "medical",
+      "model": "bulbul:v4-flash",
+      "languages": [
+        "en-IN"
+      ]
+    },
+    {
+      "id": "ritu_en_reels",
+      "name": "Ritu",
+      "style": "reels",
+      "model": "bulbul:v4-flash",
+      "languages": [
+        "en-IN"
+      ]
+    },
+    {
+      "id": "rohan_en_recovery",
+      "name": "Rohan",
+      "style": "recovery",
+      "model": "bulbul:v4-flash",
+      "languages": [
+        "en-IN"
+      ]
+    },
+    {
+      "id": "roopa_en_conversational",
+      "name": "Roopa",
+      "style": "conversational",
+      "model": "bulbul:v4-flash",
+      "languages": [
+        "en-IN"
+      ]
+    },
+    {
+      "id": "rustom_en_suspense",
+      "name": "Rustom",
+      "style": "suspense",
+      "model": "bulbul:v4-flash",
+      "languages": [
+        "en-IN"
+      ]
+    },
+    {
+      "id": "sanchita_en_companion",
+      "name": "Sanchita",
+      "style": "companion",
+      "model": "bulbul:v4-flash",
+      "languages": [
+        "en-IN"
+      ]
+    },
+    {
+      "id": "sanchita_en_insurance",
+      "name": "Sanchita",
+      "style": "insurance",
+      "model": "bulbul:v4-flash",
+      "languages": [
+        "en-IN"
+      ]
+    },
+    {
+      "id": "sanchita_en_recovery",
+      "name": "Sanchita",
+      "style": "recovery",
+      "model": "bulbul:v4-flash",
+      "languages": [
+        "en-IN"
+      ]
+    },
+    {
+      "id": "sanchita_en_market",
+      "name": "Sanchita",
+      "style": "market",
+      "model": "bulbul:v4-flash",
+      "languages": [
+        "en-IN"
+      ]
+    },
+    {
+      "id": "sanchita_en_social",
+      "name": "Sanchita",
+      "style": "social",
+      "model": "bulbul:v4-flash",
+      "languages": [
+        "en-IN"
+      ]
+    },
+    {
+      "id": "shabana_en_edtech",
+      "name": "Shabana",
+      "style": "edtech",
+      "model": "bulbul:v4-flash",
+      "languages": [
+        "en-IN"
+      ]
+    },
+    {
+      "id": "shalini_en_companion",
+      "name": "Shalini",
+      "style": "companion",
+      "model": "bulbul:v4-flash",
+      "languages": [
+        "en-IN"
+      ]
+    },
+    {
+      "id": "shalini_en_customer",
+      "name": "Shalini",
+      "style": "customer",
+      "model": "bulbul:v4-flash",
+      "languages": [
+        "en-IN"
+      ]
+    },
+    {
+      "id": "shubh_en_narration",
+      "name": "Shubh",
+      "style": "narration",
+      "model": "bulbul:v4-flash",
+      "languages": [
+        "en-IN"
+      ]
+    },
+    {
+      "id": "shubh_en_numbers",
+      "name": "Shubh",
+      "style": "numbers",
+      "model": "bulbul:v4-flash",
+      "languages": [
+        "en-IN"
+      ]
+    },
+    {
+      "id": "shubh_en_ads",
+      "name": "Shubh",
+      "style": "ads",
+      "model": "bulbul:v4-flash",
+      "languages": [
+        "en-IN"
+      ]
+    },
+    {
+      "id": "shubh_en_recovery",
+      "name": "Shubh",
+      "style": "recovery",
+      "model": "bulbul:v4-flash",
+      "languages": [
+        "en-IN"
+      ]
+    },
+    {
+      "id": "shubh_en_audiobook",
+      "name": "Shubh",
+      "style": "audiobook",
+      "model": "bulbul:v4-flash",
+      "languages": [
+        "en-IN"
+      ]
+    },
+    {
+      "id": "shubh_en_narration_gentle",
+      "name": "Shubh",
+      "style": "narration gentle",
+      "model": "bulbul:v4-flash",
+      "languages": [
+        "en-IN"
+      ]
+    },
+    {
+      "id": "shubh_en_sports",
+      "name": "Shubh",
+      "style": "sports",
+      "model": "bulbul:v4-flash",
+      "languages": [
+        "en-IN"
+      ]
+    },
+    {
+      "id": "simran_en_narration",
+      "name": "Simran",
+      "style": "narration",
+      "model": "bulbul:v4-flash",
+      "languages": [
+        "en-IN"
+      ]
+    },
+    {
+      "id": "simran_en_automobile",
+      "name": "Simran",
+      "style": "automobile",
+      "model": "bulbul:v4-flash",
+      "languages": [
+        "en-IN"
+      ]
+    },
+    {
+      "id": "simran_en_conversation",
+      "name": "Simran",
+      "style": "conversation",
+      "model": "bulbul:v4-flash",
+      "languages": [
+        "en-IN"
+      ]
+    },
+    {
+      "id": "simran_en_customer",
+      "name": "Simran",
+      "style": "customer",
+      "model": "bulbul:v4-flash",
+      "languages": [
+        "en-IN"
+      ]
+    },
+    {
+      "id": "simran_en_edtech",
+      "name": "Simran",
+      "style": "edtech",
+      "model": "bulbul:v4-flash",
+      "languages": [
+        "en-IN"
+      ]
+    },
+    {
+      "id": "simran_en_edtech_bot",
+      "name": "Simran",
+      "style": "edtech bot",
+      "model": "bulbul:v4-flash",
+      "languages": [
+        "en-IN"
+      ]
+    },
+    {
+      "id": "simran_en_sales",
+      "name": "Simran",
+      "style": "sales",
+      "model": "bulbul:v4-flash",
+      "languages": [
+        "en-IN"
+      ]
+    },
+    {
+      "id": "simran_en_recovery",
+      "name": "Simran",
+      "style": "recovery",
+      "model": "bulbul:v4-flash",
+      "languages": [
+        "en-IN"
+      ]
+    },
+    {
+      "id": "simran_en_ads",
+      "name": "Simran",
+      "style": "ads",
+      "model": "bulbul:v4-flash",
+      "languages": [
+        "en-IN"
+      ]
+    },
+    {
+      "id": "simran_en_therapist",
+      "name": "Simran",
+      "style": "therapist",
+      "model": "bulbul:v4-flash",
+      "languages": [
+        "en-IN"
+      ]
+    },
+    {
+      "id": "sunny_en_social",
+      "name": "Sunny",
+      "style": "social",
+      "model": "bulbul:v4-flash",
+      "languages": [
+        "en-IN"
+      ]
+    },
+    {
+      "id": "varun_en_ads",
+      "name": "Varun",
+      "style": "ads",
+      "model": "bulbul:v4-flash",
+      "languages": [
+        "en-IN"
+      ]
+    },
+    {
+      "id": "varun_en_suspense",
+      "name": "Varun",
+      "style": "suspense",
+      "model": "bulbul:v4-flash",
+      "languages": [
+        "en-IN"
+      ]
+    },
+    {
+      "id": "zarina_en_conversation",
+      "name": "Zarina",
+      "style": "conversation",
+      "model": "bulbul:v4-flash",
+      "languages": [
+        "en-IN"
+      ]
+    },
+    {
+      "id": "amelia_en_conversational",
+      "name": "Amelia",
+      "style": "conversational",
+      "model": "bulbul:v4-flash",
+      "languages": [
+        "en-IN"
+      ]
+    },
+    {
+      "id": "sophia_en_conversational",
+      "name": "Sophia",
+      "style": "conversational",
+      "model": "bulbul:v4-flash",
+      "languages": [
+        "en-IN"
+      ]
+    },
+    {
+      "id": "girish_en_documentary",
+      "name": "Girish",
+      "style": "documentary",
+      "model": "bulbul:v4-flash",
+      "languages": [
+        "en-IN"
+      ]
+    },
+    {
+      "id": "girish_en_devotional",
+      "name": "Girish",
+      "style": "devotional",
+      "model": "bulbul:v4-flash",
+      "languages": [
+        "en-IN"
+      ]
+    },
+    {
+      "id": "payal_en_edtech",
+      "name": "Payal",
+      "style": "edtech",
+      "model": "bulbul:v4-flash",
+      "languages": [
+        "en-IN"
+      ]
+    },
+    {
+      "id": "sarang_en_narration",
+      "name": "Sarang",
+      "style": "narration",
+      "model": "bulbul:v4-flash",
+      "languages": [
+        "en-IN"
+      ]
+    },
+    {
+      "id": "ishita_enhi_companion",
+      "name": "Ishita",
+      "style": "companion",
+      "model": "bulbul:v4-flash",
+      "languages": [
+        "en-IN",
+        "hi-IN"
+      ]
+    },
+    {
+      "id": "ishita_enhi_customer",
+      "name": "Ishita",
+      "style": "customer",
+      "model": "bulbul:v4-flash",
+      "languages": [
+        "en-IN",
+        "hi-IN"
+      ]
+    },
+    {
+      "id": "ishita_enhi_customer_expressive",
+      "name": "Ishita",
+      "style": "customer expressive",
+      "model": "bulbul:v4-flash",
+      "languages": [
+        "en-IN",
+        "hi-IN"
+      ]
+    },
+    {
+      "id": "sanchita_enhi_companion",
+      "name": "Sanchita",
+      "style": "companion",
+      "model": "bulbul:v4-flash",
+      "languages": [
+        "en-IN",
+        "hi-IN"
+      ]
+    },
+    {
+      "id": "shalini_enhi_companion",
+      "name": "Shalini",
+      "style": "companion",
+      "model": "bulbul:v4-flash",
+      "languages": [
+        "en-IN",
+        "hi-IN"
+      ]
+    },
+    {
+      "id": "shalini_enhi_customer",
+      "name": "Shalini",
+      "style": "customer",
+      "model": "bulbul:v4-flash",
+      "languages": [
+        "en-IN",
+        "hi-IN"
+      ]
+    },
+    {
+      "id": "shubh_enhi_companion",
+      "name": "Shubh",
+      "style": "companion",
+      "model": "bulbul:v4-flash",
+      "languages": [
+        "en-IN",
+        "hi-IN"
+      ]
+    },
+    {
+      "id": "shubh_enhi_ads",
+      "name": "Shubh",
+      "style": "ads",
+      "model": "bulbul:v4-flash",
+      "languages": [
+        "en-IN",
+        "hi-IN"
+      ]
+    },
+    {
+      "id": "shubh_enhi_banking",
+      "name": "Shubh",
+      "style": "banking",
+      "model": "bulbul:v4-flash",
+      "languages": [
+        "en-IN",
+        "hi-IN"
+      ]
+    },
+    {
+      "id": "simran_enhi_companion",
+      "name": "Simran",
+      "style": "companion",
+      "model": "bulbul:v4-flash",
+      "languages": [
+        "en-IN",
+        "hi-IN"
+      ]
+    },
+    {
+      "id": "simran_enhi_customer",
+      "name": "Simran",
+      "style": "customer",
+      "model": "bulbul:v4-flash",
+      "languages": [
+        "en-IN",
+        "hi-IN"
+      ]
+    },
+    {
+      "id": "simran_enhi_banking_expressive",
+      "name": "Simran",
+      "style": "banking expressive",
+      "model": "bulbul:v4-flash",
+      "languages": [
+        "en-IN",
+        "hi-IN"
+      ]
+    },
+    {
+      "id": "sunny_enhi_customer",
+      "name": "Sunny",
+      "style": "customer",
+      "model": "bulbul:v4-flash",
+      "languages": [
+        "en-IN",
+        "hi-IN"
+      ]
+    },
+    {
+      "id": "ishita_mr_conversational",
+      "name": "Ishita",
+      "style": "conversational",
+      "model": "bulbul:v4-flash",
+      "languages": [
+        "mr-IN"
+      ]
+    },
+    {
+      "id": "mrunal_mr_narration",
+      "name": "Mrunal",
+      "style": "narration",
+      "model": "bulbul:v4-flash",
+      "languages": [
+        "mr-IN"
+      ]
+    },
+    {
+      "id": "neha_mr_narration",
+      "name": "Neha",
+      "style": "narration",
+      "model": "bulbul:v4-flash",
+      "languages": [
+        "mr-IN"
+      ]
+    },
+    {
+      "id": "nilesh_mr_conversation",
+      "name": "Nilesh",
+      "style": "conversation",
+      "model": "bulbul:v4-flash",
+      "languages": [
+        "mr-IN"
+      ]
+    },
+    {
+      "id": "ritu_mr_insurance",
+      "name": "Ritu",
+      "style": "insurance",
+      "model": "bulbul:v4-flash",
+      "languages": [
+        "mr-IN"
+      ]
+    },
+    {
+      "id": "ritu_mr_narration",
+      "name": "Ritu",
+      "style": "narration",
+      "model": "bulbul:v4-flash",
+      "languages": [
+        "mr-IN"
+      ]
+    },
+    {
+      "id": "rupali_mr_stories",
+      "name": "Rupali",
+      "style": "stories",
+      "model": "bulbul:v4-flash",
+      "languages": [
+        "mr-IN"
+      ]
+    },
+    {
+      "id": "soham_mr_narration",
+      "name": "Soham",
+      "style": "narration",
+      "model": "bulbul:v4-flash",
+      "languages": [
+        "mr-IN"
+      ]
+    },
+    {
+      "id": "mukul_mr_stories",
+      "name": "Mukul",
+      "style": "stories",
+      "model": "bulbul:v4-flash",
+      "languages": [
+        "mr-IN"
+      ]
+    },
+    {
+      "id": "chaitra_kn_conversation",
+      "name": "Chaitra",
+      "style": "conversation",
+      "model": "bulbul:v4-flash",
+      "languages": [
+        "kn-IN"
+      ]
+    },
+    {
+      "id": "chaitra_kn_narration",
+      "name": "Chaitra",
+      "style": "narration",
+      "model": "bulbul:v4-flash",
+      "languages": [
+        "kn-IN"
+      ]
+    },
+    {
+      "id": "chetan_kn_conversation",
+      "name": "Chetan",
+      "style": "conversation",
+      "model": "bulbul:v4-flash",
+      "languages": [
+        "kn-IN"
+      ]
+    },
+    {
+      "id": "suchitra_kn_narration",
+      "name": "Suchitra",
+      "style": "narration",
+      "model": "bulbul:v4-flash",
+      "languages": [
+        "kn-IN"
+      ]
+    },
+    {
+      "id": "anand_pa_conversation",
+      "name": "Anand",
+      "style": "conversation",
+      "model": "bulbul:v4-flash",
+      "languages": [
+        "pa-IN"
+      ]
+    },
+    {
+      "id": "anand_pa_customer",
+      "name": "Anand",
+      "style": "customer",
+      "model": "bulbul:v4-flash",
+      "languages": [
+        "pa-IN"
+      ]
+    },
+    {
+      "id": "harpreet_pa_narration",
+      "name": "Harpreet",
+      "style": "narration",
+      "model": "bulbul:v4-flash",
+      "languages": [
+        "pa-IN"
+      ]
+    },
+    {
+      "id": "jaspal_pa_banking",
+      "name": "Jaspal",
+      "style": "banking",
+      "model": "bulbul:v4-flash",
+      "languages": [
+        "pa-IN"
+      ]
+    },
+    {
+      "id": "aravind_ta_ads",
+      "name": "Aravind",
+      "style": "ads",
+      "model": "bulbul:v4-flash",
+      "languages": [
+        "ta-IN"
+      ]
+    },
+    {
+      "id": "aravind_ta_suspense",
+      "name": "Aravind",
+      "style": "suspense",
+      "model": "bulbul:v4-flash",
+      "languages": [
+        "ta-IN"
+      ]
+    },
+    {
+      "id": "gokul_ta_narration",
+      "name": "Gokul",
+      "style": "narration",
+      "model": "bulbul:v4-flash",
+      "languages": [
+        "ta-IN"
+      ]
+    },
+    {
+      "id": "vijay_ta_narration",
+      "name": "Vijay",
+      "style": "narration",
+      "model": "bulbul:v4-flash",
+      "languages": [
+        "ta-IN"
+      ]
+    },
+    {
+      "id": "kavitha_te_conversation",
+      "name": "Kavitha",
+      "style": "conversation",
+      "model": "bulbul:v4-flash",
+      "languages": [
+        "te-IN"
+      ]
+    },
+    {
+      "id": "kavitha_te_narration",
+      "name": "Kavitha",
+      "style": "narration",
+      "model": "bulbul:v4-flash",
+      "languages": [
+        "te-IN"
+      ]
+    },
+    {
+      "id": "pooja_te_conversation",
+      "name": "Pooja",
+      "style": "conversation",
+      "model": "bulbul:v4-flash",
+      "languages": [
+        "te-IN"
+      ]
+    },
+    {
+      "id": "tarun_te_narration",
+      "name": "Tarun",
+      "style": "narration",
+      "model": "bulbul:v4-flash",
+      "languages": [
+        "te-IN"
+      ]
+    },
+    {
+      "id": "bhavik_gu_conversation",
+      "name": "Bhavik",
+      "style": "conversation",
+      "model": "bulbul:v4-flash",
+      "languages": [
+        "gu-IN"
+      ]
+    },
+    {
+      "id": "pooja_gu_conversational",
+      "name": "Pooja",
+      "style": "conversational",
+      "model": "bulbul:v4-flash",
+      "languages": [
+        "gu-IN"
+      ]
+    },
+    {
+      "id": "pooja_gu_customer",
+      "name": "Pooja",
+      "style": "customer",
+      "model": "bulbul:v4-flash",
+      "languages": [
+        "gu-IN"
+      ]
+    },
+    {
+      "id": "arnab_bn_conversation",
+      "name": "Arnab",
+      "style": "conversation",
+      "model": "bulbul:v4-flash",
+      "languages": [
+        "bn-IN"
+      ]
+    },
+    {
+      "id": "roopa_bn_conversational",
+      "name": "Roopa",
+      "style": "conversational",
+      "model": "bulbul:v4-flash",
+      "languages": [
+        "bn-IN"
+      ]
+    },
+    {
+      "id": "bimal_bn_suspense",
+      "name": "Bimal",
+      "style": "suspense",
+      "model": "bulbul:v4-flash",
+      "languages": [
+        "bn-IN"
+      ]
+    },
+    {
+      "id": "shubh",
+      "name": "Shubh",
+      "style": "",
+      "model": "bulbul:v3",
+      "languages": [
+        "bn-IN",
+        "en-IN",
+        "gu-IN",
+        "hi-IN",
+        "kn-IN",
+        "ml-IN",
+        "mr-IN",
+        "od-IN",
+        "pa-IN",
+        "ta-IN",
+        "te-IN"
+      ],
+      "demoUrl": "https://docs.sarvam.ai/_fern-files/sarvam-api-docs.docs.buildwithfern.com/d76567ff8df17e222233de02b703846dd57430ba91d58e1c5a93f2ac44beb20d/api-reference-docs/text-to-speech/voices-audio/v3/shubh.mp3"
+    },
+    {
+      "id": "aditya",
+      "name": "Aditya",
+      "style": "",
+      "model": "bulbul:v3",
+      "languages": [
+        "bn-IN",
+        "en-IN",
+        "gu-IN",
+        "hi-IN",
+        "kn-IN",
+        "ml-IN",
+        "mr-IN",
+        "od-IN",
+        "pa-IN",
+        "ta-IN",
+        "te-IN"
+      ],
+      "demoUrl": "https://docs.sarvam.ai/_fern-files/sarvam-api-docs.docs.buildwithfern.com/3ef7ed217f3fe7bc78b51e2cf078798d170aaa119289638e7430a74aa5d7ae58/api-reference-docs/text-to-speech/voices-audio/v3/aditya.mp3"
+    },
+    {
+      "id": "ritu",
+      "name": "Ritu",
+      "style": "",
+      "model": "bulbul:v3",
+      "languages": [
+        "bn-IN",
+        "en-IN",
+        "gu-IN",
+        "hi-IN",
+        "kn-IN",
+        "ml-IN",
+        "mr-IN",
+        "od-IN",
+        "pa-IN",
+        "ta-IN",
+        "te-IN"
+      ],
+      "demoUrl": "https://docs.sarvam.ai/_fern-files/sarvam-api-docs.docs.buildwithfern.com/ff6bf7280bc36c29bf7c47b3170c28649dc70c579bcaef3e6508a591ea3e3ea4/api-reference-docs/text-to-speech/voices-audio/v3/ritu.mp3"
+    },
+    {
+      "id": "priya",
+      "name": "Priya",
+      "style": "",
+      "model": "bulbul:v3",
+      "languages": [
+        "bn-IN",
+        "en-IN",
+        "gu-IN",
+        "hi-IN",
+        "kn-IN",
+        "ml-IN",
+        "mr-IN",
+        "od-IN",
+        "pa-IN",
+        "ta-IN",
+        "te-IN"
+      ],
+      "demoUrl": "https://docs.sarvam.ai/_fern-files/sarvam-api-docs.docs.buildwithfern.com/f64837aa32a01742457bc9814c5cdde8dae80dd465e3ec95b356540f66d1fb53/api-reference-docs/text-to-speech/voices-audio/v3/priya.mp3"
+    },
+    {
+      "id": "neha",
+      "name": "Neha",
+      "style": "",
+      "model": "bulbul:v3",
+      "languages": [
+        "bn-IN",
+        "en-IN",
+        "gu-IN",
+        "hi-IN",
+        "kn-IN",
+        "ml-IN",
+        "mr-IN",
+        "od-IN",
+        "pa-IN",
+        "ta-IN",
+        "te-IN"
+      ],
+      "demoUrl": "https://docs.sarvam.ai/_fern-files/sarvam-api-docs.docs.buildwithfern.com/1020940aa9d68e0f715478b1e16b796b75464322101d9daa72b35d731cd89a73/api-reference-docs/text-to-speech/voices-audio/v3/neha.mp3"
+    },
+    {
+      "id": "rahul",
+      "name": "Rahul",
+      "style": "",
+      "model": "bulbul:v3",
+      "languages": [
+        "bn-IN",
+        "en-IN",
+        "gu-IN",
+        "hi-IN",
+        "kn-IN",
+        "ml-IN",
+        "mr-IN",
+        "od-IN",
+        "pa-IN",
+        "ta-IN",
+        "te-IN"
+      ],
+      "demoUrl": "https://docs.sarvam.ai/_fern-files/sarvam-api-docs.docs.buildwithfern.com/01e4628c8fc66781d06395bed737a4c9ce7076432b9695459d70e25d2bc8ce36/api-reference-docs/text-to-speech/voices-audio/v3/rahul.mp3"
+    },
+    {
+      "id": "pooja",
+      "name": "Pooja",
+      "style": "",
+      "model": "bulbul:v3",
+      "languages": [
+        "bn-IN",
+        "en-IN",
+        "gu-IN",
+        "hi-IN",
+        "kn-IN",
+        "ml-IN",
+        "mr-IN",
+        "od-IN",
+        "pa-IN",
+        "ta-IN",
+        "te-IN"
+      ],
+      "demoUrl": "https://docs.sarvam.ai/_fern-files/sarvam-api-docs.docs.buildwithfern.com/7098db57c3cceff4a29b701eb9123107f2d3fde623ff80a4d9a80ebf2f4e0bb2/api-reference-docs/text-to-speech/voices-audio/v3/pooja.mp3"
+    },
+    {
+      "id": "rohan",
+      "name": "Rohan",
+      "style": "",
+      "model": "bulbul:v3",
+      "languages": [
+        "bn-IN",
+        "en-IN",
+        "gu-IN",
+        "hi-IN",
+        "kn-IN",
+        "ml-IN",
+        "mr-IN",
+        "od-IN",
+        "pa-IN",
+        "ta-IN",
+        "te-IN"
+      ],
+      "demoUrl": "https://docs.sarvam.ai/_fern-files/sarvam-api-docs.docs.buildwithfern.com/1e0ec90c6f225bdcdce3ada73a5a13b3d129743130411ed72b987ed423b8d55d/api-reference-docs/text-to-speech/voices-audio/v3/rohan.mp3"
+    },
+    {
+      "id": "simran",
+      "name": "Simran",
+      "style": "",
+      "model": "bulbul:v3",
+      "languages": [
+        "bn-IN",
+        "en-IN",
+        "gu-IN",
+        "hi-IN",
+        "kn-IN",
+        "ml-IN",
+        "mr-IN",
+        "od-IN",
+        "pa-IN",
+        "ta-IN",
+        "te-IN"
+      ],
+      "demoUrl": "https://docs.sarvam.ai/_fern-files/sarvam-api-docs.docs.buildwithfern.com/fdcfe60adc0efca71aaae8ba6cfea9098714f43eaad559c622d05b47fbc1094a/api-reference-docs/text-to-speech/voices-audio/v3/simran.mp3"
+    },
+    {
+      "id": "kavya",
+      "name": "Kavya",
+      "style": "",
+      "model": "bulbul:v3",
+      "languages": [
+        "bn-IN",
+        "en-IN",
+        "gu-IN",
+        "hi-IN",
+        "kn-IN",
+        "ml-IN",
+        "mr-IN",
+        "od-IN",
+        "pa-IN",
+        "ta-IN",
+        "te-IN"
+      ],
+      "demoUrl": "https://docs.sarvam.ai/_fern-files/sarvam-api-docs.docs.buildwithfern.com/f50940a19ad60b4b8d4608e841ffdea88df185b102ec566f0bedb590f4271305/api-reference-docs/text-to-speech/voices-audio/v3/kavya.mp3"
+    },
+    {
+      "id": "amit",
+      "name": "Amit",
+      "style": "",
+      "model": "bulbul:v3",
+      "languages": [
+        "bn-IN",
+        "en-IN",
+        "gu-IN",
+        "hi-IN",
+        "kn-IN",
+        "ml-IN",
+        "mr-IN",
+        "od-IN",
+        "pa-IN",
+        "ta-IN",
+        "te-IN"
+      ],
+      "demoUrl": "https://docs.sarvam.ai/_fern-files/sarvam-api-docs.docs.buildwithfern.com/14df809ccbf561278d70e5e373ce0ca54e584e124e4abfa15b58be5041a9cdce/api-reference-docs/text-to-speech/voices-audio/v3/amit.mp3"
+    },
+    {
+      "id": "dev",
+      "name": "Dev",
+      "style": "",
+      "model": "bulbul:v3",
+      "languages": [
+        "bn-IN",
+        "en-IN",
+        "gu-IN",
+        "hi-IN",
+        "kn-IN",
+        "ml-IN",
+        "mr-IN",
+        "od-IN",
+        "pa-IN",
+        "ta-IN",
+        "te-IN"
+      ],
+      "demoUrl": "https://docs.sarvam.ai/_fern-files/sarvam-api-docs.docs.buildwithfern.com/4c25dab95c58a9294aa7df649675e35e6a6af66d4c93dac0c2d7cea0ba06f3a2/api-reference-docs/text-to-speech/voices-audio/v3/dev.mp3"
+    },
+    {
+      "id": "ishita",
+      "name": "Ishita",
+      "style": "",
+      "model": "bulbul:v3",
+      "languages": [
+        "bn-IN",
+        "en-IN",
+        "gu-IN",
+        "hi-IN",
+        "kn-IN",
+        "ml-IN",
+        "mr-IN",
+        "od-IN",
+        "pa-IN",
+        "ta-IN",
+        "te-IN"
+      ],
+      "demoUrl": "https://docs.sarvam.ai/_fern-files/sarvam-api-docs.docs.buildwithfern.com/abb1744dd5d9ff53d245692f8e429fe920a4bdcf644269e55aadacaf6bbf9454/api-reference-docs/text-to-speech/voices-audio/v3/ishita.mp3"
+    },
+    {
+      "id": "shreya",
+      "name": "Shreya",
+      "style": "",
+      "model": "bulbul:v3",
+      "languages": [
+        "bn-IN",
+        "en-IN",
+        "gu-IN",
+        "hi-IN",
+        "kn-IN",
+        "ml-IN",
+        "mr-IN",
+        "od-IN",
+        "pa-IN",
+        "ta-IN",
+        "te-IN"
+      ],
+      "demoUrl": "https://docs.sarvam.ai/_fern-files/sarvam-api-docs.docs.buildwithfern.com/151c18b12ace92f28ca66db339ec0ebbcee2e20e4507dddd7f39e2662c5c555a/api-reference-docs/text-to-speech/voices-audio/v3/shreya.mp3"
+    },
+    {
+      "id": "ratan",
+      "name": "Ratan",
+      "style": "",
+      "model": "bulbul:v3",
+      "languages": [
+        "bn-IN",
+        "en-IN",
+        "gu-IN",
+        "hi-IN",
+        "kn-IN",
+        "ml-IN",
+        "mr-IN",
+        "od-IN",
+        "pa-IN",
+        "ta-IN",
+        "te-IN"
+      ],
+      "demoUrl": "https://docs.sarvam.ai/_fern-files/sarvam-api-docs.docs.buildwithfern.com/42cda3cadfb2b60849298a8185433f502a7c5a32620fc3ba685e825286ed0c74/api-reference-docs/text-to-speech/voices-audio/v3/ratan.mp3"
+    },
+    {
+      "id": "varun",
+      "name": "Varun",
+      "style": "",
+      "model": "bulbul:v3",
+      "languages": [
+        "bn-IN",
+        "en-IN",
+        "gu-IN",
+        "hi-IN",
+        "kn-IN",
+        "ml-IN",
+        "mr-IN",
+        "od-IN",
+        "pa-IN",
+        "ta-IN",
+        "te-IN"
+      ],
+      "demoUrl": "https://docs.sarvam.ai/_fern-files/sarvam-api-docs.docs.buildwithfern.com/9327517feb9f3899eba16f364409a5a204169ee16f2404b250411db328ee381f/api-reference-docs/text-to-speech/voices-audio/v3/varun.mp3"
+    },
+    {
+      "id": "manan",
+      "name": "Manan",
+      "style": "",
+      "model": "bulbul:v3",
+      "languages": [
+        "bn-IN",
+        "en-IN",
+        "gu-IN",
+        "hi-IN",
+        "kn-IN",
+        "ml-IN",
+        "mr-IN",
+        "od-IN",
+        "pa-IN",
+        "ta-IN",
+        "te-IN"
+      ],
+      "demoUrl": "https://docs.sarvam.ai/_fern-files/sarvam-api-docs.docs.buildwithfern.com/94fc3aed51d9ac228e86524b041d91692f6042e5f20ea6cf59e74811577f4a7c/api-reference-docs/text-to-speech/voices-audio/v3/manan.mp3"
+    },
+    {
+      "id": "sumit",
+      "name": "Sumit",
+      "style": "",
+      "model": "bulbul:v3",
+      "languages": [
+        "bn-IN",
+        "en-IN",
+        "gu-IN",
+        "hi-IN",
+        "kn-IN",
+        "ml-IN",
+        "mr-IN",
+        "od-IN",
+        "pa-IN",
+        "ta-IN",
+        "te-IN"
+      ],
+      "demoUrl": "https://docs.sarvam.ai/_fern-files/sarvam-api-docs.docs.buildwithfern.com/8636b604eaf2ba82b458bba5df8533dd191a0850cba3b21469e939ccc3fa17a2/api-reference-docs/text-to-speech/voices-audio/v3/sumit.mp3"
+    },
+    {
+      "id": "roopa",
+      "name": "Roopa",
+      "style": "",
+      "model": "bulbul:v3",
+      "languages": [
+        "bn-IN",
+        "en-IN",
+        "gu-IN",
+        "hi-IN",
+        "kn-IN",
+        "ml-IN",
+        "mr-IN",
+        "od-IN",
+        "pa-IN",
+        "ta-IN",
+        "te-IN"
+      ],
+      "demoUrl": "https://docs.sarvam.ai/_fern-files/sarvam-api-docs.docs.buildwithfern.com/81dd598263f3e1b515decc48f2c74ec9c1603aacad9e6f1c03cada77f7e5ce04/api-reference-docs/text-to-speech/voices-audio/v3/roopa.mp3"
+    },
+    {
+      "id": "kabir",
+      "name": "Kabir",
+      "style": "",
+      "model": "bulbul:v3",
+      "languages": [
+        "bn-IN",
+        "en-IN",
+        "gu-IN",
+        "hi-IN",
+        "kn-IN",
+        "ml-IN",
+        "mr-IN",
+        "od-IN",
+        "pa-IN",
+        "ta-IN",
+        "te-IN"
+      ],
+      "demoUrl": "https://docs.sarvam.ai/_fern-files/sarvam-api-docs.docs.buildwithfern.com/6b7f342a55f0f99111245249316f3c702429df992146781c2760b74dd26a60a8/api-reference-docs/text-to-speech/voices-audio/v3/kabir.mp3"
+    },
+    {
+      "id": "aayan",
+      "name": "Aayan",
+      "style": "",
+      "model": "bulbul:v3",
+      "languages": [
+        "bn-IN",
+        "en-IN",
+        "gu-IN",
+        "hi-IN",
+        "kn-IN",
+        "ml-IN",
+        "mr-IN",
+        "od-IN",
+        "pa-IN",
+        "ta-IN",
+        "te-IN"
+      ],
+      "demoUrl": "https://docs.sarvam.ai/_fern-files/sarvam-api-docs.docs.buildwithfern.com/8d4759ca0c932ed1c4ba4e71fa0b77316418a7d4adb229065bea71ede3841f66/api-reference-docs/text-to-speech/voices-audio/v3/aayan.mp3"
+    },
+    {
+      "id": "ashutosh",
+      "name": "Ashutosh",
+      "style": "",
+      "model": "bulbul:v3",
+      "languages": [
+        "bn-IN",
+        "en-IN",
+        "gu-IN",
+        "hi-IN",
+        "kn-IN",
+        "ml-IN",
+        "mr-IN",
+        "od-IN",
+        "pa-IN",
+        "ta-IN",
+        "te-IN"
+      ],
+      "demoUrl": "https://docs.sarvam.ai/_fern-files/sarvam-api-docs.docs.buildwithfern.com/a61be535d60a6d5c1fb3d518512ec8e72e050cfaf2e4d50233f18fb7caedef65/api-reference-docs/text-to-speech/voices-audio/v3/ashutosh.mp3"
+    },
+    {
+      "id": "advait",
+      "name": "Advait",
+      "style": "",
+      "model": "bulbul:v3",
+      "languages": [
+        "bn-IN",
+        "en-IN",
+        "gu-IN",
+        "hi-IN",
+        "kn-IN",
+        "ml-IN",
+        "mr-IN",
+        "od-IN",
+        "pa-IN",
+        "ta-IN",
+        "te-IN"
+      ],
+      "demoUrl": "https://docs.sarvam.ai/_fern-files/sarvam-api-docs.docs.buildwithfern.com/e168f2928326423ab2499d2ebb228c8c0df582baa6ddede07469af5dd9d20ca8/api-reference-docs/text-to-speech/voices-audio/v3/advait.mp3"
+    },
+    {
+      "id": "anand",
+      "name": "Anand",
+      "style": "",
+      "model": "bulbul:v3",
+      "languages": [
+        "bn-IN",
+        "en-IN",
+        "gu-IN",
+        "hi-IN",
+        "kn-IN",
+        "ml-IN",
+        "mr-IN",
+        "od-IN",
+        "pa-IN",
+        "ta-IN",
+        "te-IN"
+      ],
+      "demoUrl": "https://docs.sarvam.ai/_fern-files/sarvam-api-docs.docs.buildwithfern.com/dda1f545f65b51a0baa006fbcc7a14cbb774f5ad2f5e4b1196253c670255261a/api-reference-docs/text-to-speech/voices-audio/v3/anand.mp3"
+    },
+    {
+      "id": "tanya",
+      "name": "Tanya",
+      "style": "",
+      "model": "bulbul:v3",
+      "languages": [
+        "bn-IN",
+        "en-IN",
+        "gu-IN",
+        "hi-IN",
+        "kn-IN",
+        "ml-IN",
+        "mr-IN",
+        "od-IN",
+        "pa-IN",
+        "ta-IN",
+        "te-IN"
+      ],
+      "demoUrl": "https://docs.sarvam.ai/_fern-files/sarvam-api-docs.docs.buildwithfern.com/00e496c58cb4f4c879d291f507e5230444cf147f54df25c7e34d7141d031b366/api-reference-docs/text-to-speech/voices-audio/v3/tanya.mp3"
+    },
+    {
+      "id": "tarun",
+      "name": "Tarun",
+      "style": "",
+      "model": "bulbul:v3",
+      "languages": [
+        "bn-IN",
+        "en-IN",
+        "gu-IN",
+        "hi-IN",
+        "kn-IN",
+        "ml-IN",
+        "mr-IN",
+        "od-IN",
+        "pa-IN",
+        "ta-IN",
+        "te-IN"
+      ],
+      "demoUrl": "https://docs.sarvam.ai/_fern-files/sarvam-api-docs.docs.buildwithfern.com/b5241cb88779526de0501099fe5b2928c8bf12ec9f5daa7c0b0983164660ff9f/api-reference-docs/text-to-speech/voices-audio/v3/tarun.mp3"
+    },
+    {
+      "id": "sunny",
+      "name": "Sunny",
+      "style": "",
+      "model": "bulbul:v3",
+      "languages": [
+        "bn-IN",
+        "en-IN",
+        "gu-IN",
+        "hi-IN",
+        "kn-IN",
+        "ml-IN",
+        "mr-IN",
+        "od-IN",
+        "pa-IN",
+        "ta-IN",
+        "te-IN"
+      ],
+      "demoUrl": "https://docs.sarvam.ai/_fern-files/sarvam-api-docs.docs.buildwithfern.com/3a7f5b4174b3eb08d2958af7aecdea05f5df6f2570b7cafe4acd426660d245af/api-reference-docs/text-to-speech/voices-audio/v3/sunny.mp3"
+    },
+    {
+      "id": "mani",
+      "name": "Mani",
+      "style": "",
+      "model": "bulbul:v3",
+      "languages": [
+        "bn-IN",
+        "en-IN",
+        "gu-IN",
+        "hi-IN",
+        "kn-IN",
+        "ml-IN",
+        "mr-IN",
+        "od-IN",
+        "pa-IN",
+        "ta-IN",
+        "te-IN"
+      ],
+      "demoUrl": "https://docs.sarvam.ai/_fern-files/sarvam-api-docs.docs.buildwithfern.com/39df05cbc766e258d52028e9d014c49748b7a7ff5d3e649de5cce0ce240e2bca/api-reference-docs/text-to-speech/voices-audio/v3/mani.mp3"
+    },
+    {
+      "id": "gokul",
+      "name": "Gokul",
+      "style": "",
+      "model": "bulbul:v3",
+      "languages": [
+        "bn-IN",
+        "en-IN",
+        "gu-IN",
+        "hi-IN",
+        "kn-IN",
+        "ml-IN",
+        "mr-IN",
+        "od-IN",
+        "pa-IN",
+        "ta-IN",
+        "te-IN"
+      ],
+      "demoUrl": "https://docs.sarvam.ai/_fern-files/sarvam-api-docs.docs.buildwithfern.com/2620fdd0201d498ea2c03a7308f59b0e1ccaef80ce3adfb087220e367aa1022c/api-reference-docs/text-to-speech/voices-audio/v3/gokul.mp3"
+    },
+    {
+      "id": "vijay",
+      "name": "Vijay",
+      "style": "",
+      "model": "bulbul:v3",
+      "languages": [
+        "bn-IN",
+        "en-IN",
+        "gu-IN",
+        "hi-IN",
+        "kn-IN",
+        "ml-IN",
+        "mr-IN",
+        "od-IN",
+        "pa-IN",
+        "ta-IN",
+        "te-IN"
+      ],
+      "demoUrl": "https://docs.sarvam.ai/_fern-files/sarvam-api-docs.docs.buildwithfern.com/47ec5006f01622070dffce344920cbec2a42afe546dd45b2af090ecb9e5d5fb3/api-reference-docs/text-to-speech/voices-audio/v3/vijay.mp3"
+    },
+    {
+      "id": "shruti",
+      "name": "Shruti",
+      "style": "",
+      "model": "bulbul:v3",
+      "languages": [
+        "bn-IN",
+        "en-IN",
+        "gu-IN",
+        "hi-IN",
+        "kn-IN",
+        "ml-IN",
+        "mr-IN",
+        "od-IN",
+        "pa-IN",
+        "ta-IN",
+        "te-IN"
+      ],
+      "demoUrl": "https://docs.sarvam.ai/_fern-files/sarvam-api-docs.docs.buildwithfern.com/b014ccab65c2f7eaee083a1147bd5fbe819d018d1263d44b6471be3995171f2d/api-reference-docs/text-to-speech/voices-audio/v3/shruti.mp3"
+    },
+    {
+      "id": "suhani",
+      "name": "Suhani",
+      "style": "",
+      "model": "bulbul:v3",
+      "languages": [
+        "bn-IN",
+        "en-IN",
+        "gu-IN",
+        "hi-IN",
+        "kn-IN",
+        "ml-IN",
+        "mr-IN",
+        "od-IN",
+        "pa-IN",
+        "ta-IN",
+        "te-IN"
+      ],
+      "demoUrl": "https://docs.sarvam.ai/_fern-files/sarvam-api-docs.docs.buildwithfern.com/ca3596a71f709e4e943c912501e5d9cb2e3d342280dd9eda0ab7cea4f0d64928/api-reference-docs/text-to-speech/voices-audio/v3/suhani.mp3"
+    },
+    {
+      "id": "mohit",
+      "name": "Mohit",
+      "style": "",
+      "model": "bulbul:v3",
+      "languages": [
+        "bn-IN",
+        "en-IN",
+        "gu-IN",
+        "hi-IN",
+        "kn-IN",
+        "ml-IN",
+        "mr-IN",
+        "od-IN",
+        "pa-IN",
+        "ta-IN",
+        "te-IN"
+      ],
+      "demoUrl": "https://docs.sarvam.ai/_fern-files/sarvam-api-docs.docs.buildwithfern.com/b04c87870f30df95a588ce8d1d08ae47fdf110ed95d5c144cae9f2a09dd72b7d/api-reference-docs/text-to-speech/voices-audio/v3/mohit.mp3"
+    },
+    {
+      "id": "kavitha",
+      "name": "Kavitha",
+      "style": "",
+      "model": "bulbul:v3",
+      "languages": [
+        "bn-IN",
+        "en-IN",
+        "gu-IN",
+        "hi-IN",
+        "kn-IN",
+        "ml-IN",
+        "mr-IN",
+        "od-IN",
+        "pa-IN",
+        "ta-IN",
+        "te-IN"
+      ],
+      "demoUrl": "https://docs.sarvam.ai/_fern-files/sarvam-api-docs.docs.buildwithfern.com/51315b8df716b4eb2b59104f878b6dfed400219fe90307180586b5eb08f21efb/api-reference-docs/text-to-speech/voices-audio/v3/kavitha.mp3"
+    },
+    {
+      "id": "rehan",
+      "name": "Rehan",
+      "style": "",
+      "model": "bulbul:v3",
+      "languages": [
+        "bn-IN",
+        "en-IN",
+        "gu-IN",
+        "hi-IN",
+        "kn-IN",
+        "ml-IN",
+        "mr-IN",
+        "od-IN",
+        "pa-IN",
+        "ta-IN",
+        "te-IN"
+      ],
+      "demoUrl": "https://docs.sarvam.ai/_fern-files/sarvam-api-docs.docs.buildwithfern.com/3a67b12049df09c6dc7269e350a4f26e966538c369183d6dbc483956c1a8e3d8/api-reference-docs/text-to-speech/voices-audio/v3/rehan.mp3"
+    },
+    {
+      "id": "soham",
+      "name": "Soham",
+      "style": "",
+      "model": "bulbul:v3",
+      "languages": [
+        "bn-IN",
+        "en-IN",
+        "gu-IN",
+        "hi-IN",
+        "kn-IN",
+        "ml-IN",
+        "mr-IN",
+        "od-IN",
+        "pa-IN",
+        "ta-IN",
+        "te-IN"
+      ],
+      "demoUrl": "https://docs.sarvam.ai/_fern-files/sarvam-api-docs.docs.buildwithfern.com/39d6248c64760ae5a39e93546ba6f7493b3178a0c1deb557708c8b65a6b71d66/api-reference-docs/text-to-speech/voices-audio/v3/soham.mp3"
+    },
+    {
+      "id": "rupali",
+      "name": "Rupali",
+      "style": "",
+      "model": "bulbul:v3",
+      "languages": [
+        "bn-IN",
+        "en-IN",
+        "gu-IN",
+        "hi-IN",
+        "kn-IN",
+        "ml-IN",
+        "mr-IN",
+        "od-IN",
+        "pa-IN",
+        "ta-IN",
+        "te-IN"
+      ],
+      "demoUrl": "https://docs.sarvam.ai/_fern-files/sarvam-api-docs.docs.buildwithfern.com/ec39269db1f9030a9b02971dfc4500301d544fa9cfeefc6a75ca79f2210a453f/api-reference-docs/text-to-speech/voices-audio/v3/rupali.mp3"
+    },
+    {
+      "id": "anushka",
+      "name": "Anushka",
+      "style": "",
+      "model": "bulbul:v2",
+      "languages": [
+        "bn-IN",
+        "en-IN",
+        "gu-IN",
+        "hi-IN",
+        "kn-IN",
+        "ml-IN",
+        "mr-IN",
+        "od-IN",
+        "pa-IN",
+        "ta-IN",
+        "te-IN"
+      ]
+    },
+    {
+      "id": "manisha",
+      "name": "Manisha",
+      "style": "",
+      "model": "bulbul:v2",
+      "languages": [
+        "bn-IN",
+        "en-IN",
+        "gu-IN",
+        "hi-IN",
+        "kn-IN",
+        "ml-IN",
+        "mr-IN",
+        "od-IN",
+        "pa-IN",
+        "ta-IN",
+        "te-IN"
+      ]
+    },
+    {
+      "id": "vidya",
+      "name": "Vidya",
+      "style": "",
+      "model": "bulbul:v2",
+      "languages": [
+        "bn-IN",
+        "en-IN",
+        "gu-IN",
+        "hi-IN",
+        "kn-IN",
+        "ml-IN",
+        "mr-IN",
+        "od-IN",
+        "pa-IN",
+        "ta-IN",
+        "te-IN"
+      ]
+    },
+    {
+      "id": "arya",
+      "name": "Arya",
+      "style": "",
+      "model": "bulbul:v2",
+      "languages": [
+        "bn-IN",
+        "en-IN",
+        "gu-IN",
+        "hi-IN",
+        "kn-IN",
+        "ml-IN",
+        "mr-IN",
+        "od-IN",
+        "pa-IN",
+        "ta-IN",
+        "te-IN"
+      ]
+    },
+    {
+      "id": "abhilash",
+      "name": "Abhilash",
+      "style": "",
+      "model": "bulbul:v2",
+      "languages": [
+        "bn-IN",
+        "en-IN",
+        "gu-IN",
+        "hi-IN",
+        "kn-IN",
+        "ml-IN",
+        "mr-IN",
+        "od-IN",
+        "pa-IN",
+        "ta-IN",
+        "te-IN"
+      ]
+    },
+    {
+      "id": "karun",
+      "name": "Karun",
+      "style": "",
+      "model": "bulbul:v2",
+      "languages": [
+        "bn-IN",
+        "en-IN",
+        "gu-IN",
+        "hi-IN",
+        "kn-IN",
+        "ml-IN",
+        "mr-IN",
+        "od-IN",
+        "pa-IN",
+        "ta-IN",
+        "te-IN"
+      ]
+    },
+    {
+      "id": "hitesh",
+      "name": "Hitesh",
+      "style": "",
+      "model": "bulbul:v2",
+      "languages": [
+        "bn-IN",
+        "en-IN",
+        "gu-IN",
+        "hi-IN",
+        "kn-IN",
+        "ml-IN",
+        "mr-IN",
+        "od-IN",
+        "pa-IN",
+        "ta-IN",
+        "te-IN"
+      ]
+    }
+  ]
+}

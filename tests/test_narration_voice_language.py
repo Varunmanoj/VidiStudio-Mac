@@ -32,7 +32,10 @@ import AVFoundation
     func voice(id: String) -> Voice? { id == "en_US-test-medium" ? Voice(languageLabel: "English (United States)") : nil }
 }
 ''' + resolver + '''
+struct SarvamCatalog { static let shared=Self(); let languages=["mr-IN":"Marathi"] }
+struct SarvamSpeech { var selected=Selection();struct Selection { var language="mr-IN" } }
 struct Settings {
+    var sarvamSpeech=SarvamSpeech()
     var ttsMode = "system"
     var systemVoice = ""
     var piperVoiceSignature = "en_US-test-medium"
@@ -63,7 +66,9 @@ struct Settings {
         precondition(settings.currentNarrationLanguage == "Unknown")
         settings.ttsMode = "gemini"
         precondition(settings.currentNarrationLanguage == "Multilingual")
-        print("PASS: real Apple voice locales, default, unavailable, Piper and Gemini")
+        settings.ttsMode = "sarvam"
+        precondition(settings.currentNarrationLanguage == "Marathi")
+        print("PASS: real Apple voice locales, default, unavailable, Piper, Gemini and Sarvam")
     }
 }
 '''

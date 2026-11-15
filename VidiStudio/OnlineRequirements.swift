@@ -9,8 +9,9 @@ enum OnlineRequirements {
     }
     static let geminiCommands: Set<String> = ["translate-results", "transcribe", "generate-summary", "generate-ad-cues", "analyze", "regenerate-all", "reanalyze-segment", "reanalyze-transcript-segment", "rewrite-cue", "capture-frame", "check-api-key", "list-models", "list-voices", "validate-config", "align-imported-text", "prepare-analysis-video", "check-video-availability"]
     static func services(_ command: String, project: StudioProject?, settings: StudioSettings, extra: [String] = []) -> [OnlineService] {
+        if command == "check-sarvam-key" { return [.sarvam] }
         if geminiCommands.contains(command) { return [.gemini] }
-        if ["synthesize-tts", "synthesize-speech", "preview-tts", "synthesize-changed"].contains(command) { return settings.ttsMode == "gemini" ? [.gemini] : [] }
+        if ["synthesize-tts", "synthesize-speech", "preview-tts", "synthesize-changed"].contains(command) { return settings.narrationService.map { [$0] } ?? [] }
         if ["import-youtube", "read-youtube-metadata", "download-youtube-audio", "youtube-playback"].contains(command) { return [.youtube] }
         if command == "download-voice" { return [.voices] }
         guard let project, project.isYouTubeURLProject else { return [] }

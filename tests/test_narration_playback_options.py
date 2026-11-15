@@ -26,7 +26,7 @@ class NarrationPlaybackOptions(unittest.TestCase):
         self.assertIn('if studio.settings.ttsMode == "piper" {', settings)
         self.assertIn('PiperVoiceSettingsView(settings: $studio.settings)', settings)
         self.assertIn('if studio.settings.ttsMode == "system" {', settings)
-        self.assertIn('.disabled(studio.settings.ttsMode == "gemini")', settings)
+        self.assertIn('.disabled(studio.settings.usesCloudNarration)', settings)
 
     def test_mac_no_longer_resets_the_engine_for_preview_playback(self):
         source = (ROOT/'VidiStudio Mac/VidiStudio/StudioModel.swift').read_text()
@@ -46,7 +46,7 @@ class NarrationPlaybackOptions(unittest.TestCase):
         self.assertIn('new("piper", "Piper Voices")', source)
         self.assertIn('new("gemini", "Gemini Voices")', source)
         self.assertIn('draft["ttsMode"] = selected.Id;\n                UpdateNarrationPlaybackChoice();', source)
-        self.assertIn('field.IsEnabled = SettingsStore.GetString(draft["ttsMode"]) != "gemini";', source)
+        self.assertIn('field.IsEnabled = SettingsStore.GetString(draft["ttsMode"]) is not ("gemini" or "sarvam");', source)
         self.assertIn('SettingsStore.NormalizeNarrationPlayback(draft);', source)
 
     def test_windows_gemini_voices_show_only_voice_names_and_hide_local_sliders(self):
@@ -56,7 +56,7 @@ class NarrationPlaybackOptions(unittest.TestCase):
         self.assertIn('Names.Select(name => new Voice(name, name, "", "")).ToArray()', gemini)
         self.assertNotIn('LoadGeminiVoicesAsync', dialog)
         self.assertNotIn('Header = "Filter voices"', dialog)
-        self.assertIn('localSpeechControls.Visibility = provider == "gemini" ? Visibility.Collapsed : Visibility.Visible;', dialog)
+        self.assertIn('localSpeechControls.Visibility = provider is "gemini" or "sarvam" ? Visibility.Collapsed : Visibility.Visible;', dialog)
         self.assertIn('samplePlayButton.IsEnabled = sampleState != SampleState.Generating && (provider != "gemini" || HasDraftApiKey && ConnectivityService.Shared.Available(OnlineService.Gemini));', dialog)
 
     def test_windows_migrates_legacy_engines_without_resetting_preview_choice(self):
@@ -180,7 +180,7 @@ class NarrationPlaybackOptions(unittest.TestCase):
         self.assertIn('def piper_espeak_data():', engine)
         self.assertIn('espeak_data_dir=piper_espeak_data()', engine)
 
-    def test_summary_read_aloud_uses_the_narration_voice_only(self):
+    def test_summary_read_aloud_resolves_to_local_voices(self):
         mac_settings = (ROOT/'VidiStudio Mac/VidiStudio/SettingsView.swift').read_text()
         mac_reader = (ROOT/'VidiStudio Mac/VidiStudio/SummaryReadback.swift').read_text()
         mac_preview = (ROOT/'VidiStudio Mac/VidiStudio/PlaybackModel.swift').read_text()
@@ -198,7 +198,7 @@ class NarrationPlaybackOptions(unittest.TestCase):
         self.assertIn('.onChange(of: settings.piperVoice) { _, _ in model.updateSettings(settings) }', mac_reader)
         # The reader names the engine it actually uses, and Piper errors stay readable.
         self.assertIn('speechEngineLabel', mac_reader)
-        self.assertIn('settings.ttsMode == "piper" ? "Piper Speech" : "Apple Speech"', mac_reader)
+        self.assertIn('settings.resolvedSummarySettings.ttsMode == "piper" ? "Piper Speech" : "Apple Speech"', mac_reader)
         self.assertNotIn('Text("Apple Speech")', mac_reader)
         self.assertIn('UserFacingIssueReporter.speechMessage(', mac_reader)
         # Punctuation-only lines are skipped so Piper never renders empty audio.
@@ -208,10 +208,10 @@ class NarrationPlaybackOptions(unittest.TestCase):
         # Live preview renders upcoming Piper cues and starts new cues at the first word.
         self.assertIn('prefetchPiperNarration(cues: project.cues, settings: settings)', mac_preview)
         self.assertIn('let offset = elapsed > 1.5 ? elapsed : 0', mac_preview)
-        self.assertIn('var mode = settings.Get("ttsMode", "windows-core");', win_reader)
+        self.assertIn('var profile = SummarySpeechProfile.Resolve(settings);', win_reader)
         self.assertNotIn('azure', win_reader.lower())
         # Summary playback speaks Piper and SAPI through the speech host, not a second engine process.
-        self.assertIn('await SpeechService.SynthesizeAsync(host, mode, voice, sentence, path, settings.Number("systemSpeechRate"), token);', win_reader)
+        self.assertIn('await SpeechService.SynthesizeAsync(host, mode, voice, sentence, path, profile.Rate, token);', win_reader)
         self.assertIn('remaining.Any(char.IsLetterOrDigit)', win_reader)
         # Live on-device speech includes Piper and never creates project files.
         self.assertIn('if (mode is "sapi5" or "piper")', win_live)
