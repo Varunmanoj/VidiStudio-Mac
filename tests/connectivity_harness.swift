@@ -1,6 +1,6 @@
 import Foundation
 
-struct StudioSettings { var ttsMode = "apple" }
+struct StudioSettings { var ttsMode = "apple"; var narrationService: OnlineService? { ttsMode == "sarvam" ? .sarvam : ttsMode == "gemini" ? .gemini : nil } }
 struct AudioSourceSettings { var export = "youtube" }
 struct ImportedAudioDescription { var mode = "narration" }
 struct StudioProject {
@@ -25,6 +25,7 @@ struct StudioProject {
         precondition(needs("translate-results") == [.gemini])
         precondition(needs("copy-results").isEmpty)
         settings.ttsMode = "gemini"; precondition(needs("synthesize-tts") == [.gemini])
+        settings.ttsMode = "sarvam"; precondition(needs("synthesize-tts") == [.sarvam])
         settings.ttsMode = "piper"; precondition(needs("synthesize-tts").isEmpty)
         project.isYouTubeURLProject = true
         precondition(needs("prepare-video") == [.youtube])

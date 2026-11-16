@@ -18,6 +18,8 @@ touch build/.metadata_never_index
 pkill -x VidiStudio >/dev/null 2>&1 || true
 python3 script/sync_version.py --sync
 python3 script/check_menu_parity.py --allow-missing
+python3 script/check_desktop_ui_parity.py --allow-missing
+python3 -m unittest tests.test_desktop_ui_parity
 if [[ ! -f build/engine/vidistudio-engine/.complete ]] || [[ -n "$(find engine -type f ! -path "*/__pycache__/*" -newer build/engine/vidistudio-engine/.complete -print -quit 2>/dev/null)" ]]; then
   ./script/prepare_engine.sh
 fi

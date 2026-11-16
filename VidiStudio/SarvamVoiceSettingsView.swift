@@ -160,6 +160,10 @@ struct SarvamVoiceSettingsView: View {
                     Button("Delete Sarvam API Key…", role: .destructive) { deletingKey = true }.disabled(key.isEmpty).accessibilityIdentifier("sarvam-key-delete")
                     Button("Open Sarvam API Keys") { openKeys() }.accessibilityIdentifier("sarvam-key-dashboard")
                 }
+                Image(systemName: studio.sarvamKeyChecking ? "clock" : studio.settings.sarvamKeyStatus == "verified" ? "checkmark.circle.fill" : studio.settings.sarvamKeyStatus == "invalid" ? "xmark.circle.fill" : studio.settings.sarvamKeyStatus == "unavailable" ? "exclamationmark.triangle.fill" : "key")
+                    .foregroundStyle(studio.settings.sarvamKeyStatus == "verified" && !studio.sarvamKeyChecking ? Color.green : studio.settings.sarvamKeyStatus == "invalid" ? Color.red : Color.secondary)
+                    .help(keyStatusLabel).accessibilityLabel(keyStatusLabel)
+                    .accessibilityIdentifier("sarvam-key-status")
                 Button(role: .destructive) { deletingKey = true } label: { Image(systemName: "trash").foregroundStyle(.red) }
                     .buttonStyle(.borderless).disabled(key.isEmpty || studio.sarvamKeyChecking)
                     .help("Delete Sarvam API key").accessibilityLabel("Delete Sarvam API key")
@@ -167,9 +171,6 @@ struct SarvamVoiceSettingsView: View {
                     .contextMenu { Button("Delete Sarvam API Key…", role: .destructive) { deletingKey = true }.disabled(key.isEmpty || studio.sarvamKeyChecking).accessibilityIdentifier("sarvam-key-delete") }
             }
             HStack {
-                Label(keyStatusLabel, systemImage: studio.sarvamKeyChecking ? "clock" : studio.settings.sarvamKeyStatus == "verified" ? "checkmark.circle.fill" : studio.settings.sarvamKeyStatus == "invalid" ? "xmark.circle.fill" : "key")
-                    .foregroundStyle(studio.settings.sarvamKeyStatus == "verified" ? Color.green : studio.settings.sarvamKeyStatus == "invalid" ? Color.red : Color.secondary)
-                    .accessibilityIdentifier("sarvam-key-status")
                 Button(studio.sarvamKeyChecking ? "Checking API Key…" : "Check API Key", systemImage: "checkmark.shield") { keyCheckTask?.cancel(); studio.checkSarvamApiKey() }
                     .disabled(key.isEmpty || studio.busy || studio.sarvamKeyChecking)
                     .contextMenu { Button("Check API Key") { keyCheckTask?.cancel(); studio.checkSarvamApiKey() }.disabled(key.isEmpty || studio.busy || studio.sarvamKeyChecking).accessibilityIdentifier("sarvam-key-check") }

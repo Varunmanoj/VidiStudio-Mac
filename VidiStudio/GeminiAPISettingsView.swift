@@ -64,6 +64,27 @@ struct GeminiAPISettingsView: View {
         !apiKey.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
     }
 
+    private var keyStatusLabel: String {
+        guard hasApiKey else { return "No API Key Entered" }
+        if studio.busy { return "Checking API key…" }
+        if let failure = studio.apiKeyCheckFailureMessage { return "API Key Check Incomplete. " + failure }
+        if studio.apiKeyVerified == true { return "API Key Verified. " + (studio.apiKeyVerificationMessage ?? "") }
+        if studio.apiKeyVerified == false { return "Invalid API Key. " + (studio.apiKeyVerificationMessage ?? "Google rejected this key.") }
+        return "API Key Not Checked"
+    }
+    private var keyStatusSymbol: String {
+        guard hasApiKey else { return "key" }
+        if studio.busy { return "clock" }
+        if studio.apiKeyCheckFailureMessage != nil { return "exclamationmark.triangle.fill" }
+        if studio.apiKeyVerified == true { return "checkmark.circle.fill" }
+        if studio.apiKeyVerified == false { return "xmark.circle.fill" }
+        return "key"
+    }
+    private var keyStatusColor: Color {
+        guard hasApiKey, !studio.busy, studio.apiKeyCheckFailureMessage == nil else { return .secondary }
+        return studio.apiKeyVerified == true ? .green : studio.apiKeyVerified == false ? .red : .secondary
+    }
+
     private let apiKeyPage = URL(string: "https://aistudio.google.com/api-keys")!
 
     private let localVideoRows = [
@@ -84,24 +105,9 @@ struct GeminiAPISettingsView: View {
     var body: some View {
         outputLanguageSections
         Section {
-            if !hasApiKey {
-                HStack(alignment: .top, spacing: 10) {
-                    Image(systemName: "exclamationmark.triangle.fill")
-                        .foregroundStyle(.orange)
-                        .imageScale(.medium)
-                    VStack(alignment: .leading, spacing: 3) {
-                        Text("No API Key Entered")
-                            .font(.subheadline.bold())
-                        Text("Enter a Gemini API key, then choose Check API Key & Plan.")
-                            .font(.caption)
-                            .foregroundStyle(.secondary)
-                    }
-                }
-                .padding(10)
-                .background(Color.orange.opacity(0.12), in: RoundedRectangle(cornerRadius: 8))
-            }
             HStack(spacing: 8) {
                 SecureField("API key", text: $apiKey)
+                    .accessibilityIdentifier("gemini-api-key")
                     .accessibilityHint("Enter the key from your Google AI Studio account.")
                     .onSubmit {
                         keyDebounceTask?.cancel()
@@ -125,6 +131,11 @@ struct GeminiAPISettingsView: View {
                         }
                     }
 
+                Image(systemName: keyStatusSymbol)
+                    .foregroundStyle(keyStatusColor)
+                    .help(keyStatusLabel).accessibilityLabel(keyStatusLabel)
+                    .accessibilityIdentifier("gemini-key-status")
+
                 if hasApiKey {
                     Button(role: .destructive) {
                         guard hasApiKey, !studio.busy else { return }
@@ -137,6 +148,7 @@ struct GeminiAPISettingsView: View {
                     .disabled(studio.busy)
                     .help("Delete API key from Keychain")
                     .accessibilityLabel("Delete Gemini API key")
+                    .accessibilityIdentifier("gemini-key-delete-icon")
                 }
             }
             .alert("Delete Gemini API Key?", isPresented: $showingDeleteConfirmation) {
@@ -152,11 +164,6 @@ struct GeminiAPISettingsView: View {
             } message: {
                 Text("Are you sure you want to delete your Gemini API key from macOS Keychain? You will need to enter a new key to use AI features.")
             }
-            Button("Open API Keys in Google AI Studio", systemImage: "arrow.up.right.square") {
-                openURL(apiKeyPage)
-            }
-            .accessibilityHint("Opens the Google AI Studio API Keys page in your web browser.")
-
             HStack(spacing: 8) {
                 Button(studio.geminiModelsLoaded ? "Check API Key & Reload Models" : "Check API Key & Plan", systemImage: "arrow.clockwise") {
                     keyDebounceTask?.cancel()
@@ -165,64 +172,15 @@ struct GeminiAPISettingsView: View {
                 .disabled(studio.busy)
                 .accessibilityHint("Checks the validity of your Gemini API key and detects available models and plan tier.")
                 .requiresInternet(hasApiKey ? .gemini : nil)
+                Button("Open API Keys in Google AI Studio", systemImage: "arrow.up.right.square") {
+                    openURL(apiKeyPage)
+                }
+                .accessibilityHint("Opens the Google AI Studio API Keys page in your web browser.")
+
             }
 
-            if studio.busy {
-                HStack {
-                    ProgressView().controlSize(.small)
-                    Text("Checking API key and plan details…")
-                }
-                .accessibilityElement(children: .combine)
-            } else if hasApiKey, let failure = studio.apiKeyCheckFailureMessage {
-                VStack(alignment: .leading, spacing: 3) {
-                    Label("API Key Check Incomplete", systemImage: "exclamationmark.triangle.fill")
-                        .font(.subheadline.bold())
-                    Text(failure).font(.caption)
-                    Text("This check did not determine whether the key is valid. Any previous verification is kept.")
-                        .font(.caption).foregroundStyle(.secondary)
-                }
-                .padding(10)
-                .background(Color.orange.opacity(0.12), in: RoundedRectangle(cornerRadius: 8))
-                .accessibilityElement(children: .combine)
-            } else if hasApiKey, let verified = studio.apiKeyVerified {
-                if verified {
-                    HStack(alignment: .top, spacing: 8) {
-                        Image(systemName: "checkmark.seal.fill")
-                            .foregroundStyle(.green)
-                            .imageScale(.medium)
-                        VStack(alignment: .leading, spacing: 2) {
-                            Text("API Key Verified (\(studio.settings.geminiPlan == "paid" ? "Paid Plan" : "Free Plan"))")
-                                .font(.subheadline.bold())
-                            if let message = studio.apiKeyVerificationMessage {
-                                Text(message)
-                                    .font(.caption)
-                                    .foregroundStyle(.secondary)
-                            }
-                        }
-                    }
-                    .padding(8)
-                    .background(Color.green.opacity(0.12), in: RoundedRectangle(cornerRadius: 8))
-                } else {
-                    HStack(alignment: .top, spacing: 8) {
-                        Image(systemName: "xmark.octagon.fill")
-                            .foregroundStyle(.red)
-                            .imageScale(.medium)
-                        VStack(alignment: .leading, spacing: 3) {
-                            Text("Invalid API Key")
-                                .font(.subheadline.bold())
-                                .foregroundStyle(.red)
-                            Text(studio.apiKeyVerificationMessage ?? "The entered Gemini API key is invalid. Google rejected it. Replace it with a valid key from Google AI Studio.")
-                                .font(.caption)
-                                .foregroundStyle(.secondary)
-                        }
-                    }
-                    .padding(10)
-                    .background(Color.red.opacity(0.12), in: RoundedRectangle(cornerRadius: 8))
-                }
-            } else if hasApiKey {
-                Text("API key not checked. Choose Check API Key & Plan to verify the entered key.")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
+            if hasApiKey, let failure = studio.apiKeyCheckFailureMessage {
+                Text(failure).font(.caption).foregroundStyle(.secondary)
             }
         } header: { Text("Connect to Gemini").accessibilityAddTraits(.isHeader).accessibilityHeading(.h2) }
         .onChange(of: studio.apiKeyVerificationMessage) { _, result in

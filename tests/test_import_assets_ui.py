@@ -109,7 +109,7 @@ class ImportAssetsUI(unittest.TestCase):
         self.assertIn('summaryEditing', MENU)
 
     def test_per_segment_narration_import_and_ad_overview_sources(self):
-        self.assertIn('Import Narration Audio…', UI)
+        self.assertIn('Import Narration Audio…', MENU)
         self.assertIn('chooseNarrationAudio', UI)
         self.assertIn('Narration sources', (ROOT / 'VidiStudio' / 'ADOverviewView.swift').read_text(encoding='utf-8'))
         self.assertIn('importedNarrationText', MODEL)
