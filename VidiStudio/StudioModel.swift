@@ -1369,7 +1369,7 @@ enum SettingsSectionRequest {
     static func consume() -> String? {
         guard let section = UserDefaults.standard.string(forKey: defaultsKey) else { return nil }
         UserDefaults.standard.removeObject(forKey: defaultsKey)
-        return section
+        return section == "Gemini API" ? "Gemini" : section
     }
 }
 

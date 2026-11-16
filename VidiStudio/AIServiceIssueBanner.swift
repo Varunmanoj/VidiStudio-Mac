@@ -34,12 +34,12 @@ struct AIServiceIssueBanner: View {
                     .help("Check the Gemini key and processing access again. AI actions stay disabled until this succeeds.")
                     .requiresInternet(.gemini)
                     Button("Gemini Settings…", systemImage: "gearshape") {
-                        studio.settingsSection = "Gemini API"
-                        SettingsSectionRequest.request("Gemini API")
+                        studio.settingsSection = "Gemini"
+                        SettingsSectionRequest.request("Gemini")
                         openSettings()
                     }
                     .controlSize(.small)
-                    .help("Open Gemini API settings to review the key, plan, and billing or quota information")
+                    .help("Open Gemini settings to review the key, plan, and billing or quota information")
                 }
             }
             .padding(.horizontal, 16)

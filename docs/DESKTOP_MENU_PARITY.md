@@ -196,7 +196,7 @@ All Projects Edit contains Search Projects…, Clear Search, a separator, and Re
 
 Project language filters (All Projects toolbar, View > Filter Projects by Language and the editor project-list dropdown) share the library’s unfiltered saved-content language set on both desktops. Include All Languages, plus only distinct languages with saved nonempty transcript/summary/description/imported-AD content. Empty results, drafts and configured-only languages do not add options. Auto requires actual saved Auto content; unknown legacy labels remain accessible when they have content. Clearing/removing the final matching content resets stale selections to All Languages. Reset Project Filters still clears search/source/language. Creation, import and edit-language pickers keep the supported catalog. Native action icons cover static and dynamic menu actions and nested groups; Mac preserves existing images and applies explicit visibility only when needed, while Windows uses the matching Fluent action icons.
 
-YouTube > YouTube Accounts… uses the shared Settings window outside the YouTube browser on both desktops. It selects YouTube Accounts and reuses an existing Settings window. Sidebar order is Appearance, Projects, Narration, Gemini API, YouTube Accounts, optional Developer prompts, Storage, Help, About; stable Windows page IDs remain independent of visual order.
+YouTube > YouTube Accounts… uses the shared Settings window outside the YouTube browser on both desktops. It selects YouTube Accounts and reuses an existing Settings window. Sidebar order is Appearance, Projects, Narration, Gemini, YouTube Accounts, optional Developer prompts, Storage, Help, About; stable Windows page IDs remain independent of visual order.
 
 ## All Projects sorting and website
 

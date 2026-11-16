@@ -19,7 +19,7 @@ def selected(cfg, stage):
     saved = cfg.get('outputLanguages') or {}
     code = saved.get(stage, 'auto') if isinstance(saved, dict) else 'auto'
     if code != 'auto' and code not in options():
-        raise ValueError('Choose a supported output language or Auto in Settings > Gemini API.')
+        raise ValueError('Choose a supported output language or Auto in Settings > Gemini.')
     return code
 
 def instruction(cfg, stage):

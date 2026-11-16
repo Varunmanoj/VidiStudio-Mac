@@ -1,3 +1,15 @@
+## 2026-11-16 — Rename Gemini Settings tab (1.0.334 / build 334)
+
+Renamed the Settings sidebar entry, window/page heading and Settings destination paths from “Gemini API” to “Gemini” on Mac and Windows. Existing key labels retain “API key”. Mac pending Settings requests and Windows Settings tags accept the old destination name for compatibility. Updated the existing Windows native sidebar expectation; no new action or menu hierarchy was introduced.
+
+Both combined-workspace menu/layout checkers pass; 58 menu/UI parity tests pass from each desktop checkout. Mac script/build_and_run.sh --verify installed 1.0.334/build 334. App, Share and Finder versions match; stable Apple Development team LLVWNNUV26, signing continuity and registered-extension verification pass. Spotlight and LaunchServices list only /Applications/VidiStudio.app and its embedded extensions. Installed native AX and screenshot confirm “Gemini” in the sidebar, window title and page heading, with API-key controls retained. The current Mac dark ordinary-width screen was inspected; light/compact variants and Help Viewer rendering/search were not repeated for this copy-only change.
+
+Windows ARM64 Debug 1.0.334.0 package inspection, replacement install, installed-engine doctor and packaged GallerySettingsOnly native checks pass, including sidebar/heading navigation, light/dark rendering and bounded Settings scrolling. Reviewed both Gemini Settings screenshots. Final audit confirms one registered package, one installed UI executable and all 48 installed Help files matching generated sources; temporary installation task removed. Existing PRI249/publish-profile warnings remain. No new speech synthesis or live account/API validation is claimed for this rename. Original VM idle-pause setting restored after validation.
+
+Canonical Help generated and synced (14 Mac/13 Windows pages); installed Mac Help integrity passes. Website guide/FAQ paths and section title updated; lint/build pass with the existing chunk-size advisory. Local production documentation search finds 9.4 Gemini and navigates to the unchanged docs-9-4-gemini anchor. Website sources/output remain unpublished. No commit or push.
+
+Evidence: Mac build/gemini-label-334-install.log; Windows build/gemini-label-334-windows-{build,install,audit}.log and build/gemini-label-334-settings-layout-gemini-{dark,light}.png; native Mac and local website observations in this chat.
+
 ## 2026-11-15 — Escape dismisses the Mac YouTube browser (1.0.325 / build 325)
 
 Added the native cancelAction (Escape) shortcut to My YouTube Videos > Done and routed both button/shortcut through dismissWindow(id: "youtube-browser"). The Accounts sheet retains its existing local Done/cancelAction path. No new UI action, application command ID or modifier shortcut was added. Windows already uses its native Escape dismissal; its behavior is retained.

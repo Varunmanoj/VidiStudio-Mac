@@ -428,8 +428,8 @@ struct ContentView: View {
             aiProcessingBlocked: studio.isAIProcessingBlocked,
             apiKeyVerificationMessage: studio.apiKeyVerificationMessage,
             openGeminiSettings: {
-                studio.settingsSection = "Gemini API"
-                SettingsSectionRequest.request("Gemini API")
+                studio.settingsSection = "Gemini"
+                SettingsSectionRequest.request("Gemini")
                 openSettings()
             },
             newProject: { studio.beginNewProject() },
@@ -528,7 +528,7 @@ struct ContentView: View {
             studio.refreshProjectIntegrity()
         }
         // Opening the library does not require Gemini access. Check a key in
-        // Gemini API Settings or when an AI operation is requested instead.
+        // Gemini Settings or when an AI operation is requested instead.
     }
 }
 
@@ -601,13 +601,13 @@ struct ProjectEditorWindow: View {
                             .foregroundStyle(.secondary)
                     }
                     Spacer()
-                    Button("Open Gemini API Settings…") {
-                        studio.settingsSection = "Gemini API"
-                        SettingsSectionRequest.request("Gemini API")
+                    Button("Open Gemini Settings…") {
+                        studio.settingsSection = "Gemini"
+                        SettingsSectionRequest.request("Gemini")
                         openSettings()
                     }
                     .controlSize(.small)
-                    .help("Open Settings → Gemini API to enter or replace the key")
+                    .help("Open Settings → Gemini to enter or replace the key")
                 }
                 .padding(.horizontal, 16)
                 .padding(.vertical, 8)
@@ -626,13 +626,13 @@ struct ProjectEditorWindow: View {
                             .foregroundStyle(.secondary)
                     }
                     Spacer()
-                    Button("Open Gemini API Settings…") {
-                        studio.settingsSection = "Gemini API"
-                        SettingsSectionRequest.request("Gemini API")
+                    Button("Open Gemini Settings…") {
+                        studio.settingsSection = "Gemini"
+                        SettingsSectionRequest.request("Gemini")
                         openSettings()
                     }
                     .controlSize(.small)
-                    .help("Open Settings → Gemini API to enter or replace the key")
+                    .help("Open Settings → Gemini to enter or replace the key")
                 }
                 .padding(.horizontal, 16)
                 .padding(.vertical, 8)
@@ -1034,7 +1034,7 @@ struct ProcessingInspector: View {
                                         Image(systemName: "exclamationmark.octagon.fill")
                                             .foregroundStyle(.red)
                                             .font(.caption)
-                                        Text("Gemini API key is invalid — update in Settings → Gemini API to generate \(sectionTitle.lowercased()).")
+                                        Text("Gemini API key is invalid — update in Settings → Gemini to generate \(sectionTitle.lowercased()).")
                                             .font(.caption)
                                             .foregroundStyle(.secondary)
                                     }
@@ -1065,9 +1065,9 @@ struct ProcessingInspector: View {
                                         .frame(maxWidth: .infinity, alignment: .leading)
                                         .disabled(!editorActions.canRun(action))
                                         .help(!studio.hasApiKey && action != "prepare-video"
-                                            ? "Enter your Gemini API key in Settings → Gemini API to enable this feature"
+                                            ? "Enter your Gemini API key in Settings → Gemini to enable this feature"
                                             : studio.isApiKeyInvalid && action != "prepare-video"
-                                                ? "Gemini API key is invalid — enter a valid key in Settings → Gemini API to enable this feature"
+                                                ? "Gemini API key is invalid — enter a valid key in Settings → Gemini to enable this feature"
                                                 : action == "generate-ad-cues" && !p.canGenerateDescriptions
                                                     ? "Generate the transcript and summary first"
                                                     : action == "prepare-video"
@@ -1135,7 +1135,7 @@ struct ProcessingInspector: View {
                                                 Image(systemName: "exclamationmark.octagon.fill")
                                                     .foregroundStyle(.red)
                                                     .font(.caption)
-                                                Text("Gemini API key is invalid — update in Settings → Gemini API for Gemini TTS narration.")
+                                                Text("Gemini API key is invalid — update in Settings → Gemini for Gemini TTS narration.")
                                                     .font(.caption)
                                                     .foregroundStyle(.secondary)
                                             }
@@ -1168,9 +1168,9 @@ struct ProcessingInspector: View {
                                         .frame(maxWidth: .infinity, alignment: .leading)
                                         .disabled(!editorActions.canRun("synthesize-tts"))
                                         .help(studio.settings.ttsMode == "gemini" && !studio.hasApiKey
-                                            ? "Enter your Gemini API key in Settings → Gemini API to synthesize Gemini TTS narration"
+                                            ? "Enter your Gemini API key in Settings → Gemini to synthesize Gemini TTS narration"
                                             : studio.settings.ttsMode == "gemini" && studio.isApiKeyInvalid
-                                                ? "Gemini API key is invalid — enter a valid key in Settings → Gemini API to synthesize Gemini TTS narration"
+                                                ? "Gemini API key is invalid — enter a valid key in Settings → Gemini to synthesize Gemini TTS narration"
                                                 : "Create narration audio for all Audio Description segments")
                                         .requiresInternet(studio.settings.narrationService)
                                         if studio.isSynthesizingNarration {
@@ -1191,9 +1191,9 @@ struct ProcessingInspector: View {
                                     }
                                     .disabled(!editorActions.canRun("synthesize-changed"))
                                     .help(studio.settings.ttsMode == "gemini" && !studio.hasApiKey
-                                        ? "Enter your Gemini API key in Settings → Gemini API to synthesize changed segments"
+                                        ? "Enter your Gemini API key in Settings → Gemini to synthesize changed segments"
                                         : studio.settings.ttsMode == "gemini" && studio.isApiKeyInvalid
-                                            ? "Gemini API key is invalid — enter a valid key in Settings → Gemini API to synthesize changed segments"
+                                            ? "Gemini API key is invalid — enter a valid key in Settings → Gemini to synthesize changed segments"
                                             : "Generate missing audio and replace audio with text, timing, or generation issues; keep current audio")
                                     .requiresInternet(studio.settings.narrationService)
                                     }
@@ -1312,7 +1312,7 @@ private struct AnalysisVideoStatusView: View {
                             studio.execute("prepare-analysis-video", project: project)
                         }
                         .labelStyle(.iconOnly)
-                        .help(!studio.hasApiKey ? "Enter your Gemini API key in Settings → Gemini API to prepare video for analysis" : studio.isApiKeyInvalid ? "Gemini API key is invalid — enter a valid key in Settings → Gemini API to prepare video for analysis" : "Prepare video for analysis")
+                        .help(!studio.hasApiKey ? "Enter your Gemini API key in Settings → Gemini to prepare video for analysis" : studio.isApiKeyInvalid ? "Gemini API key is invalid — enter a valid key in Settings → Gemini to prepare video for analysis" : "Prepare video for analysis")
                         .requiresInternet(.gemini)
                         .accessibilityLabel("Prepare video for analysis")
                         .disabled(studio.busy || !studio.hasValidApiKey)
@@ -1323,7 +1323,7 @@ private struct AnalysisVideoStatusView: View {
                             studio.execute("check-video-availability", project: project)
                         }
                         .labelStyle(.iconOnly)
-                        .help(!studio.hasApiKey ? "Enter your Gemini API key in Settings → Gemini API to check video analysis status" : studio.isApiKeyInvalid ? "Gemini API key is invalid — enter a valid key in Settings → Gemini API to check video analysis status" : "Refresh video analysis status")
+                        .help(!studio.hasApiKey ? "Enter your Gemini API key in Settings → Gemini to check video analysis status" : studio.isApiKeyInvalid ? "Gemini API key is invalid — enter a valid key in Settings → Gemini to check video analysis status" : "Refresh video analysis status")
                         .requiresInternet(.gemini)
                         .accessibilityLabel("Refresh video analysis status")
                         .disabled(studio.busy || !studio.hasValidApiKey)
@@ -1336,7 +1336,7 @@ private struct AnalysisVideoStatusView: View {
                         .font(.caption)
                         .foregroundStyle(.secondary)
                 } else if studio.isApiKeyInvalid {
-                    Text("Gemini API key is invalid — update in Settings → Gemini API to upload or check video analysis status.")
+                    Text("Gemini API key is invalid — update in Settings → Gemini to upload or check video analysis status.")
                         .font(.caption)
                         .foregroundStyle(.secondary)
                 }
@@ -1840,9 +1840,9 @@ struct ProjectEditor: View {
                 .accessibilityLabel(action.title)
                 .disabled(studio.busy || !studio.hasValidApiKey || (action.command == "generate-ad-cues" && !project.canGenerateDescriptions))
                 .help(action.title + ". " + (!studio.hasApiKey
-                    ? "Enter your Gemini API key in Settings → Gemini API to enable this feature"
+                    ? "Enter your Gemini API key in Settings → Gemini to enable this feature"
                     : studio.isApiKeyInvalid
-                        ? "Gemini API key is invalid — enter a valid key in Settings → Gemini API to enable this feature"
+                        ? "Gemini API key is invalid — enter a valid key in Settings → Gemini to enable this feature"
                         : action.command == "generate-ad-cues" && !project.canGenerateDescriptions
                             ? "Generate the transcript and summary first"
                             : action.command == "prepare-video" ? "Read video details and create timeline pictures without using AI" : action.title.hasPrefix("Regenerate") ? "Regenerate the existing content after confirmation" : "Generate content for this section"))
@@ -1913,7 +1913,7 @@ struct ProjectEditor: View {
                             readCurrentFrameText()
                         }
                         .labelStyle(.iconOnly)
-                        .help(!studio.hasApiKey ? "Enter your Gemini API key in Settings → Gemini API to read frame text" : studio.isApiKeyInvalid ? "Gemini API key is invalid — enter a valid key in Settings → Gemini API to read frame text" : "Extract text from the current video frame")
+                        .help(!studio.hasApiKey ? "Enter your Gemini API key in Settings → Gemini to read frame text" : studio.isApiKeyInvalid ? "Gemini API key is invalid — enter a valid key in Settings → Gemini to read frame text" : "Extract text from the current video frame")
                         .requiresInternet(.gemini)
                         .disabled(studio.busy || !studio.hasValidApiKey)
                     }
@@ -2478,10 +2478,10 @@ struct ProjectEditor: View {
     private var bulkNarrationUnavailableReason: String? {
         if selectedDescriptionIDs.isEmpty { return "Select one or more descriptions; transcript segments do not have narration." }
         if studio.settings.ttsMode == "gemini" && !studio.hasApiKey {
-            return "Enter your Gemini API key in Settings → Gemini API to generate Gemini narration."
+            return "Enter your Gemini API key in Settings → Gemini to generate Gemini narration."
         }
         if studio.settings.ttsMode == "gemini" && studio.isApiKeyInvalid {
-            return "The Gemini API key is invalid. Update it in Settings → Gemini API to generate narration."
+            return "The Gemini API key is invalid. Update it in Settings → Gemini to generate narration."
         }
         return nil
     }
@@ -4453,7 +4453,7 @@ private struct SegmentEditor: View {
                             }
                         }
                         .disabled(isReadingFrame || !hasValidApiKey)
-                        .help(!hasApiKey ? "Enter your Gemini API key in Settings → Gemini API to read frame text" : isApiKeyInvalid ? "Gemini API key is invalid — enter a valid key in Settings → Gemini API to read frame text" : "Read text from the video frame at the segment start time and use it as the description")
+                        .help(!hasApiKey ? "Enter your Gemini API key in Settings → Gemini to read frame text" : isApiKeyInvalid ? "Gemini API key is invalid — enter a valid key in Settings → Gemini to read frame text" : "Read text from the video frame at the segment start time and use it as the description")
                         .requiresInternet(.gemini)
                         .accessibilityHint("Replaces the description with text found at the segment start time.")
                     }
@@ -4483,7 +4483,7 @@ private struct SegmentEditor: View {
                             Image(systemName: "exclamationmark.octagon.fill")
                                 .foregroundStyle(.red)
                                 .font(.caption)
-                            Text("Gemini API key is invalid — update in Settings → Gemini API to re-analyze segments.")
+                            Text("Gemini API key is invalid — update in Settings → Gemini to re-analyze segments.")
                                 .font(.caption)
                                 .foregroundStyle(.secondary)
                         }
@@ -4505,7 +4505,7 @@ private struct SegmentEditor: View {
                         }
                         .disabled(!canReanalyze || !hasValidApiKey || isReadingFrame || !row.segment.start.isFinite || !row.segment.end.isFinite || row.segment.start < 0 || row.segment.end <= row.segment.start || row.segment.end > duration)
                         .keyboardShortcut("r", modifiers: [.command, .option])
-                        .help(!hasApiKey ? "Enter your Gemini API key in Settings → Gemini API to re-analyze this segment" : isApiKeyInvalid ? "Gemini API key is invalid — enter a valid key in Settings → Gemini API to re-analyze this segment" : (row.isDescription ? "Look closely at this time range using the optional hint and adjust nearby descriptions to fit. Generate a transcript and summary first." : "Generate transcript segments using the selected range, multilingual settings and optional hint. No transcript or summary is required. Audio-only transcription models use the configured YouTube video transcription model for range analysis."))
+                        .help(!hasApiKey ? "Enter your Gemini API key in Settings → Gemini to re-analyze this segment" : isApiKeyInvalid ? "Gemini API key is invalid — enter a valid key in Settings → Gemini to re-analyze this segment" : (row.isDescription ? "Look closely at this time range using the optional hint and adjust nearby descriptions to fit. Generate a transcript and summary first." : "Generate transcript segments using the selected range, multilingual settings and optional hint. No transcript or summary is required. Audio-only transcription models use the configured YouTube video transcription model for range analysis."))
                         .requiresInternet(.gemini)
                         .accessibilityHint("Uses the separate Gemini hint to update this range and nearby segments. Use Undo Segment Edit to restore them.")
                     }

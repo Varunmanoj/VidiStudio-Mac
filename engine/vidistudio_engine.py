@@ -617,7 +617,7 @@ def client_and_model(kind, project=None):
     model = cfg['models'].get(key)
     if not model: raise ValueError('Choose a Gemini model in Settings first.')
     if key == 'youtube_transcript' and any(token in model.lower() for token in ('transcribe', 'tts')):
-        raise ValueError('Choose a video model for YouTube in Settings > Gemini API > YouTube video model, such as Gemini Flash.')
+        raise ValueError('Choose a video model for YouTube in Settings > Gemini > YouTube video model, such as Gemini Flash.')
     return gemini_client(), model
 
 

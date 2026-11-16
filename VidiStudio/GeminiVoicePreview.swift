@@ -23,7 +23,7 @@ import Combine
         let key = cacheKey(settings, text)
         if let file = cache[key] { guard VoiceSampleSession.shared.begin(sampleOwner) else { return }; playFile(file); return }
         guard ConnectivityService.shared.available(.gemini) else { error = ConnectivityService.shared.reason(.gemini); return }
-        guard !settings.apiKey.isEmpty else { error = "Enter your Gemini API key in Settings → Gemini API to preview this voice."; return }
+        guard !settings.apiKey.isEmpty else { error = "Enter your Gemini API key in Settings → Gemini to preview this voice."; return }
         guard let engine = Bundle.main.resourceURL?.appendingPathComponent("Engine/vidistudio-engine") else {
             error = "A required part of VidiStudio is unavailable. Reinstall the application, then try again."
             return
@@ -120,7 +120,7 @@ struct GeminiVoiceBrowser: View {
                         Button("Play Sample") { preview.play(settings: studio.settings, text: sample) }.disabled(VoiceSampleSession.shared.busy || !studio.hasApiKey || sample.isEmpty || sample.count > 500)
                         Button("Stop Sample") { preview.stop() }.disabled(!preview.loading && !preview.playing)
                     }
-                    .help(!studio.hasApiKey ? "Enter your Gemini API key in Settings → Gemini API to preview this voice" : "Play sample of Gemini voice \(studio.settings.geminiVoice)")
+                    .help(!studio.hasApiKey ? "Enter your Gemini API key in Settings → Gemini to preview this voice" : "Play sample of Gemini voice \(studio.settings.geminiVoice)")
                     .requiresInternet(preview.loading || preview.playing || preview.hasCached(settings: studio.settings, text: sample) ? nil : .gemini)
                     .accessibilityLabel((preview.loading ? "Stop sample of " : preview.playing ? "Stop sample of " : "Play sample of ") + "Gemini voice " + studio.settings.geminiVoice)
                 if preview.loading { ProgressView().controlSize(.small).accessibilityLabel("Generating voice sample") }

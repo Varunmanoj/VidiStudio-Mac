@@ -150,7 +150,7 @@ struct UserFacingIssue: Equatable {
         if detail.contains("api_key_invalid") || detail.contains("api key not valid") || detail.contains("api key is not valid") || detail.contains("invalid api key") {
             return UserFacingIssue(
                 title: "Invalid Gemini API Key",
-                message: "The entered Gemini API key is invalid. Google rejected it. Replace it with a valid key in Settings → Gemini API."
+                message: "The entered Gemini API key is invalid. Google rejected it. Replace it with a valid key in Settings → Gemini."
             )
         }
 
@@ -163,7 +163,7 @@ struct UserFacingIssue: Equatable {
         case "import-youtube", "prepare-youtube":
             return UserFacingIssue(
                 title: "YouTube Video Couldn’t Be Added",
-                message: "Use a YouTube video with visibility set to Public or Unlisted. Private and other restricted visibility settings cannot be analyzed by Gemini. Check the link, your Gemini API settings, and your internet connection, then try again."
+                message: "Use a YouTube video with visibility set to Public or Unlisted. Private and other restricted visibility settings cannot be analyzed by Gemini. Check the link, your Gemini settings, and your internet connection, then try again."
             )
         case "prepare-video", "probe-video", "generate-thumbnails":
             return UserFacingIssue(
