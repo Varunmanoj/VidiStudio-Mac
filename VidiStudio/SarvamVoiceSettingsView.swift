@@ -78,6 +78,7 @@ struct SpeechAdjustment: View {
             } catch {
                 guard generation == request else { return }
                 active = false; self.error = error.localizedDescription
+                ConnectivityService.shared.showVoiceFailure(.sarvam, fallback: "The sample could not be prepared. Check your internet connection and voice settings, then try again.")
             }
         }
     }

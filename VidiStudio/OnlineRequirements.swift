@@ -28,3 +28,16 @@ enum OnlineRequirements {
     }
 }
 
+
+/// Rechecks must not reopen a dismissed warning before the connection recovers.
+struct VoiceSelectionWarning {
+    private var warnedService: OnlineService?
+    mutating func shouldWarn(_ service: OnlineService?, state: ConnectionState) -> Bool {
+        guard let service else { warnedService = nil; return false }
+        if state == .available { warnedService = nil; return false }
+        guard state == .offline || state == .unreachable else { return false }
+        guard warnedService != service else { return false }
+        warnedService = service
+        return true
+    }
+}

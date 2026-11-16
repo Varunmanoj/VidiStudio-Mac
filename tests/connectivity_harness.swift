@@ -1,6 +1,7 @@
 import Foundation
+import AppKit
 
-struct StudioSettings { var ttsMode = "apple"; var narrationService: OnlineService? { ttsMode == "sarvam" ? .sarvam : ttsMode == "gemini" ? .gemini : nil } }
+struct StudioSettings { var ttsMode = "apple"; var narrationService: OnlineService? { ttsMode == "elevenlabs" ? .elevenlabs : ttsMode == "sarvam" ? .sarvam : ttsMode == "gemini" ? .gemini : nil } }
 struct AudioSourceSettings { var export = "youtube" }
 struct ImportedAudioDescription { var mode = "narration" }
 struct StudioProject {
@@ -11,6 +12,7 @@ struct StudioProject {
 }
 @main struct ConnectivityHarness {
     @MainActor static func main() async {
+        _ = NSApplication.shared
         precondition(OnlineRequirements.acceptsHost("m.youtube.com", service: .youtube))
         precondition(OnlineRequirements.acceptsHost("www.youtube.com", service: .youtube))
         precondition(!OnlineRequirements.acceptsHost("youtube.com.portal.example", service: .youtube))
@@ -45,6 +47,36 @@ struct StudioProject {
         precondition(connection.state(.youtube) == .checking)
         connection.routeChanged(false)
         precondition(OnlineService.allCases.allSatisfy { connection.state($0) == .offline })
+        for provider in [OnlineService.gemini, .sarvam, .elevenlabs] {
+            let alert = connection.voiceFailureAlert(provider, fallback: "Sample failed")
+            precondition(alert.messageText == "Internet Connection Required")
+            precondition(alert.informativeText.contains(provider.name))
+            precondition(alert.informativeText.contains("Saved audio"))
+            precondition(alert.buttons.count == 1)
+            for name in [NSAppearance.Name.aqua, NSAppearance.Name.darkAqua] {
+                alert.window.appearance = NSAppearance(named: name)
+                alert.layout()
+                let content = alert.window.contentView!
+                let close = alert.buttons[0]
+                precondition(close.isEnabled && close.frame.width > 0)
+                precondition(content.bounds.contains(content.convert(close.bounds, from: close)))
+            }
+        }
+        for provider in [OnlineService.gemini, .sarvam, .elevenlabs] {
+            settings.ttsMode = provider.rawValue
+            for command in ["synthesize-tts", "synthesize-speech", "synthesize-changed", "preview-tts"] { precondition(needs(command) == [provider]) }
+            var warning = VoiceSelectionWarning()
+            precondition(warning.shouldWarn(provider, state: .offline))
+            precondition(!warning.shouldWarn(provider, state: .offline))
+            precondition(!warning.shouldWarn(provider, state: .checking))
+            precondition(!warning.shouldWarn(provider, state: .unreachable))
+            precondition(!warning.shouldWarn(provider, state: .available))
+            precondition(warning.shouldWarn(provider, state: .offline))
+            precondition(!warning.shouldWarn(nil, state: .available))
+            precondition(warning.shouldWarn(provider, state: .offline))
+        }
+        // Sample commands can replay cached audio offline; failures present the warning at their UI owner.
+        precondition(needs("preview-sarvam-sample").isEmpty)
         connection.routeChanged(true)
         try? await Task.sleep(for: .milliseconds(100))
         precondition(connection.state(.gemini) == .unreachable)

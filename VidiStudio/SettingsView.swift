@@ -388,7 +388,11 @@ struct SettingsView: View {
         .onChange(of: studio.settingsSection) { _, updated in
             if !sections.contains(updated) { studio.settingsSection = "Appearance" }
         }
+        .onChange(of: ConnectivityService.shared.state(studio.settings.narrationService ?? .gemini)) { _, _ in
+            ConnectivityService.shared.warnVoiceSelection(studio.settings.narrationService)
+        }
         .onChange(of: studio.settings.ttsMode) { _, mode in
+            ConnectivityService.shared.warnVoiceSelection(studio.settings.narrationService)
             guard mode == "piper" else { return }
             let manager = PiperVoiceManager.shared
             manager.refresh()

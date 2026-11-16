@@ -171,7 +171,7 @@ enum ElevenLabsRequest {
                 audio=try AVAudioPlayer(contentsOf:URL(fileURLWithPath:path));audio?.delegate=self
                 preparing=nil;playing=voice.id
                 if audio?.play() != true { stop();message="Could not play this demo." }
-            } catch { if audioRevision==request { stop();message=error.localizedDescription } }
+            } catch { if audioRevision==request { stop();message=error.localizedDescription;ConnectivityService.shared.showVoiceFailure(.elevenlabs, fallback: "This voice demo could not be downloaded or played. Check your internet connection and try again.") } }
         }
     }
     nonisolated func audioPlayerDidFinishPlaying(_ player: AVAudioPlayer,successfully flag: Bool) { Task { @MainActor [weak self] in if self?.audio === player { self?.stop() } } }

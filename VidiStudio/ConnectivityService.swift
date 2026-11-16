@@ -63,6 +63,24 @@ final class ConnectivityService {
         case .unreachable: return "Cannot reach \(service.name). Check your connection or try again later."
         }
     }
+    private var voiceSelectionWarning = VoiceSelectionWarning()
+    func warnVoiceSelection(_ service: OnlineService?) {
+        guard voiceSelectionWarning.shouldWarn(service, state: service.map(state) ?? .available), let service else { return }
+        showVoiceFailure(service, fallback: "")
+    }
+    func showVoiceFailure(_ service: OnlineService, fallback: String) {
+        let alert = voiceFailureAlert(service, fallback: fallback)
+        alert.runModal()
+        check()
+    }
+    func voiceFailureAlert(_ service: OnlineService, fallback: String) -> NSAlert {
+        let alert = NSAlert()
+        alert.alertStyle = .warning
+        alert.messageText = reason(service) == nil ? "Voice Sample Couldn’t Play" : "Internet Connection Required"
+        alert.informativeText = (reason(service) ?? fallback) + "\n\nNew online narration and uncached voice samples need internet. Saved audio and installed local voices remain available."
+        alert.addButton(withTitle: "Close")
+        return alert
+    }
     var notice: String? {
         let missing = OnlineService.allCases.filter { !available($0) }
         guard !missing.isEmpty else { return nil }

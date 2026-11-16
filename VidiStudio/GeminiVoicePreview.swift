@@ -141,6 +141,9 @@ struct GeminiVoiceBrowser: View {
         .onChange(of: studio.settings.geminiVoice) { _, _ in preview.stop() }
         .onChange(of: sample) { _, _ in preview.stop() }
         .onReceive(Timer.publish(every: 0.3, on: .main, in: .common).autoconnect()) { _ in preview.updatePlayback() }
+        .onChange(of: preview.error) { _, error in
+            if let error { ConnectivityService.shared.showVoiceFailure(.gemini, fallback: error) }
+        }
         .onDisappear { preview.cleanUp() }
     }
 }
