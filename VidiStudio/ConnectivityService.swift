@@ -4,10 +4,11 @@ import AppKit
 import SwiftUI
 
 enum OnlineService: String, CaseIterable, Sendable {
-    case gemini, sarvam, youtube, voices
-    var name: String { switch self { case .sarvam: "Sarvam"; case .gemini: "Gemini"; case .youtube: "YouTube"; case .voices: "Voice downloads" } }
+    case gemini, sarvam, elevenlabs, youtube, voices
+    var name: String { switch self { case .elevenlabs: "ElevenLabs"; case .sarvam: "Sarvam"; case .gemini: "Gemini"; case .youtube: "YouTube"; case .voices: "Voice downloads" } }
     var origin: URL {
         let address = switch self {
+        case .elevenlabs: "https://api.elevenlabs.io/"
         case .sarvam: "https://api.sarvam.ai/"
         case .gemini: "https://generativelanguage.googleapis.com/"
         case .youtube: "https://www.youtube.com/"

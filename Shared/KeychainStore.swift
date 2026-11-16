@@ -9,6 +9,7 @@ import Security
 /// through the `VIDISTUDIO_API_KEY` process environment variable instead of reading it
 /// from disk.
 enum KeychainStore {
+    static let elevenlabs = KeychainCredential(service: "com.vidistudio.elevenlabs-api", account: "elevenlabs-api-key", label: "VidiStudio ElevenLabs API Key")
     static let sarvam = KeychainCredential(service: "com.vidistudio.sarvam-api", account: "sarvam-api-key", label: "VidiStudio Sarvam API Key")
     /// Stable identifiers so every build of the app addresses the same Keychain item.
     static let service = "com.vidistudio.gemini-api"

@@ -5,7 +5,7 @@ Mac is the reference for shared organization and workflows. Use native SwiftUI/A
 | Paired surface | Shared layout contract | Source owners |
 | --- | --- | --- |
 | Settings pages | Compact named groups, common section order, aligned labels/fields, adjacent related actions, concise copy | Mac SettingsView and feature views; Windows SettingsDialog partials |
-| Gemini and Sarvam credentials | Masked key, inline accessible status before trash; check/dashboard actions together below when they fit | GeminiAPISettingsView / SarvamVoiceSettingsView; SettingsDialog.Gemini / Sarvam / SpeechLayout |
+| Gemini, Sarvam and ElevenLabs credentials | Masked key, inline accessible status before trash; check/dashboard actions together below when they fit | GeminiAPISettingsView / SarvamVoiceSettingsView; SettingsDialog.Gemini / Sarvam / SpeechLayout |
 | New Project | Source, source details, AD choices/assets and project location in compact groups | Mac project creation views; Windows NewProjectDialog |
 | Import and timing | Group language/text/audio; choose/remove next to filenames; retain timing tables and errors | ImportAssetsView; ImportAssetsDialog / TextTimingDialog |
 | Export | Category sidebar, grouped format/content/audio/caption choices, aligned saved-result selectors and native actions | ExportOptionsMenu; ExportDialog / ExportDialog.Tracks |
@@ -41,3 +41,7 @@ Sarvam samples: every catalog voice exposes Play Sample when a Sarvam key is sto
 All Sarvam sample Play controls and menu commands require a stored Sarvam key and are disabled while one sample prepares or plays. The active row and selected-voice Stop action remain available. Stop during preparation suppresses playback while the pending request finishes caching; Play re-enables after it finishes. V3 always uses its published demo, with no generated fallback.
 
 Voice samples now share immediate Play/Stop labels/icons and an accessible preparation spinner across system/Apple, Piper, Gemini and Sarvam, including independent Summary and Piper catalog/removal windows. A shared native session disables competing Play commands, and failure/completion/Stop releases it. Stop restarts from the beginning on next Play; Windows sample Pause/Resume is removed to match the Mac reference. Both button and context menu use the same guarded actions. Provider-specific key/download requirements remain.
+
+ElevenLabs Narration uses the same key/status/trash and adjacent action rows on both platforms, followed by Account Plan, Models and Voices, Voice Controls, then local Summary Voice. Both use recorded demos only. Account and Voice Library queries retain provider-supported pagination/sorts. Native API-key, account allowance and duplicate-name geometry checks live in SettingsDialog.ElevenLabs.cs; REST/security behavior is covered by test_elevenlabs_tts.py and the paired control/menu contract by test_elevenlabs_ui.py.
+
+ElevenLabs models are dropdown-only. Only Search voices is a search box; Accent, Use case and public Style use native choice controls with provider/catalog metadata and All options on both desktops.

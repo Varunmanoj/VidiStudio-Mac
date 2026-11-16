@@ -283,3 +283,13 @@ def check_sarvam_settings(mac, windows):
         if token not in mac: raise ValueError('Mac guarded speech menu missing: ' + token)
     for token in ['picker.ContextFlyout = menu', 'picker.SelectedItem =', 'slider.ContextFlyout = menu', 'button.IsEnabled', 'sampleVoice != null', 'CanPlaySarvamSample', 'UpdateSarvamSampleControls()', 'button.IsEnabled = current || CanPlaySarvamSample', 'SetVoiceSampleMenu(playSample']:
         if token not in windows: raise ValueError('Windows guarded speech menu missing: ' + token)
+
+
+def check_elevenlabs_settings(mac, windows):
+    identifiers = ['elevenlabs-api-key','elevenlabs-key-status','elevenlabs-key-delete-icon','elevenlabs-key-delete','elevenlabs-key-edit','elevenlabs-key-check','elevenlabs-key-dashboard','elevenlabs-model-sort','elevenlabs-model','elevenlabs-language','elevenlabs-source','elevenlabs-voice-search','elevenlabs-voice-sort','elevenlabs-category','elevenlabs-gender','elevenlabs-age','elevenlabs-refresh','elevenlabs-more','elevenlabs-filters-reset','elevenlabs-format','elevenlabs-controls-reset']
+    for identifier in identifiers:
+        if identifier not in mac or identifier not in windows: raise ValueError('Missing ElevenLabs paired control/menu: ' + identifier)
+    for source, token in [(mac, '.contextMenu'),(windows,'ContextFlyout = menu')]:
+        if token.replace(' ','') not in source.replace(' ',''): raise ValueError('ElevenLabs controls need context menus')
+    for title in ['Account Plan','Usage this period','Remaining allowance','Add & Select','Play Demo','Stop Demo','Sample unavailable']:
+        if title not in mac or title not in windows: raise ValueError('Missing ElevenLabs shared workflow: ' + title)

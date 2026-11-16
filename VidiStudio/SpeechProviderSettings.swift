@@ -73,8 +73,9 @@ struct SarvamCatalog: Decodable {
 }
 
 extension StudioSettings {
-    var usesCloudNarration: Bool { ["gemini", "sarvam"].contains(ttsMode) }
-    var narrationService: OnlineService? { ttsMode == "sarvam" ? .sarvam : ttsMode == "gemini" ? .gemini : nil }
+    var usesCloudNarration: Bool { ["gemini", "sarvam", "elevenlabs"].contains(ttsMode) }
+    var elevenlabsApiKey: String { KeychainStore.elevenlabs.read() ?? "" }
+    var narrationService: OnlineService? { if ttsMode == "elevenlabs" { return .elevenlabs }; return ttsMode == "sarvam" ? .sarvam : ttsMode == "gemini" ? .gemini : nil }
     var sarvamApiKey: String { get { KeychainStore.sarvam.read() ?? "" } set { _ = KeychainStore.sarvam.write(newValue) } }
     var hasSarvamApiKey: Bool { !sarvamApiKey.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }
     var initialSummarySpeech: LocalSummarySpeech {

@@ -396,6 +396,7 @@ struct NarrationFailureReport: Identifiable {
 enum NarrationVoiceFormatting {
     static func engineDisplayName(_ engine: String?) -> String {
         switch (engine ?? "").trimmingCharacters(in: .whitespacesAndNewlines).lowercased() {
+        case "elevenlabs": return "ElevenLabs Voices"
         case "sarvam": return "Sarvam Voices"
         case "gemini": return "Gemini Voices"
         case "system": return "Apple Voices"
@@ -1205,6 +1206,9 @@ struct StudioSettings: Codable, Equatable {
     var adCaptionBackgroundColor = "#3A2F00"
     var captionBackgroundOpacity = 0.75
     var captionPosition = "bottom"
+    var elevenlabsSpeech: ElevenLabsSpeechSettings? = nil
+    var elevenlabsKeyStatus = "unverified"
+    var elevenlabsCredentialRevision = 0
     var sarvamSpeech = SarvamSpeechSettings()
     var sarvamKeyStatus = "unverified"
     var sarvamCredentialRevision = 0
@@ -1216,6 +1220,7 @@ struct StudioSettings: Codable, Equatable {
     static var url: URL { FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent("Library/Application Support/VidiStudio/config.json") }
 
     var narrationSignature: String {
+        if ttsMode == "elevenlabs" { return (elevenlabsSpeech ?? ElevenLabsSpeechSettings()).signature }
         if ttsMode == "sarvam" { return sarvamSpeech.signature }
         if ttsMode == "gemini" {
             return "gemini|\(geminiVoice)|\(models["tts_audio"] ?? "")"
@@ -1246,6 +1251,7 @@ struct StudioSettings: Codable, Equatable {
     }
 
     var currentNarrationEngine: String {
+        if ttsMode == "elevenlabs" { return "elevenlabs" }
         if ttsMode == "sarvam" { return "sarvam" }
         if ttsMode == "gemini" { return "gemini" }
         if ttsMode == "piper" { return "piper" }
@@ -1253,6 +1259,7 @@ struct StudioSettings: Codable, Equatable {
     }
 
     var currentNarrationVoice: String {
+        if ttsMode == "elevenlabs" { return (elevenlabsSpeech?.voiceName.isEmpty == false ? elevenlabsSpeech?.voiceName : elevenlabsSpeech?.voice) ?? "" }
         if ttsMode == "sarvam" { return sarvamSpeech.selected.voice.isEmpty ? "Default voice" : sarvamSpeech.selected.voice }
         if ttsMode == "gemini" {
             let trimmed = geminiVoice.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -1268,6 +1275,7 @@ struct StudioSettings: Codable, Equatable {
     }
 
     @MainActor var currentNarrationLanguage: String {
+        if ttsMode == "elevenlabs" { return elevenlabsSpeech?.language == "auto" ? "Automatic" : (Locale.current.localizedString(forLanguageCode: elevenlabsSpeech?.language ?? "") ?? "Automatic") }
         if ttsMode == "sarvam" { return SarvamCatalog.shared.languages[sarvamSpeech.selected.language] ?? sarvamSpeech.selected.language }
         if ttsMode == "gemini" { return "Multilingual" }
         if ttsMode == "piper" {
@@ -1663,8 +1671,9 @@ final class StudioModel {
             if !received { sarvamModelStatus = "Using saved models" }
         }
     }
-    var narrationMenuSignature: String { "\(settings.ttsMode)|\(settings.sarvamKeyStatus)|\(settings.sarvamCredentialRevision)|\(narrationReady)" }
+    var narrationMenuSignature: String { "\(settings.ttsMode)|\(settings.elevenlabsKeyStatus)|\(settings.elevenlabsCredentialRevision)|\(settings.sarvamKeyStatus)|\(settings.sarvamCredentialRevision)|\(narrationReady)" }
     var narrationReady: Bool {
+        if settings.ttsMode == "elevenlabs" { return !settings.elevenlabsApiKey.isEmpty && settings.elevenlabsKeyStatus != "invalid" && !(settings.elevenlabsSpeech?.voice.isEmpty ?? true) && ConnectivityService.shared.available(.elevenlabs) }
         if settings.ttsMode == "sarvam" { return settings.hasSarvamApiKey && settings.sarvamKeyStatus != "invalid" && ConnectivityService.shared.available(.sarvam) }
         return settings.ttsMode != "gemini" || hasValidApiKey
     }
@@ -2865,6 +2874,7 @@ final class StudioModel {
         var temporaryExecutionDirectory: URL?
         var effectiveConfigurationURL = configurationURL
         let sarvamKey = settings.sarvamApiKey
+        let elevenlabsKey = settings.elevenlabsApiKey
         let apiKey = settings.apiKey.trimmingCharacters(in: .whitespacesAndNewlines)
         if effectiveConfigurationURL == nil && !apiKey.isEmpty {
             let tempDir = FileManager.default.temporaryDirectory.appendingPathComponent("vidistudio-run-\(UUID().uuidString)")
@@ -2892,6 +2902,8 @@ final class StudioModel {
         ]) { _, new in new }
         if !apiKey.isEmpty { environment["VIDISTUDIO_API_KEY"] = apiKey }
         if settings.hasSarvamApiKey { environment["VIDISTUDIO_SARVAM_API_KEY"] = settings.sarvamApiKey }
+        environment.removeValue(forKey:"VIDISTUDIO_ELEVENLABS_API_KEY")
+        if settings.ttsMode == "elevenlabs" { environment["VIDISTUDIO_ELEVENLABS_API_KEY"] = settings.elevenlabsApiKey }
         task.environment = environment
         let output = Pipe(); task.standardOutput = output
         let stderr = Pipe(); task.standardError = stderr
@@ -2938,6 +2950,7 @@ final class StudioModel {
                         sarvamModels = models
                         sarvamModelStatus = event["sarvamModelsCached"] as? Bool == true ? "Using saved models" : "Models updated"
                     }
+                    if event["narrationProvider"] as? String == "elevenlabs", elevenlabsKey == settings.elevenlabsApiKey, let status = event["elevenlabsKeyStatus"] as? String { settings.elevenlabsKeyStatus=status }
                     if event["narrationProvider"] as? String == "sarvam", sarvamKey == settings.sarvamApiKey, let status = event["sarvamKeyStatus"] as? String { settings.sarvamKeyStatus = status; sarvamKeyMessage = event["sarvamKeyMessage"] as? String ?? (status == "verified" ? "API key verified" : "") }
                     if event["failureKind"] as? String == "connectivity" { ConnectivityService.shared.check() }
                     if event["networkActive"] != nil { continue }

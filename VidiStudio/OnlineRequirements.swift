@@ -9,6 +9,7 @@ enum OnlineRequirements {
     }
     static let geminiCommands: Set<String> = ["translate-results", "transcribe", "generate-summary", "generate-ad-cues", "analyze", "regenerate-all", "reanalyze-segment", "reanalyze-transcript-segment", "rewrite-cue", "capture-frame", "check-api-key", "list-models", "list-voices", "validate-config", "align-imported-text", "prepare-analysis-video", "check-video-availability"]
     static func services(_ command: String, project: StudioProject?, settings: StudioSettings, extra: [String] = []) -> [OnlineService] {
+        if command == "elevenlabs-settings" { return [.elevenlabs] }
         if command == "check-sarvam-key" { return [.sarvam] }
         if geminiCommands.contains(command) { return [.gemini] }
         if ["synthesize-tts", "synthesize-speech", "preview-tts", "synthesize-changed"].contains(command) { return settings.narrationService.map { [$0] } ?? [] }

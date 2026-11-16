@@ -214,6 +214,7 @@ struct SettingsView: View {
                         Label("Piper Voices", systemImage: "waveform.circle").tag("piper")
                         Label("Gemini Voices", systemImage: "sparkles").tag("gemini")
                         Label("Sarvam Voices", systemImage: "waveform").tag("sarvam")
+                        Label("ElevenLabs Voices", systemImage:"waveform").tag("elevenlabs")
                     }
                     Picker("Narration during playback", selection: $studio.settings.narrationPlayback) {
                         Label("Play synthesized narration", systemImage: "play.circle").tag("generated")
@@ -234,6 +235,7 @@ struct SettingsView: View {
                         enabled: $studio.settings.soundWhenTimingInvalid, preview: soundPreview)
                 } header: { Text("Narration").accessibilityAddTraits(.isHeader).accessibilityHeading(.h2) }
                 if studio.settings.ttsMode == "sarvam" { SarvamVoiceSettingsView(studio: studio) }
+                if studio.settings.ttsMode == "elevenlabs" { ElevenLabsVoiceSettingsView(studio:studio) }
                 if studio.settings.ttsMode == "gemini" {
                     GeminiVoiceBrowser(studio: studio)
                 }

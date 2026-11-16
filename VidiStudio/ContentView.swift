@@ -3446,7 +3446,7 @@ struct ProjectEditor: View {
         shortcutActions.apiKeyVerified = studio.apiKeyVerified
         shortcutActions.aiProcessingBlocked = studio.isAIProcessingBlocked
         shortcutActions.ttsUsesGemini = (studio.settings.ttsMode == "gemini")
-        shortcutActions.ttsUsesSarvam = studio.settings.ttsMode == "sarvam"
+        shortcutActions.ttsUsesSarvam = ["sarvam","elevenlabs"].contains(studio.settings.ttsMode)
         shortcutActions.sarvamReady = studio.narrationReady
         shortcutActions.hasGeneratedThumbnails = !project.thumbnails.isEmpty
         shortcutActions.isSynthesizingNarration = studio.isSynthesizingNarration

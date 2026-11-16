@@ -5,10 +5,10 @@ if command -v python3 >/dev/null 2>&1; then
   python3 script/sync_version.py --sync
   python3 script/check_menu_parity.py --allow-missing
   python3 script/check_desktop_ui_parity.py --allow-missing
-  python3 -m unittest tests.test_desktop_ui_parity
+  python3 -m unittest tests.test_desktop_ui_parity tests.test_elevenlabs_ui
 elif command -v python >/dev/null 2>&1; then
   python script/sync_version.py --sync
   python script/check_menu_parity.py --allow-missing
   python script/check_desktop_ui_parity.py --allow-missing
-  python -m unittest tests.test_desktop_ui_parity
+  python -m unittest tests.test_desktop_ui_parity tests.test_elevenlabs_ui
 fi

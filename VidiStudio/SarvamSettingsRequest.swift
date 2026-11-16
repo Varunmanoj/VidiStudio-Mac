@@ -10,6 +10,7 @@ enum SarvamSettingsRequest {
             process.arguments = [command] + arguments
             var environment = ProcessInfo.processInfo.environment
             environment.removeValue(forKey: "VIDISTUDIO_API_KEY")
+            environment.removeValue(forKey:"VIDISTUDIO_ELEVENLABS_API_KEY")
             environment.removeValue(forKey: "VIDISTUDIO_SARVAM_API_KEY")
             if !key.isEmpty { environment["VIDISTUDIO_SARVAM_API_KEY"] = key }
             process.environment = environment
