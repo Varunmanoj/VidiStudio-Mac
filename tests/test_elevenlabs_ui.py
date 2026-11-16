@@ -53,6 +53,34 @@ class ElevenLabsUIContract(unittest.TestCase):
         self.assertIn('ElevenLabs speaking-speed range/default/name regressed.',self.win)
         self.assertIn('ElevenLabs speaking speed did not save.',self.win)
 
+    def test_style_emphasis_label_and_distinct_library_filter(self):
+        self.assertIn('case "style": SpeechAdjustment(title:"Style emphasis",id:"elevenlabs-style"',self.mac)
+        self.assertIn('"style"=>"Style emphasis"',self.win)
+        self.assertIn('filterChoice("Style","style","All styles")',self.mac)
+        self.assertIn('ElevenLabs Style emphasis accessible label regressed.',self.win)
+
+    def test_slider_display_units_match_mac_without_rescaling_settings(self):
+        for key in ("stability", "similarity", "style", "cloneStrength"):
+            self.assertRegex(self.mac, r'case "'+key+r'": SpeechAdjustment[^\n]+percentage:true')
+        self.assertIn('percentage:field is "stability" or "similarity" or "style" or "cloneStrength"',self.win)
+        self.assertIn('ElevenLabs slider display units regressed:',self.win)
+        self.assertIn('ElevenLabs percentage display must preserve normalized saved values.',self.win)
+        shared=(WIN/'Vidi Studio Windows/Views/SettingsDialog.Sarvam.cs').read_text()
+        self.assertIn('percentage ? "0%"',shared)
+        self.assertIn('profile[key] = slider.Value',shared)
+
+    def test_sarvam_uses_numbers_on_both_desktops(self):
+        mac=(MAC/'VidiStudio/SarvamVoiceSettingsView.swift').read_text()
+        win=(WIN/'Vidi Studio Windows/Views/SettingsDialog.Sarvam.cs').read_text()
+        for control in ("Pitch", "Loudness", "Expressiveness", "Speaking speed"):
+            mac_call=next(line for line in mac.splitlines() if 'SpeechAdjustment(title: "'+control+'"' in line)
+            win_call=next(line for line in win.splitlines() if 'SpeechAdjustmentControl(sarvamControls,"'+control+'"' in line)
+            self.assertNotIn('percentage:',mac_call)
+            self.assertNotIn('percentage:',win_call)
+        self.assertIn('Sarvam numeric display must preserve saved values:',win)
+        self.assertIn('readout.Text!=value.ToString("0.00",System.Globalization.CultureInfo.CurrentCulture)',win)
+        self.assertIn('Sarvam speaking speed must retain its multiplier.',win)
+
     def test_no_generated_audition_action_exists(self):
         for source in [self.mac,self.win]:
             self.assertNotIn('Generate Sample',source)

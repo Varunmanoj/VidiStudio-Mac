@@ -34,6 +34,19 @@ class DesktopUILayoutParityTests(unittest.TestCase):
         self.mutated('Mac/GeminiVoicePreview.swift','if preview.loading { ProgressView()','if false { ProgressView()','preparation spinner')
         self.mutated('Windows/Views/SettingsDialog.cs','nativePreparingRing.IsActive = sampleState == SampleState.Generating','nativePreparingRing.IsActive = false','preparation must be visible')
 
+    def test_voice_search_cannot_return_to_half_width_rows(self):
+        for path, token in [
+            ('SettingsDialog.ElevenLabs.cs','FullWidthVoiceSearch(field);parent.Children.Add(field);'),
+            ('SettingsDialog.SarvamBrowser.cs','FullWidthVoiceSearch(searchBox);'),
+            ('SettingsDialog.Sarvam.cs','FullWidthVoiceSearch(search);'),
+            ('PiperVoicesDialog.cs','SettingsDialog.FullWidthVoiceSearch(search);'),
+            ('PiperDeleteVoicesDialog.cs','SettingsDialog.FullWidthVoiceSearch(search);'),
+        ]:
+            with self.subTest(path=path): self.mutated('Windows/Views/'+path,token,'','voice search must remain full width')
+
+    def test_hidden_voice_controls_keep_their_logical_owner_cleanup(self):
+        self.mutated('Windows/Views/SettingsDialog.cs','previousVoiceGroup.Children.Remove(piperControls)','','hidden voice groups')
+
     def test_mac_settings_cannot_drop_grouped_forms(self):
         self.mutated('Mac/SettingsView.swift', '.formStyle(.grouped)', '.formStyle(.columns)', 'grouped forms')
     def test_mac_import_cannot_drop_grouped_forms(self):

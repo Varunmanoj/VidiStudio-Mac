@@ -8,7 +8,7 @@ MAC_FILES = ('SettingsView.swift', 'ImportAssetsView.swift', 'ExportOptionsMenu.
              'GeminiAPISettingsView.swift', 'SarvamVoiceSettingsView.swift', 'SystemVoiceCatalog.swift', 'PiperVoiceCatalog.swift', 'GeminiVoicePreview.swift', 'SarvamVoiceBrowser.swift', 'VoiceSampleSession.swift')
 WIN_FILES = ('Views/CompactDialogLayout.cs', 'Views/WindowAppearance.cs',
              'Views/SettingsDialog.Compact.cs', 'Views/SettingsDialog.Layout.cs',
-             'Views/SettingsDialog.SpeechLayout.cs', 'MainWindow.DialogLayoutSmoke.cs', 'Views/SettingsDialog.cs', 'Views/SettingsDialog.Sarvam.cs', 'Views/PiperVoicesDialog.cs', 'Views/PiperDeleteVoicesDialog.cs', 'Services/VoiceSampleSession.cs')
+             'Views/SettingsDialog.ElevenLabs.cs', 'Views/SettingsDialog.SarvamBrowser.cs', 'Views/SettingsDialog.SpeechLayout.cs', 'MainWindow.DialogLayoutSmoke.cs', 'Views/SettingsDialog.cs', 'Views/SettingsDialog.Sarvam.cs', 'Views/PiperVoicesDialog.cs', 'Views/PiperDeleteVoicesDialog.cs', 'Services/VoiceSampleSession.cs')
 
 def sources(workspace):
     workspace = Path(workspace)
@@ -75,6 +75,17 @@ def validate(source):
         require('Windows/Views/CompactDialogLayout.cs', token, reason)
     require('Windows/Views/SettingsDialog.Compact.cs', 'ThemeResource CardBackgroundFillColorDefaultBrush', 'cards must follow light/dark/high contrast themes')
     require('Windows/Views/SettingsDialog.Compact.cs', 'new AccessibilityGroup', 'retain named UI Automation groups')
+    for path, token in (
+        ('SettingsDialog.ElevenLabs.cs', 'FullWidthVoiceSearch(field);parent.Children.Add(field);'),
+        ('SettingsDialog.SarvamBrowser.cs', 'FullWidthVoiceSearch(searchBox);'),
+        ('SettingsDialog.Sarvam.cs', 'FullWidthVoiceSearch(search);'),
+        ('PiperVoicesDialog.cs', 'SettingsDialog.FullWidthVoiceSearch(search);'),
+        ('PiperDeleteVoicesDialog.cs', 'SettingsDialog.FullWidthVoiceSearch(search);'),
+        ('CompactDialogLayout.cs', 'field.Tag as string != "voice-search-full-width"'),
+        ('SettingsDialog.Layout.cs', 'field.ActualWidth < host.ActualWidth - 2')):
+        require('Windows/Views/' + path, token, 'voice search must remain full width')
+    require('Windows/Views/SettingsDialog.cs', 'previousVoiceGroup.Children.Remove(piperControls)', 'hidden voice groups must release retained controls before rebuilding')
+    require('Windows/Views/SettingsDialog.Sarvam.cs', 'Summary tuning must follow its heading and precede voice browsing.', 'Summary heading and tuning order need native coverage')
     require('Windows/Views/SettingsDialog.Layout.cs', 'SetLabeledBy(control, title)', 'retain explicit field labels')
     require('Windows/Views/SettingsDialog.Layout.cs', 'args.NewSize.Width < stackBelow', 'reflow according to available width')
     for token in ('MeasureOverride', 'ArrangeOverride', 'Fits(finalSize.Width)'):

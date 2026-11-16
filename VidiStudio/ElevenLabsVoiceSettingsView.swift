@@ -154,7 +154,7 @@ struct ElevenLabsVoiceSettingsView: View {
             case "stabilityMode": SpeechChoice(title:"Stability",id:"elevenlabs-stability-mode",value:Binding(get:{ String(preferences.stabilityMode) },set:{ setting(\.stabilityMode).wrappedValue=Double($0) ?? 0.5 }),options:[("0.0","Creative"),("0.5","Natural"),("1.0","Robust")])
             case "stability": SpeechAdjustment(title:"Stability",id:"elevenlabs-stability",value:setting(\.stability),range:0...1,initial:0.5,percentage:true)
             case "similarity": SpeechAdjustment(title:"Similarity",id:"elevenlabs-similarity",value:setting(\.similarity),range:0...1,initial:0.75,percentage:true)
-            case "style": SpeechAdjustment(title:"Style",id:"elevenlabs-style",value:setting(\.style),range:0...1,initial:0,percentage:true)
+            case "style": SpeechAdjustment(title:"Style emphasis",id:"elevenlabs-style",value:setting(\.style),range:0...1,initial:0,percentage:true)
             case "speed": SpeechAdjustment(title:"Speaking speed",id:"elevenlabs-speed",value:setting(\.speed),range:0.7...1.2,initial:1)
             case "cloneStrength": SpeechAdjustment(title:"Clone strength",id:"elevenlabs-clone-strength",value:setting(\.cloneStrength),range:0...1,initial:0,percentage:true)
             case "speakerBoost": Toggle("Speaker boost",isOn:setting(\.speakerBoost)).accessibilityIdentifier("elevenlabs-speaker-boost").contextMenu { Toggle("Speaker boost",isOn:setting(\.speakerBoost)).accessibilityIdentifier("elevenlabs-speaker-boost") }

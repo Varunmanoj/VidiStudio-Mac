@@ -34,7 +34,7 @@ struct SpeechAdjustment: View {
         LabeledContent(title) {
             HStack {
                 Slider(value: $value, in: range, step: step).accessibilityLabel(title).accessibilityIdentifier(id)
-                Text(percentage ? "\(Int((value * 100).rounded()))%" : value.formatted(.number.precision(.fractionLength(2)))).monospacedDigit().frame(width: 48)
+                Text(percentage ? "\(Int((value * 100).rounded()))%" : value.formatted(.number.precision(.fractionLength(2)))).monospacedDigit().frame(width: 48).accessibilityIdentifier(id + "-value")
             }
         }
         .contextMenu {
