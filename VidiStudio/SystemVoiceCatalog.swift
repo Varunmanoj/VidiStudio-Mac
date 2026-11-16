@@ -94,6 +94,9 @@ enum SystemSpeechVoiceResolver {
     var voices: [SystemVoice] = []
     var error: String?
     var isPlayingSample = false
+    var playingVoiceID: String?
+    @ObservationIgnored private let sampleOwner = UUID()
+    @ObservationIgnored private var sampleUtterance: AVSpeechUtterance?
     @ObservationIgnored private let sampleSynthesizer = AVSpeechSynthesizer()
 
     override init() {
@@ -125,11 +128,14 @@ enum SystemSpeechVoiceResolver {
         error = result.isEmpty ? "No system voices were available. Install a voice in macOS Accessibility settings, then refresh." : nil
     }
     func preview(_ voice: SystemVoice, settings: StudioSettings) {
-        stop()
+        guard !isPlayingSample, VoiceSampleSession.shared.begin(sampleOwner) else { return }
         do {
-            sampleSynthesizer.speak(try SystemSpeechUtterance.make(text: voice.sample, settings: settings, voiceName: voice.name))
+            let utterance = try SystemSpeechUtterance.make(text: voice.sample, settings: settings, voiceName: voice.name)
+            sampleUtterance = utterance; playingVoiceID = voice.id; isPlayingSample = true
+            sampleSynthesizer.speak(utterance)
             error = nil
         } catch {
+            stop()
             self.error = UserFacingIssueReporter.message(
                 for: error,
                 issue: .speech,
@@ -137,21 +143,24 @@ enum SystemSpeechVoiceResolver {
             )
         }
     }
+
     func stop() {
+        sampleUtterance = nil; playingVoiceID = nil; isPlayingSample = false
         sampleSynthesizer.stopSpeaking(at: .immediate)
-        isPlayingSample = false
+        VoiceSampleSession.shared.end(sampleOwner)
     }
 
     func speechSynthesizer(_ synthesizer: AVSpeechSynthesizer, didStart utterance: AVSpeechUtterance) {
+        guard utterance === sampleUtterance else { return }
         isPlayingSample = true
     }
 
     func speechSynthesizer(_ synthesizer: AVSpeechSynthesizer, didFinish utterance: AVSpeechUtterance) {
-        isPlayingSample = false
+        guard utterance === sampleUtterance else { return }; stop()
     }
 
     func speechSynthesizer(_ synthesizer: AVSpeechSynthesizer, didCancel utterance: AVSpeechUtterance) {
-        isPlayingSample = false
+        guard utterance === sampleUtterance else { return }; stop()
     }
 }
 
@@ -246,14 +255,20 @@ struct SystemVoiceBrowser: View {
                                     .accessibilityAddTraits(selectedName == voice.name ? .isSelected : [])
                                     .contextMenu {
                                         Button("Select " + voice.name) { settings.systemVoice = voice.name }
-                                        Button("Play Sample") { catalog.preview(voice, settings: settings) }
+                                        Button("Play Sample") { catalog.preview(voice, settings: settings) }.disabled(VoiceSampleSession.shared.busy)
+                                        Button("Stop Sample") { catalog.stop() }.disabled(!catalog.isPlayingSample)
                                     }
                                     Spacer()
-                                    Button("Speak Sample", systemImage: "play.circle") {
-                                        catalog.preview(voice, settings: settings)
+                                    Button(catalog.playingVoiceID == voice.id ? "Stop Sample" : "Play Sample", systemImage: catalog.playingVoiceID == voice.id ? "stop.circle" : "play.circle") {
+                                        if catalog.playingVoiceID == voice.id { catalog.stop() } else { catalog.preview(voice, settings: settings) }
+                                    }
+                                    .disabled(VoiceSampleSession.shared.busy && catalog.playingVoiceID != voice.id)
+                                    .contextMenu {
+                                        Button("Play Sample") { catalog.preview(voice, settings: settings) }.disabled(VoiceSampleSession.shared.busy)
+                                        Button("Stop Sample") { catalog.stop() }.disabled(!catalog.isPlayingSample)
                                     }
                                     .labelStyle(.iconOnly)
-                                    .accessibilityLabel("Speak sample of \(voice.name), \(dialect.name)")
+                                    .accessibilityLabel((catalog.playingVoiceID == voice.id ? "Stop sample of " : "Play sample of ") + voice.name + ", " + dialect.name)
                                 }
                                 Divider()
                             }
@@ -277,6 +292,9 @@ struct SystemVoiceBrowser: View {
                         )
                     }
                 }
+                .disabled(VoiceSampleSession.shared.busy && !catalog.isPlayingSample)
+            }
+            HStack {
                 Button("Refresh Voices") { Task { await catalog.refresh() } }.accessibilityIdentifier(menuPrefix + "-voices-refresh")
                 Button("Open macOS Voice Settings") {
                     NSWorkspace.shared.open(URL(string: "x-apple.systempreferences:com.apple.preference.universalaccess")!)
@@ -290,8 +308,8 @@ struct SystemVoiceBrowser: View {
         .contextMenu {
             Button("Search voices") { voiceSearchFocused = true }.accessibilityIdentifier(menuPrefix + "-search-focus")
             Button("Use system default voice") { settings.systemVoice = "" }.accessibilityIdentifier(menuPrefix + "-voice-default")
-            Button("Play Sample") { catalog.preview(catalog.voices.first { $0.name == settings.systemVoice } ?? SystemVoice(name: settings.systemVoice, language: "", sample: "This is a sample of the selected voice."), settings: settings) }
-            Button("Stop Sample") { catalog.stop() }.disabled(!catalog.isPlayingSample).accessibilityIdentifier(menuPrefix + "-sample-stop")
+            Button("Play Sample") { catalog.preview(catalog.voices.first { $0.name == settings.systemVoice } ?? SystemVoice(name: settings.systemVoice, language: "", sample: "This is a sample of the selected voice."), settings: settings) }.disabled(VoiceSampleSession.shared.busy)
+                                        Button("Stop Sample") { catalog.stop() }.disabled(!catalog.isPlayingSample).accessibilityIdentifier(menuPrefix + "-sample-stop")
             Button("Refresh Voices") { Task { await catalog.refresh() } }.accessibilityIdentifier(menuPrefix + "-voices-refresh")
             Button("Open macOS Voice Settings") { NSWorkspace.shared.open(URL(string: "x-apple.systempreferences:com.apple.preference.universalaccess")!) }
             Button("Clear voice search") { search = "" }.accessibilityIdentifier(menuPrefix + "-search-clear")

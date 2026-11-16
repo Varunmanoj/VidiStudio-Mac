@@ -22,6 +22,18 @@ class DesktopUILayoutParityTests(unittest.TestCase):
         changed = dict(self.source); changed[path] = changed[path].replace(before, after)
         with self.assertRaisesRegex(ValueError, expected): contract.validate(changed)
 
+    def test_sample_players_cannot_overlap_or_leak_the_shared_session(self):
+        for file in ['SystemVoiceCatalog.swift','PiperVoiceCatalog.swift','GeminiVoicePreview.swift','SarvamVoiceSettingsView.swift']:
+            with self.subTest(file=file):
+                self.mutated('Mac/'+file,'VoiceSampleSession.shared.begin(sampleOwner)','true','shared session')
+                self.mutated('Mac/'+file,'VoiceSampleSession.shared.end(sampleOwner)','','own session')
+        for file in ['PiperVoicesDialog.cs','PiperDeleteVoicesDialog.cs']:
+            self.mutated('Windows/Views/'+file,'VoiceSampleSession.Begin(sampleOwner)','true','playback guard')
+    def test_ai_sample_preparation_cannot_hide_the_spinner(self):
+        self.mutated('Mac/SarvamVoiceSettingsView.swift','if sample.preparing { ProgressView()','if false { ProgressView()','preparation spinner')
+        self.mutated('Mac/GeminiVoicePreview.swift','if preview.loading { ProgressView()','if false { ProgressView()','preparation spinner')
+        self.mutated('Windows/Views/SettingsDialog.cs','nativePreparingRing.IsActive = sampleState == SampleState.Generating','nativePreparingRing.IsActive = false','preparation must be visible')
+
     def test_mac_settings_cannot_drop_grouped_forms(self):
         self.mutated('Mac/SettingsView.swift', '.formStyle(.grouped)', '.formStyle(.columns)', 'grouped forms')
     def test_mac_import_cannot_drop_grouped_forms(self):

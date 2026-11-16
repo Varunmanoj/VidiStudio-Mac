@@ -618,9 +618,10 @@ enum PiperSpeechError: LocalizedError {
     var error: String?
     @ObservationIgnored private var player: AVAudioPlayer?
     @ObservationIgnored private var generation = 0
+    @ObservationIgnored private let sampleOwner = UUID()
 
     func play(settings: StudioSettings) {
-        stop()
+        guard !active, VoiceSampleSession.shared.begin(sampleOwner) else { return }
         error = nil
         active = true
         loading = true
@@ -643,12 +644,14 @@ enum PiperSpeechError: LocalizedError {
         }
     }
 
+
     func stop() {
         generation += 1
         player?.stop()
         player = nil
         loading = false
         active = false
+        VoiceSampleSession.shared.end(sampleOwner)
     }
 
     nonisolated func audioPlayerDidFinishPlaying(_ player: AVAudioPlayer, successfully flag: Bool) {
@@ -672,7 +675,7 @@ struct PiperVoiceSettingsView: View {
         guard settings.ttsMode == "piper" else { return nil }
         return manager.downloadedVoices.first { $0.id == settings.piperVoice && !manager.deletingIDs.contains($0.id) }
     }
-    private var canPlaySample: Bool { selectedVoice != nil && !sample.active }
+    private var canPlaySample: Bool { selectedVoice != nil && !sample.active && !VoiceSampleSession.shared.busy }
     private func playSample() {
         guard canPlaySample else { return }
         sample.play(settings: settings)
@@ -704,7 +707,7 @@ struct PiperVoiceSettingsView: View {
                     Button(sample.active ? "Stop Sample" : "Play Sample", systemImage: sample.active ? "stop.circle" : "play.circle") { toggleSample() }
                         .accessibilityIdentifier("piper-settings-sample")
                         .accessibilityLabel((sample.active ? "Stop sample of " : "Play sample of ") + (selectedVoice?.displayName ?? "the selected Piper voice"))
-                        .disabled(selectedVoice == nil)
+                        .disabled(selectedVoice == nil || (!sample.active && VoiceSampleSession.shared.busy))
                         .help("Plays the selected downloaded Piper voice with the current speech controls")
                         .contextMenu {
                             Button("Play Sample") { playSample() }
@@ -955,15 +958,18 @@ struct PiperVoiceBrowser: View {
             Button {
                 sample.toggle(voice, manager: manager)
             } label: {
-                Text(sampleButtonTitle(voice))
-                    .frame(width: 112)
+                Label(sampleButtonTitle(voice), systemImage: sample.loadingID == voice.id ? "stop.circle" : sample.playingID == voice.id ? "stop.circle" : "play.circle")
             }
-            .disabled(sample.loadingID != nil || busy || (sample.playingID != voice.id && !FileManager.default.fileExists(atPath: PiperStorage.sampleCacheURL(voice.id).path) && !ConnectivityService.shared.available(.voices)))
+            .disabled((VoiceSampleSession.shared.busy && sample.playingID != voice.id && sample.loadingID != voice.id) || busy || (sample.playingID != voice.id && sample.loadingID != voice.id && !FileManager.default.fileExists(atPath: PiperStorage.sampleCacheURL(voice.id).path) && !ConnectivityService.shared.available(.voices)))
+            .contextMenu {
+                Button("Play Sample") { sample.toggle(voice, manager: manager) }.disabled(VoiceSampleSession.shared.busy || busy)
+                Button("Stop Sample") { sample.stop() }.disabled(sample.playingID == nil && sample.loadingID == nil)
+            }
             .accessibilityLabel(
-                (sample.playingID == voice.id ? "Stop sample for " : "Play sample for ") + voice.displayName
+                (sample.playingID == voice.id || sample.loadingID == voice.id ? "Stop sample for " : "Play sample for ") + voice.displayName
             )
             .help("Plays a short sample published with this voice. The preview needs the internet; a downloaded voice itself works offline.")
-            .requiresInternet(sample.playingID == voice.id || FileManager.default.fileExists(atPath: PiperStorage.sampleCacheURL(voice.id).path) ? nil : .voices)
+            .requiresInternet(sample.playingID == voice.id || sample.loadingID == voice.id || FileManager.default.fileExists(atPath: PiperStorage.sampleCacheURL(voice.id).path) ? nil : .voices)
             Button {
                 Task {
                     if downloaded {
@@ -994,7 +1000,7 @@ struct PiperVoiceBrowser: View {
     }
 
     private func sampleButtonTitle(_ voice: PiperVoice) -> String {
-        if sample.loadingID == voice.id { return "Loading…" }
+        if sample.loadingID == voice.id { return "Stop Sample" }
         return sample.playingID == voice.id ? "Stop Sample" : "Play Sample"
     }
 
@@ -1241,15 +1247,18 @@ struct PiperDeleteVoicesView: View {
             Button {
                 sample.toggle(voice, manager: manager)
             } label: {
-                Text(sampleButtonTitle(voice))
-                    .frame(width: 112)
+                Label(sampleButtonTitle(voice), systemImage: sample.loadingID == voice.id ? "stop.circle" : sample.playingID == voice.id ? "stop.circle" : "play.circle")
             }
-            .disabled(sample.loadingID != nil || busy)
+            .disabled((VoiceSampleSession.shared.busy && sample.playingID != voice.id && sample.loadingID != voice.id) || busy)
+            .contextMenu {
+                Button("Play Sample") { sample.toggle(voice, manager: manager) }.disabled(VoiceSampleSession.shared.busy || busy)
+                Button("Stop Sample") { sample.stop() }.disabled(sample.playingID == nil && sample.loadingID == nil)
+            }
             .accessibilityLabel(
-                (sample.playingID == voice.id ? "Stop sample for " : "Play sample for ") + voice.displayName
+                (sample.playingID == voice.id || sample.loadingID == voice.id ? "Stop sample for " : "Play sample for ") + voice.displayName
             )
             .help("Plays a short sample published with this voice. The preview needs the internet; a downloaded voice itself works offline.")
-            .requiresInternet(sample.playingID == voice.id || FileManager.default.fileExists(atPath: PiperStorage.sampleCacheURL(voice.id).path) ? nil : .voices)
+            .requiresInternet(sample.playingID == voice.id || sample.loadingID == voice.id || FileManager.default.fileExists(atPath: PiperStorage.sampleCacheURL(voice.id).path) ? nil : .voices)
             Button {
                 Task { await delete(voice) }
             } label: {
@@ -1266,7 +1275,7 @@ struct PiperDeleteVoicesView: View {
     }
 
     private func sampleButtonTitle(_ voice: PiperVoice) -> String {
-        if sample.loadingID == voice.id { return "Loading…" }
+        if sample.loadingID == voice.id { return "Stop Sample" }
         return sample.playingID == voice.id ? "Stop Sample" : "Play Sample"
     }
 
@@ -1317,13 +1326,12 @@ private struct PiperSampleStatusIcon: View {
     var error: String?
     @ObservationIgnored private var player: AVAudioPlayer?
     @ObservationIgnored private var generation = 0
+    @ObservationIgnored private let sampleOwner = UUID()
 
     func toggle(_ voice: PiperVoice, manager: PiperVoiceManager) {
-        if playingID == voice.id {
-            stop()
-            return
-        }
-        stop()
+        if loadingID == voice.id { stop(); return }
+        if playingID == voice.id { stop(); return }
+        guard !VoiceSampleSession.shared.busy, VoiceSampleSession.shared.begin(sampleOwner) else { return }
         generation += 1
         let generation = generation
         loadingID = voice.id
@@ -1334,12 +1342,12 @@ private struct PiperSampleStatusIcon: View {
                 guard self.generation == generation else { return }
                 let player = try AVAudioPlayer(contentsOf: url)
                 player.delegate = self
-                player.play()
+                guard player.play() else { throw PiperDownloadError.message("The sample could not be played.") }
                 self.player = player
                 self.playingID = voice.id
             } catch {
                 guard self.generation == generation else { return }
-                self.error = "The sample could not be played. \(error.localizedDescription)"
+                self.stop(); self.error = "The sample could not be played. \(error.localizedDescription)"
             }
             if self.generation == generation { self.loadingID = nil }
         }
@@ -1351,13 +1359,13 @@ private struct PiperSampleStatusIcon: View {
         player = nil
         playingID = nil
         loadingID = nil
+        VoiceSampleSession.shared.end(sampleOwner)
     }
 
     nonisolated func audioPlayerDidFinishPlaying(_ player: AVAudioPlayer, successfully flag: Bool) {
         Task { @MainActor [weak self] in
             guard let self, self.player === player else { return }
-            self.player = nil
-            self.playingID = nil
+            self.stop()
         }
     }
 }

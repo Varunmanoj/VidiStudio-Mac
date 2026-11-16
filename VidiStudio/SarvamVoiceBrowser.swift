@@ -5,6 +5,7 @@ struct SarvamVoiceBrowser: View {
     let narrationLanguage: String
     let selectedVoice: String
     @Bindable var sample: SarvamDemoPlayer
+    let apiKey: String
     let select: (SarvamCatalog.Voice) -> Void
     @State private var search = ""
     @State private var style = "all"
@@ -28,8 +29,10 @@ struct SarvamVoiceBrowser: View {
         }
     }
     private struct VoiceFamily: Identifiable { let name: String; let voices: [SarvamCatalog.Voice]; var id: String { name } }
+    private func sampleID(_ voice: SarvamCatalog.Voice) -> String { voice.model + "|" + voice.id + "|" + narrationLanguage }
+    private var canPlaySample: Bool { !sample.active && !sample.preparing && !VoiceSampleSession.shared.busy && !apiKey.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }
     private func toggleSample(_ voice: SarvamCatalog.Voice) {
-        if sample.active && sample.activeAddress == voice.demoUrl { sample.stop() } else { sample.play(voice.demoUrl) }
+        if sample.active && sample.activeAddress == sampleID(voice) { if sample.preparing { sample.stop() } else { sample.stop() } } else if canPlaySample { sample.play(voice, language: narrationLanguage, key: apiKey) }
     }
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
@@ -92,15 +95,16 @@ struct SarvamVoiceBrowser: View {
                 .accessibilityAddTraits(selectedVoice == voice.id ? .isSelected : [])
                 .contextMenu {
                     Toggle("Select " + voice.label, isOn: Binding(get: { selectedVoice == voice.id }, set: { if $0 { select(voice) } }))
-                    Button("Play Sample") { sample.play(voice.demoUrl) }.disabled(voice.demoUrl == nil)
+                    Button("Play Sample") { if canPlaySample { sample.play(voice, language: narrationLanguage, key: apiKey) } }.disabled(!canPlaySample)
                     Button("Stop Sample") { sample.stop() }.disabled(!sample.active)
                 }
             Spacer()
-            if voice.demoUrl == nil { Text("Sample unavailable").font(.caption).foregroundStyle(.secondary) }
-            Button { toggleSample(voice) } label: { Image(systemName: sample.active && sample.activeAddress == voice.demoUrl ? "stop.circle" : "play.circle") }
-                .disabled(voice.demoUrl == nil).accessibilityLabel((sample.active && sample.activeAddress == voice.demoUrl ? "Stop sample of " : "Play sample of ") + voice.label)
+            if sample.preparing && sample.activeAddress == sampleID(voice) { ProgressView().controlSize(.small).accessibilityLabel("Preparing sample of " + voice.label) }
+            Button { toggleSample(voice) } label: { Image(systemName: sample.active && sample.activeAddress == sampleID(voice) ? (sample.preparing ? "stop.circle" : "stop.circle") : "play.circle") }
+                .disabled(!(sample.active && sample.activeAddress == sampleID(voice)) && !canPlaySample)
+                .accessibilityLabel((sample.active && sample.activeAddress == sampleID(voice) ? (sample.preparing ? "Stop sample of " : "Stop sample of ") : "Play sample of ") + voice.label)
                 .contextMenu {
-                    Button("Play Sample") { sample.play(voice.demoUrl) }.disabled(voice.demoUrl == nil)
+                    Button("Play Sample") { if canPlaySample { sample.play(voice, language: narrationLanguage, key: apiKey) } }.disabled(!canPlaySample)
                     Button("Stop Sample") { sample.stop() }.disabled(!sample.active)
                 }
         }

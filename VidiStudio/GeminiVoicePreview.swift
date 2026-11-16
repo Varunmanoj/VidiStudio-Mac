@@ -6,6 +6,7 @@ import Combine
     var loading = false
     var playing = false
     var error: String?
+    private let sampleOwner = UUID()
     private var process: Process?
     private var audio: AVAudioPlayer?
     private var requestID = UUID()
@@ -17,15 +18,18 @@ import Combine
     }
     func hasCached(settings: StudioSettings, text: String) -> Bool { cache[cacheKey(settings, text)].map { FileManager.default.fileExists(atPath: $0.path) } ?? false }
     func play(settings: StudioSettings, text: String) {
-        stop(); error = nil
+        guard !loading, !playing, !VoiceSampleSession.shared.busy else { return }
+        error = nil
         let key = cacheKey(settings, text)
-        if let file = cache[key] { playFile(file); return }
+        if let file = cache[key] { guard VoiceSampleSession.shared.begin(sampleOwner) else { return }; playFile(file); return }
         guard ConnectivityService.shared.available(.gemini) else { error = ConnectivityService.shared.reason(.gemini); return }
         guard !settings.apiKey.isEmpty else { error = "Enter your Gemini API key in Settings → Gemini API to preview this voice."; return }
         guard let engine = Bundle.main.resourceURL?.appendingPathComponent("Engine/vidistudio-engine") else {
             error = "A required part of VidiStudio is unavailable. Reinstall the application, then try again."
             return
         }
+        guard VoiceSampleSession.shared.begin(sampleOwner) else { return }
+        loading = true
         let id = requestID
         let directory = FileManager.default.temporaryDirectory.appendingPathComponent("vidistudio-preview-\(UUID().uuidString)")
         let config = directory.appendingPathComponent("config.json"), file = directory.appendingPathComponent("sample.wav")
@@ -34,7 +38,7 @@ import Combine
             directories.append(directory)
             var previewDict = (try? JSONSerialization.jsonObject(with: JSONEncoder().encode(settings))) as? [String: Any] ?? [:]
             let apiKey = settings.apiKey.trimmingCharacters(in: .whitespacesAndNewlines)
-            if !apiKey.isEmpty { previewDict["apiKey"] = apiKey }
+            previewDict.removeValue(forKey: "apiKey"); previewDict.removeValue(forKey: "sarvamApiKey")
             let configData = try JSONSerialization.data(withJSONObject: previewDict)
             try configData.write(to: config, options: .atomic)
             try FileManager.default.setAttributes([.posixPermissions: 0o600], ofItemAtPath: config.path)
@@ -68,8 +72,10 @@ import Combine
                 }
                 else if FileManager.default.fileExists(atPath: file.path) { cache[key] = file; playFile(file) }
                 else { self.error = "No voice sample was created. Check your Gemini and voice settings, then try again." }
+                if !playing { VoiceSampleSession.shared.end(sampleOwner) }
             }
         } catch {
+            loading = false; VoiceSampleSession.shared.end(sampleOwner)
             try? FileManager.default.removeItem(at: directory)
             self.error = UserFacingIssueReporter.message(
                 for: error,
@@ -84,9 +90,11 @@ import Combine
             playing = audio?.play() == true
             if !playing { error = "The audio sample could not be played." }
         } catch { self.error = "The audio sample could not be opened." }
+        if !playing { VoiceSampleSession.shared.end(sampleOwner) }
     }
-    func updatePlayback() { playing = audio?.isPlaying == true }
-    func stop() { requestID = UUID(); if process?.isRunning == true { process?.terminate() }; process = nil; loading = false; audio?.stop(); audio = nil; playing = false }
+
+    func updatePlayback() { playing = audio?.isPlaying == true; if !loading && !playing { VoiceSampleSession.shared.end(sampleOwner) } }
+    func stop() { requestID = UUID(); if process?.isRunning == true { process?.terminate() }; process = nil; loading = false; audio?.stop(); audio = nil; playing = false; VoiceSampleSession.shared.end(sampleOwner) }
     func cleanUp() { stop(); cache.removeAll(); for directory in directories { try? FileManager.default.removeItem(at: directory) }; directories.removeAll() }
 }
 
@@ -104,12 +112,17 @@ struct GeminiVoiceBrowser: View {
             }
             TextField("Sample text", text: $sample, axis: .vertical).lineLimit(2...4)
             HStack {
-                Button(preview.loading ? "Generating Sample…" : "Play Voice Sample", systemImage: "play.circle") { preview.play(settings: studio.settings, text: sample) }
-                    .disabled(preview.loading || sample.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || sample.count > 500 || !studio.hasApiKey || (!ConnectivityService.shared.available(.gemini) && !preview.hasCached(settings: studio.settings, text: sample)))
+                Button(preview.loading || preview.playing ? "Stop Sample" : "Play Sample", systemImage: preview.loading || preview.playing ? "stop.circle" : "play.circle") {
+                    if preview.loading || preview.playing { preview.stop() } else { preview.play(settings: studio.settings, text: sample) }
+                }
+                    .disabled(!preview.loading && !preview.playing && (VoiceSampleSession.shared.busy || sample.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || sample.count > 500 || !studio.hasApiKey || (!ConnectivityService.shared.available(.gemini) && !preview.hasCached(settings: studio.settings, text: sample))))
+                    .contextMenu {
+                        Button("Play Sample") { preview.play(settings: studio.settings, text: sample) }.disabled(VoiceSampleSession.shared.busy || !studio.hasApiKey || sample.isEmpty || sample.count > 500)
+                        Button("Stop Sample") { preview.stop() }.disabled(!preview.loading && !preview.playing)
+                    }
                     .help(!studio.hasApiKey ? "Enter your Gemini API key in Settings → Gemini API to preview this voice" : "Play sample of Gemini voice \(studio.settings.geminiVoice)")
-                    .requiresInternet(preview.hasCached(settings: studio.settings, text: sample) ? nil : .gemini)
-                    .accessibilityLabel("Play sample of Gemini voice \(studio.settings.geminiVoice)")
-                Button(preview.loading ? "Cancel Generation" : "Stop Sample", systemImage: "stop.circle") { preview.stop() }.disabled(!preview.loading && !preview.playing)
+                    .requiresInternet(preview.loading || preview.playing || preview.hasCached(settings: studio.settings, text: sample) ? nil : .gemini)
+                    .accessibilityLabel((preview.loading ? "Stop sample of " : preview.playing ? "Stop sample of " : "Play sample of ") + "Gemini voice " + studio.settings.geminiVoice)
                 if preview.loading { ProgressView().controlSize(.small).accessibilityLabel("Generating voice sample") }
             }
             if !studio.hasApiKey {

@@ -3122,7 +3122,7 @@ def dispatch_project(args, root, p):
 
 def main():
     parser=argparse.ArgumentParser(description=__doc__)
-    parser.add_argument('command',choices=['check-sarvam-key','list-sarvam-models','normalize-speech','check-api-key','reanalyze-transcript-segment','undo-transcript','redo-transcript','reanalyze-segment','prepare-analysis-video','check-video-availability','cleanup-project','clear-generated','delete-generated','delete-segment-audio','list-models','list-voices','preview-tts','synthesize-speech','import-video','probe-video','generate-thumbnails','transcribe','generate-summary','generate-ad-cues','synthesize-tts','export-final-video','export-selectable-video','export-closed-audio-description-video','export-open-audio-description-video','export-closed-caption-video','export-dual-closed-caption-video','export-open-caption-video','export-original-audio','export-described-audio','export-youtube-described-audio','export-youtube-original-audio','download-youtube-audio','export-hls','save-cues','save-segments','save-summary','doctor','read-youtube-metadata','expire-youtube-cache',*parity.COMMANDS,*import_assets.COMMANDS,*audio_sources.COMMANDS,*language_results.COMMANDS])
+    parser.add_argument('command',choices=['preview-sarvam-sample','check-sarvam-key','list-sarvam-models','normalize-speech','check-api-key','reanalyze-transcript-segment','undo-transcript','redo-transcript','reanalyze-segment','prepare-analysis-video','check-video-availability','cleanup-project','clear-generated','delete-generated','delete-segment-audio','list-models','list-voices','preview-tts','synthesize-speech','import-video','probe-video','generate-thumbnails','transcribe','generate-summary','generate-ad-cues','synthesize-tts','export-final-video','export-selectable-video','export-closed-audio-description-video','export-open-audio-description-video','export-closed-caption-video','export-dual-closed-caption-video','export-open-caption-video','export-original-audio','export-described-audio','export-youtube-described-audio','export-youtube-original-audio','download-youtube-audio','export-hls','save-cues','save-segments','save-summary','doctor','read-youtube-metadata','expire-youtube-cache',*parity.COMMANDS,*import_assets.COMMANDS,*audio_sources.COMMANDS,*language_results.COMMANDS])
     parser.add_argument('--project',type=Path); parser.add_argument('--video',type=Path); parser.add_argument('--library',type=Path); parser.add_argument('--input',type=Path)
     parser.add_argument('--media-format', choices=VIDEO_EXPORT_FORMATS + AUDIO_EXPORT_FORMATS)
     parser.add_argument('--content',choices=['transcript','summary','descriptions','combined'],default='descriptions'); parser.add_argument('--url'); parser.add_argument('--name'); parser.add_argument('--timestamp',type=float,default=0); parser.add_argument('--duration',type=float); parser.add_argument('--segment'); parser.add_argument('--segments', action='append'); parser.add_argument('--format',choices=['srt','vtt','txt','json','md'],default='srt'); parser.add_argument('--changed',action='store_true'); parser.add_argument('--start-stage',default='transcribe')
@@ -3135,6 +3135,7 @@ def main():
     parser.add_argument('--replace-existing',action='store_true',help='Replace the existing export for the same configuration after explicit confirmation.')
     parser.add_argument('--captions', choices=['none','closed','open','dual-closed'], default='none', help='Add no transcript, one switchable caption track, two switchable transcript tracks, or permanently rendered captions to an Audio Description video.')
     parser.add_argument('--web-audio', choices=['original','closed-description','open-description'], default='closed-description', help='Choose the audio presentation for a Web Playback HLS package.')
+    parser.add_argument('--sarvam-model'); parser.add_argument('--sarvam-voice'); parser.add_argument('--sarvam-language')
     parser.add_argument('--language')
     parser.add_argument('--result-id')
     parser.add_argument('--section', choices=['transcript', 'summary', 'descriptions', 'adAudio'])
@@ -3173,6 +3174,8 @@ def main():
         if not args.url or not args.output:
             raise ValueError('Choose a YouTube URL and temporary audio folder.')
         youtube_audio.download(args.url, args.output, emit, ffmpeg_path=tool('ffmpeg')); return
+    if args.command == 'preview-sarvam-sample':
+        sarvam_tts.preview_sample(args.sarvam_model, args.sarvam_voice, args.sarvam_language, run, tool('ffmpeg'), emit); return
     if args.command == 'check-sarvam-key':
         sarvam_tts.check_key(emit); return
     if args.command == 'list-sarvam-models':

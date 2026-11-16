@@ -47,42 +47,42 @@ struct SpeechAdjustment: View {
 
 @MainActor @Observable final class SarvamDemoPlayer: NSObject, AVAudioPlayerDelegate {
     var active = false
+    var preparing = false
     var activeAddress: String?
     var error: String?
     private var player: AVAudioPlayer?
     private var task: Task<Void, Never>?
     private var generation = UUID()
-    func stop() { generation = UUID(); task?.cancel(); task = nil; player?.stop(); player = nil; active = false; activeAddress = nil }
-    func play(_ address: String?) {
-        guard let address, let url = URL(string: address) else { return }
-        stop(); error = nil; active = true; activeAddress = address
+    private let sampleOwner = UUID()
+
+    func stop() { generation = UUID(); task?.cancel(); task = nil; player?.stop(); player = nil; active = false; activeAddress = nil; if !preparing { VoiceSampleSession.shared.end(sampleOwner) } }
+    func play(_ voice: SarvamCatalog.Voice, language: String, key: String) {
+        guard !active, !preparing, !key.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return }
+        guard VoiceSampleSession.shared.begin(sampleOwner) else { return }
+        error = nil; preparing = true; active = true; activeAddress = voice.model + "|" + voice.id + "|" + language
         let request = generation
         task = Task {
+            defer { preparing = false; if !active { VoiceSampleSession.shared.end(sampleOwner) } }
             do {
-                let directory = FileManager.default.urls(for: .cachesDirectory, in: .userDomainMask)[0].appendingPathComponent("VidiStudio/SarvamDemos")
-                let name = url.deletingLastPathComponent().deletingLastPathComponent().lastPathComponent + "-" + url.lastPathComponent
-                let file = directory.appendingPathComponent(name)
-                if !FileManager.default.fileExists(atPath: file.path) {
-                    var request = URLRequest(url: url); request.timeoutInterval = 30
-                    let (data, response) = try await URLSession.shared.data(for: request)
-                    guard let response = response as? HTTPURLResponse, (200...299).contains(response.statusCode), !data.isEmpty else { throw URLError(.badServerResponse) }
-                    _ = try AVAudioPlayer(data: data)
-                    try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
-                    try data.write(to: file, options: .atomic)
-                }
+                // Stop silences playback, while an already submitted audition finishes
+                // caching so replay cannot accidentally submit the same charge again.
+                let data = try await SarvamSettingsRequest.run("preview-sarvam-sample", key: key, timeout: 210,
+                    arguments: ["--sarvam-model", voice.model, "--sarvam-voice", voice.id, "--sarvam-language", language])
                 guard !Task.isCancelled, generation == request else { return }
-                let audio = try AVAudioPlayer(contentsOf: file); audio.delegate = self
+                let events = data.split(separator: 10).compactMap { try? JSONSerialization.jsonObject(with: Data($0)) as? [String: Any] }
+                guard let path = events.last?["sarvamSamplePath"] as? String else { throw CocoaError(.fileReadCorruptFile) }
+                let audio = try AVAudioPlayer(contentsOf: URL(fileURLWithPath: path)); audio.delegate = self
                 player = audio; active = audio.play()
                 if !active { error = "Sample could not be played." }
             } catch is CancellationError {
             } catch {
                 guard generation == request else { return }
-                active = false; self.error = "Sample unavailable. Check your connection and try again."
+                active = false; self.error = error.localizedDescription
             }
         }
     }
     nonisolated func audioPlayerDidFinishPlaying(_ player: AVAudioPlayer, successfully flag: Bool) {
-        Task { @MainActor [weak self] in self?.stop() }
+        Task { @MainActor [weak self] in guard let self, self.player === player else { return }; self.stop() }
     }
 }
 
@@ -106,7 +106,7 @@ struct SarvamVoiceSettingsView: View {
         let codes = Set(SarvamCatalog.shared.voices.filter { $0.model == model }.flatMap(\.languages))
         return codes.map { ($0, SarvamCatalog.shared.languages[$0] ?? $0) }.sorted { $0.1 < $1.1 }
     }
-    private var demo: String? { voices.first { $0.id == selected.voice }?.demoUrl }
+    private var sampleVoice: SarvamCatalog.Voice? { voices.first { $0.id == selected.voice } }
     private func preference<T>(_ path: WritableKeyPath<SarvamVoicePreferences, T>) -> Binding<T> {
         Binding(get: { selected[keyPath: path] }, set: { value in
             sample.stop()
@@ -142,7 +142,7 @@ struct SarvamVoiceSettingsView: View {
         default: return "API key saved — not yet checked"
         }
     }
-    private func playSample() { guard !sample.active, demo != nil else { return }; sample.play(demo) }
+    private func playSample() { guard !sample.active, !sample.preparing, !VoiceSampleSession.shared.busy, studio.settings.hasSarvamApiKey, let voice = sampleVoice else { return }; sample.play(voice, language: selected.language, key: studio.settings.sarvamApiKey) }
     private func openKeys() { openURL(URL(string: "https://indus.sarvam.ai/key-management")!) }
     var body: some View {
         Section {
@@ -152,7 +152,7 @@ struct SarvamVoiceSettingsView: View {
                 .onChange(of: key) { _, value in
                     guard value != studio.settings.sarvamApiKey else { return }
                     if KeychainStore.sarvam.write(value.trimmingCharacters(in: .whitespacesAndNewlines)) {
-                        studio.settings.sarvamKeyStatus = "unverified"; studio.settings.sarvamCredentialRevision += 1; studio.sarvamKeyMessage = ""; storageError = nil; scheduleKeyCheck()
+                        sample.stop(); studio.settings.sarvamKeyStatus = "unverified"; studio.settings.sarvamCredentialRevision += 1; studio.sarvamKeyMessage = ""; storageError = nil; scheduleKeyCheck()
                     } else { storageError = "Could not save the Sarvam API key to Keychain." }
                 }
                 .contextMenu {
@@ -186,7 +186,7 @@ struct SarvamVoiceSettingsView: View {
             if !studio.sarvamModelStatus.isEmpty { Text(studio.sarvamModelStatus).foregroundStyle(.secondary) }
             SpeechChoice(title: "Narration language", id: "sarvam-language", value: preference(\.language), options: languageOptions)
             if knownModel {
-                SarvamVoiceBrowser(model: model, narrationLanguage: selected.language, selectedVoice: selected.voice, sample: sample) { voice in
+                SarvamVoiceBrowser(model: model, narrationLanguage: selected.language, selectedVoice: selected.voice, sample: sample, apiKey: studio.settings.sarvamApiKey) { voice in
                     var profile = selected; profile.voice = voice.id
                     if !voice.languages.contains(profile.language), let language = voice.languages.first { profile.language = language }
                     sample.stop(); studio.settings.sarvamSpeech.profiles[model] = profile
@@ -208,12 +208,12 @@ struct SarvamVoiceSettingsView: View {
             }
             HStack {
                 Button(sample.active ? "Stop Sample" : "Play Sample", systemImage: sample.active ? "stop.circle" : "play.circle") { if sample.active { sample.stop() } else { playSample() } }
-                    .disabled(demo == nil).accessibilityIdentifier("sarvam-sample")
+                    .disabled(!sample.active && (sampleVoice == nil || !studio.settings.hasSarvamApiKey || sample.preparing || VoiceSampleSession.shared.busy)).accessibilityIdentifier("sarvam-sample")
                     .contextMenu {
-                        Button("Play Sample") { playSample() }.disabled(demo == nil || sample.active).accessibilityIdentifier("sarvam-sample-play")
+                        Button("Play Sample") { playSample() }.disabled(sampleVoice == nil || sample.active || sample.preparing || VoiceSampleSession.shared.busy || !studio.settings.hasSarvamApiKey).accessibilityIdentifier("sarvam-sample-play")
                         Button("Stop Sample") { sample.stop() }.disabled(!sample.active).accessibilityIdentifier("sarvam-sample-stop")
                     }
-                if demo == nil { Text("Sample unavailable").foregroundStyle(.secondary) }
+                if sample.preparing { ProgressView().controlSize(.small).accessibilityLabel("Preparing Sarvam sample") }
             }
             if let error = sample.error { Text(error).foregroundStyle(.red) }
         } header: { Text("Sarvam Voices").accessibilityHeading(.h2) }
@@ -228,7 +228,7 @@ struct SarvamVoiceSettingsView: View {
         }
         .alert("Delete Sarvam API Key?", isPresented: $deletingKey) {
             Button("Delete API Key", role: .destructive) {
-                if KeychainStore.sarvam.write("") { keyCheckTask?.cancel(); studio.sarvamKeyMessage = ""; key = ""; studio.settings.sarvamKeyStatus = "unverified"; studio.settings.sarvamCredentialRevision += 1; storageError = nil }
+                if KeychainStore.sarvam.write("") { sample.stop(); keyCheckTask?.cancel(); studio.sarvamKeyMessage = ""; key = ""; sample.stop(); studio.settings.sarvamKeyStatus = "unverified"; studio.settings.sarvamCredentialRevision += 1; storageError = nil }
                 else { storageError = "Could not delete the Sarvam API key from Keychain." }
             }
             Button("Cancel", role: .cancel) {}

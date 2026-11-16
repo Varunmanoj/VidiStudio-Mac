@@ -1,13 +1,13 @@
 import Foundation
 
 enum SarvamSettingsRequest {
-    static func run(_ command: String, key: String = "", executable: URL? = nil, timeout: TimeInterval = 45) async throws -> Data {
-        guard ["list-sarvam-models", "check-sarvam-key"].contains(command),
+    static func run(_ command: String, key: String = "", executable: URL? = nil, timeout: TimeInterval = 45, arguments: [String] = []) async throws -> Data {
+        guard ["list-sarvam-models", "check-sarvam-key", "preview-sarvam-sample"].contains(command),
               let engine = executable ?? Bundle.main.resourceURL?.appendingPathComponent("Engine/vidistudio-engine") else { throw CocoaError(.executableNotLoadable) }
         return try await Task.detached(priority: .userInitiated) {
             let process = Process(), output = Pipe()
             process.executableURL = engine
-            process.arguments = [command]
+            process.arguments = [command] + arguments
             var environment = ProcessInfo.processInfo.environment
             environment.removeValue(forKey: "VIDISTUDIO_API_KEY")
             environment.removeValue(forKey: "VIDISTUDIO_SARVAM_API_KEY")
@@ -21,7 +21,10 @@ enum SarvamSettingsRequest {
             defer { watchdog.cancel() }
             let data = output.fileHandleForReading.readDataToEndOfFile()
             process.waitUntilExit()
-            guard process.terminationStatus == 0 else { throw CocoaError(.executableRuntimeMismatch) }
+            guard process.terminationStatus == 0 else {
+                let message = data.split(separator: 10).compactMap { try? JSONSerialization.jsonObject(with: Data($0)) as? [String: Any] }.last?["message"] as? String
+                throw NSError(domain: "SarvamSample", code: 1, userInfo: [NSLocalizedDescriptionKey: message ?? "Sample could not be prepared."])
+            }
             return data
         }.value
     }

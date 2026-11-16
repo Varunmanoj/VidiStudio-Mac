@@ -31,6 +31,11 @@ print(json.dumps({'keyPresent': os.environ.get('VIDISTUDIO_SARVAM_API_KEY') == '
         let result = try JSONSerialization.jsonObject(with: data) as! [String: Any]
         precondition(result["keyPresent"] as? Bool == true && result["geminiAbsent"] as? Bool == true)
         precondition(result["args"] as? [String] == ["check-sarvam-key"])
+        let sampleData = try await SarvamSettingsRequest.run("preview-sarvam-sample", key: "private-test-key", executable: worker,
+            arguments: ["--sarvam-model", "bulbul:v4-flash", "--sarvam-voice", "shubh_enhi_ads", "--sarvam-language", "en-IN"])
+        let sample = try JSONSerialization.jsonObject(with: sampleData) as! [String: Any]
+        precondition(sample["keyPresent"] as? Bool == true)
+        precondition(sample["args"] as? [String] == ["preview-sarvam-sample", "--sarvam-model", "bulbul:v4-flash", "--sarvam-voice", "shubh_enhi_ads", "--sarvam-language", "en-IN"])
         let publicData = try await SarvamSettingsRequest.run("list-sarvam-models", executable: worker)
         let publicResult = try JSONSerialization.jsonObject(with: publicData) as! [String: Any]
         precondition(publicResult["keyPresent"] as? Bool == false)

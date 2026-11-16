@@ -5,10 +5,10 @@ import re
 from pathlib import Path
 
 MAC_FILES = ('SettingsView.swift', 'ImportAssetsView.swift', 'ExportOptionsMenu.swift',
-             'GeminiAPISettingsView.swift', 'SarvamVoiceSettingsView.swift')
+             'GeminiAPISettingsView.swift', 'SarvamVoiceSettingsView.swift', 'SystemVoiceCatalog.swift', 'PiperVoiceCatalog.swift', 'GeminiVoicePreview.swift', 'SarvamVoiceBrowser.swift', 'VoiceSampleSession.swift')
 WIN_FILES = ('Views/CompactDialogLayout.cs', 'Views/WindowAppearance.cs',
              'Views/SettingsDialog.Compact.cs', 'Views/SettingsDialog.Layout.cs',
-             'Views/SettingsDialog.SpeechLayout.cs', 'MainWindow.DialogLayoutSmoke.cs')
+             'Views/SettingsDialog.SpeechLayout.cs', 'MainWindow.DialogLayoutSmoke.cs', 'Views/SettingsDialog.cs', 'Views/SettingsDialog.Sarvam.cs', 'Views/PiperVoicesDialog.cs', 'Views/PiperDeleteVoicesDialog.cs', 'Services/VoiceSampleSession.cs')
 
 def sources(workspace):
     workspace = Path(workspace)
@@ -50,6 +50,18 @@ def validate(source):
         ('ImportAssetsView.swift', ('Distribute Evenly', 'Auto-time with Gemini'))):
         if not any(all(title in block for title in titles) for block in swift_blocks(source['Mac/' + path], 'HStack')):
             raise ValueError('Mac/' + path + ': related actions must share a horizontal row')
+    for path in ('SystemVoiceCatalog.swift','PiperVoiceCatalog.swift','GeminiVoicePreview.swift','SarvamVoiceSettingsView.swift'):
+        require('Mac/' + path, 'VoiceSampleSession.shared.begin(sampleOwner)', 'sample starts must claim the shared session')
+        require('Mac/' + path, 'VoiceSampleSession.shared.end(sampleOwner)', 'sample cleanup must release its own session')
+    require('Mac/SystemVoiceCatalog.swift', 'playingVoiceID = voice.id; isPlayingSample = true', 'Apple icons must update before speech starts')
+    require('Mac/SarvamVoiceSettingsView.swift', 'if sample.preparing { ProgressView()', 'Sarvam generation needs a visible preparation spinner')
+    require('Mac/GeminiVoicePreview.swift', 'if preview.loading { ProgressView()', 'Gemini generation needs a visible preparation spinner')
+    for path in ('Views/PiperVoicesDialog.cs','Views/PiperDeleteVoicesDialog.cs'):
+        require('Windows/' + path, 'VoiceSampleSession.Begin(sampleOwner)', 'catalog samples share the playback guard')
+        require('Windows/' + path, 'VoiceSampleSession.End(sampleOwner)', 'catalog samples release the playback guard')
+    require('Windows/Views/SettingsDialog.cs', 'nativePreparingRing.IsActive = sampleState == SampleState.Generating', 'native/Gemini sample preparation must be visible')
+    require('Windows/Views/SettingsDialog.Sarvam.cs', 'sarvamPreparingRing.IsActive = sarvamSamplePreparing', 'Sarvam sample preparation must be visible')
+    require('Windows/Views/SettingsDialog.Sarvam.cs', '!VoiceSampleSession.Busy', 'Sarvam and Summary sample actions share the session guard')
     require('Windows/Views/WindowAppearance.cs', 'CompactDialogLayout.PrepareDialog(dialog);', 'all companion forms must use shared presentation')
     require('Windows/Views/WindowAppearance.cs', 'dialog.ReadLocalValue(FrameworkElement.MaxWidthProperty)', 'distinguish explicit width caps from narrow native style defaults')
     require('Windows/Views/WindowAppearance.cs', 'LocalSize(dialog.Resources,"ContentDialogMaxWidth")', 'distinguish local width resources from global theme defaults')

@@ -279,7 +279,7 @@ def check_sarvam_settings(mac, windows):
             if '"' + identifier + '"' not in source: raise ValueError(platform + ' speech settings menu missing: ' + identifier)
         for label in ['Speaking speed','Expressiveness','Normalize text','Restore Default','Play Sample','Stop Sample']:
             if label not in source: raise ValueError(platform + ' speech setting label missing: ' + label)
-    for token in ['.contextMenu', 'value = option.0', 'id + "-increase"', 'id + "-decrease"', 'id + "-reset"', '.disabled(demo == nil || sample.active)']:
+    for token in ['.contextMenu', 'value = option.0', 'id + "-increase"', 'id + "-decrease"', 'id + "-reset"', '.disabled(!canPlaySample)', '!apiKey.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty', '.disabled(sampleVoice == nil || sample.active || sample.preparing || VoiceSampleSession.shared.busy || !studio.settings.hasSarvamApiKey)']:
         if token not in mac: raise ValueError('Mac guarded speech menu missing: ' + token)
-    for token in ['picker.ContextFlyout = menu', 'picker.SelectedItem =', 'slider.ContextFlyout = menu', 'button.IsEnabled', 'demo != null']:
+    for token in ['picker.ContextFlyout = menu', 'picker.SelectedItem =', 'slider.ContextFlyout = menu', 'button.IsEnabled', 'sampleVoice != null', 'CanPlaySarvamSample', 'UpdateSarvamSampleControls()', 'button.IsEnabled = current || CanPlaySarvamSample', 'SetVoiceSampleMenu(playSample']:
         if token not in windows: raise ValueError('Windows guarded speech menu missing: ' + token)

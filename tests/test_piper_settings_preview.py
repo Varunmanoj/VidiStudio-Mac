@@ -21,7 +21,7 @@ class PiperSettingsPreviewTests(unittest.TestCase):
         if sys.platform != 'darwin': self.skipTest('macOS audio SDK required')
         root = Path(__file__).resolve().parents[1]
         source = (root / 'VidiStudio/PiperVoiceCatalog.swift').read_text()
-        preview = declaration(source, '@MainActor @Observable final class PiperSettingsPreview:')
+        preview = (root / 'VidiStudio/VoiceSampleSession.swift').read_text() + '\n' + declaration(source, '@MainActor @Observable final class PiperSettingsPreview:')
         guards = declaration(source, '    private var selectedVoice: PiperVoice?') + '\n' + declaration(source, '    private var canPlaySample: Bool')
         harness = '''import Foundation
 import Observation
@@ -78,7 +78,15 @@ actor PiperSpeech {
         let sample = selection.sample
         sample.play(settings: selection.settings)
         precondition(sample.active && sample.loading && !selection.canPlay)
+        let other = PiperSettingsPreview()
+        other.play(settings: selection.settings)
+        precondition(!other.active, "A second browser must not start another sample")
         sample.stop()
+        other.play(settings: selection.settings)
+        precondition(other.active && VoiceSampleSession.shared.busy)
+        sample.stop()
+        precondition(VoiceSampleSession.shared.busy, "A stale owner must not release the active sample")
+        other.stop()
         try await Task.sleep(for: .milliseconds(100))
         precondition(!sample.active && !sample.loading && sample.error == nil, "Cancelled synthesis must not revive playback or report stale errors")
         sample.play(settings: selection.settings)

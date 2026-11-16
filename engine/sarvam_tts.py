@@ -2,6 +2,9 @@
 import base64
 import binascii
 import json
+import hashlib
+import wave
+from contextlib import contextmanager
 import math
 import os
 import re
@@ -173,7 +176,7 @@ def error_kind(exc):
     if getattr(exc, 'status_code', None) == 429: return 'rate-limit'
     return 'connectivity' if network_activity.transport_failure(exc) else 'service'
 
-def synthesize(output, text, cfg, run, ffmpeg, emit, client_factory=None):
+def synthesize(output, text, cfg, run, ffmpeg, emit, client_factory=None, max_attempts=3):
     key = os.environ.get('VIDISTUDIO_SARVAM_API_KEY', '').strip()
     if not key: raise SarvamError('Enter your Sarvam API key in Settings → Narration.', 'missing-key')
     params = parameters(cfg)
@@ -189,7 +192,7 @@ def synthesize(output, text, cfg, run, ffmpeg, emit, client_factory=None):
             wavs = []
             for index, part in enumerate(chunks(text, 1500 if params['model'] == 'bulbul:v2' else 2500)):
                 response = None
-                for attempt in range(3):
+                for attempt in range(max_attempts):
                     try:
                         with network_activity.activity('sarvam'):
                             response = client.text_to_speech.convert(text=part, **params,
@@ -199,7 +202,7 @@ def synthesize(output, text, cfg, run, ffmpeg, emit, client_factory=None):
                         if type(exc).__name__ in ("ProcessingCancelled", "CancelledError"): raise
                         kind = error_kind(exc)
                         status = getattr(exc, 'status_code', 0) or 0
-                        if attempt < 2 and kind not in ('invalid-key', 'quota', 'permissions', 'validation') and (status == 429 or 500 <= status < 600):
+                        if attempt < max_attempts - 1 and kind not in ('invalid-key', 'quota', 'permissions', 'validation') and (status == 429 or 500 <= status < 600):
                             headers = getattr(exc, 'headers', {}) or {}
                             try: delay = min(30, max(0, float(headers.get('retry-after', 2 ** attempt))))
                             except (TypeError, ValueError): delay = 2 ** attempt
@@ -238,3 +241,105 @@ def synthesize(output, text, cfg, run, ffmpeg, emit, client_factory=None):
     finally:
         close = getattr(client, 'close', None)
         if close: close()
+
+
+# A stable catalog audition, independent of project text and narration tuning.
+SAMPLE_TEXT = {
+    'en-IN': 'Welcome to VidiStudio. This is a sample of my voice.',
+    'hi-IN': 'विडीस्टूडियो में आपका स्वागत है। यह मेरी आवाज़ का एक नमूना है।',
+    'bn-IN': 'ভিডিস্টুডিওতে আপনাকে স্বাগতম। এটি আমার কণ্ঠের একটি নমুনা।',
+    'gu-IN': 'વિડીસ્ટુડિયોમાં તમારું સ્વાગત છે. આ મારા અવાજનો એક નમૂનો છે.',
+    'kn-IN': 'ವಿಡಿಸ್ಟುಡಿಯೋಗೆ ಸ್ವಾಗತ. ಇದು ನನ್ನ ಧ್ವನಿಯ ಒಂದು ಮಾದರಿ.',
+    'ml-IN': 'വിഡിസ്റ്റുഡിയോയിലേക്ക് സ്വാഗതം. ഇത് എന്റെ ശബ്ദത്തിന്റെ ഒരു മാതൃകയാണ്.',
+    'mr-IN': 'विडीस्टुडिओमध्ये आपले स्वागत आहे. हा माझ्या आवाजाचा एक नमुना आहे.',
+    'od-IN': 'ଭିଡିଷ୍ଟୁଡିଓକୁ ସ୍ୱାଗତ। ଏହା ମୋ ସ୍ୱରର ଏକ ନମୁନା।',
+    'pa-IN': 'ਵਿਡੀਸਟੂਡੀਓ ਵਿੱਚ ਤੁਹਾਡਾ ਸੁਆਗਤ ਹੈ। ਇਹ ਮੇਰੀ ਆਵਾਜ਼ ਦਾ ਇੱਕ ਨਮੂਨਾ ਹੈ।',
+    'ta-IN': 'விடிஸ்டுடியோவிற்கு வரவேற்கிறோம். இது எனது குரலின் ஒரு மாதிரி.',
+    'te-IN': 'విడిస్టూడియోకు స్వాగతం. ఇది నా స్వరానికి ఒక నమూనా.',
+}
+
+def sample_cache_directory():
+    base = Path(os.environ.get('LOCALAPPDATA', Path.home())) if os.name == 'nt' else Path.home() / 'Library/Application Support'
+    return base / 'VidiStudio/sarvam-sample-cache'
+
+def valid_sample(path):
+    try:
+        with wave.open(str(path), 'rb') as audio:
+            frames = audio.getnframes()
+            return frames > 0 and len(audio.readframes(frames)) == frames * audio.getnchannels() * audio.getsampwidth()
+    except (OSError, EOFError, wave.Error): return False
+
+@contextmanager
+def sample_lock(path):
+    # OS locks survive neither a crash nor process termination. Concurrent windows
+    # wait for the first successful cache write instead of billing twice.
+    with path.open('a+b') as stream:
+        stream.seek(0); stream.write(b'0'); stream.flush(); stream.seek(0)
+        deadline = time.monotonic() + 180
+        while True:
+            try:
+                if os.name == 'nt':
+                    import msvcrt
+                    msvcrt.locking(stream.fileno(), msvcrt.LK_NBLCK, 1)
+                else:
+                    import fcntl
+                    fcntl.flock(stream, fcntl.LOCK_EX | fcntl.LOCK_NB)
+                break
+            except OSError:
+                if time.monotonic() >= deadline:
+                    raise SarvamError('A sample is still being prepared. Try again shortly.') from None
+                time.sleep(.1)
+        try: yield
+        finally:
+            if os.name == 'nt':
+                import msvcrt
+                stream.seek(0); msvcrt.locking(stream.fileno(), msvcrt.LK_UNLCK, 1)
+            else:
+                import fcntl
+                fcntl.flock(stream, fcntl.LOCK_UN)
+
+def preview_sample(model, speaker, language, run, ffmpeg, emit, directory=None, client_factory=None, fetch=None):
+    voice = next((v for v in catalog()['voices'] if v['model'] == model and v['id'] == speaker), None)
+    if voice is None or language not in voice['languages'] or language not in SAMPLE_TEXT:
+        raise SarvamError('Choose a supported Sarvam voice and language.', 'validation')
+    demo = voice.get('demoUrl')
+    if model == 'bulbul:v3' and not demo:
+        raise SarvamError('No published demo is available for this v3 voice.', 'validation')
+    profile = dict(voice=speaker, language=language, pace=1, temperature=.6, pitch=0, loudness=1,
+                   preprocessing=False, sampleRate=22050, codec='wav')
+    cfg = {'sarvamSpeech': {'model': model, 'profiles': {model: profile}}}
+    identity = {'demo': demo} if demo else {'parameters': parameters(cfg), 'text': SAMPLE_TEXT[language]}
+    digest = hashlib.sha256(json.dumps(identity, sort_keys=True, ensure_ascii=False).encode()).hexdigest()
+    directory = directory or sample_cache_directory()
+    directory.mkdir(parents=True, exist_ok=True)
+    path = directory / (digest + '.wav')
+    cached = True
+    with sample_lock(directory / (digest + '.lock')):
+        if not valid_sample(path):
+            cached = False
+            with tempfile.TemporaryDirectory(prefix='pending-', dir=directory) as temporary:
+                pending = Path(temporary) / 'sample.wav'
+                if demo:
+                    # A failed public download must never trigger a billable fallback.
+                    emit('Downloading sample')
+                    if fetch is None:
+                        import httpx
+                        with httpx.Client(timeout=30, follow_redirects=True) as client:
+                            with client.stream('GET', demo) as response:
+                                response.raise_for_status()
+                                data = bytearray()
+                                for block in response.iter_bytes():
+                                    data.extend(block)
+                                    if len(data) > 20_000_000: raise SarvamError('Catalog sample is too large.')
+                    else: data = fetch(demo)
+                    source = Path(temporary) / 'catalog.audio'; source.write_bytes(data)
+                    run([ffmpeg, '-y', '-v', 'error', '-i', source, '-ac', '1', '-ar', '22050', '-c:a', 'pcm_s16le', pending])
+                else:
+                    emit('Generating sample')
+                    # One attempt: do not repeat a potentially billed audition.
+                    synthesize(pending, SAMPLE_TEXT[language], cfg, run, ffmpeg, emit, client_factory, max_attempts=1)
+                if not valid_sample(pending): raise SarvamError('Sample audio is invalid. Try again.')
+                pending.replace(path)
+    emit('Sample ready', sarvamSamplePath=str(path), sarvamSampleCached=cached,
+         sarvamSampleSource='catalog' if demo else 'generated')
+    return path

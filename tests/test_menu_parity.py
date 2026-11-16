@@ -100,7 +100,7 @@ class DesktopMenuParity(unittest.TestCase):
         self.checker.compare_piper_settings_samples(mac, windows)
         for changed_mac, changed_windows in (
             (mac.replace('Button("Play Sample") { playSample() }', ''), windows),
-            (mac.replace('.disabled(selectedVoice == nil)', ''), windows),
+            (mac.replace('.disabled(selectedVoice == nil || (!sample.active && VoiceSampleSession.shared.busy))', ''), windows),
             (mac, windows.replace('piperPlaySampleMenuItem.IsEnabled = CanPlayPiperSample', 'piperPlaySampleMenuItem.IsEnabled = true')),
             (mac, windows.replace('Text = "Stop Sample", Tag = "piper-settings-stop-sample"', 'Text = "Stop"')),
         ):

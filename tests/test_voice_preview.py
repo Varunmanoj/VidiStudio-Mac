@@ -1,6 +1,7 @@
 import io
 import json
 import os
+import sys
 import tempfile
 import unittest
 import wave
@@ -11,6 +12,11 @@ from unittest.mock import patch, Mock
 from test_engine import engine
 
 class VoicePreview(unittest.TestCase):
+    def test_sarvam_preview_language_is_not_a_project_output_language(self):
+        with patch.object(sys, 'argv', ['engine', 'preview-sarvam-sample', '--sarvam-model', 'bulbul:v4-flash', '--sarvam-voice', 'shubh_enhi_ads', '--sarvam-language', 'en-IN']), patch.object(engine.sarvam_tts, 'preview_sample') as preview, patch.object(engine, 'tool', return_value='ffmpeg'):
+            engine.main()
+        self.assertEqual(preview.call_args.args[:3], ('bulbul:v4-flash', 'shubh_enhi_ads', 'en-IN'))
+
     def test_model_catalog_comes_from_available_generate_content_models(self):
         client = Mock()
         client.models.list.return_value = [
