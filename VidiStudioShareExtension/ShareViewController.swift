@@ -168,7 +168,7 @@ private enum ShareExtensionError: LocalizedError {
         case .unsupportedItem:
             return "Share one local video file or a YouTube video page with VidiStudio."
         case .notYouTube:
-            return "This web page is not a supported YouTube video link."
+            return "This link does not point to a YouTube video."
         case .couldNotLocateVidiStudio:
             return "The VidiStudio app could not be located. Reinstall VidiStudio, then try sharing again."
         case .couldNotOpenVidiStudio(let detail):
@@ -182,7 +182,7 @@ private enum ShareExtensionError: LocalizedError {
     }
 }
 
-private enum SharedItemResolver {
+enum SharedItemResolver {
     static func resolve(_ inputItems: [Any]) async throws -> VidiStudioSharedSource {
         let providers = inputItems
             .compactMap { $0 as? NSExtensionItem }
@@ -200,7 +200,7 @@ private enum SharedItemResolver {
 
         for provider in providers {
             if let webURL = await loadURL(from: provider, typeIdentifiers: [UTType.url.identifier]),
-               ["http", "https"].contains(webURL.scheme?.lowercased() ?? "") {
+               !webURL.isFileURL {
                 guard VidiStudioShareLink.youtubeVideoID(from: webURL.absoluteString) != nil else {
                     throw ShareExtensionError.notYouTube
                 }
@@ -209,9 +209,11 @@ private enum SharedItemResolver {
         }
 
         for provider in providers where provider.hasItemConformingToTypeIdentifier(UTType.plainText.identifier) {
-            if let text = await loadText(from: provider),
-               let webURL = URL(string: text.trimmingCharacters(in: .whitespacesAndNewlines)),
-               VidiStudioShareLink.youtubeVideoID(from: webURL.absoluteString) != nil {
+            if let text = await loadText(from: provider) {
+                guard let webURL = URL(string: text.trimmingCharacters(in: .whitespacesAndNewlines)),
+                      VidiStudioShareLink.youtubeVideoID(from: webURL.absoluteString) != nil else {
+                    throw ShareExtensionError.notYouTube
+                }
                 return .youtube(webURL)
             }
         }

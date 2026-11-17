@@ -28,8 +28,8 @@ class ExtensionInstallation(unittest.TestCase):
             data["NSExtension"] = {"NSExtensionPointIdentifier": point}
         path.write_bytes(plistlib.dumps(data))
 
-    def test_matching_app_and_both_extensions(self):
-        self.assertEqual(len(MODULE.validate_metadata(self.app)), 3)
+    def test_matching_app_and_all_extensions(self):
+        self.assertEqual(len(MODULE.validate_metadata(self.app)), 4)
 
     def test_rejects_stale_marketing_or_build_for_either_extension(self):
         for name, (suffix, point) in MODULE.EXTENSIONS.items():

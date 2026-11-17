@@ -1,7 +1,8 @@
 #!/usr/bin/env python3
-"""Validate the app and both extensions before replacement and after registration."""
+"""Validate the app and its extensions before replacement and after registration."""
 
 import argparse
+import json
 import plistlib
 import re
 import subprocess
@@ -10,6 +11,7 @@ from pathlib import Path
 
 EXTENSIONS = {
     "VidiStudioShareExtension": ("ShareExtension", "com.apple.share-services"),
+    "VidiStudioSafariExtension": ("SafariExtension", "com.apple.Safari.web-extension"),
     "VidiStudioFinderExtension": ("FinderExtension", "com.apple.FinderSync"),
 }
 APP_ID = "Varunmanojkumar.VidiStudio"
@@ -59,6 +61,14 @@ def validate_metadata(app):
 
 def verify(app, previous=None, registered=False):
     bundles = validate_metadata(app)
+    safari = app / "Contents/PlugIns/VidiStudioSafariExtension.appex"
+    resources = safari / "Contents/Resources"
+    manifest = json.loads((resources / "manifest.json").read_text())
+    if manifest["version"] != version(info(app))[0] or manifest["name"] != info(safari)["CFBundleDisplayName"]:
+        raise ValueError("Safari Web Extension manifest name/version differs from the signed bundle")
+    for item in [manifest["background"]["service_worker"], manifest["action"]["default_popup"], *manifest["icons"].values()]:
+        if not (resources / item).is_file():
+            raise ValueError(f"Safari Web Extension resource is missing: {item}")
     run("codesign", "--verify", "--deep", "--strict", str(app))
     team, _ = signing(app)
     project = Path(__file__).resolve().parents[1] / "VidiStudio.xcodeproj/project.pbxproj"
@@ -80,6 +90,11 @@ def verify(app, previous=None, registered=False):
                 raise ValueError(f"{bundle.name}: signed entitlements differ from canonical configuration")
         if previous and previous.exists():
             old = previous / bundle.relative_to(app)
+            if (not old.exists() and bundle.name == "VidiStudioSafariExtension.appex"
+                    and int(info(previous)["CFBundleVersion"]) < 343):
+                # First installation of the Safari Web Extension.
+                print(f"Verified new {bundle.name}: {version(info(bundle))}, team {bundle_team}")
+                continue
             if not old.exists():
                 raise ValueError(f"Previous installation is missing {old.name}; inspect before replacing")
             _, old_requirement = signing(old)

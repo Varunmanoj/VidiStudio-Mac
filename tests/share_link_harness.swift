@@ -2,7 +2,14 @@ import Foundation
 
 @main
 struct ShareLinkHarness {
-    static func main() {
+    static func main() throws {
+        if CommandLine.arguments.count == 2 {
+            let data = try Data(contentsOf: URL(fileURLWithPath: CommandLine.arguments[1]))
+            let cases = try JSONDecoder().decode([[String?]].self, from: data)
+            for row in cases {
+                precondition(VidiStudioShareLink.youtubeVideoID(from: row[0]!) == row[1], row[0]!)
+            }
+        }
         let watch = URL(string: "https://www.youtube.com/watch?v=dQw4w9WgXcQ&t=30")!
         let video = URL(fileURLWithPath: "/tmp/A shared movie #1.mov")
 

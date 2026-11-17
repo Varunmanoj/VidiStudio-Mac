@@ -1,0 +1,8 @@
+:root { color-scheme: light dark; font: 100% system-ui, sans-serif; }
+body { min-width: 16rem; margin: 1rem; }
+main { max-width: 30rem; }
+h1 { font-size: 1.15rem; }
+button, a { font: inherit; }
+button { padding: .3rem .7rem; }
+a { margin-inline-end: .8rem; }
+:focus-visible { outline: 3px solid Highlight; outline-offset: 2px; }

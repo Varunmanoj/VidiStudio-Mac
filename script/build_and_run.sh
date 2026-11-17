@@ -17,6 +17,7 @@ mkdir -p build
 touch build/.metadata_never_index
 pkill -x VidiStudio >/dev/null 2>&1 || true
 python3 script/sync_version.py --sync
+python3 script/package_browser_extension.py
 python3 script/check_menu_parity.py --allow-missing
 python3 script/check_desktop_ui_parity.py --allow-missing
 python3 -m unittest tests.test_desktop_ui_parity
@@ -29,6 +30,7 @@ python3 script/verify_help.py "$APP"
 
 SHARE_EXTENSION="$APP/Contents/PlugIns/VidiStudioShareExtension.appex"
 FINDER_EXTENSION="$APP/Contents/PlugIns/VidiStudioFinderExtension.appex"
+SAFARI_EXTENSION="$APP/Contents/PlugIns/VidiStudioSafariExtension.appex"
 if [[ ! -d "$SHARE_EXTENSION" ]]; then
   echo "Missing embedded VidiStudio Share extension: $SHARE_EXTENSION" >&2
   exit 1
@@ -52,13 +54,14 @@ fi
 codesign --force --deep --sign "$SIGNING_IDENTITY" "$APP" > build/codesign.log 2>&1
 codesign --force --sign "$SIGNING_IDENTITY" --entitlements Config/VidiStudioShareExtension.entitlements "$SHARE_EXTENSION" >> build/codesign.log 2>&1
 codesign --force --sign "$SIGNING_IDENTITY" --entitlements Config/VidiStudioFinderExtension.entitlements "$FINDER_EXTENSION" >> build/codesign.log 2>&1
+codesign --force --sign "$SIGNING_IDENTITY" --entitlements Config/VidiStudioSafariExtension.entitlements "$SAFARI_EXTENSION" >> build/codesign.log 2>&1
 codesign --force --sign "$SIGNING_IDENTITY" "$APP" >> build/codesign.log 2>&1
 codesign --verify --deep --strict "$APP" >> build/codesign.log 2>&1
 python3 script/verify_extensions.py "$APP" --previous "$INSTALL_APP"
 if [[ "$MODE" == "--build-only" ]]; then
   # Packaging needs the signed product, but it must not appear as a second app.
   "$LSREGISTER" -u "$APP" >/dev/null 2>&1 || true
-  pluginkit -r "$SHARE_EXTENSION" "$FINDER_EXTENSION" >/dev/null 2>&1 || true
+  pluginkit -r "$SHARE_EXTENSION" "$FINDER_EXTENSION" "$SAFARI_EXTENSION" >/dev/null 2>&1 || true
   echo "$APP"
   exit 0
 fi
@@ -78,14 +81,15 @@ codesign --verify --deep --strict "$STAGING" >> build/codesign.log 2>&1
 # bundle. Keep the user's enable/disable elections and container data intact.
 pkill -f '/Contents/PlugIns/VidiStudioShareExtension.appex/Contents/MacOS/VidiStudioShareExtension' >/dev/null 2>&1 || true
 pkill -f '/Contents/PlugIns/VidiStudioFinderExtension.appex/Contents/MacOS/VidiStudioFinderExtension' >/dev/null 2>&1 || true
+pkill -f '/Contents/PlugIns/VidiStudioSafariExtension.appex/Contents/MacOS/VidiStudioSafariExtension' >/dev/null 2>&1 || true
 rm -rf "$INSTALL_APP"
 mv "$STAGING" "$INSTALL_APP"
 "$LSREGISTER" -f "$INSTALL_APP" >/dev/null 2>&1 || true
 "$LSREGISTER" -u "$APP" >/dev/null 2>&1 || true
-pluginkit -r "$SHARE_EXTENSION" "$FINDER_EXTENSION" >/dev/null 2>&1 || true
+pluginkit -r "$SHARE_EXTENSION" "$FINDER_EXTENSION" "$SAFARI_EXTENSION" >/dev/null 2>&1 || true
 # Remove the build product so a second VidiStudio.app cannot be found or launched.
 rm -rf "$APP"
-pluginkit -a "$INSTALL_APP/Contents/PlugIns/VidiStudioShareExtension.appex" "$INSTALL_APP/Contents/PlugIns/VidiStudioFinderExtension.appex"
+pluginkit -a "$INSTALL_APP/Contents/PlugIns/VidiStudioShareExtension.appex" "$INSTALL_APP/Contents/PlugIns/VidiStudioFinderExtension.appex" "$INSTALL_APP/Contents/PlugIns/VidiStudioSafariExtension.appex"
 python3 script/verify_extensions.py "$INSTALL_APP" --registered
 echo "Installed $INSTALL_APP"
 case "$MODE" in

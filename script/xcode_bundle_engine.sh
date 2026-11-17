@@ -15,6 +15,7 @@ mkdir -p "$TARGET_BUILD_DIR/$UNLOCALIZED_RESOURCES_FOLDER_PATH/Engine"
 ditto build/engine/vidistudio-engine "$TARGET_BUILD_DIR/$UNLOCALIZED_RESOURCES_FOLDER_PATH/Engine"
 python3 script/prepare_license_notices.py "$TARGET_BUILD_DIR/$UNLOCALIZED_RESOURCES_FOLDER_PATH/Engine"
 ditto "$SRCROOT/VidiStudio/Assets/piper-voices.json" "$TARGET_BUILD_DIR/$UNLOCALIZED_RESOURCES_FOLDER_PATH/piper-voices.json"
+python3 script/package_browser_extension.py --local-resources "$TARGET_BUILD_DIR/$UNLOCALIZED_RESOURCES_FOLDER_PATH/BrowserExtension"
 python3 script/build_help.py
 ditto build/help/VidiStudio.help "$TARGET_BUILD_DIR/$UNLOCALIZED_RESOURCES_FOLDER_PATH/VidiStudio.help"
 

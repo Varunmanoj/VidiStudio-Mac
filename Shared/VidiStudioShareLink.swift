@@ -54,18 +54,21 @@ enum VidiStudioShareLink {
     static func youtubeVideoID(from rawURL: String) -> String? {
         guard let components = URLComponents(string: rawURL.trimmingCharacters(in: .whitespacesAndNewlines)),
               ["http", "https"].contains(components.scheme?.lowercased() ?? ""),
+              components.user == nil, components.password == nil,
               let host = components.host?.lowercased() else { return nil }
 
-        let pathParts = components.path.split(separator: "/").map(String.init)
+        var path = components.percentEncodedPath
+        if path.hasSuffix("/") { path.removeLast() }
+        let pathParts = path.components(separatedBy: "/").dropFirst()
         let identifier: String?
         switch host {
         case "youtu.be", "www.youtu.be":
-            identifier = pathParts.first
+            identifier = pathParts.count == 1 ? pathParts.first : nil
         case "youtube.com", "www.youtube.com", "m.youtube.com", "youtube-nocookie.com", "www.youtube-nocookie.com":
-            if components.path == "/watch" {
+            if components.percentEncodedPath == "/watch" {
                 identifier = components.queryItems?.first(where: { $0.name == "v" })?.value
-            } else if pathParts.count > 1, ["shorts", "embed", "live"].contains(pathParts[0]) {
-                identifier = pathParts[1]
+            } else if pathParts.count == 2, ["shorts", "embed", "live"].contains(pathParts.first ?? "") {
+                identifier = pathParts.last
             } else {
                 identifier = nil
             }
@@ -73,7 +76,7 @@ enum VidiStudioShareLink {
             identifier = nil
         }
 
-        let permitted = CharacterSet.alphanumerics.union(CharacterSet(charactersIn: "_-"))
+        let permitted = CharacterSet(charactersIn: "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789_-")
         guard let identifier,
               identifier.count == 11,
               identifier.unicodeScalars.allSatisfy({ permitted.contains($0) }) else { return nil }

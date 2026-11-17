@@ -11,6 +11,7 @@ Usage:
 """
 
 import argparse
+import json
 import re
 import sys
 from pathlib import Path
@@ -135,10 +136,19 @@ def bump_triplet(triplet: Tuple[int, int, int], part: str = "patch") -> Tuple[in
         return (maj, min_, patch + 1)
 
 
+def sync_browser_version(mac_root: Path, version: str) -> None:
+    path = mac_root / "BrowserExtension/manifest.json"
+    source = path.read_text(encoding="utf-8")
+    if json.loads(source)["version"] != version:
+        updated = re.sub(r'("version"\s*:\s*")[^"]+(")', rf"\g<1>{version}\2", source, count=1)
+        path.write_text(updated, encoding="utf-8")
+
+
 def write_mac_version(mac_root: Path, new_version: str, new_build: str) -> None:
     """Update MARKETING_VERSION and CURRENT_PROJECT_VERSION in project.pbxproj."""
     pbxproj = mac_root / "VidiStudio.xcodeproj" / "project.pbxproj"
     content = pbxproj.read_text(encoding="utf-8")
+    sync_browser_version(mac_root, new_version)
     updated = re.sub(r"(MARKETING_VERSION\s*=\s*)[^;]+;", rf"\g<1>{new_version};", content)
     updated = re.sub(r"(CURRENT_PROJECT_VERSION\s*=\s*)[^;]+;", rf"\g<1>{new_build};", updated)
     if updated != content:
@@ -185,6 +195,7 @@ def sync_versions(mac_root: Optional[Path], windows_root: Optional[Path]) -> boo
     win_csproj, win_appx = get_windows_version(windows_root) if windows_root else (None, None)
 
     if mac_root and not windows_root:
+        sync_browser_version(mac_root, mac_ver)
         print(f"macOS repository only: version is {mac_ver} (build {mac_build}).")
         return True
 
@@ -196,6 +207,7 @@ def sync_versions(mac_root: Optional[Path], windows_root: Optional[Path]) -> boo
     win_trip = normalize_triplet(win_csproj) if win_csproj else (0, 0, 0)
 
     if mac_trip == win_trip and (win_appx == f"{format_triplet(win_trip)}.0"):
+        sync_browser_version(mac_root, mac_ver)
         print(f"macOS and Windows versions are in sync: {format_triplet(mac_trip)} (Mac build {mac_build}, Win package {win_appx}).")
         return True
 
@@ -285,6 +297,12 @@ def check_status(mac_root: Optional[Path], windows_root: Optional[Path], strict:
 
     print("App Version Status:")
     if mac_root:
+        manifest = mac_root / "BrowserExtension/manifest.json"
+        browser_version = json.loads(manifest.read_text(encoding="utf-8"))["version"] if manifest.exists() else None
+        print(f"  Chrome, Edge and Safari:     {browser_version}")
+        if browser_version != mac_ver:
+            print("ERROR: Browser extension version differs from desktop version.")
+            return 1
         print(f"  macOS (project.pbxproj):     {mac_ver} (build {mac_build}) at {mac_root}")
     else:
         print("  macOS:                        Not found")
