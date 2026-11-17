@@ -25,7 +25,7 @@ A self-signed Mac certificate is not a substitute for Developer ID or notarizati
 4. Back up the signing identity securely using Keychain Access's export of the identity and private key to a password-protected `.p12`. Keep the backup and its password outside Git and release downloads. Do not revoke or replace the existing development identity just to make a release.
 5. Open `VidiStudio.xcodeproj`. Select the **VidiStudio** scheme. Inspect the app, Safari, Share, and Finder extension targets. Use the same team for all four targets, retain each extension's canonical entitlements, and keep all versions/build numbers equal.
 6. For the app and all three extensions, set **Build Settings > Architectures > Architectures** for Release to **arm64**. Archive with **Build Active Architecture Only = No**. The Python engine, FFmpeg, FFprobe, Deno, and native libraries must also support arm64; an arm64 Swift executable alone is insufficient. Prepare the engine on Apple Silicon, outside Rosetta. Do not add an Intel slice.
-7. Check the actual minimum system version before advertising compatibility. The inspected 1.0.350 bundle declares **macOS 27.0**, despite older repository descriptions saying macOS 26. Changing that minimum requires separate compatibility work. This is the inspected 1.0.350 artifact, not a promise about subsequent releases.
+7. Check the actual minimum system version before advertising compatibility. The audited 1.0.352 minimum is **macOS 26.4 on Apple Silicon**, enforced across the app, extensions and bundled native dependencies. See [the platform compatibility audit](PLATFORM_COMPATIBILITY.md).
 8. In **Product > Scheme > Edit Scheme > Archive**, use **Release**. Choose the Mac archive destination and **Product > Archive**.
 9. In **Window > Organizer > Archives**, select the archive and **Distribute App > Direct Distribution** (or the custom **Developer ID** route in Xcode versions using that label). Export a Developer ID signed, notarized app. Resolve any signing, provisioning, hardened-runtime, or notarization diagnostics before proceeding. Ensure embedded targets use Skip Install as appropriate so this is an app archive, not a generic archive.
 10. Xcode must include and distribution-sign every nested native dependency: Python, native modules, media executables/libraries, and the three extensions. The repository's local script uses recursive development signing and is **not a production notarization pipeline**. Do not assume changing `VIDISTUDIO_SIGNING_IDENTITY` alone makes its output distribution-ready. Follow Apple's inside-out signing guidance if the archive exporter cannot sign a dependency.
@@ -83,7 +83,7 @@ If you specifically need a self-signed Mac certificate for an isolated experimen
 
 ## Windows: prepare Release builds
 
-Use Windows with Visual Studio's WinUI/.NET tools, Windows SDK/MSIX tools, and Desktop development with C++ including both ARM64 and x64 toolsets. Keep both desktop checkouts adjacent for parity checks. Build on a local NTFS path; avoid compiling directly from the Mac shared UNC path. A separate checkout/environment per CPU is easiest because `runtime/engine` is shared between builds within a checkout.
+The x64 app requires Windows 10 version 1809 (17763) or later; ARM64 requires Windows 11 version 21H2 (22000) or later. Use Windows with Visual Studio's WinUI/.NET tools, Windows SDK/MSIX tools, and Desktop development with C++ including both ARM64 and x64 toolsets. Keep both desktop checkouts adjacent for parity checks. Build on a local NTFS path; avoid compiling directly from the Mac shared UNC path. A separate checkout/environment per CPU is easiest because `runtime/engine` is shared between builds within a checkout.
 
 1. Open `Vidi Studio Windows.slnx` in **Visual Studio**.
 2. In the toolbar/Configuration Manager choose **Release**, then **ARM64** or **x64**. Do not choose Win32/x86.
@@ -147,6 +147,8 @@ Visual Studio manual alternative: right-click the application project, choose **
 
 ### Install and verify on a recipient Windows machine
 
+Install the [Microsoft Visual C++ v14 x64 Redistributable](https://learn.microsoft.com/cpp/windows/latest-supported-vc-redist/) for Piper voices, on both x64 and ARM64. The current ZIP does not embed this redistributable. Windows Help and YouTube playback also require WebView2 Evergreen; install it if absent.
+
 For a self-signed evaluation only, first verify the certificate fingerprint with the publisher through a trusted channel. Then an administrator explicitly installs the **public** CER:
 
 ```powershell
@@ -193,10 +195,10 @@ Use `dist/browser-extensions/Describe-with-Vidi-Studio-Chrome.zip` for Chrome We
 
 ## GitHub release checklist
 
-1. Set the common desktop version using `python3 script/sync_version.py --bump` for future app changes. Build and replace installed copies as required by AGENTS.md. The current artifacts use the updated 1.0.350/build 350 sources. The previous 1.0.349 desktop release artifacts were replaced; the independent browser release remains 1.0.349.
+1. Set the common desktop version using `python3 script/sync_version.py --bump` for future app changes. Build and replace installed copies as required by AGENTS.md. The current minimum-OS update is 1.0.352/build 352; the independent browser release remains 1.0.349.
 2. Complete `docs/ffmpeg-distribution.md`: exact corresponding source/build scripts and notices for the bundled media binaries/dependencies, plus dependency/font license review. Current packaging does not establish that these public redistribution obligations are complete.
 3. Validate the final signed/notarized downloads on clean machines. Verify the intended macOS/Windows minimums, packaged engine/media, extension handoff and actual installed version. Keep all signing keys, credentials, user projects and tokens out of artifacts. Publisher OAuth client configuration is separate from Gemini keys; confirm Google consent/YouTube scope production readiness before promising those features to all users.
-4. Draft a release at **GitHub repository > Releases > Draft a new release**. Choose the intended source commit/tag, for example `v1.0.350`. Attach the notarized arm64 DMG and signed x64/ARM64 MSIX ZIPs with dependencies. Add `SHA256SUMS.txt`, installation instructions, supported OS/CPU versions, release notes, and corresponding-source/notices assets as required. Identify any evaluation-only certificate requirements plainly.
+4. Draft a release at **GitHub repository > Releases > Draft a new release**. Choose the intended source commit/tag, for example `v1.0.352`. Attach the notarized arm64 DMG and signed x64/ARM64 MSIX ZIPs with dependencies. Add `SHA256SUMS.txt`, installation instructions, supported OS/CPU versions, release notes, and corresponding-source/notices assets as required. Identify any evaluation-only certificate requirements plainly.
 5. Browser store ZIPs may be attached for developers, but link customers to published Chrome/Edge listings. Safari/Finder/Share are already inside the Mac app, and Windows Explorer/Share inside MSIX.
 6. Publish only after trust, install, license/source, and clean-machine checks are complete. Never upload PFX/P12/private keys, notarization credentials or API tokens. Keep the release draft if prerequisites remain unresolved.
 

@@ -27,6 +27,7 @@ fi
 xcodebuild -project VidiStudio.xcodeproj -scheme VidiStudio -configuration "$CONFIGURATION" -derivedDataPath build/DerivedData.noindex CODE_SIGNING_ALLOWED=NO build > build/xcode-build.log 2>&1 || { tail -60 build/xcode-build.log; exit 1; }
 APP="$PWD/build/DerivedData.noindex/Build/Products/$CONFIGURATION/VidiStudio.app"
 python3 script/verify_help.py "$APP"
+python3 script/check_macos_compatibility.py "$APP"
 
 SHARE_EXTENSION="$APP/Contents/PlugIns/VidiStudioShareExtension.appex"
 FINDER_EXTENSION="$APP/Contents/PlugIns/VidiStudioFinderExtension.appex"

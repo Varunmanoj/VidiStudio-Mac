@@ -1,6 +1,6 @@
 # VidiStudio Mac agent guide
 
-Native SwiftUI macOS 26 plain app in `VidiStudio.xcodeproj`. `VidiStudio/` owns native UI and engine invocation. `engine/vidistudio_engine.py` owns all project processing and writes. The sibling VidiStudio Online repository is a visual/workflow reference, not a desktop runtime dependency. Website product documentation is part of desktop feature work as required below; unrelated online application changes require an explicit request. Preserve unrelated work.
+Native SwiftUI macOS 26.4+ Apple Silicon app in `VidiStudio.xcodeproj`. `VidiStudio/` owns native UI and engine invocation. `engine/vidistudio_engine.py` owns all project processing and writes. The sibling VidiStudio Online repository is a visual/workflow reference, not a desktop runtime dependency. Website product documentation is part of desktop feature work as required below; unrelated online application changes require an explicit request. Preserve unrelated work.
 
 ## Required Help and website documentation synchronization
 
