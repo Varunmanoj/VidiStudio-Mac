@@ -1,0 +1,22 @@
+To: builds@gyan.dev
+Subject: Corresponding source/build materials for VidiStudio's FFmpeg 9.0.1 full Windows build
+
+Hello Gyan,
+
+I maintain VidiStudio, a personal open-source video accessibility application. I am preparing its Windows release and want to provide the matching source and build materials for the FFmpeg binaries included with it.
+
+Application repositories:
+https://github.com/Varunmanoj/Vidi-Studio-Windows
+https://github.com/Varunmanoj/VidiStudio-Mac
+
+The Windows packages use your ffmpeg-9.0.1-full_build.zip. I verified that our packaged binaries exactly match that archive:
+ffmpeg.exe SHA-256: 57c56e369d5b4873b4d93fc1a1d833cb7cd8bc9325c14b05c34ce60b22842d8a
+ffprobe.exe SHA-256: afe05347caaabe479b3c4eae71992b6ec1e11c57266a1d665deb0f9fe9847208
+Your README identifies FFmpeg revision bf1b838f2a.
+
+Could you provide or link the complete corresponding source collection for this exact full build, including the incorporated libraries' exact revisions, any patches, build scripts/configuration, and toolchain/build records needed to rebuild it? A source manifest and retrieval instructions are welcome if the materials are hosted elsewhere. We have retained the supplied README and GPL license text.
+
+This requests the existing build materials, not a custom build. Public binary publication is pending completion of this check.
+
+Thank you,
+Varun Manoj Kumar

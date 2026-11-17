@@ -1,0 +1,8 @@
+No extension account or login is required. This extension is a companion to VidiStudio for Mac or Windows. Full handoff requires the installed desktop app, available from https://vidistudio.varunmanojkumar.in/download. Without the desktop app, the confirmation panel can be tested but the operating system cannot complete the VidiStudio protocol handoff.
+
+1. Open a public YouTube video in Edge and invoke Describe with Vidi Studio from the toolbar. Confirm the video title, canonical link and thumbnail appear. Select Describe with Vidi Studio and allow the external-app prompt. VidiStudio opens the existing project for the video or imports it into a new project.
+2. Right-click a YouTube video link on another website and select Describe with Vidi Studio. Confirm the same panel and handoff.
+3. Invoke the extension on a channel URL or an unrelated page/link. It shows the invalid-link message and Close control without opening VidiStudio.
+4. Cancel or Escape closes the panel without a desktop handoff.
+
+Link validation is local. For a valid video, public title and thumbnail requests go to YouTube without cookies or the referring page address. The extension contains all executable code in the package, stores no browsing history or credentials, and sends no analytics.
