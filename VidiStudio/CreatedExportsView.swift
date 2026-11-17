@@ -3,13 +3,12 @@ import SwiftUI
 struct CreatedExportsView: View {
     @Bindable var studio: StudioModel
     let project: StudioProject
-    @State private var languageFilter = "all"
     @State private var resultFilter = "all"
     @State private var selectedExport: ExportSelection?
 
     private var filteredPaths: [String] {
         project.exports.filter { path in
-            (languageFilter == "all" || project.languagesForExport(path).contains(languageFilter))
+            project.languagesForExport(path).contains(project.languageCode)
             && (resultFilter == "all" || project.exportResults?[path]?.resultIDs.values.contains(resultFilter) == true)
         }
     }
@@ -25,16 +24,15 @@ struct CreatedExportsView: View {
                 .font(.headline)
                 .accessibilityAddTraits(.isHeader).accessibilityHeading(.h3)
 
-            ExportOptionPicker("Export language filter", selection: $languageFilter) {
-                Text("All Languages").tag("all")
-                ForEach(project.exportLanguageCodes, id: \.self) { code in Text(OutputLanguage.title(code)).tag(code) }
-            }.pickerStyle(.menu)
             Picker("Saved result filter", selection: $resultFilter) {
                 Text("All Saved Results").tag("all")
-                ForEach(project.savedLanguageResults.filter { languageFilter == "all" || $0.language == languageFilter }) { result in
+                ForEach(project.savedLanguageResults.filter { $0.language == project.languageCode }) { result in
                     Text("\(OutputLanguage.title(result.language)) · \(result.kindTitle) · \(result.title)").tag(result.id)
                 }
             }.pickerStyle(.menu)
+            if filteredPaths.isEmpty {
+                Text("No matching exports in \(OutputLanguage.title(project.languageCode)).").font(.caption).foregroundStyle(.secondary)
+            }
             ForEach(languageGroups, id: \.self) { group in
                 VStack(alignment: .leading, spacing: 8) {
                     Text(group == "multilingual" ? "Multilingual" : OutputLanguage.title(group))
@@ -64,10 +62,7 @@ struct CreatedExportsView: View {
                 .accessibilityLabel(group == "multilingual" ? "Multilingual exports" : "\(OutputLanguage.title(group)) exports")
             }
         }
-        .onChange(of: project.exportLanguageCodes) {
-            if languageFilter != "all" && !project.exportLanguageCodes.contains(languageFilter) { languageFilter = "all" }
-        }
-        .onChange(of: languageFilter) { resultFilter = "all" }
+        .onChange(of: project.languageCode) { resultFilter = "all" }
         .confirmationDialog(
             "Export Information",
             isPresented: Binding(

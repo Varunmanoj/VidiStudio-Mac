@@ -522,7 +522,7 @@ def _run(args, root, p, core, dispatch):
         for stage in stages[stages.index(start):]:
             step = copy.copy(args)
             step.command = stage
-            step.language = effective_language(p, PRODUCERS[stage][0])
+            step.language = language(args.language) if getattr(args, 'language', None) else effective_language(p, PRODUCERS[stage][0])
             made = produce(step, root, p, core, dispatch)
             for kind in ('transcript', 'summary'):
                 if kind in made:

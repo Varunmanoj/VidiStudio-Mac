@@ -5,6 +5,8 @@ public sealed record AudioStatus(bool Complete, string Title, string AccessibleN
 public sealed class StudioProject {
  public List<Segment> Transcript = new(); public List<Segment> Cues = new(); public string Summary=""; public string SelectedLanguage="en";
  public List<LanguageResult> SavedResults = new();
+ // Unused catalog dependency from the linked production LanguageResult file.
+ public IReadOnlyList<string> ProjectFilterLanguageCodes => Array.Empty<string>();
  public StudioProject WithLanguageResults(string code, bool includingDrafts) => this;
  public AudioStatus AudioReadiness(string code) => new(false,"en · 1/2 AD audio","Missing audio");
 // PRODUCTION_STATUS_METHOD
@@ -29,6 +31,8 @@ class MainClass {
   Check(p.ContentStatus(0,"en")!.Complete && p.ContentStatus(0,"en")!.Title.Contains("1 Transcript segments"));
   Check(p.ContentStatus(1,"en")!.Title.Contains("4 Summary characters"));
   foreach(var tab in new[]{2,3,4}) Check(!p.ContentStatus(tab,"en")!.Complete && p.ContentStatus(tab,"en")!.Title.Contains("AD audio"));
+  foreach(var tab in new[]{0,1,2,3,4}) Check(p.ContentStatuses(tab).Select(status=>status.Language).SequenceEqual(new[]{"en"}));
+  Check(p.ContentStatuses(5).Count==0);
   Check(p.ContentStatus(5,"en")==null);
   Console.WriteLine("PASS: actual Windows export predicates, result text gates and per-tab Unicode counts");
  }

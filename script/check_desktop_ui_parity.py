@@ -4,11 +4,11 @@ import argparse
 import re
 from pathlib import Path
 
-MAC_FILES = ('ContentView.swift', 'SettingsView.swift', 'ImportAssetsView.swift', 'ExportOptionsMenu.swift',
-             'GeminiAPISettingsView.swift', 'SarvamVoiceSettingsView.swift', 'SystemVoiceCatalog.swift', 'PiperVoiceCatalog.swift', 'GeminiVoicePreview.swift', 'SarvamVoiceBrowser.swift', 'VoiceSampleSession.swift')
-WIN_FILES = ('MainWindow.xaml', 'Views/CompactDialogLayout.cs', 'Views/WindowAppearance.cs',
+MAC_FILES = ('CreatedExportsView.swift', 'LanguageResults.swift', 'ContentView.swift', 'SettingsView.swift', 'ImportAssetsView.swift', 'ExportOptionsMenu.swift',
+             'GeminiAPISettingsView.swift', 'SarvamVoiceSettingsView.swift', 'SystemVoiceCatalog.swift', 'PiperVoiceCatalog.swift', 'GeminiVoicePreview.swift', 'SarvamVoiceBrowser.swift', 'VoiceSampleSession.swift', 'AboutSettingsView.swift', 'KeyboardShortcuts.swift')
+WIN_FILES = ('MainWindow.Presentation.cs', 'MainWindow.LanguageResults.cs', 'Views/ImportAssetsDialog.cs', 'MainWindow.Accessibility.cs', 'MainWindow.xaml', 'Views/CompactDialogLayout.cs', 'Views/WindowAppearance.cs',
              'Views/SettingsDialog.Compact.cs', 'Views/SettingsDialog.Layout.cs',
-             'Views/SettingsDialog.ElevenLabs.cs', 'Views/SettingsDialog.SarvamBrowser.cs', 'Views/SettingsDialog.SpeechLayout.cs', 'MainWindow.DialogLayoutSmoke.cs', 'Views/SettingsDialog.cs', 'Views/SettingsDialog.Sarvam.cs', 'Views/PiperVoicesDialog.cs', 'Views/PiperDeleteVoicesDialog.cs', 'Services/VoiceSampleSession.cs')
+             'Views/SettingsDialog.ElevenLabs.cs', 'Views/SettingsDialog.SarvamBrowser.cs', 'Views/SettingsDialog.SpeechLayout.cs', 'MainWindow.DialogLayoutSmoke.cs', 'Views/SettingsDialog.cs', 'Views/SettingsDialog.Sarvam.cs', 'Views/PiperVoicesDialog.cs', 'Views/PiperDeleteVoicesDialog.cs', 'Services/VoiceSampleSession.cs', 'Views/SettingsDialog.Information.cs', 'MainWindow.Menus.cs')
 
 def sources(workspace):
     workspace = Path(workspace)
@@ -46,6 +46,54 @@ def validate(source):
 
     def require(path, token, reason):
         if token not in source[path]: raise ValueError(path + ': ' + reason)
+    mac_about = source['Mac/AboutSettingsView.swift']
+    win_about = source['Windows/Views/SettingsDialog.Information.cs'].split('private void BuildAbout(', 1)[1].split('private Button LicenseAction', 1)[0]
+    for about in (mac_about, win_about):
+        if 'Keyboard shortcuts' in about or 'Jump to Time' in about:
+            raise ValueError('About must keep shortcuts in Help')
+    if 'Other components' in win_about:
+        raise ValueError('Windows About must omit Other components')
+    for token in ('"VidiStudio"', '"FFmpeg"', '"Piper voices"', '"Bundled version"', '"License"', '"Open FFmpeg License"', '"Third-party notices"', '"Open Piper License"', '"Piper source code"'):
+        if token not in mac_about or token not in win_about:
+            raise ValueError('About must retain shared information groups and license actions: ' + token)
+    mac_groups = re.findall(r'header: \{ Text\("([^"]+)"\)', mac_about)
+    win_groups = re.findall(r'CompactGroup\(panel,"([^"]+)"\)', win_about.split('private Button LicenseAction', 1)[0])
+    if mac_groups != win_groups:
+        raise ValueError('About group hierarchy/order must match on both desktops')
+    help_sources = {'Mac/SettingsView.swift': source['Mac/SettingsView.swift'], 'Windows/Views/SettingsDialog.Information.cs': source['Windows/Views/SettingsDialog.Information.cs'].split('private void BuildHelp(', 1)[1].split('private void BuildAbout(', 1)[0]}
+    for path, help_source in help_sources.items():
+        for label in ('Open VidiStudio Help', 'Help and keyboard shortcuts', 'Keyboard shortcut reference', 'settings-shortcut-reference'):
+            if label not in help_source: raise ValueError(path + ': Help controls and shortcut-reference menu must match')
+    require('Windows/Views/SettingsDialog.Information.cs', 'guide.Children.Add(openHelp);', 'Help button must match Mac placement')
+    require('Windows/Views/SettingsDialog.Information.cs', 'openHelp.Click += (_,_) => App.OpenHelpWindow', 'opening Help must keep Settings open')
+    require('Mac/SettingsView.swift', '@State private var shortcutReferenceExpanded = false', 'Help reference starts collapsed')
+    require('Windows/Views/SettingsDialog.Information.cs', 'private bool shortcutReferenceExpanded = false;', 'Help reference starts collapsed')
+    require('Windows/Views/SettingsDialog.Information.cs', 'IsExpanded = shortcutReferenceExpanded', 'Help reference must retain expansion across navigation')
+    require('Windows/Views/SettingsDialog.Information.cs', 'reference.Expanding += (_, _) => shortcutReferenceExpanded = true', 'Help reference must retain expansion across navigation')
+    require('Mac/KeyboardShortcuts.swift', 'ForEach(StudioShortcut.editor + StudioShortcut.youtube)', 'Help must retain the complete shared shortcut list')
+    require('Mac/KeyboardShortcuts.swift', '.init(id: "jump-to-time", title: "Jump to Time…"', 'Help must retain Jump to Time')
+    require('Windows/Views/SettingsDialog.Information.cs', 'menuOwner.DesktopShortcutReference', 'Help must retain the complete shared shortcut list')
+    for action in ('about-ffmpeg-license', 'about-license-index', 'about-license-folder'):
+        if action not in mac_about or action not in win_about:
+            raise ValueError('About license actions must have matching menus: ' + action)
+    commands = source['Windows/MainWindow.Menus.cs'].split('private bool CanRunDesktopCommand(string id)', 1)[1]
+    require('Windows/MainWindow.Menus.cs', 'if (id is "settings" or "help" or "about") return true;', 'Help/About must stay available during editor processing')
+    if commands.index('if (id is "settings" or "help" or "about") return true;') > commands.index('if (!Model.Idle) return false;'):
+        raise ValueError('Help/About must stay available during editor processing')
+    require('Windows/Views/SettingsDialog.Information.cs', 'TextAlignment = TextAlignment.Right', 'information values must align to the right')
+    mac_language = source['Mac/LanguageResults.swift']
+    win_language = source['Windows/MainWindow.LanguageResults.cs']
+    if mac_language.index('Picker(editorActions.segmentEditMode ?') > mac_language.index('Button(editorActions.currentSectionCopyTitle,') or 'panel.Children.Add(language);' not in win_language or win_language.index('panel.Children.Add(language);') > win_language.index('panel.Children.Add(copyAll);'):
+        raise ValueError('Inspector project language must precede all actions')
+    for path in ('Mac/LanguageResults.swift', 'Windows/MainWindow.LanguageResults.cs'):
+        if any(token in source[path] for token in (' Generation Language', 'Review language filter', 'Keep All Sections in Sync', '"Source Language"')):
+            raise ValueError('Inspector and copy must not repeat language choices')
+    if 'OutputLanguagePicker(selection:' in source['Mac/ImportAssetsView.swift'] or 'languagePicker' in source['Windows/Views/ImportAssetsDialog.cs']:
+        raise ValueError('Imports must inherit the project language')
+    for path, token in (('Mac/CreatedExportsView.swift', 'project.languagesForExport(path).contains(project.languageCode)'), ('Windows/MainWindow.Presentation.cs', 'project.LanguagesForExport(path).Contains(project.SelectedLanguage)')):
+        require(path, token, 'Created Exports must follow project language')
+        if 'Export language filter' in source[path]: raise ValueError('Created Exports must not repeat language selection')
+    require('Windows/MainWindow.Accessibility.cs', 'Shared inspector language must be accessible, bounded and above every action.', 'retain native inspector geometry checks')
     for path in ('SettingsView.swift', 'ImportAssetsView.swift', 'ExportOptionsMenu.swift'):
         require('Mac/' + path, '.formStyle(.grouped)', 'retain native compact grouped forms')
         require('Mac/' + path, 'Section', 'retain section grouping')
@@ -112,4 +160,4 @@ if __name__ == '__main__':
         print('SKIP: paired desktop UI source check needs both checkouts; native UI parity remains unverified.')
     else:
         validate(sources(args.workspace))
-        print('PASS: Mac grouped forms/adjacent actions and Windows shared responsive, accessible, theme-aware forms; native geometry guards retained.')
+        print('PASS: desktop Help/About groups, shortcuts and menus; Mac grouped forms/adjacent actions and Windows shared responsive, accessible, theme-aware forms; native geometry guards retained.')

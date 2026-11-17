@@ -3419,7 +3419,7 @@ struct ProjectEditor: View {
             shortcutActions.languageAction = { command, arguments in runLanguageAction(command, arguments: arguments) }
             shortcutActions.settingsLanguageAction = { command, arguments, editing in runLanguageAction(command, arguments: arguments, settingsEditMode: editing, fromSettings: true) }
         }
-        shortcutActions.hasCopyableResults = project.savedLanguageResults.contains { ["transcript", "summary", "descriptions"].contains($0.kind) && $0.state == "saved" && $0.hasContent }
+        shortcutActions.hasCopyableResults = project.savedLanguageResults.contains { ["transcript", "summary", "descriptions"].contains($0.kind) && $0.language == project.languageCode && $0.state == "saved" && $0.hasContent }
         shortcutActions.searchAvailable = !shortcutsBlocked && !showingJumpToTime && searchDraft == nil && segmentToEdit == nil && segmentBatchToEdit == nil && studio.screenText == nil
         shortcutActions.searchActive = searching
         shortcutActions.importedCombinedTranscript = importedCombinedTranscript

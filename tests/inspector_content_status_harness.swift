@@ -24,7 +24,7 @@ struct StudioProject {
         for section in ["transcript", "summary"] {
             precondition(p.inspectorContentStatus(section: section, language: "en")!.complete)
             precondition(!p.inspectorContentStatus(section: section, language: "en")!.title.contains("AD audio"))
-            precondition(p.inspectorContentStatuses(section: section).map(\.language) == ["en", "hi"], "AD-only languages must not leak into text status")
+            precondition(p.inspectorContentStatuses(section: section).map(\.language) == ["en"], "Inspector status must follow only the selected project language")
         }
         for section in ["descriptions", "ad-overview", "ad-transcript"] {
             let status = p.inspectorContentStatus(section: section, language: "en")!

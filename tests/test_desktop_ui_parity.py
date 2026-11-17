@@ -1,5 +1,6 @@
 """Reject regressions on either desktop, including mutations of the owning source."""
 import importlib.util
+import os
 from pathlib import Path
 import unittest
 
@@ -11,9 +12,10 @@ spec.loader.exec_module(contract)
 class DesktopUILayoutParityTests(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
-        if not all((ROOT.parent / name).is_dir() for name in ['VidiStudio Mac','Vidi-Studio-Windows']):
+        workspace = Path(os.environ.get('VIDISTUDIO_DESKTOP_WORKSPACE', ROOT.parent))
+        if not all((workspace / name).is_dir() for name in ['VidiStudio Mac','Vidi-Studio-Windows']):
             raise unittest.SkipTest('Paired desktop source checks need both checkouts; native parity remains unverified.')
-        cls.source = contract.sources(ROOT.parent)
+        cls.source = contract.sources(workspace)
 
     def test_both_desktops_preserve_the_layout_contract(self): contract.validate(self.source)
 
@@ -21,6 +23,16 @@ class DesktopUILayoutParityTests(unittest.TestCase):
         self.assertIn(before, self.source[path])
         changed = dict(self.source); changed[path] = changed[path].replace(before, after)
         with self.assertRaisesRegex(ValueError, expected): contract.validate(changed)
+
+    def test_inspector_language_stays_first_and_unique(self):
+        self.mutated('Windows/MainWindow.LanguageResults.cs', 'panel.Children.Add(language);', '', 'must precede all actions')
+        self.mutated('Mac/LanguageResults.swift', 'private var controls: some View {', 'private var controls: some View { /* Review language filter */', 'repeat language choices')
+        self.mutated('Windows/Views/ImportAssetsDialog.cs', 'Content = panel;', 'Content = panel; /* languagePicker */', 'inherit the project language')
+        self.mutated('Windows/MainWindow.Accessibility.cs', 'Shared inspector language must be accessible, bounded and above every action.', '', 'native inspector geometry')
+
+    def test_created_exports_share_the_project_language(self):
+        self.mutated('Mac/CreatedExportsView.swift', 'project.languagesForExport(path).contains(project.languageCode)', 'true', 'Created Exports must follow project language')
+        self.mutated('Windows/MainWindow.Presentation.cs', 'project.LanguagesForExport(path).Contains(project.SelectedLanguage)', 'true', 'Created Exports must follow project language')
 
     def test_shared_project_progress_on_both_desktops(self):
         for path, marker in [('Mac/ContentView.swift', 'ProgressView("Opening YouTube project…")'),
@@ -78,3 +90,33 @@ class DesktopUILayoutParityTests(unittest.TestCase):
         self.mutated('Windows/Views/SettingsDialog.Compact.cs', 'new AccessibilityGroup', 'new ContentControl', 'named UI Automation')
     def test_windows_cannot_remove_narrow_window_reflow(self):
         self.mutated('Windows/Views/SettingsDialog.Layout.cs', 'args.NewSize.Width < stackBelow', 'false', 'available width')
+
+    def test_about_cannot_regain_standalone_shortcuts_or_extra_components(self):
+        self.mutated('Mac/AboutSettingsView.swift', 'var body: some View {', 'var body: some View { Text("Keyboard shortcuts")', 'shortcuts in Help')
+        self.mutated('Windows/Views/SettingsDialog.Information.cs', 'private void BuildAbout(StackPanel panel)\n    {', 'private void BuildAbout(StackPanel panel)\n    { CompactGroup(panel,"Other components");', 'Other components')
+
+    def test_about_keeps_the_short_version_license_and_right_alignment(self):
+        self.mutated('Windows/Views/SettingsDialog.Information.cs', '"Bundled version"', '"Diagnostic output"', 'shared information')
+        self.mutated('Windows/Views/SettingsDialog.Information.cs', 'TextAlignment = TextAlignment.Right', 'TextAlignment = TextAlignment.Left', 'align to the right')
+
+    def test_help_cannot_lose_the_shared_shortcut_reference(self):
+        self.mutated('Mac/SettingsView.swift', 'Keyboard shortcut reference', 'Shortcuts', 'Help controls')
+        self.mutated('Windows/Views/SettingsDialog.Information.cs', 'Keyboard shortcut reference', 'Shortcuts', 'Help controls')
+        self.mutated('Mac/KeyboardShortcuts.swift', '.init(id: "jump-to-time", title: "Jump to Time…"', '.init(id: "jump-to-time", title: "Jump"', 'Jump to Time')
+        self.mutated('Windows/Views/SettingsDialog.Information.cs', 'private bool shortcutReferenceExpanded = false;', 'private bool shortcutReferenceExpanded = true;', 'starts collapsed')
+
+    def test_about_groups_and_license_menus_cannot_drift(self):
+        self.mutated('Windows/Views/SettingsDialog.Information.cs', 'about-license-index', 'unmatched', 'matching menus')
+        self.mutated('Windows/Views/SettingsDialog.Information.cs', 'group=CompactGroup(panel,"FFmpeg");', 'group=CompactGroup(panel,"FFmpeg"); group=CompactGroup(panel,"Extra");', 'hierarchy/order')
+
+    def test_help_and_about_cannot_be_disabled_by_editor_processing(self):
+        self.mutated('Windows/MainWindow.Menus.cs', 'if (id is "settings" or "help" or "about") return true;', '', 'available during editor processing')
+
+    def test_opening_help_cannot_close_settings(self):
+        self.mutated('Windows/Views/SettingsDialog.Information.cs', 'openHelp.Click += (_,_) => App.OpenHelpWindow', 'openHelp.Click += (_,_) => HideAndOpenHelpWindow', 'keep Settings open')
+
+    def test_help_reference_expansion_survives_navigation(self):
+        self.mutated('Windows/Views/SettingsDialog.Information.cs', 'IsExpanded = shortcutReferenceExpanded', 'IsExpanded = false', 'retain expansion')
+
+    def test_help_button_cannot_drift_into_an_extra_labeled_row(self):
+        self.mutated('Windows/Views/SettingsDialog.Information.cs', 'guide.Children.Add(openHelp);', 'CompactRow(guide,"VidiStudio Help",openHelp);', 'match Mac placement')

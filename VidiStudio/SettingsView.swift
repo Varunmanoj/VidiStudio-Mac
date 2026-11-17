@@ -179,6 +179,10 @@ struct SettingsView: View {
                 Button("Open VidiStudio Help", systemImage: "questionmark.circle") { StudioHelp.open() }
                 DisclosureGroup("Keyboard shortcut reference", isExpanded: $shortcutReferenceExpanded) { ShortcutReferenceView() }
                     .animation(interfaceAnimation, value: shortcutReferenceExpanded)
+                    .contextMenu {
+                        Toggle("Keyboard shortcut reference", isOn: $shortcutReferenceExpanded)
+                            .accessibilityIdentifier("settings-shortcut-reference")
+                    }
             } header: { Text("Help and keyboard shortcuts").accessibilityAddTraits(.isHeader).accessibilityHeading(.h2) }
             }
             if section == "Appearance" { appearanceSections }

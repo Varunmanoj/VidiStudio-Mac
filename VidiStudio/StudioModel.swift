@@ -3431,7 +3431,7 @@ final class StudioModel {
         if let audio = selection.adAudio {
             steps.append(("import-ad-audio", ["--input", audio.path, "--audio-mode", selection.adAudioMode.rawValue]))
         }
-        steps = steps.map { (command: $0.command, arguments: $0.arguments + ["--language", selection.language ?? project.languageCode]) }
+        steps = steps.map { (command: $0.command, arguments: $0.arguments + ["--language", project.languageCode]) }
         if replaceExisting {
             steps = steps.map { (command: $0.command, arguments: $0.arguments + ["--replace-existing"]) }
         }

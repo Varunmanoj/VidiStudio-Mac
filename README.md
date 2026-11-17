@@ -165,3 +165,8 @@ Choose a WAV, MP3, M4A, AAC, or FLAC original soundtrack in New Project, Import 
 Differences up to 0.1 seconds are accepted. Larger differences or unknown video duration require Cancel, Choose Another File, or Import Anyway. Approval is tied to the reviewed file and video duration, and new timing mismatches require review. Accepted mismatches start at zero, omit excess audio, and end shorter audio in silence without stretching. Corrupt files cannot be overridden. Missing or changed copies require re-import.
 
 Imported playback mutes YouTube audio and follows its transport and speed; narration ducks the active soundtrack. File transcription applies to full analysis, individual transcription, and transcript range analysis, while visual summary and description work continues using YouTube. Choosing a new source does not regenerate existing results. Existing transcripts and completed exports retain their actual source labels, including Multiple audio sources for mixed transcript inputs. Imported originals survive generated-content cleanup. Choosing imported audio for transcription sends the needed audio to Gemini; local playback and mixing do not.
+
+
+## Desktop release distribution
+
+See [the distribution guide](docs/DISTRIBUTION.md) for Release builds, Apple Silicon DMGs, Windows x64/ARM64 MSIX packages, certificate creation, public signing/notarization, browser extension stores, and GitHub Releases. Release configuration does not itself establish public certificate trust.

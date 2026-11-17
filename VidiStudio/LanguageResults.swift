@@ -135,19 +135,8 @@ extension StudioProject {
     }
     var overviewMatchesEditingResult: Bool { overviewLanguageCode == languageCode }
     var languageCode: String { selectedLanguage ?? "auto" }
-    func sectionLanguage(_ kind: String) -> String { sectionLanguages?[kind] ?? languageCode }
-    func operationLanguage(_ command: String) -> String {
-        guard ["transcribe", "generate-summary", "generate-ad-cues", "import-transcript", "import-summary", "import-ad-transcript", "import-ad-audio"].contains(command) else { return languageCode }
-        let kind: String?
-        switch command {
-        case "transcribe", "import-transcript", "reanalyze-transcript-segment", "undo-transcript", "redo-transcript": kind = "transcript"
-        case "generate-summary", "save-summary", "import-summary": kind = "summary"
-        case "generate-ad-cues", "synthesize-tts", "save-cues", "rewrite-cue", "reanalyze-segment", "import-ad-transcript", "import-segment-narration", "delete-segment-audio", "undo-cues", "redo-cues": kind = "descriptions"
-        case "import-ad-audio": kind = "adAudio"
-        default: kind = nil
-        }
-        return kind.map(sectionLanguage) ?? languageCode
-    }
+    func sectionLanguage(_ kind: String) -> String { languageCode }
+    func operationLanguage(_ command: String) -> String { languageCode }
     var savedLanguageResults: [SavedLanguageResult] {
         if let languageResults { return languageResults }
         var results: [SavedLanguageResult] = []
@@ -226,7 +215,6 @@ struct LanguageResultControls: View {
     @State private var review: SavedLanguageResult?
     @State private var assigning: SavedLanguageResult?
     @State private var assignment = "auto"
-    @State private var resultFilter = "all"
     private var visibleKinds: [String] {
         if let kindsOverride { return kindsOverride }
         return editorActions.savedResultKinds
@@ -263,6 +251,17 @@ struct LanguageResultControls: View {
     }
     @ViewBuilder private var controls: some View {
 
+            Picker(editorActions.segmentEditMode ? "Edit Project Language" : "View Project Language", selection: Binding(get: {
+                editorActions.segmentEditMode || project.availableViewingLanguages.contains(project.languageCode) ? project.languageCode : "unavailable"
+            }, set: { code in if code != "unavailable" { run("select-language", ["--language", code]) } })) {
+                if !editorActions.segmentEditMode && !project.availableViewingLanguages.contains(project.languageCode) {
+                    Text("No saved content selected").tag("unavailable")
+                }
+                ForEach(OutputLanguage.options.filter { editorActions.segmentEditMode || project.availableViewingLanguages.contains($0.id) }) { option in
+                    Text(project.viewingLanguageTitle(option.id)).tag(option.id)
+                }
+            }.pickerStyle(.menu).disabled(!editorActions.available || editorActions.hasUnsavedSummaryEdits || (!editorActions.segmentEditMode && project.availableViewingLanguages.isEmpty))
+
             if showsCopyControls {
                 Button(editorActions.currentSectionCopyTitle, systemImage: "doc.on.doc") { editorActions.copyCurrentSection() }
                     .disabled(!editorActions.canRun("copy-to"))
@@ -277,28 +276,7 @@ struct LanguageResultControls: View {
             if editorActions.hasUnsavedSummaryEdits {
                 Text("Save or cancel summary edits first.").font(.caption).foregroundStyle(.secondary)
             }
-            Picker(editorActions.segmentEditMode ? "Edit Project Language" : "View Project Language", selection: Binding(get: {
-                editorActions.segmentEditMode || project.availableViewingLanguages.contains(project.languageCode) ? project.languageCode : "unavailable"
-            }, set: { code in if code != "unavailable" { run("select-language", ["--language", code]) } })) {
-                if !editorActions.segmentEditMode && !project.availableViewingLanguages.contains(project.languageCode) {
-                    Text("No saved content selected").tag("unavailable")
-                }
-                ForEach(OutputLanguage.options.filter { editorActions.segmentEditMode || project.availableViewingLanguages.contains($0.id) }) { option in
-                    Text(project.viewingLanguageTitle(option.id)).tag(option.id)
-                }
-            }.pickerStyle(.menu).disabled(!editorActions.available || editorActions.hasUnsavedSummaryEdits || (!editorActions.segmentEditMode && project.availableViewingLanguages.isEmpty))
-            if editorActions.segmentEditMode {
-                Button("Keep All Sections in Sync") { run("sync-section-languages") }
-                    .help("Return every section to Follow Project Language; saved results are preserved")
-                    .disabled(!editorActions.canChangeLanguage)
-            }
             ForEach(visibleKinds, id: \.self) { kind in
-                OutputLanguagePicker(title: "\(SavedLanguageResult.kindTitle(kind)) Generation Language", selection: Binding(get: {
-                    project.sectionLanguages?[kind] ?? "project"
-                }, set: { code in
-                    let arguments = code == "project" ? ["--section", kind, "--follow-project"] : ["--section", kind, "--language", code]
-                    run("select-section-language", arguments)
-                }), includesFollowProject: true).disabled(!editorActions.canChangeLanguage)
                 let overview = editorActions.activeSection == "ad-overview"
                 let code = overview ? project.overviewLanguageCode : project.languageCode
                 let results = project.languageResults(kind: kind, language: code, includingDrafts: true)
@@ -321,9 +299,8 @@ struct LanguageResultControls: View {
                         .font(.caption).foregroundStyle(.secondary)
                 }
             }
-            let drafts = project.savedLanguageResults.filter { visibleKinds.contains($0.kind) && $0.state == "draft" && (resultFilter == "all" || $0.language == resultFilter) }
-            if project.savedLanguageResults.contains(where: { visibleKinds.contains($0.kind) && $0.state == "draft" }) {
-                OutputLanguagePicker(title: "Review language filter", selection: $resultFilter, includesAll: true)
+            let drafts = project.savedLanguageResults.filter { visibleKinds.contains($0.kind) && $0.state == "draft" && $0.language == project.languageCode }
+            if !drafts.isEmpty {
                 ForEach(drafts) { result in
                     Button("Review \(OutputLanguage.title(result.language)) \(result.kindTitle)…") { review = result }
                         .disabled(editorActions.hasUnsavedSummaryEdits || !editorActions.available)
@@ -475,7 +452,7 @@ struct LanguageCopyView: View {
     let selection: LanguageCopySelection
     let canCopy: () -> Bool
     @Environment(\.dismiss) private var dismiss
-    @State private var source: String
+    private var source: String { project.languageCode }
     @State private var target: String
     @State private var kinds: Set<String>
     @State private var versions: [String: String] = [:]
@@ -485,7 +462,6 @@ struct LanguageCopyView: View {
 
     init(studio: StudioModel, project: StudioProject, selection: LanguageCopySelection, canCopy: @escaping () -> Bool) {
         self.studio = studio; self.project = project; self.selection = selection; self.canCopy = canCopy
-        _source = State(initialValue: project.languageCode)
         _target = State(initialValue: project.languageCode == "auto" ? "en" : project.languageCode)
         _kinds = State(initialValue: Set(selection.kinds))
         _selectedOnly = State(initialValue: false)
@@ -505,9 +481,6 @@ struct LanguageCopyView: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 18) {
             Text("Copy and Translate").font(.title2.bold()).accessibilityAddTraits(.isHeader).accessibilityHeading(.h1)
-            OutputLanguagePicker(title: "Source Language", selection: $source)
-                .disabled(selectedOnly)
-                .onChange(of: source) { versions = [:] }
             Toggle("Translate Text", isOn: $translateText)
                 .onChange(of: translateText) { if translateText && target == "auto" { target = "en" } }
             OutputLanguagePicker(title: "Target Language", selection: $target, includesAuto: !translateText)
@@ -516,7 +489,7 @@ struct LanguageCopyView: View {
             } else if translateText && !studio.hasValidApiKey {
                 Text(studio.hasApiKey ? "Gemini is unavailable. Check connection and API key." : "Add a Gemini API key in Settings.").font(.caption).foregroundStyle(.secondary)
             }
-            if !selection.segmentIDs.isEmpty { Toggle("Selected Segments Only", isOn: $selectedOnly).onChange(of: selectedOnly) { if selectedOnly { source = project.languageCode; versions = [:] } } }
+            if !selection.segmentIDs.isEmpty { Toggle("Selected Segments Only", isOn: $selectedOnly).onChange(of: selectedOnly) { if selectedOnly { versions = [:] } } }
             HStack {
                 Text("Content").font(.headline).accessibilityAddTraits(.isHeader).accessibilityHeading(.h2)
                 Spacer()
@@ -655,10 +628,7 @@ extension StudioProject {
             accessibilityLabel: "\(OutputLanguage.title(code)): \(count) \(name.lowercased()) \(kind == "transcript" ? "segments" : "characters"). \(name) \(state) in the selected result.")
     }
     func inspectorContentStatuses(section: String) -> [InspectorContentStatus] {
-        guard let kind = InspectorContentStatus.kind(for: section) else { return [] }
-        let codes = Set(savedLanguageResults.filter { $0.kind == kind && $0.hasContent }.map(\.language)).union([languageCode])
-        return codes.sorted { $0 == languageCode ? $1 != languageCode : $1 == languageCode ? false : $0 < $1 }
-            .compactMap { inspectorContentStatus(section: section, language: $0) }
+        [inspectorContentStatus(section: section, language: languageCode)].compactMap { $0 }
     }
     func segmentNumbers(isDescription: Bool) -> [String: Int] {
         Dictionary(uniqueKeysWithValues: (isDescription ? cues : transcript).enumerated().map { ($0.element.id, $0.offset + 1) })

@@ -27,15 +27,6 @@ struct AboutSettingsView: View {
         } header: { Text("VidiStudio").accessibilityAddTraits(.isHeader).accessibilityHeading(.h2) }
 
         Section {
-            if let shortcut = StudioShortcut.editor.first(where: { $0.id == "jump-to-time" }) {
-                LabeledContent(shortcut.title, value: shortcut.spoken)
-                    .accessibilityElement(children: .ignore)
-                    .accessibilityLabel("\(shortcut.title): \(shortcut.spoken)")
-                    .accessibilityIdentifier("about-jump-time-shortcut")
-            }
-        } header: { Text("Keyboard shortcuts").accessibilityAddTraits(.isHeader).accessibilityHeading(.h2) }
-
-        Section {
             Text("VidiStudio bundles FFmpeg and FFprobe for media processing and export.")
             if let mediaLicense {
                 LabeledContent("Bundled version", value: mediaLicense.version)
@@ -51,6 +42,10 @@ struct AboutSettingsView: View {
                 openLicenseFile("FFmpeg-GPLv3.txt")
             }
             .accessibilityHint("Opens the GPL version 3 license included with the bundled FFmpeg build")
+            .contextMenu {
+                Button("Open FFmpeg License") { openLicenseFile("FFmpeg-GPLv3.txt") }
+                    .accessibilityIdentifier("about-ffmpeg-license")
+            }
             Link("FFmpeg licensing and source information", destination: URL(string: "https://ffmpeg.org/legal.html")!)
         } header: { Text("FFmpeg").accessibilityAddTraits(.isHeader).accessibilityHeading(.h2) }
 
@@ -81,9 +76,20 @@ struct AboutSettingsView: View {
             Button("Open Third-Party License Index", systemImage: "list.bullet.rectangle") {
                 openLicenseFile("THIRD-PARTY-LICENSES.txt")
             }
+            .contextMenu {
+                Button("Open Third-Party License Index") { openLicenseFile("THIRD-PARTY-LICENSES.txt") }
+                    .accessibilityIdentifier("about-license-index")
+            }
             Button("Show All License Files in Finder", systemImage: "folder") {
                 guard let licensesURL else { return }
                 open(licensesURL)
+            }
+            .contextMenu {
+                Button("Show All License Files in Finder") {
+                    guard let licensesURL else { return }
+                    open(licensesURL)
+                }
+                .accessibilityIdentifier("about-license-folder")
             }
         } header: { Text("Third-party notices").accessibilityAddTraits(.isHeader).accessibilityHeading(.h2) }
         .alert("Could Not Open License File", isPresented: Binding(

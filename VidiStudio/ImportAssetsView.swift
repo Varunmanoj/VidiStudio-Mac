@@ -221,9 +221,6 @@ struct ImportExistingAssetsView: View {
                 .font(.callout).foregroundStyle(.secondary)
                 .padding(.horizontal, 20).padding(.bottom, 10)
             Form {
-                Section("Language") {
-                    OutputLanguagePicker(selection: Binding(get: { selection.language ?? project.languageCode }, set: { selection.language = $0 }))
-                }
                 if project.isYouTubeURLProject && (scope == .all || scope == .originalAudio) {
                     Section("Original audio") {
                         OriginalAudioImportFields(selection: $selection)
