@@ -54,6 +54,14 @@ final class ConnectivityService {
     }
 
     func state(_ service: OnlineService) -> ConnectionState { states[service] ?? .checking }
+    /// A browser can launch the app before its initial reachability result arrives.
+    func waitForInitialCheck(_ service: OnlineService) async {
+        guard state(service) == .checking else { return }
+        check()
+        for await result in Observations({ self.state(service) }) {
+            if result != .checking { return }
+        }
+    }
     func available(_ service: OnlineService) -> Bool { state(service) == .available }
     func reason(_ service: OnlineService) -> String? {
         switch state(service) {

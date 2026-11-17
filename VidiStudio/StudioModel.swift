@@ -1501,11 +1501,39 @@ struct OpenProjectReference: Identifiable, Equatable {
 
 @MainActor @Observable
 final class OpenProjectRegistry {
+    enum SharedVideoOpening: Equatable {
+        case preparing
+        case openingEditor(String)
+    }
+    var sharedVideoOpening: SharedVideoOpening? {
+        didSet { if sharedVideoOpening == nil { sharedVideoPanel?.orderOut(nil) } }
+    }
+    private var sharedVideoPanel: SharedVideoProgressPanel?
+    private var sharedVideoStarted = ContinuousClock.now
+
+    func beginSharedVideoOpening() {
+        sharedVideoStarted = .now
+        sharedVideoOpening = .preparing
+        if sharedVideoPanel == nil { sharedVideoPanel = SharedVideoProgressPanel() }
+        sharedVideoPanel?.showOverCurrentWindow()
+    }
+
+    func sharedEditorDidOpen(_ id: String) {
+        guard sharedVideoOpening == .openingEditor(id) else { return }
+        let started = sharedVideoStarted
+        Task { @MainActor in
+            // Keep a fast reopen perceptible without postponing the editor.
+            try? await Task.sleep(until: started.advanced(by: .milliseconds(450)), clock: .continuous)
+            if sharedVideoStarted == started { sharedVideoOpening = nil }
+        }
+    }
+
     private(set) var projects: [OpenProjectReference] = []
     private var owners: [String: Set<UUID>] = [:]
     private var languageEditors: [UUID: EditorShortcutActions] = [:]
 
     func open(_ id: String, name: String, folder: URL? = nil, owner: UUID? = nil, actions: EditorShortcutActions? = nil) {
+        sharedEditorDidOpen(id)
         if let owner { owners[id, default: []].insert(owner); if let actions { languageEditors[owner] = actions } }
         if let index = projects.firstIndex(where: { $0.id == id }) {
             if projects[index].name != name { projects[index].name = name }
@@ -2750,7 +2778,7 @@ final class StudioModel {
         cleanupURL: URL? = nil,
         completion: ((StudioProject?) -> Void)? = nil
     ) {
-        guard !busy else { return }
+        guard !busy else { completion?(nil); return }
         youtubeAudioExportRecovery = nil
         var extra = command == "synthesize-tts" && !extra.contains("--segment") && !extra.contains("--changed") && !extra.contains("--regenerate-all")
             ? extra + ["--regenerate-all"] : extra

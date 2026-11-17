@@ -4,9 +4,9 @@ import argparse
 import re
 from pathlib import Path
 
-MAC_FILES = ('SettingsView.swift', 'ImportAssetsView.swift', 'ExportOptionsMenu.swift',
+MAC_FILES = ('ContentView.swift', 'SettingsView.swift', 'ImportAssetsView.swift', 'ExportOptionsMenu.swift',
              'GeminiAPISettingsView.swift', 'SarvamVoiceSettingsView.swift', 'SystemVoiceCatalog.swift', 'PiperVoiceCatalog.swift', 'GeminiVoicePreview.swift', 'SarvamVoiceBrowser.swift', 'VoiceSampleSession.swift')
-WIN_FILES = ('Views/CompactDialogLayout.cs', 'Views/WindowAppearance.cs',
+WIN_FILES = ('MainWindow.xaml', 'Views/CompactDialogLayout.cs', 'Views/WindowAppearance.cs',
              'Views/SettingsDialog.Compact.cs', 'Views/SettingsDialog.Layout.cs',
              'Views/SettingsDialog.ElevenLabs.cs', 'Views/SettingsDialog.SarvamBrowser.cs', 'Views/SettingsDialog.SpeechLayout.cs', 'MainWindow.DialogLayoutSmoke.cs', 'Views/SettingsDialog.cs', 'Views/SettingsDialog.Sarvam.cs', 'Views/PiperVoicesDialog.cs', 'Views/PiperDeleteVoicesDialog.cs', 'Services/VoiceSampleSession.cs')
 
@@ -39,6 +39,11 @@ def swift_blocks(text, name):
                     break
 
 def validate(source):
+    if ('ProgressView("Opening YouTube project…")' not in source['Mac/ContentView.swift']
+            or 'x:Name="SharedVideoRing"' not in source['Windows/MainWindow.xaml']
+            or 'Text="Opening YouTube project…" ' not in source['Windows/MainWindow.xaml']):
+        raise ValueError("Missing shared YouTube project progress indicator")
+
     def require(path, token, reason):
         if token not in source[path]: raise ValueError(path + ': ' + reason)
     for path in ('SettingsView.swift', 'ImportAssetsView.swift', 'ExportOptionsMenu.swift'):

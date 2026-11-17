@@ -22,6 +22,11 @@ class DesktopUILayoutParityTests(unittest.TestCase):
         changed = dict(self.source); changed[path] = changed[path].replace(before, after)
         with self.assertRaisesRegex(ValueError, expected): contract.validate(changed)
 
+    def test_shared_project_progress_on_both_desktops(self):
+        for path, marker in [('Mac/ContentView.swift', 'ProgressView("Opening YouTube project…")'),
+                             ('Windows/MainWindow.xaml', 'x:Name="SharedVideoRing"')]:
+            self.mutated(path, marker, '', 'shared YouTube project progress')
+
     def test_sample_players_cannot_overlap_or_leak_the_shared_session(self):
         for file in ['SystemVoiceCatalog.swift','PiperVoiceCatalog.swift','GeminiVoicePreview.swift','SarvamVoiceSettingsView.swift']:
             with self.subTest(file=file):

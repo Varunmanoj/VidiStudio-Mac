@@ -44,3 +44,25 @@ test("invalid toolbar input shows the exact accessible error without a handoff",
     assert.ok(close.focused);
   }
 });
+
+test("a desktop-only release keeps the running extension; a changed extension version reloads it", async () => {
+  const loaded = {name: "Describe with Vidi Studio", version: "1.0.346", background: {service_worker: "local-worker.js"}};
+  let version = loaded.version;
+  let reloads = 0;
+  const event = {addListener() {}};
+  const context = {
+    importScripts() {},
+    chrome: {
+      alarms: {onAlarm: event},
+      runtime: {onInstalled: event, onStartup: event, getManifest: () => loaded,
+        getURL: name => name, reload: () => reloads++}
+    },
+    fetch: async () => ({ok: true, json: async () => ({...loaded, version})})
+  };
+  const check = vm.runInNewContext(read("local-worker.js") + "\ncheckInstalledVersion", context);
+  await check();
+  assert.equal(reloads, 0);
+  version = "1.0.347";
+  await check();
+  assert.equal(reloads, 1);
+});

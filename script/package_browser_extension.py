@@ -19,14 +19,10 @@ def main():
     destinations.add_argument("--windows-payload", type=Path)
     parser.add_argument("--output", type=Path, default=ROOT / "dist/browser-extensions")
     args = parser.parse_args()
-    project = (ROOT / "VidiStudio.xcodeproj/project.pbxproj").read_text()
-    version, = set(re.findall(r"MARKETING_VERSION = ([\d.]+);", project))
     files = {name: (SOURCE / name).read_bytes() for name in (
         "background.js", "youtube.js", "open.html", "open.css", "open.js",
         "icons/16.png", "icons/32.png", "icons/48.png", "icons/128.png")}
     manifest = json.loads((SOURCE / "manifest.json").read_text())
-    if manifest["version"] != version:
-        parser.error("Browser version differs from the desktop app. Run script/sync_version.py --sync.")
     if args.local_resources or args.windows_payload:
         manifest["permissions"].append("alarms")
         manifest["background"] = {"service_worker": "local-worker.js"}
@@ -49,7 +45,8 @@ def main():
         for name, data in files.items():
             target = resources / name
             target.parent.mkdir(parents=True, exist_ok=True)
-            target.write_bytes(data)
+            if not target.exists() or target.read_bytes() != data:
+                target.write_bytes(data)
     else:
         args.output.mkdir(parents=True, exist_ok=True)
         names = [f"Describe-with-Vidi-Studio-{browser}.zip" for browser in ("Chrome", "Edge")]
@@ -58,12 +55,14 @@ def main():
             for name in names:
                 with ZipFile(stage / name, "w", compression=ZIP_DEFLATED) as archive:
                     for resource, data in files.items():
-                        archive.writestr(resource, data)
+                        archive.writestr(ZipInfo(resource), data, compress_type=ZIP_DEFLATED)
                 with ZipFile(stage / name) as archive:
                     if archive.testzip() or json.loads(archive.read("manifest.json")) != manifest:
                         raise ValueError(f"Invalid staged browser package: {name}")
             for name in names:
-                (stage / name).replace(args.output / name)
+                destination = args.output / name
+                if not destination.exists() or destination.read_bytes() != (stage / name).read_bytes():
+                    (stage / name).replace(destination)
                 print(args.output / name)
         # Remove only archives named by earlier versions of this packager.
         previous = re.compile(r"(?:Open-in-VidiStudio|Describe-with-Vidi-Studio)-(?:Chrome|Edge)-[0-9]+(?:\.[0-9]+){2,3}\.zip")

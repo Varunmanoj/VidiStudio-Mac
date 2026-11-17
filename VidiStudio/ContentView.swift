@@ -349,8 +349,39 @@ private struct NewProjectView: View {
     }
 }
 
+@MainActor
+final class SharedVideoProgressPanel: NSPanel {
+    init() {
+        let message = "Opening YouTube project…"
+        let content = NSHostingView(rootView: ProgressView("Opening YouTube project…")
+            .progressViewStyle(.circular)
+            .accessibilityLabel(message)
+            .accessibilityIdentifier("shared-youtube-opening")
+            .padding(20))
+        super.init(contentRect: NSRect(origin: .zero, size: content.fittingSize),
+                   styleMask: [.titled, .nonactivatingPanel], backing: .buffered, defer: false)
+        title = message
+        titleVisibility = .hidden
+        titlebarAppearsTransparent = true
+        isFloatingPanel = true
+        isReleasedWhenClosed = false
+        contentView = content
+    }
+
+    func showOverCurrentWindow() {
+        if let frame = NSApp.keyWindow?.frame {
+            setFrameOrigin(NSPoint(x: frame.midX - self.frame.width / 2, y: frame.midY - self.frame.height / 2))
+        } else {
+            center()
+        }
+        orderFront(nil)
+        displayIfNeeded()
+    }
+}
+
 struct ContentView: View {
     @Bindable var studio: StudioModel
+    let openProjects: OpenProjectRegistry
     @Environment(\.openWindow) private var openWindow
     @Environment(\.openSettings) private var openSettings
     @State private var search = ""
@@ -383,7 +414,7 @@ struct ContentView: View {
             studio.error = "VidiStudio can create a project from one local video file or a supported YouTube video link."
             return
         }
-        guard !studio.busy else {
+        guard !studio.busy, openProjects.sharedVideoOpening == nil else {
             studio.errorTitle = "VidiStudio Is Busy"
             studio.error = "Wait for the current operation to finish, then share the video again."
             return
@@ -402,12 +433,27 @@ struct ContentView: View {
             }
         case .youtube(let webURL):
             let rawURL = webURL.absoluteString
-            if let existing = studio.existingProject(forYouTubeURL: rawURL) {
-                openEditor(existing)
-                return
-            }
-            _ = studio.importYouTube(at: rawURL) { project in
-                if let project { openEditor(project) }
+            openProjects.beginSharedVideoOpening()
+            AccessibilityNotification.Announcement("Opening YouTube project…").post()
+            Task { @MainActor in
+                @MainActor func finish(_ project: StudioProject?) {
+                    guard let project else { openProjects.sharedVideoOpening = nil; return }
+                    openProjects.sharedVideoOpening = .openingEditor(project.id)
+                    openEditor(project)
+                    if studio.error != nil {
+                        openProjects.sharedVideoOpening = nil
+                    } else if openProjects.projects.contains(where: { $0.id == project.id }) {
+                        openProjects.sharedEditorDidOpen(project.id)
+                    }
+                }
+                if let existing = studio.existingProject(forYouTubeURL: rawURL) {
+                    finish(existing)
+                } else {
+                    await ConnectivityService.shared.waitForInitialCheck(.youtube)
+                    if !studio.importYouTube(at: rawURL, completion: finish) {
+                        openProjects.sharedVideoOpening = nil
+                    }
+                }
             }
         }
     }
@@ -515,6 +561,7 @@ struct ContentView: View {
             default: break
             }
         }
+        .handlesExternalEvents(preferring: ["*"], allowing: ["*"])
         .onOpenURL(perform: handleSharedURL)
         .task {
             studio.refreshProjectIntegrity()

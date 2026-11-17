@@ -56,13 +56,14 @@ struct VidiStudioApp: App {
     }
     var body: some Scene {
         Window("VidiStudio", id: "studio") {
-            ContentView(studio: studio)
+            ContentView(studio: studio, openProjects: openProjects)
                 .background(MainWindowLifetime().frame(width: 0, height: 0))
                 .writingToolsBehavior(.disabled)
                 .writingToolsAffordanceVisibility(.hidden)
                 .frame(minWidth: 760, minHeight: 560)
                 .task { YouTubeService.expireCaches(library: studio.settings.libraryPath) }
         }
+        .handlesExternalEvents(matching: ["*"])
         .defaultSize(width: 1200, height: 780)
         .windowToolbarStyle(.automatic)
         .commands {

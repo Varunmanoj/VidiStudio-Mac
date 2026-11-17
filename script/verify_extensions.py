@@ -64,8 +64,16 @@ def verify(app, previous=None, registered=False):
     safari = app / "Contents/PlugIns/VidiStudioSafariExtension.appex"
     resources = safari / "Contents/Resources"
     manifest = json.loads((resources / "manifest.json").read_text())
-    if manifest["version"] != version(info(app))[0] or manifest["name"] != info(safari)["CFBundleDisplayName"]:
-        raise ValueError("Safari Web Extension manifest name/version differs from the signed bundle")
+    source = Path(__file__).resolve().parents[1] / "BrowserExtension/manifest.json"
+    if manifest != json.loads(source.read_text()) or manifest["name"] != info(safari)["CFBundleDisplayName"]:
+        raise ValueError("Safari Web Extension manifest differs from browser release metadata")
+    local = app / "Contents/Resources/BrowserExtension"
+    desktop_manifest = json.loads((local / "manifest.json").read_text())
+    if (desktop_manifest["version"] != manifest["version"]
+            or desktop_manifest["permissions"] != [*manifest["permissions"], "alarms"]
+            or desktop_manifest["background"] != {"service_worker": "local-worker.js"}
+            or not (local / "local-worker.js").is_file()):
+        raise ValueError("The desktop-managed Chromium extension is incomplete or out of sync")
     for item in [manifest["background"]["service_worker"], manifest["action"]["default_popup"], *manifest["icons"].values()]:
         if not (resources / item).is_file():
             raise ValueError(f"Safari Web Extension resource is missing: {item}")

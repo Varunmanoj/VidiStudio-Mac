@@ -45,7 +45,10 @@ struct StudioProject {
         precondition(needs("inspect-original-audio").isEmpty)
         let connection = ConnectivityService(monitoring: false, probe: { $0 != .gemini })
         precondition(connection.state(.youtube) == .checking)
+        await connection.waitForInitialCheck(.youtube)
+        precondition(connection.available(.youtube))
         connection.routeChanged(false)
+        await connection.waitForInitialCheck(.youtube)
         precondition(OnlineService.allCases.allSatisfy { connection.state($0) == .offline })
         for provider in [OnlineService.gemini, .sarvam, .elevenlabs] {
             let alert = connection.voiceFailureAlert(provider, fallback: "Sample failed")

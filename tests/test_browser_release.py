@@ -27,13 +27,12 @@ class BrowserRelease(unittest.TestCase):
             shutil.copy(ROOT / "script/package_browser_extension.py", mac / "script")
             manifest_path = mac / "BrowserExtension/manifest.json"
             sync = [sys.executable, ROOT / "script/sync_version.py", "--mac-root", mac, "--windows-root", windows]
+            initial = manifest_path.read_bytes()
             subprocess.run([*sync, "--bump"], check=True, capture_output=True)
-            manifest = json.loads(manifest_path.read_text())
-            self.assertNotEqual(manifest["version"], json.loads((ROOT / "BrowserExtension/manifest.json").read_text())["version"])
-            manifest_path.write_text(json.dumps(dict(manifest, version="0.0.1")))
-            self.assertNotEqual(subprocess.run([*sync, "--check"], capture_output=True).returncode, 0)
             subprocess.run([*sync, "--sync"], check=True, capture_output=True)
-            self.assertEqual(json.loads(manifest_path.read_text()), manifest)
+            subprocess.run([*sync, "--check", "--strict"], check=True, capture_output=True)
+            self.assertEqual(manifest_path.read_bytes(), initial)
+            manifest = json.loads(initial)
             package = [sys.executable, mac / "script/package_browser_extension.py"]
             safari = mac / "safari"
             output = mac / "dist/browser-extensions"
@@ -44,7 +43,10 @@ class BrowserRelease(unittest.TestCase):
                 for old_name in ("Open-in-VidiStudio", "Describe-with-Vidi-Studio"):
                     (output / f"{old_name}-{browser}-1.0.343.zip").write_bytes(b"old release")
             subprocess.run(package, check=True, capture_output=True)
+            current = list(output.glob("Describe-with-Vidi-Studio-*.zip"))
+            first_build = [p.stat().st_mtime_ns for p in current]
             subprocess.run(package, check=True, capture_output=True)
+            self.assertEqual(first_build, [p.stat().st_mtime_ns for p in current])
             self.assertEqual(unrelated.read_bytes(), b"unrelated")
             self.assertEqual({p.name for p in output.iterdir()}, {
                 unrelated.name, "Describe-with-Vidi-Studio-Chrome.zip", "Describe-with-Vidi-Studio-Edge.zip"
@@ -61,3 +63,16 @@ class BrowserRelease(unittest.TestCase):
                     self.assertEqual(json.loads(z.read("manifest.json")), manifest)
                     for name in z.namelist():
                         self.assertEqual(z.read(name), (safari / name).read_bytes())
+
+            local = mac / "installed/BrowserExtension"
+            embedded = windows / "Assets/BrowserExtension.zip"
+            subprocess.run([*package, "--local-resources", local], check=True, capture_output=True)
+            subprocess.run([*package, "--windows-payload", embedded], check=True, capture_output=True)
+            local_manifest = json.loads((local / "manifest.json").read_text())
+            self.assertEqual(local_manifest["version"], manifest["version"])
+            self.assertEqual(local_manifest["permissions"], [*manifest["permissions"], "alarms"])
+            self.assertEqual(local_manifest["background"]["service_worker"], "local-worker.js")
+            with ZipFile(embedded) as z:
+                self.assertIn("local-worker.js", z.namelist())
+                for name in z.namelist():
+                    self.assertEqual(z.read(name), (local / name).read_bytes())
