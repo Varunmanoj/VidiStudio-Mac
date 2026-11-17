@@ -4,14 +4,42 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>Describe with Vidi Studio</title>
+  <link rel="icon" href="icons/32.png">
   <link rel="stylesheet" href="open.css">
   <script src="youtube.js" defer></script>
   <script src="open.js" defer></script>
 </head>
-<body><main>
-  <h1>Describe with Vidi Studio</h1>
-  <p id="error" role="alert" aria-atomic="true"></p>
-  <a id="launch" hidden>Describe with Vidi Studio</a>
-  <button type="button" id="close">Close</button>
-</main></body>
+<body>
+  <main aria-labelledby="title">
+    <header>
+      <div class="art" aria-hidden="true">
+        <span class="wave"></span>
+        <img src="icons/128.png" width="82" height="82" alt="">
+        <span class="wave"></span>
+      </div>
+      <h1 id="title">Describe with Vidi Studio</h1>
+    </header>
+    <section id="details" aria-label="Selected video" hidden>
+      <p>Open this video in the desktop app to work on its transcript, captions, or audio description.</p>
+      <div class="video">
+        <div class="poster">
+          <img id="thumbnail" alt="YouTube video thumbnail" width="320" height="180"
+               crossorigin="anonymous" referrerpolicy="no-referrer" hidden>
+          <span class="play" aria-hidden="true"></span>
+        </div>
+        <div class="video-info">
+          <span class="video-label">YouTube video</span>
+          <strong id="video-title" dir="auto" aria-live="polite">Loading video title…</strong>
+          <span id="source" dir="ltr"></span>
+        </div>
+      </div>
+      <p class="note">VidiStudio opens the existing project for this video or creates a new one.</p>
+    </section>
+    <p id="error" role="alert" aria-atomic="true"></p>
+    <div class="actions">
+      <a id="launch" hidden>Describe with Vidi Studio</a>
+      <button type="button" id="close">Close</button>
+    </div>
+  </main>
+</body>
 </html>

@@ -12,7 +12,7 @@
 
 **Single purpose** Open the YouTube video the user selects in the installed desktop editor.
 
-**Permissions and privacy** The activeTab permission reads the active page URL when the user invokes the toolbar action. The contextMenus permission adds the page and link commands. Link validation runs locally. The extension hands the canonical YouTube video URL to the operating system using the registered VidiStudio protocol. It stores no history or credentials, injects no page scripts, loads no remote code, and sends no analytics. The desktop app handles import and video availability.
+**Permissions and privacy** The activeTab permission reads the active page URL when the user invokes the toolbar action. The contextMenus permission adds the page and link commands. Link validation runs locally. For valid videos, the panel requests the title from YouTube’s public oEmbed endpoint using the canonical link, and loads the selected video’s thumbnail from i.ytimg.com. Both requests omit cookies and the referrer. The extension hands the canonical YouTube video URL to the operating system using the registered VidiStudio protocol. It stores no history or credentials, injects no page scripts, loads no remote code, and sends no analytics. The desktop app handles import and video availability.
 
 ## Packaging and reviewer instructions
 
@@ -20,6 +20,6 @@ Run `python3 script/package_browser_extension.py` from the Mac checkout. The cur
 
 The desktop app also delivers an unpacked edition for local automatic updates. Its additional alarms permission schedules a local version check. See the Projects Help topic for the app-managed folders. Store ZIPs retain their store update mechanism.
 
-With the desktop app installed, use Describe with Vidi Studio on a public video. Accept the external-app prompt and verify the editor shows that video. Repeat from a link on another site to verify the same project reopens. Repeat with a link to a channel or an unrelated site to hear the invalid-link message. Press Escape or choose Close. On a valid video, declining the browser prompt should leave the desktop library untouched.
+With the desktop app installed, use Describe with Vidi Studio on a public video. Check the selected video title and link, choose Describe with Vidi Studio in the centered panel and accept the external-app prompt and verify the editor shows that video. Repeat from a link on another site to verify the same project reopens. Repeat with a link to a channel or an unrelated site to hear the invalid-link message. Press Escape or choose Close. On a valid video, Cancel dismisses the panel before it sends a request to the desktop. Declining the subsequent browser prompt also leaves the desktop library untouched.
 
 The store screenshot is in [browser-extension-store/invalid-link.png](browser-extension-store/invalid-link.png). It shows the actual extension feedback and Close control. Use the 128-pixel PNG from the extension for the store icon. The product privacy page is [VidiStudio Privacy](https://vidistudio.varunmanojkumar.in/privacy).

@@ -1,8 +1,89 @@
-:root { color-scheme: light dark; font: 100% system-ui, sans-serif; }
-body { min-width: 16rem; margin: 1rem; }
-main { max-width: 30rem; }
-h1 { font-size: 1.15rem; }
-button, a { font: inherit; }
-button { padding: .3rem .7rem; }
-a { margin-inline-end: .8rem; }
-:focus-visible { outline: 3px solid Highlight; outline-offset: 2px; }
+:root {
+  color-scheme: light dark;
+  font: 100%/1.5 Inter, "Segoe UI", system-ui, sans-serif;
+  --page: #f1f3fa;
+  --surface: #fff;
+  --ink: #20213b;
+  --muted: #54566f;
+  --border: #d9dce9;
+  --wash: #f4f4fb;
+  --accent: #4c40ba;
+  --focus: #2a46b1;
+  --on-accent: #fff;
+}
+@media (prefers-color-scheme: dark) {
+  :root {
+    --page: #121322;
+    --surface: #202134;
+    --ink: #f5f4ff;
+    --muted: #c3c2d7;
+    --border: #45465d;
+    --wash: #292a40;
+    --accent: #c5baff;
+    --focus: #d6d1ff;
+    --on-accent: #211945;
+  }
+}
+* { box-sizing: border-box; }
+[hidden] { display: none !important; }
+body {
+  margin: 0; min-height: 100vh; display: grid; place-items: center; padding: 1.5rem;
+  background: radial-gradient(ellipse at 50% 32%, color-mix(in srgb, var(--accent) 12%, var(--page)), var(--page) 67%);
+  color: var(--ink);
+}
+main {
+  width: min(100%, 31rem); padding: clamp(1.35rem, 5vw, 2.75rem);
+  background: var(--surface); border: 1px solid var(--border); border-radius: 1.5rem;
+  box-shadow: 0 1.3rem 4.5rem #13182815; text-align: center;
+}
+.art { display: flex; align-items: center; justify-content: center; gap: .8rem; margin-bottom: 1rem; }
+.art img { flex: none; border-radius: 1.15rem; background: #fff; padding: .25rem; border: 1px solid #dddde8; }
+.wave {
+  width: 4rem; height: 2.1rem; opacity: .65;
+  background: repeating-linear-gradient(90deg, var(--accent) 0 2px, transparent 2px 5px);
+  clip-path: polygon(0 46%, 14% 38%, 25% 44%, 39% 20%, 49% 36%, 61% 0, 76% 32%, 89% 19%, 100% 42%, 100% 58%, 89% 81%, 76% 68%, 61% 100%, 49% 64%, 39% 80%, 25% 56%, 14% 62%, 0 54%);
+}
+.wave:last-child { transform: scaleX(-1); }
+h1 { font-size: clamp(1.5rem, 4vw, 2rem); line-height: 1.15; letter-spacing: -.035em; margin: 0; }
+p { color: var(--muted); margin: .85rem 0 0; }
+.video {
+  display: flex; align-items: center; justify-content: center; gap: .8rem;
+  margin-top: 1.45rem; padding: .85rem; background: var(--wash); border-radius: .85rem; text-align: start;
+}
+.poster { flex: 0 0 29%; max-width: 7.5rem; aspect-ratio: 16 / 9; display: grid; place-items: center; }
+#thumbnail { width: 100%; height: 100%; object-fit: cover; border-radius: .45rem; }
+#thumbnail:not([hidden]) + .play { display: none; }
+.video-info { min-width: 0; }
+.video-label { font-size: .82rem; color: var(--muted); }
+.video strong, #source { display: block; }
+#video-title { margin: .15rem 0; font-size: 1.03rem; line-height: 1.35; overflow-wrap: anywhere; }
+#source { font-size: .86rem; color: var(--muted); overflow-wrap: anywhere; }
+.play { flex: none; display: grid; place-items: center; width: 2rem; height: 1.45rem; border-radius: .45rem; background: #c82c35; }
+.play::after { content: ""; border-block: .3rem solid transparent; border-inline-start: .49rem solid white; }
+.note { font-size: .9rem; margin: .85rem .25rem 0; }
+#error:empty { margin: 0; }
+.actions { display: flex; justify-content: center; flex-wrap: wrap; gap: .65rem; margin-top: 1.55rem; }
+.actions > * {
+  display: inline-flex; justify-content: center; align-items: center; min-height: 2.8rem; padding: .6rem 1.15rem;
+  font: inherit; font-weight: 650; font-size: .95rem; line-height: 1.3; border-radius: .75rem;
+  border: 1px solid var(--border); background: var(--surface); color: var(--ink); text-decoration: none; cursor: pointer;
+}
+#launch { background: var(--accent); color: var(--on-accent); border-color: var(--accent); }
+.actions > :hover { box-shadow: inset 0 0 0 2px currentColor; }
+:focus-visible { outline: 3px solid var(--focus); outline-offset: 3px; }
+.popup { width: 22rem; }
+.popup body { min-height: 0; padding: 0; }
+.popup main { padding: 1.4rem; border: 0; border-radius: 0; box-shadow: none; }
+.popup .actions { gap: .55rem; }
+@media (forced-colors: active) {
+  #launch, .actions button { border: 1px solid ButtonText; }
+  :focus-visible { outline-color: Highlight; }
+}
+
+@media (max-height: 620px) {
+  body { padding: .85rem; }
+  main { padding-block: 1.35rem; }
+  .art { margin-bottom: .7rem; }
+  .art img { width: 4rem; height: 4rem; }
+  .video, .actions { margin-top: 1rem; }
+}

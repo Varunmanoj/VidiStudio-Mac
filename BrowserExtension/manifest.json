@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "Describe with Vidi Studio",
-  "version": "1.0.346",
+  "version": "1.0.349",
   "description": "Open a YouTube video from the current page or a link in the VidiStudio desktop editor.",
   "permissions": ["activeTab", "contextMenus"],
   "action": {

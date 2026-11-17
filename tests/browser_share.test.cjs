@@ -32,7 +32,7 @@ test("invalid toolbar input shows the exact accessible error without a handoff",
     const close = {addEventListener() {}, setAttribute(name, value) {this[name] = value;}, focus() {this.focused = true;}};
     const error = {};
     const views = {error, close};
-    const document = {addEventListener() {}, getElementById(id) {
+    const document = {documentElement: {classList: {add() {}}}, addEventListener() {}, getElementById(id) {
       assert.ok(id in views, "an invalid target must never access the launch link");
       return views[id];
     }};
@@ -65,4 +65,42 @@ test("a desktop-only release keeps the running extension; a changed extension ve
   version = "1.0.347";
   await check();
   assert.equal(reloads, 1);
+});
+
+test("valid video waits for the user's choice and Cancel dismisses the originating view", async () => {
+  for (const hash of ["", "#dQw4w9WgXcQ"]) {
+    let cancel, removed, windowClosed = false, focused = false;
+    const elements = {
+      details: {hidden: true}, source: {}, "video-title": {},
+      thumbnail: {hidden: true, addEventListener(name, handler) {if (name === "load") this.loaded = handler;}},
+      launch: {hidden: true, focus() {focused = true;}},
+      close: {addEventListener(event, handler) {if (event === "click") cancel = handler;}}
+    };
+    const document = {documentElement: {classList: {add() {}}}, addEventListener() {}, getElementById: id => elements[id]};
+    const tabs = {query: async () => [{url: page}], getCurrent: async () => ({id: 42}), remove: async id => {removed = id;}};
+    await vm.runInNewContext(read("youtube.js") + read("open.js"), {
+      URL, document, AbortSignal, fetch: async (url, options) => {
+        assert.equal(url.origin + url.pathname, "https://www.youtube.com/oembed");
+        assert.equal(url.searchParams.get("url"), "https://www.youtube.com/watch?v=dQw4w9WgXcQ");
+        assert.equal(options.credentials, "omit");
+        assert.equal(options.referrerPolicy, "no-referrer");
+        if (hash) throw new Error("Offline");
+        return {ok: true, json: async () => ({title: "A <video> title"})};
+      }, location: {hash}, chrome: {tabs}, window: {close() {windowClosed = true;}}
+    });
+    assert.equal(elements["video-title"].textContent, hash ? "Video title unavailable" : "A <video> title");
+    assert.equal(elements.thumbnail.src, "https://i.ytimg.com/vi/dQw4w9WgXcQ/mqdefault.jpg");
+    assert.ok(elements.thumbnail.hidden);
+    elements.thumbnail.loaded();
+    assert.equal(elements.thumbnail.hidden, false);
+    assert.equal(elements.source.textContent, "youtu.be/dQw4w9WgXcQ");
+    assert.equal(elements.launch.href, "vidistudio://share?kind=youtube&source=" + encodeURIComponent("https://www.youtube.com/watch?v=dQw4w9WgXcQ"));
+    assert.equal(elements.launch.hidden, false);
+    assert.equal(elements.details.hidden, false);
+    assert.equal(elements.close.textContent, "Cancel");
+    assert.ok(focused);
+    await cancel();
+    assert.equal(windowClosed, !hash);
+    assert.equal(removed, hash ? 42 : undefined);
+  }
 });
