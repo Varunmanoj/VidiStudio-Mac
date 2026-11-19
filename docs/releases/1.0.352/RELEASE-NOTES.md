@@ -41,7 +41,7 @@ This is a **Release configuration build**, signed with the existing Apple Develo
 
 The Safari Web Extension, Share extension and Finder extension are embedded in the app at 1.0.352/build 352. Enable the Safari extension in **Safari > Settings > Extensions** and grant website access as needed. Finder/Sharing extensions may require enablement in System Settings. These permissions are not silently enabled by installation. An existing container-identity warning may need a one-time user approval; do not delete app containers to suppress it.
 
-Chrome and Edge extensions require separate browser installation/consent. Store review/draft status is not a published store listing. No desktop auto-update feed is provided by this GitHub release.
+Install **Describe with Vidi Studio** separately in your browser from the [Chrome Web Store](https://chromewebstore.google.com/detail/describe-with-vidi-studio/cpdbdailfhcbcfjmhoofbielolonncop) or [Microsoft Edge Add-ons](https://microsoftedge.microsoft.com/addons/detail/describe-with-vidi-studio/gdmkdnhfhblkjggbhngdbohpgbfecpac). No desktop auto-update feed is provided by this GitHub release.
 
 ## Runtime requirements
 

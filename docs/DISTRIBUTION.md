@@ -176,8 +176,8 @@ For developer registration conflicts, back up app data/settings and follow a del
 | Safari Web Extension | arm64 native `.appex` plus shared web resources | Not applicable | Embed in Mac app; Developer ID + notarization supports distribution outside Mac App Store |
 | Share extension / Share target | Embedded native Share `.appex` | MSIX manifest/app integration | Ships with desktop installer; user/system enablement applies |
 | Finder / Explorer | Embedded arm64 Finder `.appex` | Matching ARM64 or x64 shell DLL in MSIX | Ships with desktop installer; no browser-store listing |
-| Chrome | Same JavaScript store ZIP | Same ZIP on x64 and ARM64 | Publish Chrome Web Store listing; user approves installation |
-| Edge | Same JavaScript store ZIP | Same ZIP on x64 and ARM64 | Recommend Edge Add-ons listing; user approves installation |
+| Chrome | Same JavaScript store ZIP | Same ZIP on x64 and ARM64 | [Chrome Web Store](https://chromewebstore.google.com/detail/describe-with-vidi-studio/cpdbdailfhcbcfjmhoofbielolonncop); user approves installation |
+| Edge | Same JavaScript store ZIP | Same ZIP on x64 and ARM64 | [Microsoft Edge Add-ons](https://microsoftedge.microsoft.com/addons/detail/describe-with-vidi-studio/gdmkdnhfhblkjggbhngdbohpgbfecpac); user approves installation |
 | Firefox | Not presently built/tested | Not presently built/tested | Separate compatibility/testing and Mozilla signing if added later |
 
 Safari can be bundled in the DMG's app; a separate App Store listing is optional for this direct-download route. Users must enable it in Safari Settings and grant website access. Finder/Sharing extensions may also require enablement in System Settings. Bundling and OS registration do not silently grant browser permissions.

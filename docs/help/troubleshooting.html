@@ -40,9 +40,15 @@
 
 <h2 id="exported-audio-track-labels">An exported original track says Unknown language</h2><p>New exports store <strong>Original Audio</strong> as the source soundtrack name and preserve its language tag when known. QuickTime can append <strong>Unknown language</strong> when the source lacks a tag; VLC uses the explicit Original Audio title. AD tracks have their own language names. Export an older video again to apply the current labels. See <a href="exports.html#export-track-names">Original Audio and language labels in players</a>.</p>
 
+<h2 id="browser-extension-problems">The browser extension is missing or cannot open a YouTube video</h2>
+<p>In Chrome or Edge, check that <strong>Describe with Vidi Studio</strong> is enabled in the browser’s Extensions settings. Use the <a href="browser-extensions.html#install-chrome-edge">official Chrome and Edge store listings</a> to install it. If two copies are listed, turn off or remove the unpacked copy.</p>
+<p>Install the VidiStudio desktop app and open it once. In your browser, try a public or unlisted YouTube video page and allow VidiStudio to open if prompted. You can also paste the video link into <strong>New Project</strong> in the app.</p>
+<section data-platform="mac">
+<p>In Safari, check <a href="browser-extensions.html#enable-safari">Safari extension settings</a> and allow website access if prompted.</p>
+</section>
+
 <section data-platform="mac">
 <h2 id="sharing-after-update">macOS sharing warns that VidiStudio differs from previously opened versions</h2>
-<p>If Describe with Vidi Studio reports “This link does not point to a YouTube video,” open the video itself or choose its direct link. If the browser asks to open an external application, choose VidiStudio to continue. Safari’s toolbar extension is enabled in Safari Settings. Its Share menu entry is enabled in macOS Sharing extension settings.</p>
 <p>macOS protects the data used by the Share extension. If an earlier build had a different signing identity, sharing from Safari or Finder can show “VidiStudio differs from previously opened versions.” This is a macOS trust check, not a YouTube-link error or an extension version check. The Share and Finder extensions are bundled with VidiStudio and update with the app; there is no separate Safari extension download.</p>
 <p>Install the current trusted VidiStudio build in Applications. If you recognize that update, choose <strong>Open Anyway</strong> on this specific warning to let the updated extension access its existing data, then retry Share &gt; VidiStudio. An old unsigned build can need this approval once after moving to stable signing. If the message returns on every update, have the publisher check signing continuity. Do not delete app containers or reset privacy permissions.</p>
 <p>If VidiStudio is missing from Share, open System Settings &gt; General &gt; Login Items &amp; Extensions &gt; Sharing and enable VidiStudio. Close the Share sheet and retry; if the host still shows an old entry, quit and reopen Safari or the sharing app. Finder extensions are managed separately. This warning and these settings apply to macOS.</p>

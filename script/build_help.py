@@ -15,6 +15,7 @@ TOPICS = [
     ("welcome", "Welcome to VidiStudio"),
     ("first-project", "Create your first described video"),
     ("projects", "Manage projects"),
+    ("browser-extensions", "Browser extensions for YouTube"),
     ("editor", "Explore the editor"),
     ("descriptions", "Write and edit descriptions"),
     ("analysis", "Analyze and replace content"),
@@ -131,6 +132,7 @@ def keyboard():
 CSS = """html{color-scheme:light dark;font:17px/1.6 -apple-system,BlinkMacSystemFont,sans-serif}body{margin:0;color:light-dark(#202124,#ededf0);background:light-dark(#fff,#1c1c1e)}a{color:light-dark(#005bbb,#80baff)}a:focus-visible,input:focus-visible{outline:3px solid #e89c23;outline-offset:4px}header{padding:1rem 2rem;border-bottom:1px solid #8885}header a{font-weight:700;text-decoration:none}.layout{display:grid;grid-template-columns:260px minmax(0,800px);max-width:1120px;margin:auto}nav{padding:1.5rem}nav ol{padding-left:1.2rem}nav li{margin:.5rem 0}nav a[aria-current=page]{font-weight:700}main{padding:2rem;min-width:0}h1{font-size:2.3rem;line-height:1.15;letter-spacing:-.04em}h2{font-size:1.35rem;margin-top:2rem}h3{font-size:1.1rem}dt{font-weight:650;margin-top:1rem}dd{margin-left:0}li{margin:.6rem 0}table{border-collapse:collapse;width:100%;font-size:.93rem}td,th{text-align:left;vertical-align:top;padding:.7rem;border-bottom:1px solid #8885}caption{text-align:left;font-weight:700;margin:1rem 0}.pager{display:flex;justify-content:space-between;gap:2rem;border-top:1px solid #8885;margin-top:3rem;padding-top:1rem}.skip{position:absolute;left:-9999px}.skip:focus{left:1rem;background:Canvas;padding:1rem;z-index:1}.collection{padding:1rem;border:1px solid #8885;border-radius:12px;margin:1rem 0}.collection a{font-size:1.15rem;font-weight:600}footer{font-size:.8rem;color:light-dark(#54545a,#bbb);margin-top:2rem}@media(max-width:760px){.layout{display:block}nav{border-bottom:1px solid #8885}main{padding:1.25rem}h1{font-size:2rem}}"""
 
 CSS += """a,a:visited{color:inherit;text-decoration:none}a:hover{background:light-dark(#ececee,#333336);border-radius:4px}a:focus-visible{outline:2px solid currentColor;outline-offset:4px}nav a{display:block;padding:3px 6px}nav a[aria-current=page]{background:light-dark(#ececee,#333336);border-radius:6px}.collection:hover{background:light-dark(#f3f3f5,#29292c)}figure{margin:1.75rem 0}figure img{display:block;width:100%;height:auto;border:1px solid #8885;border-radius:10px}figcaption{font-size:.85rem;color:light-dark(#54545a,#bbb);margin-top:.65rem}.screenshot-light{display:block}.screenshot-dark{display:none}@media(prefers-color-scheme:dark){.screenshot-light{display:none}.screenshot-dark{display:block}}"""
+CSS += 'main a[href^="https://"]{color:light-dark(#005bbb,#80baff);text-decoration:underline}'
 
 
 def build(output, index=True):

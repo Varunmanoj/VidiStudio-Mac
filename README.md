@@ -23,6 +23,10 @@ VidiStudio is maintained across dedicated desktop repositories and an online sho
 | **Online Showcase & Web** | React / Vite Landing Page & Documentation | `https://github.com/Varunmanoj/VidiStudio.git` | [GitHub Repo](https://github.com/Varunmanoj/VidiStudio) |
 | **Official Website** | Live Product Showcase & Feature Guide | — | [accessivideo.pages.dev](https://accessivideo.pages.dev/) |
 
+## Browser extensions
+
+Install **Describe with Vidi Studio** from the [Chrome Web Store](https://chromewebstore.google.com/detail/describe-with-vidi-studio/cpdbdailfhcbcfjmhoofbielolonncop) or [Microsoft Edge Add-ons](https://microsoftedge.microsoft.com/addons/detail/describe-with-vidi-studio/gdmkdnhfhblkjggbhngdbohpgbfecpac) to open YouTube videos in the installed VidiStudio desktop app. In Safari, enable the extension bundled with the Mac app in **Safari → Settings → Extensions**. See the [browser extension setup guide](https://vidistudio.varunmanojkumar.in/docs#docs-3-2-share) for setup and use.
+
 ## Build and run
 
 ```sh

@@ -8,7 +8,8 @@ Player instructions must apply across supported videos. Screenshots may illustra
 
 - Welcome: purpose, audio description concepts, local projects, online analysis versus offline narration.
 - First project: setup, import, analysis, review, narration, export, final listening check.
-- Projects: browser, Finder/Safari Share extension, list/grid, search, icon size, rename, independent windows, reopen, folders and backup.
+- Projects: sharing and opening files, list/grid, search, icon size, rename, independent windows, reopen, folders and backup.
+- Browser extensions: official Chrome and Edge store links, bundled Safari setup, YouTube handoff, troubleshooting and privacy.
 - Editor: player, timeline, transcript, summary, descriptions, AD Overview, AD Transcript, inspector.
 - Description authoring: add/edit/delete, timing, overlap, rewrite, frame text, origin and narration status, undo/redo.
 - Analysis: the complete and individual workflows, page-specific generation or regeneration, non-AI metadata and thumbnail preparation, prerequisites, failure handling, and deletion.

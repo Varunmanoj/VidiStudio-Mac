@@ -1,5 +1,9 @@
 # Describe with Vidi Studio
 
+## Install the published extension
+
+Install **Describe with Vidi Studio** separately in your browser from the [Chrome Web Store](https://chromewebstore.google.com/detail/describe-with-vidi-studio/cpdbdailfhcbcfjmhoofbielolonncop) or [Microsoft Edge Add-ons](https://microsoftedge.microsoft.com/addons/detail/describe-with-vidi-studio/gdmkdnhfhblkjggbhngdbohpgbfecpac). The extension requires the VidiStudio desktop app on Mac or Windows.
+
 ## Chrome Web Store and Microsoft Edge Add-ons listing
 
 **Name** Describe with Vidi Studio
@@ -18,7 +22,7 @@
 
 Run `python3 script/package_browser_extension.py` from the Mac checkout. The current `Describe-with-Vidi-Studio-Chrome.zip` and `Describe-with-Vidi-Studio-Edge.zip` in `dist/browser-extensions` have manifest.json at the archive root and use the independent version in BrowserExtension/manifest.json. Advance this version when releasing changed browser resources or adapting to a changed desktop handoff. Packaging replaces changed ZIPs at both stable filenames and removes previous versioned VidiStudio extension ZIPs after verifying the replacements. Each contains the VidiStudio icons at 16, 32, 48 and 128 pixels. Extract a ZIP to a permanent folder and use Developer mode → Load unpacked in the target browser for local verification. Safari ships inside the signed VidiStudio Mac application. Enable Describe with Vidi Studio in Safari → Settings → Extensions.
 
-The desktop app also delivers an unpacked edition for local automatic updates. Its additional alarms permission schedules a local version check. See the Projects Help topic for the app-managed folders. Store ZIPs retain their store update mechanism.
+The desktop app also delivers an unpacked edition for local automatic updates. Its additional alarms permission schedules a local version check. For local testing, open `chrome://extensions` or `edge://extensions`, enable Developer mode and choose **Load unpacked**. Select `/Applications/VidiStudio.app/Contents/Resources/BrowserExtension` on Mac, or launch VidiStudio once and select `%LOCALAPPDATA%\VidiStudio\BrowserExtension` on Windows. Keep only one copy enabled in the browser. Store ZIPs retain their store update mechanism.
 
 With the desktop app installed, use Describe with Vidi Studio on a public video. Check the selected video title and link, choose Describe with Vidi Studio in the centered panel and accept the external-app prompt and verify the editor shows that video. Repeat from a link on another site to verify the same project reopens. Repeat with a link to a channel or an unrelated site to hear the invalid-link message. Press Escape or choose Close. On a valid video, Cancel dismisses the panel before it sends a request to the desktop. Declining the subsequent browser prompt also leaves the desktop library untouched.
 
