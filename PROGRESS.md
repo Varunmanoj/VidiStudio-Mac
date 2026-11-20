@@ -1,3 +1,11 @@
+## 2026-11-20 — Retry in desktop Help (1.0.357, build 357)
+
+When the guide fails to load, Help places keyboard focus on Retry beside Open in Browser. The button and its context menu retry the requested documentation URL in the same window and show the existing loading indicator.
+
+The installed Release opened the published Welcome article from the Help menu. Its accessibility tree exposed Open in Browser and hid Retry after loading. A native test using the production Help window loaded a published screenshot, blocked the reader’s connection, checked button placement at 450 and 1050 points in light and dark appearances, invoked Retry from its context menu while still offline, then used the button after reconnection to recover the requested Export chapter. See build/help-retry-357-{reader,installed-ui}.log.
+
+The install and launch passed for /Applications/VidiStudio.app. The app and its registered Safari, Share and Finder extensions report 1.0.357/build 357, with signing continuity under team LLVWNNUV26. Spotlight and LaunchServices each listed one installed app. Both parity checkers, 80 focused parity tests and 20 installed-engine CLI tests passed. The website guide was built and tested locally. VoiceOver speech was not exercised. The configured Xcode MCP tools were absent in this session. A new client session is needed for Xcode MCP control. The signed build and install used the repository script.
+
 ## 2026-11-20 — Website Help restored (1.0.356, build 356)
 
 Help and Settings open the published /docs page in the app's WebKit window. Export Help opens its website chapter. Images, links, navigation and search come directly from the website. A native spinner tracks loading. The browser button and its context menu open the current website location.

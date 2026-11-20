@@ -52,6 +52,7 @@ def validate(source):
     require('Mac/StudioHelp.swift', 'view.load(URLRequest(url: url', 'Mac Help must render the website directly')
     require('Windows/Views/HelpWindow.xaml.cs', 'core.NavigateWithWebResourceRequest(request)', 'Windows Help must render the website directly')
     for reader in ('Mac/StudioHelp.swift', 'Windows/Views/HelpWindow.xaml'):
+        require(reader, '"Retry"', 'Help must offer Retry after a loading error')
         require(reader, 'Open in Browser', 'Help needs a browser action')
         require(reader, 'Loading documentation', 'Help needs an accessible loading indicator')
     mac_about = source['Mac/AboutSettingsView.swift']

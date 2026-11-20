@@ -118,6 +118,10 @@ class DesktopUILayoutParityTests(unittest.TestCase):
                 self.mutated(reader, 'https://vidistudio.varunmanojkumar.in/docs', 'welcome.html', 'shared website guide')
                 self.mutated(reader, 'Documentation requires internet.', '', 'unavailable connection')
 
+    def test_help_retry_available_on_both_desktops(self):
+        for reader in ('Mac/StudioHelp.swift', 'Windows/Views/HelpWindow.xaml'):
+            self.mutated(reader, '"Retry"', '"Reload"', 'must offer Retry')
+
     def test_opening_help_cannot_close_settings(self):
         self.mutated('Windows/Views/SettingsDialog.Information.cs', 'openHelp.Click += (_,_) => App.OpenHelpWindow', 'openHelp.Click += (_,_) => HideAndOpenHelpWindow', 'keep Settings open')
 

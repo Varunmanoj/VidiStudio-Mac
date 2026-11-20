@@ -20,6 +20,7 @@ import WebKit
                                   backing: .buffered, defer: false)
     private let content = NSView()
     private let spinner = NSProgressIndicator()
+    private lazy var retryButton = NSButton(title: "Retry", target: self, action: #selector(retryGuide))
     private let configuration = WKWebViewConfiguration()
     private var reader: WKWebView?
     private var requestedURL = StudioHelp.guide
@@ -29,13 +30,16 @@ import WebKit
         super.init()
         configuration.websiteDataStore = .nonPersistent()
         let browser = NSButton(title: "Open in Browser", target: self, action: #selector(openInBrowser))
-        let menu = NSMenu()
-        menu.addItem(withTitle: browser.title, action: browser.action, keyEquivalent: "").target = self
-        browser.menu = menu
+        for button in [retryButton, browser] {
+            let menu = NSMenu()
+            menu.addItem(withTitle: button.title, action: button.action, keyEquivalent: "").target = self
+            button.menu = menu
+        }
+        retryButton.isHidden = true
         spinner.style = .spinning
         spinner.controlSize = .small
         spinner.setAccessibilityLabel("Loading documentation")
-        let header = NSStackView(views: [spinner, browser])
+        let header = NSStackView(views: [spinner, retryButton, browser])
         let root = NSView()
         root.addSubview(header)
         root.addSubview(content)
@@ -57,6 +61,7 @@ import WebKit
     }
 
     func open(_ url: URL) {
+        retryButton.isHidden = true
         requestedURL = url
         reader?.navigationDelegate = nil
         reader?.stopLoading()
@@ -75,6 +80,11 @@ import WebKit
         url.scheme == "https" && url.host == StudioHelp.guide.host && ["/docs", "/docs/"].contains(url.path)
     }
 
+    @objc private func retryGuide() {
+        guard !retryButton.isHidden else { return }
+        open(requestedURL)
+    }
+
     @objc private func openInBrowser() {
         let url = reader?.url.flatMap { isGuide($0) ? $0 : nil } ?? requestedURL
         NSWorkspace.shared.open(url)
@@ -91,6 +101,8 @@ import WebKit
         reader = nil
         let label = NSTextField(wrappingLabelWithString: message)
         content.subviews = [label]
+        retryButton.isHidden = false
+        window.makeFirstResponder(retryButton)
         label.translatesAutoresizingMaskIntoConstraints = false
         NSLayoutConstraint.activate([
             label.centerXAnchor.constraint(equalTo: content.centerXAnchor),
@@ -104,7 +116,10 @@ import WebKit
     func webView(_ webView: WKWebView, decidePolicyFor action: WKNavigationAction,
                  decisionHandler: @escaping (WKNavigationActionPolicy) -> Void) {
         guard let url = action.request.url else { decisionHandler(.cancel); return }
-        if action.targetFrame?.isMainFrame == false || (action.targetFrame != nil && isGuide(url)) {
+        if action.targetFrame?.isMainFrame == false {
+            decisionHandler(.allow)
+        } else if action.targetFrame != nil && isGuide(url) {
+            requestedURL = url
             decisionHandler(.allow)
         } else {
             decisionHandler(.cancel)

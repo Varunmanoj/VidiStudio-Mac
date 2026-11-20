@@ -1,6 +1,6 @@
 # Desktop UI layout parity
 
-Both desktop Help windows load the published /docs page on every open. The website controls its navigation, content, images and styling. A native header provides loading progress and Open in Browser. An unavailable connection displays “Documentation requires internet.”
+Both desktop Help windows load the published /docs page on every open. The website controls its navigation, content, images and styling. A native header provides loading progress and Open in Browser. An unavailable connection displays “Documentation requires internet.” Retry appears immediately before Open in Browser after a page-load error. Starting a retry clears the error and restores the loading spinner.
 
 Mac is the reference for shared organization and workflows. Use native SwiftUI/AppKit and WinUI controls; visual parity does not mean replacing native window chrome or copying OS-specific pixels.
 
