@@ -4,9 +4,9 @@ import argparse
 import re
 from pathlib import Path
 
-MAC_FILES = ('CreatedExportsView.swift', 'LanguageResults.swift', 'ContentView.swift', 'SettingsView.swift', 'ImportAssetsView.swift', 'ExportOptionsMenu.swift',
+MAC_FILES = ('StudioHelp.swift', 'CreatedExportsView.swift', 'LanguageResults.swift', 'ContentView.swift', 'SettingsView.swift', 'ImportAssetsView.swift', 'ExportOptionsMenu.swift',
              'GeminiAPISettingsView.swift', 'SarvamVoiceSettingsView.swift', 'SystemVoiceCatalog.swift', 'PiperVoiceCatalog.swift', 'GeminiVoicePreview.swift', 'SarvamVoiceBrowser.swift', 'VoiceSampleSession.swift', 'AboutSettingsView.swift', 'KeyboardShortcuts.swift')
-WIN_FILES = ('MainWindow.Presentation.cs', 'MainWindow.LanguageResults.cs', 'Views/ImportAssetsDialog.cs', 'MainWindow.Accessibility.cs', 'MainWindow.xaml', 'Views/CompactDialogLayout.cs', 'Views/WindowAppearance.cs',
+WIN_FILES = ('Views/HelpWindow.xaml', 'Views/HelpWindow.xaml.cs', 'MainWindow.Presentation.cs', 'MainWindow.LanguageResults.cs', 'Views/ImportAssetsDialog.cs', 'MainWindow.Accessibility.cs', 'MainWindow.xaml', 'Views/CompactDialogLayout.cs', 'Views/WindowAppearance.cs',
              'Views/SettingsDialog.Compact.cs', 'Views/SettingsDialog.Layout.cs',
              'Views/SettingsDialog.ElevenLabs.cs', 'Views/SettingsDialog.SarvamBrowser.cs', 'Views/SettingsDialog.SpeechLayout.cs', 'MainWindow.DialogLayoutSmoke.cs', 'Views/SettingsDialog.cs', 'Views/SettingsDialog.Sarvam.cs', 'Views/PiperVoicesDialog.cs', 'Views/PiperDeleteVoicesDialog.cs', 'Services/VoiceSampleSession.cs', 'Views/SettingsDialog.Information.cs', 'MainWindow.Menus.cs')
 
@@ -46,6 +46,14 @@ def validate(source):
 
     def require(path, token, reason):
         if token not in source[path]: raise ValueError(path + ': ' + reason)
+    for reader in ('Mac/StudioHelp.swift', 'Windows/Views/HelpWindow.xaml.cs'):
+        require(reader, 'https://vidistudio.varunmanojkumar.in/docs"', 'Help must load the shared website guide')
+        require(reader, 'Documentation requires internet.', 'Help must explain an unavailable connection')
+    require('Mac/StudioHelp.swift', 'view.load(URLRequest(url: url', 'Mac Help must render the website directly')
+    require('Windows/Views/HelpWindow.xaml.cs', 'core.NavigateWithWebResourceRequest(request)', 'Windows Help must render the website directly')
+    for reader in ('Mac/StudioHelp.swift', 'Windows/Views/HelpWindow.xaml'):
+        require(reader, 'Open in Browser', 'Help needs a browser action')
+        require(reader, 'Loading documentation', 'Help needs an accessible loading indicator')
     mac_about = source['Mac/AboutSettingsView.swift']
     win_about = source['Windows/Views/SettingsDialog.Information.cs'].split('private void BuildAbout(', 1)[1].split('private Button LicenseAction', 1)[0]
     for about in (mac_about, win_about):

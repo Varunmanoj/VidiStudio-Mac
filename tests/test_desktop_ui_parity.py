@@ -112,6 +112,12 @@ class DesktopUILayoutParityTests(unittest.TestCase):
     def test_help_and_about_cannot_be_disabled_by_editor_processing(self):
         self.mutated('Windows/MainWindow.Menus.cs', 'if (id is "settings" or "help" or "about") return true;', '', 'available during editor processing')
 
+    def test_live_help_destination_and_connection_message_match(self):
+        for reader in ('Mac/StudioHelp.swift', 'Windows/Views/HelpWindow.xaml.cs'):
+            with self.subTest(reader=reader):
+                self.mutated(reader, 'https://vidistudio.varunmanojkumar.in/docs', 'welcome.html', 'shared website guide')
+                self.mutated(reader, 'Documentation requires internet.', '', 'unavailable connection')
+
     def test_opening_help_cannot_close_settings(self):
         self.mutated('Windows/Views/SettingsDialog.Information.cs', 'openHelp.Click += (_,_) => App.OpenHelpWindow', 'openHelp.Click += (_,_) => HideAndOpenHelpWindow', 'keep Settings open')
 

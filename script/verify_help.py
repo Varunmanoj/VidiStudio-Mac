@@ -9,9 +9,8 @@ from build_help import BOOK_ID, TOPICS, Page
 
 def verify(app):
     info = plistlib.loads((app / "Contents/Info.plist").read_bytes())
-    assert info.get("CFBundleHelpBookFolder") == "VidiStudio.help", "Missing app Help folder registration"
-    assert info.get("CFBundleHelpBookName") == BOOK_ID, "Missing app Help book registration"
-    book = app / "Contents/Resources" / info["CFBundleHelpBookFolder"]
+    assert 'CFBundleHelpBookName' not in info and 'CFBundleHelpBookFolder' not in info, 'Help should open the live website'
+    book = app / "Contents/Resources/VidiStudio.help"
     metadata = plistlib.loads((book / "Contents/Info.plist").read_bytes())
     assert metadata["CFBundleIdentifier"] == BOOK_ID
     assert metadata["HPDBookType"] == "3", "Book must be offline/local"

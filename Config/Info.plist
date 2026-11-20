@@ -13,9 +13,5 @@
             </array>
         </dict>
     </array>
-    <key>CFBundleHelpBookFolder</key>
-    <string>VidiStudio.help</string>
-    <key>CFBundleHelpBookName</key>
-    <string>Varunmanojkumar.VidiStudio.help.v2</string>
 </dict>
 </plist>
