@@ -64,7 +64,20 @@ struct UserFacingIssue: Equatable {
         message: "Your completed work is safe. Try the action again, or reopen the project if the problem continues."
     )
 
+    static func duplicateProject(isYouTube: Bool, projectName: String? = nil) -> UserFacingIssue {
+        let subject = isYouTube ? "A project for this YouTube video" : "A project with this video filename"
+        let name = projectName.map { " as “\($0)”" } ?? ""
+        let nextStep = isYouTube
+            ? "Open it from All Projects."
+            : "Open it from All Projects, or rename the file if it’s a different video."
+        return UserFacingIssue(title: "Project Already Exists", message: "\(subject) already exists\(name). \(nextStep)")
+    }
+
     static func forEngine(command: String, technicalDetails: String?) -> UserFacingIssue {
+        if (command == "import-video" || command == "import-youtube"),
+           technicalDetails == "This project already exists. Please continue with the existing project or delete the existing project before continuing." {
+            return duplicateProject(isYouTube: command == "import-youtube")
+        }
         if command == "generate-summary" {
             return UserFacingIssue(title: "Summary Couldn’t Be Created",
                                    message: "The summary could not be created. Your transcript is safe. Please try again.")

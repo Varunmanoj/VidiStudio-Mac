@@ -2275,8 +2275,9 @@ final class StudioModel {
     }
     private func showDuplicateProjectError(_ project: StudioProject) {
         selectedID = project.id
-        errorTitle = "Project Already Exists"
-        error = "A project for this video already exists as “\(project.name)”. Please continue with the existing project or delete the existing project before continuing."
+        let issue = UserFacingIssue.duplicateProject(isYouTube: project.isYouTubeURLProject, projectName: project.name)
+        errorTitle = issue.title
+        error = issue.message
     }
     static func youtubeVideoID(from rawURL: String) -> String? {
         VidiStudioShareLink.youtubeVideoID(from: rawURL)

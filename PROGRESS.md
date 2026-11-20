@@ -1,3 +1,9 @@
+## 2026-11-20 — Duplicate-project guidance (1.0.358, build 358)
+
+The Mac preflight keeps the existing project name in the Project Already Exists alert and directs users to All Projects. A rejected import from the engine now uses the same alert and guidance. Local filename collisions explain how to proceed with a different video. The installed Mac New Project flow exposed the title, matching name and next steps through accessibility. The duplicate attempt preserved the existing manifest byte for byte. The production error formatter was tested for local and YouTube engine failures. Live YouTube creation and VoiceOver speech were not tested.
+
+The signed Mac Release replaced and launched from /Applications/VidiStudio.app. PlugInKit needed a registration refresh after replacing the same build number during validation. The app and registered Safari, Share and Finder extensions report 1.0.358/build 358 with signing continuity under team LLVWNNUV26. Spotlight and LaunchServices show one installed app. Both desktop parity checkers, 80 focused tests, 20 installed-engine CLI tests and two source duplicate-guard tests passed. The configured Xcode MCP tools were unavailable in this session. Xcode MCP control requires a new client session. The signed build and install used the repository script. See build/duplicate-project-358-*.log.
+
 ## 2026-11-20 — Retry in desktop Help (1.0.357, build 357)
 
 When the guide fails to load, Help places keyboard focus on Retry beside Open in Browser. The button and its context menu retry the requested documentation URL in the same window and show the existing loading indicator.

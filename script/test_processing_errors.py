@@ -19,6 +19,13 @@ let developer = issue.message(developerMode: true, technicalDetails: diagnostic,
 precondition(developer.contains("Invalid enum value standard") && developer.contains("[redacted]"))
 precondition(!developer.contains("private-test-key"))
 precondition(issue.message(developerMode: true, technicalDetails: nil, apiKey: "") == normal)
+let duplicate = "This project already exists. Please continue with the existing project or delete the existing project before continuing."
+let local = UserFacingIssue.forEngine(command: "import-video", technicalDetails: duplicate)
+let youtube = UserFacingIssue.forEngine(command: "import-youtube", technicalDetails: duplicate)
+precondition(local.title == "Project Already Exists" && local.message.contains("All Projects") && local.message.contains("rename"))
+precondition(youtube.title == local.title && youtube.message.contains("YouTube") && youtube.message.contains("All Projects"))
+let preflight = UserFacingIssue.duplicateProject(isYouTube: false, projectName: "Example Video")
+precondition(preflight.title == local.title && preflight.message.contains("Example Video"))
 print("Mac error presentation: generic off, diagnostic on, credential redacted")
 ''')
     subprocess.run(['xcrun', 'swiftc', '-module-cache-path', str(root/'modules'), str(root/'Issue.swift'), str(root/'main.swift'), '-o', str(root/'check')], check=True)
@@ -34,6 +41,12 @@ var normal = error.DisplayMessage(false, "private-test-key");
 if (!normal.Contains("Your transcript is safe") || normal.Contains("standard") || normal.Contains("400") || normal.Contains("Technical details")) throw new Exception("Non-developer details leaked");
 var developer = error.DisplayMessage(true, "private-test-key");
 if (!developer.Contains("Invalid enum value standard") || !developer.Contains("[redacted]") || developer.Contains("private-test-key")) throw new Exception("Developer detail/redaction failed");
+var duplicate = "This project already exists. Please continue with the existing project or delete the existing project before continuing.";
+var local = new ProcessingException(duplicate, command: "import-video");
+var youtube = new ProcessingException(duplicate, command: "import-youtube");
+if (!local.IsDuplicateProject || !local.Message.Contains("All Projects") || !local.Message.Contains("rename")) throw new Exception("Local duplicate guidance missing");
+if (!youtube.IsDuplicateProject || !youtube.Message.Contains("YouTube") || !youtube.Message.Contains("All Projects")) throw new Exception("YouTube duplicate guidance missing");
+if (new ProcessingException(duplicate, command: "generate-summary").IsDuplicateProject) throw new Exception("Unrelated operation treated as a duplicate project");
 Console.WriteLine("Windows error presentation: generic off, diagnostic on, credential redacted");
 namespace Vidi_Studio_Windows.Services { public static class SpeechService { public static string FriendlyMessage(string text) => text; } }
 ''')
