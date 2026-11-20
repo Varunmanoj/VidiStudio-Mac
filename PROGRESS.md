@@ -1,3 +1,7 @@
+## 2026-11-20 — GitHub draft for 1.0.358
+
+Created the [v1.0.358 GitHub release draft](https://github.com/Varunmanoj/VidiStudio-Mac/releases/tag/untagged-c3f78d82d6b99b72065e) at the packaged source commit 87cb456. Attached the Apple Development-signed, unnotarized DMG and ZIP, installation instructions, checksums and the minimum-OS audit. GitHub reported all five assets uploaded, and their sizes and SHA-256 digests matched the local files. The release remains a draft while public signing, notarization and the FFmpeg source and notices work are pending.
+
 ## 2026-11-20 — Apple Silicon Release packages (1.0.358, build 358)
 
 Built the Mac DMG and app ZIP in Release from commit 87cb456. Downloads, SHA-256 checksums, installation notes and the per-binary audit are in `dist/release/1.0.358/`. The DMG verified and mounted read-only. Both exports passed strict nested signature checks and include the matching Safari, Share and Finder extensions at version 1.0.358/build 358. The executable, signature resource file and frozen engine matched across the DMG and ZIP. All 250 Mach-O images passed the Apple Silicon and macOS 26.4 load-command audit. Twenty engine CLI tests passed directly from the mounted DMG.
