@@ -1,3 +1,9 @@
+## 2026-11-21 — GitHub draft for 1.0.359, build 359
+
+Built the Apple Silicon Release DMG and ZIP under `dist/release/1.0.359/`. The DMG verified and mounted read-only. Both exports passed strict nested signatures, build/version checks for the Safari, Finder and Share extensions, and verification of the YouTube Data API-only configuration. The 250 bundled arm64 Mach-O binaries passed the macOS 26.4 minimum check. The installed 1.0.359 app and all three extensions were verified again after temporary copy cleanup. The exports use Apple Development signing and are unnotarized.
+
+The [GitHub draft](https://github.com/Varunmanoj/VidiStudio-Mac/releases/tag/untagged-bcfe89d4d37d6b3a6ef0) targets the user's pushed commit `f2b717b`, whose source tree equals the packaging source. GitHub reported five uploaded assets. Their byte counts and SHA-256 digests matched the local DMG, ZIP, install notes, checksums and compatibility report. The draft remains unpublished.
+
 ## 2026-11-21 — YouTube link lookup without OAuth (1.0.359, build 359)
 
 Removed YouTube account settings, the signed-in channel and playlist browser, caption downloads and their commands and shortcuts. The New Project preview, editor details and refresh use the publisher’s YouTube Data API key for public and unlisted links. Existing projects still load saved transcripts, and local transcript import and Gemini generation remain available. The bundle contains only the metadata API key.
