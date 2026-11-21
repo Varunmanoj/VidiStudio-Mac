@@ -69,6 +69,6 @@ struct StudioProject {var id="one"; var folder:URL?=URL(fileURLWithPath:"/tmp/pr
         self.assertIn('Command("open-gallery-window", libraryOnly: true)',win_file)
         self.assertIn('case "open-gallery-window": openNewWindow(project)',(MAC/'VidiStudio/ProjectBrowserPage.swift').read_text())
         self.assertIn('libraryOnlyMenuItems.Contains(item) && !LibraryCommandVisible(id)',win)
-        self.assertIn('if (id == "youtube-open-browser") return youtubeBrowserCanRun != null || ProjectManagementTarget()?.IsYouTube == true;',win)
+        self.assertIn('if (id == "youtube-open-browser") return ProjectManagementTarget()?.IsYouTube == true;',win)
         self.assertIn('case "open-gallery-window":\n            case "open-selected-project": if (SelectedGalleryProject()',win)
         self.assertIn('!desktopEditorVisible && menu.Title is "Playback" ?',win)

@@ -53,7 +53,7 @@ struct ProjectSourcesSettingsView: View {
                         YouTubeAudioSourceControls(studio: model, project: project, showsSection: false).padding(.vertical, 6)
                     } header: { Text("Audio sources").accessibilityAddTraits(.isHeader).accessibilityHeading(.h2) }
                     Section { HStack {
-                        Button("YouTube Details & Captions…", systemImage: "captions.bubble") { youtubeDetails = true }
+                        Button("Video Details…", systemImage: "info.circle") { youtubeDetails = true }
                         Button("Open in YouTube", systemImage: "arrow.up.right.square") { model.openYouTubeInBrowser(project) }
                     }.disabled(model.busy) } header: { Text("YouTube video").accessibilityAddTraits(.isHeader).accessibilityHeading(.h2) }
                 }
@@ -105,7 +105,7 @@ struct ProjectSourcesSettingsView: View {
             } }
         }
         .sheet(isPresented: $youtubeDetails) {
-            if let project { ScrollView { YouTubeDetailsView(studio: model, project: project, startWithCaptions: true) } }
+            if let project { ScrollView { YouTubeDetailsView(studio: model, project: project) } }
         }
         .sheet(isPresented: Binding(get: { !model.importReports.isEmpty && importScope == nil }, set: { if !$0 { model.clearImportReports() } })) {
             ImportReportSheet(reports: model.importReports, canEditTranscriptTimings: !(project?.transcript.isEmpty ?? true), showsReviewActions: false,

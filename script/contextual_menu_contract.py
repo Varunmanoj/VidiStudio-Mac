@@ -25,12 +25,13 @@ def _policy(source, swift):
 
 
 def check_contextual_menus(mac, windows):
-    browser_entries = re.findall(r'if allProjects != nil\s*{\s*Button\("My YouTube Videos…"', mac)
-    if len(browser_entries) != 2:
-        raise ValueError('My YouTube Videos must be scoped to All Projects in both Mac menus')
-    for token in ['if (id == "youtube-browser") return !desktopEditorVisible && youtubeBrowserCanRun == null;',
-                  '"analyze" or "youtube-browser" => false,']:
-        if token not in windows: raise ValueError('Windows YouTube browser scope missing: ' + token)
+    retired_commands = ('youtube-browser', 'youtube-accounts', 'youtube-captions',
+                        'youtube-open-editor', 'youtube-refresh-list', 'youtube-list', 'youtube-table',
+                        'youtube-load-videos', 'youtube-load-playlists')
+    for platform, source in [('Mac', mac), ('Windows', windows)]:
+        for command in retired_commands:
+            if f'"{command}"' in source:
+                raise ValueError(f'{platform} exposes retired YouTube command: {command}')
 
     for token in ['allProjects.projectSort.wrappedValue == .lastOpened',
                   'allProjects.projectSort.wrappedValue == .name',
@@ -64,12 +65,11 @@ def check_contextual_menus(mac, windows):
         'if editor?.youtubeProject == true {',
         'if youtubeMenusVisible {',
         'ForEach(allProjects.languageOptions)',
-        'if youtubeBrowser != nil {',
-        'allProjects != nil || editor?.youtubeProject == true || youtubeBrowser != nil',
+        'allProjects != nil || editor?.youtubeProject == true',
         'if action.hasPrefix("summary-") { return activeSection == "summary" }',
     ]
     for action in ('copy-to', 'segment-edit-mode', 'add', 'synthesize-tts', 'generate-ad-cues',
-                   'youtube-captions', 'import-transcript', 'import-summary', 'import-descriptions', 'import-original-audio', 'import-ad-audio'):
+                   'import-transcript', 'import-summary', 'import-descriptions', 'import-original-audio', 'import-ad-audio'):
         mac_guards.append('if editor?.isCommandVisible("' + action + '") == true {')
     for action in ('transcribe', 'generate-summary'):
         mac_guards.append('if allProjects != nil || editor?.isCommandVisible("' + action + '") == true {')
@@ -80,7 +80,7 @@ def check_contextual_menus(mac, windows):
         'if (Section.SelectedIndex == 1 && summaryEditMode)',
         '&& EditorCommandVisible(id)',
         'menu.Title == "YouTube" && !YouTubeMenusVisible',
-        'if (!YouTubeMenusVisible) return false;',
+        'if (id == "youtube-open-browser") return ProjectManagementTarget()?.IsYouTube == true;',
         'if (!CanRunDesktopCommand(id)) return;',
         'private async Task RunDesktopCommandAsync(string id, bool copyCurrentSectionOnly = false)',
         'await ShowCopyToAsync(initialKinds: CopyDefaultKinds(copyCurrentSectionOnly)',

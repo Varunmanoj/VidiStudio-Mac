@@ -1,3 +1,13 @@
+## 2026-11-21 — YouTube link lookup without OAuth (1.0.359, build 359)
+
+Removed YouTube account settings, the signed-in channel and playlist browser, caption downloads and their commands and shortcuts. The New Project preview, editor details and refresh use the publisher’s YouTube Data API key for public and unlisted links. Existing projects still load saved transcripts, and local transcript import and Gemini generation remain available. The bundle contains only the metadata API key.
+
+`script/build_and_run.sh --verify` built, signed, installed and launched 1.0.359. The signed Safari, Share and Finder extensions all report 1.0.359/359, match team LLVWNNUV26 with signing continuity, and are registered from /Applications/VidiStudio.app. Spotlight and LaunchServices list this single copy. The packaged Help check passed for 15 pages. The focused suite passed 121 tests including packaged-engine language CLI and metadata compatibility tests. Native accessibility inspection verified the Settings sidebar and the New Project YouTube link preview after OAuth client deletion. Public and unlisted metadata requests using the installed key both returned title and duration. VoiceOver speech and the native compact editor import sheet were not exercised.
+
+Shared browser handoff and installation tests passed. Browser extensions retain version 1.0.349. The website guide, shortcut reference, landing copy and updated guide images are live from commits `e3ec910` and `71e97c3`. Desktop and mobile search/navigation checks passed against the public site.
+
+Google Cloud confirms both VidiStudio desktop OAuth clients are in Deleted credentials and the restricted YouTube Data API v3 key remains available. The project’s shared consent app name was changed to Paid Gemini API with approval. Google required the homepage and privacy URLs and disabled removing the verified logo.
+
 ## 2026-11-20 — GitHub draft for 1.0.358
 
 Created the [v1.0.358 GitHub release draft](https://github.com/Varunmanoj/VidiStudio-Mac/releases/tag/untagged-c3f78d82d6b99b72065e) at the packaged source commit 87cb456. Attached the Apple Development-signed, unnotarized DMG and ZIP, installation instructions, checksums and the minimum-OS audit. GitHub reported all five assets uploaded, and their sizes and SHA-256 digests matched the local files. The release remains a draft while public signing, notarization and the FFmpeg source and notices work are pending.

@@ -5,10 +5,12 @@ import re
 from pathlib import Path
 
 MAC_FILES = ('StudioHelp.swift', 'CreatedExportsView.swift', 'LanguageResults.swift', 'ContentView.swift', 'SettingsView.swift', 'ImportAssetsView.swift', 'ExportOptionsMenu.swift',
-             'GeminiAPISettingsView.swift', 'SarvamVoiceSettingsView.swift', 'SystemVoiceCatalog.swift', 'PiperVoiceCatalog.swift', 'GeminiVoicePreview.swift', 'SarvamVoiceBrowser.swift', 'VoiceSampleSession.swift', 'AboutSettingsView.swift', 'KeyboardShortcuts.swift')
+             'GeminiAPISettingsView.swift', 'SarvamVoiceSettingsView.swift', 'SystemVoiceCatalog.swift', 'PiperVoiceCatalog.swift', 'GeminiVoicePreview.swift', 'SarvamVoiceBrowser.swift', 'VoiceSampleSession.swift', 'AboutSettingsView.swift', 'KeyboardShortcuts.swift', 'ProjectBrowserPage.swift',
+             'ProjectSourcesSettingsView.swift', 'YouTubeViews.swift', 'YouTubeProjectPreview.swift')
 WIN_FILES = ('Views/HelpWindow.xaml', 'Views/HelpWindow.xaml.cs', 'MainWindow.Presentation.cs', 'MainWindow.LanguageResults.cs', 'Views/ImportAssetsDialog.cs', 'MainWindow.Accessibility.cs', 'MainWindow.xaml', 'Views/CompactDialogLayout.cs', 'Views/WindowAppearance.cs',
              'Views/SettingsDialog.Compact.cs', 'Views/SettingsDialog.Layout.cs',
-             'Views/SettingsDialog.ElevenLabs.cs', 'Views/SettingsDialog.SarvamBrowser.cs', 'Views/SettingsDialog.SpeechLayout.cs', 'MainWindow.DialogLayoutSmoke.cs', 'Views/SettingsDialog.cs', 'Views/SettingsDialog.Sarvam.cs', 'Views/PiperVoicesDialog.cs', 'Views/PiperDeleteVoicesDialog.cs', 'Services/VoiceSampleSession.cs', 'Views/SettingsDialog.Information.cs', 'MainWindow.Menus.cs')
+             'Views/SettingsDialog.ElevenLabs.cs', 'Views/SettingsDialog.SarvamBrowser.cs', 'Views/SettingsDialog.SpeechLayout.cs', 'MainWindow.DialogLayoutSmoke.cs', 'Views/SettingsDialog.cs', 'Views/SettingsDialog.Sarvam.cs', 'Views/PiperVoicesDialog.cs', 'Views/PiperDeleteVoicesDialog.cs', 'Services/VoiceSampleSession.cs', 'Views/SettingsDialog.Information.cs', 'MainWindow.Menus.cs',
+             'Views/NewProjectDialog.cs', 'Views/ProjectSourcesSettingsControl.cs', 'MainWindow.YouTube.cs')
 
 def sources(workspace):
     workspace = Path(workspace)
@@ -46,6 +48,22 @@ def validate(source):
 
     def require(path, token, reason):
         if token not in source[path]: raise ValueError(path + ': ' + reason)
+    for path, text in source.items():
+        for label in ('My YouTube Videos', 'YouTube Accounts', 'Choose YouTube captions after',
+                      'Download YouTube Captions', 'Import YouTube Captions', 'Caption account'):
+            if label in text:
+                raise ValueError(f'{path}: retired YouTube control: {label}')
+    require('Windows/Views/SettingsDialog.cs', 'Enumerable.Range(0, labels.Length)',
+            'Settings navigation must enumerate the current sidebar labels')
+    for path, action in [
+        ('Mac/YouTubeProjectPreview.swift', 'YouTubeService.shared.video(videoID)'),
+        ('Windows/Views/NewProjectDialog.cs', 'YouTubeService.Shared.VideoAsync('),
+        ('Mac/ProjectSourcesSettingsView.swift', 'Button("Video Details…"'),
+        ('Windows/Views/ProjectSourcesSettingsControl.cs', '("Video Details…", "youtube-details")'),
+        ('Mac/YouTubeViews.swift', 'YouTubeService.shared.video(id)'),
+        ('Windows/MainWindow.YouTube.cs', 'service.VideoAsync(id, cancellation.Token)'),
+    ]:
+        require(path, action, 'linked YouTube videos must retain metadata lookup and details')
     for reader in ('Mac/StudioHelp.swift', 'Windows/Views/HelpWindow.xaml.cs'):
         require(reader, 'https://vidistudio.varunmanojkumar.in/docs"', 'Help must load the shared website guide')
         require(reader, 'Documentation requires internet.', 'Help must explain an unavailable connection')

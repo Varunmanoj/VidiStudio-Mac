@@ -19,7 +19,7 @@ Windows companion forms pass through CompactDialogLayout. It preserves control i
 
 Windows New Project retains Choose Project Location…; Mac uses the configured default folder for new projects.
 
-Genuine exceptions: OS window chrome/file pickers; Command versus Ctrl/Alt; Apple voices versus Windows OneCore/SAPI; platform media-tool locations and actual dependency licenses. My YouTube Videos has a dedicated toolbar/list layout, separately covered by native browser/account checks. These exceptions do not justify unrelated stacking, loose spacing or light fills in dark mode.
+Genuine exceptions: OS window chrome/file pickers; Command versus Ctrl/Alt; Apple voices versus Windows OneCore/SAPI; platform media-tool locations and actual dependency licenses.
 
 ## Automated checks
 
@@ -50,7 +50,6 @@ ElevenLabs models are dropdown-only. Only Search voices is a search box; Accent,
 
 Voice-search fields span the full available browsing row on Windows, as on Mac; they are not ordinary two-column setting fields. ElevenLabs, Sarvam, independent Summary and Piper catalog/removal search retain their accessible names, filtering and menu commands. The shared full-width marker prevents dialog normalization from converting them back to half-width fields. Summary voice has an explicit heading, engine choice, speed/pitch/volume and reset, then voice browsing. Hidden engine groups collapse their headings and painted cards together. Native Settings/dialog checks assert these bounds and Summary ordering.
 
-The YouTube browser handoff shows a native indeterminate spinner and announces “Opening YouTube project…” until the destination editor opens or the app reports an error. Mac displays a floating status panel to stay visible as focus moves from the library to an editor window. Windows displays the status in the existing window as it switches from the library to the editor.
 
 
 ## Shared inspector language (1.0.350)

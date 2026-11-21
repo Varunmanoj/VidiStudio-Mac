@@ -925,7 +925,6 @@ struct ImportAssetSelection {
     var adAudioMode: ImportedADAudioMode = .narration
     /// Reviewed timing JSON created by the TXT timing editor.
     var transcriptTiming: URL?
-    var transcriptCaptionProvenance: URL?
     var adTranscriptTiming: URL?
 
     var hasAny: Bool {
@@ -1570,9 +1569,7 @@ final class StudioModel {
     var languageDeletionProject: StudioProject?
     var languageDeletionComponent: GeneratedContentComponent?
 
-    var showingYouTubeBrowser = false
     var showingYouTubeDetails = false
-    var youtubeDetailAction = "youtube-details"
     var youtubeInspectorRefresh = UUID()
     static let defaultErrorTitle = "VidiStudio Couldn’t Finish"
     var projects: [StudioProject] = []
@@ -2789,7 +2786,7 @@ final class StudioModel {
             engineCheckStatus = .checking
         }
         let target = project ?? (["check-sarvam-key", "list-sarvam-models", "import-video", "import-youtube", "doctor", "validate-config", "list-models", "check-api-key"].contains(command) ? nil : selected)
-        if target?.youtubeMetadata?.visibility == "private" { errorTitle = "Private Video Cannot Be Opened"; error = "Signing in to Google does not give Gemini access to this private video."; completion?(nil); return }
+        if target?.youtubeMetadata?.visibility == "private" { errorTitle = "Private Video Cannot Be Opened"; error = "Choose a public or unlisted video, or import the original file."; completion?(nil); return }
         guard requireInternet(command, project: target, extra: extra) else {
             if let cleanupURL { try? FileManager.default.removeItem(at: cleanupURL) }
             completion?(nil)
@@ -3418,7 +3415,6 @@ final class StudioModel {
         if let transcript = selection.transcript {
             var arguments = ["--input", transcript.path]
             if let timing = selection.transcriptTiming { arguments += ["--timing-input", timing.path] }
-            if let provenance = selection.transcriptCaptionProvenance { arguments += ["--caption-provenance", provenance.path] }
             steps.append(("import-transcript", arguments))
         }
         if let adTranscript = selection.adTranscript {

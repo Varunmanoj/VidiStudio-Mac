@@ -168,11 +168,6 @@ struct ImportExistingAssetsView: View {
     var onFinished: ((StudioProject?) -> Void)? = nil
 
     @State private var selection: ImportAssetSelection
-    @State private var choosingYouTubeCaptions = false
-    @State private var captionInput: URL?
-    @State private var captionSource: String?
-    @State private var captionFiles: [URL] = []
-    @State private var importStarted = false
     @State private var timingRequest: ImportTimingRequest?
     @State private var pendingCombine = false
     @State private var confirmReplacements = false
@@ -230,14 +225,6 @@ struct ImportExistingAssetsView: View {
                 Section("Text assets") {
                     if scope == .all || scope == .transcript {
                         assetRow(.transcript, url: $selection.transcript, timing: selection.transcriptTiming)
-                        if project.isYouTubeURLProject {
-                            Button("Download YouTube Captions…", systemImage: "captions.bubble") { choosingYouTubeCaptions = true }
-                                .disabled(studio.busy)
-                                .help("Choose an authorized YouTube caption track as the transcript to import")
-                            if let captionSource, selection.transcript == captionInput {
-                                Text(captionSource).font(.caption).foregroundStyle(.secondary)
-                            }
-                        }
                     }
                     if scope == .all || scope == .summary {
                         assetRow(.summary, url: $selection.summary, timing: nil)
@@ -305,26 +292,6 @@ struct ImportExistingAssetsView: View {
             .padding(20)
         }
         .frame(width: 680, height: max(360, min(620, (NSScreen.main?.visibleFrame.height ?? 720) - 100)))
-        .sheet(isPresented: $choosingYouTubeCaptions) {
-            YouTubeCaptionDownloadView(project: project) { data, caption in
-                do {
-                    guard let videoID = project.youtubeURL.flatMap(StudioModel.youtubeVideoID) else { return }
-                    let input = try studio.temporaryYouTubeFile(data, extension: "srt")
-                    captionFiles.append(input)
-                    let value = ["videoID": videoID, "trackID": caption.id, "language": caption.language, "name": caption.name, "trackKind": caption.kind]
-                    let provenance = try studio.temporaryYouTubeFile(JSONSerialization.data(withJSONObject: value), extension: "json")
-                    captionFiles.append(provenance)
-                    captionInput = input
-                    selection.transcript = input
-                    selection.transcriptTiming = nil
-                    selection.transcriptCaptionProvenance = provenance
-                    captionSource = "YouTube captions · \(Locale.current.localizedString(forIdentifier: caption.language) ?? caption.language) · \(caption.kind == "ASR" ? "Automatic" : "Standard")"
-                } catch { localError = error.localizedDescription }
-            }
-        }
-        .onDisappear {
-            if !importStarted { for file in captionFiles { try? FileManager.default.removeItem(at: file) } }
-        }
         .sheet(item: $timingRequest) { request in
             TXTImportTimingView(
                 fileURL: request.url,
@@ -349,13 +316,11 @@ struct ImportExistingAssetsView: View {
             get: { timingWarning != nil },
             set: { if !$0 { timingWarning = nil } }
         )) {
-            if selection.transcriptCaptionProvenance == nil {
-                Button("Import Anyway", role: .destructive) {
-                    timingWarning = nil
-                    performImport()
-                }
-                .help("Proceed with the import. Flagged rows are reported and can be retimed afterward.")
+            Button("Import Anyway", role: .destructive) {
+                timingWarning = nil
+                performImport()
             }
+            .help("Proceed with the import. Flagged rows are reported and can be retimed afterward.")
             Button("Review Timing…") {
                 if let warning = timingWarning {
                     timingRequest = ImportTimingRequest(url: warning.fileURL, kind: warning.kind, mode: warning.mode)
@@ -365,14 +330,13 @@ struct ImportExistingAssetsView: View {
             .help("Open the timing editor for all rows before importing")
             Button("Cancel", role: .cancel) { timingWarning = nil }
         } message: {
-            Text((timingWarning?.messages ?? []).joined(separator: "\n\n") + (selection.transcriptCaptionProvenance == nil ? "\n\nYou can import anyway and edit transcript timings afterward." : "\n\nReview this caption track’s timing before importing. Your existing transcript is unchanged."))
+            Text((timingWarning?.messages ?? []).joined(separator: "\n\n") + "\n\nYou can import anyway and edit transcript timings afterward.")
         }
         .alert("Import Couldn’t Be Completed", isPresented: Binding(get: { studio.error != nil }, set: { if !$0 { studio.dismissError() } })) {
             Button("OK", role: .cancel) { studio.dismissError() }
         } message: { Text(studio.error ?? "") }
         .onChange(of: selection.transcript) { _, url in
             selection.transcriptTiming = nil
-            if url != captionInput { selection.transcriptCaptionProvenance = nil; captionSource = nil }
             if let url, url.pathExtension.lowercased() == "txt" { requestTiming(kind: .transcript, url: url) }
         }
         .onChange(of: selection.adTranscript) { _, url in
@@ -503,10 +467,7 @@ struct ImportExistingAssetsView: View {
 
     private func performImport() {
         let combine = pendingCombine
-        importStarted = true
-        let temporaryFiles = captionFiles
         studio.importAssets(selection, into: project, combine: combine, replaceExisting: !replacementNames.isEmpty) { result in
-            for file in temporaryFiles { try? FileManager.default.removeItem(at: file) }
             if let result { onFinished?(result) }
         }
         dismiss()

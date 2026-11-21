@@ -41,10 +41,9 @@ def check_context_menu_layouts(workspace, windows_root=None):
     guard = source.split('private bool CanRunProjectContextCommand(', 1)[1].split('private async', 1)[0]
     if re.search(r'"export"[^\n]*Model.CanUseAI', guard):
         raise ValueError('Context Export must not acquire an AI requirement')
-    for path, tokens in [('MainWindow.ContextMenus.cs', ['Read from Start', 'Read from Selection', 'Read Selected Text Only', 'Edit Summary…', 'Stop', 'Read Summary from Here', 'Read Selected Text', 'Pause Summary Reading', 'Resume Summary Reading', 'Stop Summary Reading']), ('MainWindow.YouTube.cs', ['list.ContextRequested +=', 'new[] { "youtube-open-editor", "youtube-open-browser" }', 'ReferenceEquals(list.SelectedItem, target) && youtubeBrowserCanRun?.Invoke(id) == true'])]:
-        text = (win/path).read_text(encoding='utf-8')
-        for token in tokens:
-            if token not in text: raise ValueError('Windows context contract missing: ' + token)
+    readback = (win/'MainWindow.ContextMenus.cs').read_text(encoding='utf-8')
+    for token in ['Read from Start', 'Read from Selection', 'Read Selected Text Only', 'Edit Summary…', 'Stop', 'Read Summary from Here', 'Read Selected Text', 'Pause Summary Reading', 'Resume Summary Reading', 'Stop Summary Reading']:
+        if token not in readback: raise ValueError('Windows context contract missing: ' + token)
     background = (win/'MainWindow.xaml.cs').read_text(encoding='utf-8')
     if 'copyToItem.Visibility = desktopEditorVisible && EditorCommandVisible("copy-to")' not in background:
         raise ValueError('Windows background context must omit unrelated Copy and Translate')

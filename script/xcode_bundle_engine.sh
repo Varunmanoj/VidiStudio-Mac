@@ -21,5 +21,14 @@ python3 script/build_help.py
 ditto build/help/VidiStudio.help "$TARGET_BUILD_DIR/$UNLOCALIZED_RESOURCES_FOLDER_PATH/VidiStudio.help"
 
 if [[ -f "$SRCROOT/Config/youtube-release.json" ]]; then
-  ditto "$SRCROOT/Config/youtube-release.json" "$TARGET_BUILD_DIR/$UNLOCALIZED_RESOURCES_FOLDER_PATH/youtube-config.json"
+  python3 - "$SRCROOT/Config/youtube-release.json" "$TARGET_BUILD_DIR/$UNLOCALIZED_RESOURCES_FOLDER_PATH/youtube-config.json" <<'PYCONFIG'
+import json
+import sys
+from pathlib import Path
+
+api_key = json.loads(Path(sys.argv[1]).read_text(encoding="utf-8-sig")).get("apiKey", "")
+Path(sys.argv[2]).write_text(json.dumps({"apiKey": api_key}), encoding="utf-8")
+PYCONFIG
+else
+  rm -f "$TARGET_BUILD_DIR/$UNLOCALIZED_RESOURCES_FOLDER_PATH/youtube-config.json"
 fi
