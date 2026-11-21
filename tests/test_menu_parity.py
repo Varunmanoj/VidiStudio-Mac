@@ -107,17 +107,18 @@ class DesktopMenuParity(unittest.TestCase):
             with self.assertRaises(ValueError):
                 self.checker.compare_piper_settings_samples(changed_mac, changed_windows)
 
-    def test_youtube_library_entry_is_exclusive_to_all_projects(self):
+    def test_youtube_commands_exclude_signed_in_features(self):
         import runpy
         root = Path(os.environ.get('VIDISTUDIO_DESKTOP_WORKSPACE', Path(__file__).resolve().parents[2]))
         check = runpy.run_path(str(root / 'VidiStudio Mac/script/contextual_menu_contract.py'))['check_contextual_menus']
         check(self.mac, self.windows)
-        for mac, windows in [
-            (self.mac.replace('if allProjects != nil {\n                Button("My YouTube Videos…"', 'if youtubeMenusVisible {\n                Button("My YouTube Videos…"', 1), self.windows),
-            (self.mac, self.windows.replace('if (id == "youtube-browser") return !desktopEditorVisible && youtubeBrowserCanRun == null;', '')),
-            (self.mac, self.windows.replace('"analyze" or "youtube-browser" => false,', '"analyze" => false,')),
-        ]:
-            with self.assertRaises(ValueError): check(mac, windows)
+        for command in ('youtube-browser', 'youtube-accounts', 'youtube-captions'):
+            for mac, windows in [
+                (self.mac.replace('CommandMenu("YouTube") {', f'CommandMenu("YouTube") {{ Button("Removed") {{ studio.runYouTube("{command}") }}', 1), self.windows),
+                (self.mac, self.windows.replace('Menu("YouTube", Command("youtube-open-browser"))', f'Menu("YouTube", Command("{command}"), Command("youtube-open-browser"))', 1)),
+            ]:
+                with self.assertRaisesRegex(ValueError, 'retired YouTube command'):
+                    check(mac, windows)
 
     def test_project_sort_and_website_commands_cannot_be_omitted(self):
         for command in ('projects-sort-opened', 'projects-sort-name', 'projects-sort-duration', 'projects-sort-type', 'website'):

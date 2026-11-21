@@ -109,7 +109,7 @@ struct SettingsView: View {
     @State private var finderExtensionEnabled = FIFinderSyncController.isExtensionEnabled
     private var section: String { studio.settingsSection }
     private var sections: [String] {
-        var sections = ["Appearance", "Projects", "Narration", "Gemini", "YouTube Accounts"]
+        var sections = ["Appearance", "Projects", "Narration", "Gemini"]
         if studio.settings.developerMode { sections.append("Developer prompts") }
         sections += ["Storage", "Help", "About"]
         return sections
@@ -293,7 +293,6 @@ struct SettingsView: View {
                 }
             } header: { Text("Developer prompts").accessibilityAddTraits(.isHeader).accessibilityHeading(.h2) }
             }
-            if section == "YouTube Accounts" { YouTubeAccountsView() }
             if section == "Storage" { Section {
                 LabeledContent("Default folder for new projects") {
                     HStack {

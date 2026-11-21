@@ -50,7 +50,7 @@ import SwiftUI
 @main struct Main { @MainActor static func main() {
  let app=NSApplication.shared;app.setActivationPolicy(.prohibited)
  NativeMenuIcons.shortcutSymbols = Dictionary((StudioShortcut.editor + StudioShortcut.youtube).map { ($0.title,$0.icon) },uniquingKeysWith:{ first,_ in first })
- let menu=NSMenu(); let names=["Project Language","VidiStudio","My YouTube Videos","YouTube Details","New Project…","Open Project Folder…","My YouTube Videos…","Settings…","Close","Language and Saved Results…","Show Transcript","Pause Video","Copy and Translate…","Edit Transcript Segments","Open in New Window","Rename Project…","Open in YouTube","Open Project Settings…","Open in Project Folder","Open Project Configuration","Analysis","Export…","Remove from List","Choose What to Delete…","Delete Project…"]
+ let menu=NSMenu(); let names=["Project Language","VidiStudio","New Project…","Open Project Folder…","Settings…","Close","Language and Saved Results…","Show Transcript","Pause Video","Copy and Translate…","Edit Transcript Segments","Open in New Window","Rename Project…","Open in YouTube","Open Project Settings…","Open in Project Folder","Open Project Configuration","Analysis","Export…","Remove from List","Choose What to Delete…","Delete Project…"]
  for name in names + (StudioShortcut.editor + StudioShortcut.youtube).map({ $0.title }) {menu.addItem(NSMenuItem(title:name,action:nil,keyEquivalent:""))}
  let system=NSMenuItem(title:"Ask Siri",action:nil,keyEquivalent:"");menu.addItem(system)
  for name in '''+json.dumps(titles,ensure_ascii=False)+''' {menu.addItem(NSMenuItem(title:name,action:nil,keyEquivalent:""))}

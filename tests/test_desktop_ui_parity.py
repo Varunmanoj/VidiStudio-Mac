@@ -39,6 +39,24 @@ class DesktopUILayoutParityTests(unittest.TestCase):
                              ('Windows/MainWindow.xaml', 'x:Name="SharedVideoRing"')]:
             self.mutated(path, marker, '', 'shared YouTube project progress')
 
+    def test_youtube_link_controls_replace_signed_in_features(self):
+        for path, token in (
+            ('Mac/SettingsView.swift', 'var sections ='),
+            ('Windows/Views/SettingsDialog.cs', 'var labels ='),
+            ('Mac/ProjectBrowserPage.swift', 'Button("'),
+            ('Windows/MainWindow.xaml', 'Click="NewProject_Click"'),
+            ('Mac/ContentView.swift', 'Text("New Project")'),
+            ('Windows/Views/NewProjectDialog.cs', 'var youtubeRow ='),
+            ('Mac/ImportAssetsView.swift', 'Section("Text assets")'),
+            ('Windows/Views/ImportAssetsDialog.cs', 'public sealed class ImportAssetsPicker'),
+        ):
+            with self.subTest(path=path):
+                self.mutated(path, token, token + ' /* YouTube Accounts */', 'retired YouTube control')
+        self.mutated('Windows/Views/SettingsDialog.cs', 'Enumerable.Range(0, labels.Length)',
+                     'new[] { 0, 1, 2, 3, 8, 4, 5, 6, 7 }', 'current sidebar labels')
+        self.mutated('Mac/YouTubeProjectPreview.swift', 'YouTubeService.shared.video(videoID)', 'missing', 'must retain metadata lookup')
+        self.mutated('Windows/Views/NewProjectDialog.cs', 'YouTubeService.Shared.VideoAsync(', 'missing(', 'must retain metadata lookup')
+
     def test_sample_players_cannot_overlap_or_leak_the_shared_session(self):
         for file in ['SystemVoiceCatalog.swift','PiperVoiceCatalog.swift','GeminiVoicePreview.swift','SarvamVoiceSettingsView.swift']:
             with self.subTest(file=file):

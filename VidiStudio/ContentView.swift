@@ -49,7 +49,6 @@ private struct NewProjectView: View {
     @State private var youtubePreview: YouTubeProjectPreview?
     @State private var youtubeFetchError: String?
     @State private var fetchingYouTube = false
-    @State private var chooseYouTubeCaptions = false
 
     private var trimmedYouTubeURL: String {
         youtubeURL.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -61,8 +60,6 @@ private struct NewProjectView: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
-            Button("My YouTube Videos…") { openWindow(id: "youtube-browser") }
-            if source == .youtube { Toggle("Choose YouTube captions after creating", isOn: $chooseYouTubeCaptions) }
             Text("New Project")
                 .font(.title2.bold()).accessibilityAddTraits(.isHeader).accessibilityHeading(.h1)
                 .accessibilityAddTraits(.isHeader)
@@ -325,7 +322,6 @@ private struct NewProjectView: View {
         dismiss()
         DispatchQueue.main.async {
             openWindow(id: "project-editor", value: project.id)
-            if chooseYouTubeCaptions { studio.youtubeDetailAction = "youtube-captions"; openWindow(id: "youtube-details") }
         }
     }
 
@@ -395,7 +391,7 @@ struct ContentView: View {
     @AppStorage("projectGridItemSize") private var projectGridItemSize = 180.0
 
     private func openEditor(_ project: StudioProject) {
-        if project.youtubeMetadata?.visibility == "private" { studio.error = "Private Video Cannot Be Opened. Signing in to Google does not give Gemini access."; return }
+        if project.youtubeMetadata?.visibility == "private" { studio.error = "Private Video Cannot Be Opened. Choose a public or unlisted video, or import the original file."; return }
         ProjectOpenHistory.record(project)
         studio.selectedID = project.id
         // The project ID is the WindowGroup value and therefore its window identity.
@@ -891,7 +887,7 @@ struct ProjectEditorWindow: View {
             }
         }
         .sheet(isPresented: $studio.showingYouTubeDetails) {
-            if let project = studio.selected { ScrollView { YouTubeDetailsView(studio: studio, project: project, startWithCaptions: studio.youtubeDetailAction == "youtube-captions") } }
+            if let project = studio.selected { ScrollView { YouTubeDetailsView(studio: studio, project: project) } }
         }
         .onAppear {
             studio.reload()
@@ -899,7 +895,7 @@ struct ProjectEditorWindow: View {
             if let project = studio.selected { ProjectOpenHistory.record(project) }
             editorShortcutActions.youtubeHandler = { action in
                 if action == "youtube-refresh" { studio.youtubeInspectorRefresh = UUID(); showInspector = true }
-                else { studio.youtubeDetailAction = action; studio.showingYouTubeDetails = true }
+                else { studio.showingYouTubeDetails = true }
             }
             studio.refreshProjectIntegrity(for: projectID)
             openProjects.open(projectID, name: studio.selected?.name ?? "Project", folder: studio.selected?.folder, owner: windowOwner, actions: editorShortcutActions)

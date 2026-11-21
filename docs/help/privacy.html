@@ -10,7 +10,7 @@
 
 <h2>Connection checks</h2><p>VidiStudio makes short, credential-free HTTPS connection checks to Google Gemini, Sarvam, ElevenLabs, YouTube, and Hugging Face. These checks send no API key or project content. They run at startup, after network changes, when returning to the app, and every 30 seconds while an online service is unavailable and the app is active.</p>
 
-<h2>Connected YouTube accounts</h2><p>Optional Google sign-in retrieves your Google profile and the YouTube channels, uploads, playlists, video details and caption tracks that you authorize. Refresh tokens are stored in macOS Keychain or Windows Credential Manager, outside projects. Google access tokens are not passed to Gemini or the processing engine. Caption files and imported transcript text are stored locally when you choose an import. Sign Out removes a local connection; Disconnect Google Account revokes Google access across VidiStudio connections. Delete Stored YouTube Data in Video Details removes the selected project’s fetched information and imported YouTube caption data. Review <a href="https://www.youtube.com/t/terms">YouTube Terms</a> and <a href="https://policies.google.com/privacy">Google Privacy Policy</a>.</p>
+<h2>YouTube video details</h2><p>VidiStudio retrieves information for the video link through the YouTube Data API and saves it in the local project. At startup, VidiStudio expires cached video details older than 30 days in the project library. You can refresh details from the editor.</p>
 
 <h2>API cache lifetime</h2><p>When VidiStudio starts, it expires fetched video-detail snapshots and downloaded caption source copies older than 30 days in the configured project library. Saved editable transcripts remain project content. Opening video details fetches current information. Use Delete Stored YouTube Data to remove imported YouTube transcript rows as well.</p>
 
@@ -19,7 +19,7 @@
 
 <h2>Copy and Translate</h2><p>Copy and Translate with Translate Text enabled sends only the selected saved transcript, summary or description text to Gemini, using the configured text-rewrite model. Video, audio recordings, credentials and undo history are not included in the translation content. New translated versions remain local. Turning Translate Text off duplicates content locally without contacting Gemini.</p>
 
-<h2 id="youtube-summary-context">YouTube summary context</h2><p>When generating a YouTube Summary, VidiStudio sends the nonempty video description saved in the project’s YouTube API details to Gemini as optional context alongside the video and transcript. It does not include connected-account credentials or playlist details. Refresh YouTube Details updates the saved description before a later generation. A missing or expired metadata snapshot contributes no description context.</p>
+<h2 id="youtube-summary-context">YouTube summary context</h2><p>When generating a YouTube Summary, VidiStudio sends the nonempty video description saved in the project’s YouTube API details to Gemini as optional context alongside the video and transcript. Refresh YouTube Details updates the saved description before a later generation. A missing or expired metadata snapshot contributes no description context.</p>
 
 <p>Project last-opened times are stored in local application preferences on this device, outside portable project folders. Sorting changes only the project list presentation.</p>
 

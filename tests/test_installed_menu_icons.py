@@ -21,7 +21,7 @@ from pathlib import Path
 GALLERY = {
     "VidiStudio": ["About VidiStudio", "Settings…", "Services", "Hide VidiStudio",
                    "Hide Others", "Show All", "Quit VidiStudio"],
-    "File": ["New Project…", "Open Project Folder…", "Open in New Window", "My YouTube Videos…",
+    "File": ["New Project…", "Open Project Folder…", "Open in New Window",
              "?Open in YouTube", "Export…", "Delete Project…", "Choose What to Delete…",
              "Remove from List", "Settings…", "Open Project Settings…", "Close"],
     "Edit": ["Search Projects…", "Clear Search", "Rename Project…"],
@@ -29,20 +29,20 @@ GALLERY = {
              "Reset Project Filters", "Project List View", "Project Grid View", "Enter Full Screen"],
     "Project": ["Open Selected Project", "Analysis", "Show Project in Finder",
                 "?Open Project Configuration", "Rename Project…", "Move Project to Bin…"],
-    "YouTube": ["My YouTube Videos…", "YouTube Accounts…", "?Open in YouTube"],
+    "YouTube": ["?Open in YouTube"],
     "Help": ["VidiStudio Help", "VidiStudio Website"],
     "Project/Analysis": ["Analyze Video…", "Generate Video Details & Timeline Pictures", "Generate Transcript",
                          "Generate Summary", "Generate Audio Descriptions"],
     "View/Sort Projects": ["Last Opened", "Name (A–Z)", "Duration (Longest First)", "Type (Local, then YouTube)"],
     "View/Filter Projects by Source": ["All Projects", "Local Video Projects", "YouTube Projects"],
 }
-WINDOW_COMMANDS = ["VidiStudio", "My YouTube Videos", "YouTube Details"]
+WINDOW_COMMANDS = ["VidiStudio"]
 
 
 SECTIONS = ["Show Transcript", "Show Summary", "Show Descriptions", "Show AD Overview", "Show AD Transcript"]
 TRANSCRIPT = {
     "VidiStudio": GALLERY["VidiStudio"],
-    "File": [item for item in GALLERY["File"] if item not in {"Open in New Window", "My YouTube Videos…", "?Open in YouTube"}],
+    "File": [item for item in GALLERY["File"] if item not in {"Open in New Window", "?Open in YouTube"}],
     "Edit": ["Search Project…", "Clear Search", "Copy and Translate…", "Edit Transcript Segments"],
     "View": ["Editor Sections", "Project Language", "Transcript Saved Results", "Hide Preview",
              "Full-Screen Video", "Hide Timeline", "Show Thumbnail Images", "Filter Transcript…", "Sort Transcripts…",
