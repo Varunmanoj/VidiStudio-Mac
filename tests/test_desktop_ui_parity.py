@@ -35,9 +35,23 @@ class DesktopUILayoutParityTests(unittest.TestCase):
         self.mutated('Windows/MainWindow.Presentation.cs', 'project.LanguagesForExport(path).Contains(project.SelectedLanguage)', 'true', 'Created Exports must follow project language')
 
     def test_shared_project_progress_on_both_desktops(self):
-        for path, marker in [('Mac/ContentView.swift', 'ProgressView("Opening YouTube project…")'),
-                             ('Windows/MainWindow.xaml', 'x:Name="SharedVideoRing"')]:
-            self.mutated(path, marker, '', 'shared YouTube project progress')
+        for path, marker in (
+            ('Mac/ContentView.swift', 'ProgressView(message)'),
+            ('Windows/MainWindow.xaml', 'x:Name="SharedVideoRing"'),
+            ('Mac/ContentView.swift', '"shared-file-opening"'),
+            ('Windows/MainWindow.xaml.cs', '"shared-file-opening"'),
+            ('Mac/ContentView.swift', '"shared-youtube-opening"'),
+            ('Windows/MainWindow.xaml.cs', '"shared-youtube-opening"'),
+        ):
+            with self.subTest(path=path, marker=marker):
+                self.mutated(path, marker, '', 'shared project progress')
+
+    def test_external_projects_keep_all_projects_available(self):
+        self.mutated('Mac/VidiStudioApp.swift', 'MainWindowLifetime(isLibrary: true)', 'MainWindowLifetime()', 'library window')
+        self.mutated('Mac/ContentView.swift', 'MainWindowLifetime(onClose: { openWindow(id: "studio") })', 'MainWindowLifetime()', 'editor close must return')
+        self.mutated('Windows/App.xaml.cs', 'var target = ProjectLibrary();', 'var target = window;', 'external activation must start')
+        self.mutated('Windows/MainWindow.xaml.cs', 'App.OpenOrActivateEditor(folder)', 'ShowEditor()', 'separate editor')
+        self.mutated('Windows/MainWindow.Menus.cs', 'if (wasEditor && windowClosed) App.ShowProjectLibrary();', '', 'editor close must return')
 
     def test_youtube_link_controls_replace_signed_in_features(self):
         for path, token in (

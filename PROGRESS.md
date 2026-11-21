@@ -1,3 +1,11 @@
+## 2026-11-21 — File and browser opening (1.0.361, build 361)
+
+The Finder context command and Safari extension open their project in a separate editor and leave All Projects available. File imports use the shared native progress panel and accessibility announcement. Closing the editor brings All Projects forward.
+
+Installed and launched the 1.0.361 Release app. Verified the app and Safari, Share and Finder extension versions, same development signing team and registration under `/Applications/VidiStudio.app`. Used the actual Finder context menu to import a synthetic video, then used File > Close to return to All Projects. Used the installed Safari extension and the browser's app-opening prompt to reopen the known Big Buck Bunny project. Window cycling confirmed the library remained open, and Command-W returned to it. Removed the test project from the library. The Finder progress panel was not captured in the native inspection.
+
+The packaged engine passed 20 CLI tests. The [Mac GitHub prerelease](https://github.com/Varunmanoj/VidiStudio-Mac/releases/tag/v1.0.361) targets `9554d5d`. Verified the Apple Silicon DMG and ZIP integrity, the nested signatures and the minimum OS for all 250 bundled arm64 binaries. All five uploaded assets matched their local SHA-256 digests and the public DMG URL returned HTTP 200. The evaluation installers are Apple Development-signed and unnotarized.
+
 ## 2026-11-21 — Synchronized 1.0.360 Mac build and GitHub prerelease
 
 Advanced the Mac version and build to 1.0.360/360 alongside the Windows Store packaging change. Installed and launched the Release app through `script/build_and_run.sh --verify`. The Safari, Share and Finder extensions were signed with the same Apple Development team, matched the app's version and build, and registered from `/Applications/VidiStudio.app`. LaunchServices lists that app path. All 74 menu/layout regression tests and 20 packaged-engine CLI tests passed.

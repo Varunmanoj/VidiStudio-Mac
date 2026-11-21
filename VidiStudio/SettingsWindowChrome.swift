@@ -5,11 +5,14 @@ import AppKit
 enum AppWindowLifetime {
     private static let mainWindows = NSHashTable<NSWindow>.weakObjects()
     private static weak var settingsWindow: NSWindow?
+    private static weak var libraryWindow: NSWindow?
+    static var hasLibraryWindow: Bool { libraryWindow != nil }
     private static var closeObserver: NSObjectProtocol?
 
-    static func registerMainWindow(_ window: NSWindow) {
+    static func registerMainWindow(_ window: NSWindow, isLibrary: Bool = false) {
         observeClosing()
         mainWindows.add(window)
+        if isLibrary { libraryWindow = window }
     }
 
     static func registerSettingsWindow(_ window: NSWindow) {
@@ -24,6 +27,7 @@ enum AppWindowLifetime {
             MainActor.assumeIsolated {
                 guard let window = notification.object as? NSWindow else { return }
                 if window === settingsWindow { settingsWindow = nil }
+                if window === libraryWindow { libraryWindow = nil }
                 guard mainWindows.contains(window) else { return }
                 mainWindows.remove(window)
                 closeOrphanedSettings()
@@ -41,19 +45,42 @@ enum AppWindowLifetime {
 }
 
 struct MainWindowLifetime: NSViewRepresentable {
-    func makeNSView(context: Context) -> LifetimeView { LifetimeView() }
-    func updateNSView(_ view: LifetimeView, context: Context) { }
+    var isLibrary = false
+    var onClose: (() -> Void)?
+
+    func makeNSView(context: Context) -> LifetimeView {
+        let view = LifetimeView()
+        updateNSView(view, context: context)
+        return view
+    }
+
+    func updateNSView(_ view: LifetimeView, context: Context) {
+        view.isLibrary = isLibrary
+        view.onClose = onClose
+    }
+
     final class LifetimeView: NSView {
+        var isLibrary = false
+        var onClose: (() -> Void)?
+
         override func viewDidMoveToWindow() {
             super.viewDidMoveToWindow()
             NotificationCenter.default.removeObserver(self, name: NSWindow.didBecomeKeyNotification, object: nil)
+            NotificationCenter.default.removeObserver(self, name: NSWindow.willCloseNotification, object: nil)
             if let window {
-                AppWindowLifetime.registerMainWindow(window)
+                AppWindowLifetime.registerMainWindow(window, isLibrary: isLibrary)
                 NotificationCenter.default.addObserver(self, selector: #selector(windowBecameKey), name: NSWindow.didBecomeKeyNotification, object: window)
+                NotificationCenter.default.addObserver(self, selector: #selector(windowWillClose), name: NSWindow.willCloseNotification, object: window)
             }
         }
+
         @objc private func windowBecameKey(_ notification: Notification) {
-            if let window { AppWindowLifetime.registerMainWindow(window) }
+            if let window { AppWindowLifetime.registerMainWindow(window, isLibrary: isLibrary) }
+        }
+
+        @objc private func windowWillClose(_ notification: Notification) {
+            guard let onClose else { return }
+            DispatchQueue.main.async(execute: onClose)
         }
     }
 }

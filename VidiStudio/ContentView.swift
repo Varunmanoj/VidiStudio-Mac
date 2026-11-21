@@ -347,12 +347,11 @@ private struct NewProjectView: View {
 
 @MainActor
 final class SharedVideoProgressPanel: NSPanel {
-    init() {
-        let message = "Opening YouTube project…"
-        let content = NSHostingView(rootView: ProgressView("Opening YouTube project…")
+    init(message: String, accessibilityID: String) {
+        let content = NSHostingView(rootView: ProgressView(message)
             .progressViewStyle(.circular)
             .accessibilityLabel(message)
-            .accessibilityIdentifier("shared-youtube-opening")
+            .accessibilityIdentifier(accessibilityID)
             .padding(20))
         super.init(contentRect: NSRect(origin: .zero, size: content.fittingSize),
                    styleMask: [.titled, .nonactivatingPanel], backing: .buffered, defer: false)
@@ -420,37 +419,41 @@ struct ContentView: View {
         NSApp.activate(ignoringOtherApps: true)
         switch source {
         case .videoFile(let fileURL):
-            if let existing = studio.existingProject(forVideoAt: fileURL) {
-                openEditor(existing)
-                return
-            }
-            _ = studio.importVideo(at: fileURL) { project in
-                if let project { openEditor(project) }
+            let existing = studio.existingProject(forVideoAt: fileURL)
+            let message = existing == nil ? "Importing video…" : "Opening video project…"
+            openProjects.beginSharedVideoOpening(message: message, accessibilityID: "shared-file-opening")
+            AccessibilityNotification.Announcement(message).post()
+            if let existing {
+                finishSharedVideoOpening(existing)
+            } else if !studio.importVideo(at: fileURL, completion: finishSharedVideoOpening) {
+                openProjects.sharedVideoOpening = nil
             }
         case .youtube(let webURL):
             let rawURL = webURL.absoluteString
-            openProjects.beginSharedVideoOpening()
-            AccessibilityNotification.Announcement("Opening YouTube project…").post()
+            let message = "Opening YouTube project…"
+            openProjects.beginSharedVideoOpening(message: message, accessibilityID: "shared-youtube-opening")
+            AccessibilityNotification.Announcement(message).post()
             Task { @MainActor in
-                @MainActor func finish(_ project: StudioProject?) {
-                    guard let project else { openProjects.sharedVideoOpening = nil; return }
-                    openProjects.sharedVideoOpening = .openingEditor(project.id)
-                    openEditor(project)
-                    if studio.error != nil {
-                        openProjects.sharedVideoOpening = nil
-                    } else if openProjects.projects.contains(where: { $0.id == project.id }) {
-                        openProjects.sharedEditorDidOpen(project.id)
-                    }
-                }
                 if let existing = studio.existingProject(forYouTubeURL: rawURL) {
-                    finish(existing)
+                    finishSharedVideoOpening(existing)
                 } else {
                     await ConnectivityService.shared.waitForInitialCheck(.youtube)
-                    if !studio.importYouTube(at: rawURL, completion: finish) {
+                    if !studio.importYouTube(at: rawURL, completion: finishSharedVideoOpening) {
                         openProjects.sharedVideoOpening = nil
                     }
                 }
             }
+        }
+    }
+
+    private func finishSharedVideoOpening(_ project: StudioProject?) {
+        guard let project else { openProjects.sharedVideoOpening = nil; return }
+        openProjects.sharedVideoOpening = .openingEditor(project.id)
+        openEditor(project)
+        if studio.error != nil {
+            openProjects.sharedVideoOpening = nil
+        } else if openProjects.projects.contains(where: { $0.id == project.id }) {
+            openProjects.sharedEditorDidOpen(project.id)
         }
     }
 
@@ -769,6 +772,7 @@ struct ProjectEditorWindow: View {
             }
         }
         .smoothPresentation()
+        .background(MainWindowLifetime(onClose: { openWindow(id: "studio") }).frame(width: 0, height: 0))
         .background(WindowFitter().frame(width: 0, height: 0))
         .focusedSceneValue(\.projectBrowser, ProjectBrowserActions(
             showProjects: projectBrowserVisibility,
@@ -890,6 +894,7 @@ struct ProjectEditorWindow: View {
             if let project = studio.selected { ScrollView { YouTubeDetailsView(studio: studio, project: project) } }
         }
         .onAppear {
+            if !AppWindowLifetime.hasLibraryWindow { openWindow(id: "studio") }
             studio.reload()
             studio.selectedID = projectID
             if let project = studio.selected { ProjectOpenHistory.record(project) }
