@@ -9,6 +9,7 @@ Mac is the reference for shared organization and workflows. Use native SwiftUI/A
 | Settings pages | Compact named groups, common section order, aligned labels/fields, adjacent related actions, concise copy | Mac SettingsView and feature views; Windows SettingsDialog partials |
 | Gemini, Sarvam and ElevenLabs credentials | Masked key, inline accessible status before trash; check/dashboard actions together below when they fit | GeminiAPISettingsView / SarvamVoiceSettingsView; SettingsDialog.Gemini / Sarvam / SpeechLayout |
 | New Project | Source, source details, AD choices/assets and project location in compact groups | Mac project creation views; Windows NewProjectDialog |
+| Open from Finder, File Explorer, or browser | Announce and display progress while opening the project. Keep All Projects available behind the separate editor and return focus to it on close. | Mac shared-video progress panel / window lifetime. Windows shared-video progress row / project library routing. |
 | Import and timing | Group language/text/audio; choose/remove next to filenames; retain timing tables and errors | ImportAssetsView; ImportAssetsDialog / TextTimingDialog |
 | Export | Category sidebar, grouped format/content/audio/caption choices, aligned saved-result selectors and native actions | ExportOptionsMenu; ExportDialog / ExportDialog.Tracks |
 | Voice management | Group search/filter/sort controls; samples/download/removal with the correct voice; scrolling result list | PiperVoiceCatalog; PiperVoicesDialog / PiperDeleteVoicesDialog |

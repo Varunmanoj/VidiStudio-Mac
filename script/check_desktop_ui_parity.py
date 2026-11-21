@@ -6,11 +6,11 @@ from pathlib import Path
 
 MAC_FILES = ('StudioHelp.swift', 'CreatedExportsView.swift', 'LanguageResults.swift', 'ContentView.swift', 'SettingsView.swift', 'ImportAssetsView.swift', 'ExportOptionsMenu.swift',
              'GeminiAPISettingsView.swift', 'SarvamVoiceSettingsView.swift', 'SystemVoiceCatalog.swift', 'PiperVoiceCatalog.swift', 'GeminiVoicePreview.swift', 'SarvamVoiceBrowser.swift', 'VoiceSampleSession.swift', 'AboutSettingsView.swift', 'KeyboardShortcuts.swift', 'ProjectBrowserPage.swift',
-             'ProjectSourcesSettingsView.swift', 'YouTubeViews.swift', 'YouTubeProjectPreview.swift')
+             'ProjectSourcesSettingsView.swift', 'YouTubeViews.swift', 'YouTubeProjectPreview.swift', 'VidiStudioApp.swift')
 WIN_FILES = ('Views/HelpWindow.xaml', 'Views/HelpWindow.xaml.cs', 'MainWindow.Presentation.cs', 'MainWindow.LanguageResults.cs', 'Views/ImportAssetsDialog.cs', 'MainWindow.Accessibility.cs', 'MainWindow.xaml', 'Views/CompactDialogLayout.cs', 'Views/WindowAppearance.cs',
              'Views/SettingsDialog.Compact.cs', 'Views/SettingsDialog.Layout.cs',
              'Views/SettingsDialog.ElevenLabs.cs', 'Views/SettingsDialog.SarvamBrowser.cs', 'Views/SettingsDialog.SpeechLayout.cs', 'MainWindow.DialogLayoutSmoke.cs', 'Views/SettingsDialog.cs', 'Views/SettingsDialog.Sarvam.cs', 'Views/PiperVoicesDialog.cs', 'Views/PiperDeleteVoicesDialog.cs', 'Services/VoiceSampleSession.cs', 'Views/SettingsDialog.Information.cs', 'MainWindow.Menus.cs',
-             'Views/NewProjectDialog.cs', 'Views/ProjectSourcesSettingsControl.cs', 'MainWindow.YouTube.cs')
+             'Views/NewProjectDialog.cs', 'Views/ProjectSourcesSettingsControl.cs', 'MainWindow.YouTube.cs', 'MainWindow.xaml.cs', 'App.xaml.cs')
 
 def sources(workspace):
     workspace = Path(workspace)
@@ -41,13 +41,23 @@ def swift_blocks(text, name):
                     break
 
 def validate(source):
-    if ('ProgressView("Opening YouTube project…")' not in source['Mac/ContentView.swift']
-            or 'x:Name="SharedVideoRing"' not in source['Windows/MainWindow.xaml']
-            or 'Text="Opening YouTube project…" ' not in source['Windows/MainWindow.xaml']):
-        raise ValueError("Missing shared YouTube project progress indicator")
-
     def require(path, token, reason):
         if token not in source[path]: raise ValueError(path + ': ' + reason)
+
+    for path, marker in (
+        ('Mac/ContentView.swift', 'ProgressView(message)'),
+        ('Windows/MainWindow.xaml', 'x:Name="SharedVideoRing"'),
+        ('Mac/ContentView.swift', '"shared-file-opening"'),
+        ('Windows/MainWindow.xaml.cs', '"shared-file-opening"'),
+        ('Mac/ContentView.swift', '"shared-youtube-opening"'),
+        ('Windows/MainWindow.xaml.cs', '"shared-youtube-opening"'),
+    ):
+        require(path, marker, 'shared project progress must cover video files and YouTube links')
+    require('Mac/VidiStudioApp.swift', 'MainWindowLifetime(isLibrary: true)', 'All Projects must register as the library window')
+    require('Mac/ContentView.swift', 'MainWindowLifetime(onClose: { openWindow(id: "studio") })', 'editor close must return to All Projects')
+    require('Windows/App.xaml.cs', 'var target = ProjectLibrary();', 'external activation must start in All Projects')
+    require('Windows/MainWindow.xaml.cs', 'App.OpenOrActivateEditor(folder)', 'external activation must open a separate editor')
+    require('Windows/MainWindow.Menus.cs', 'if (wasEditor && windowClosed) App.ShowProjectLibrary();', 'editor close must return to All Projects')
     for path, text in source.items():
         for label in ('My YouTube Videos', 'YouTube Accounts', 'Choose YouTube captions after',
                       'Download YouTube Captions', 'Import YouTube Captions', 'Caption account'):

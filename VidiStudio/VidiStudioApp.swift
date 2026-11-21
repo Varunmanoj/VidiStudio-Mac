@@ -57,7 +57,7 @@ struct VidiStudioApp: App {
     var body: some Scene {
         Window("VidiStudio", id: "studio") {
             ContentView(studio: studio, openProjects: openProjects)
-                .background(MainWindowLifetime().frame(width: 0, height: 0))
+                .background(MainWindowLifetime(isLibrary: true).frame(width: 0, height: 0))
                 .writingToolsBehavior(.disabled)
                 .writingToolsAffordanceVisibility(.hidden)
                 .frame(minWidth: 760, minHeight: 560)
@@ -74,13 +74,12 @@ struct VidiStudioApp: App {
         }
         .commands { StudioCommands(studio: studio) }
         WindowGroup("Project Editor", id: "project-editor", for: String.self) { $projectID in
-            Group {
             if let value = projectID {
                 ProjectEditorWindow(projectID: ProjectEditorWindowValue.projectID(from: value), windowProjectID: $projectID, openProjects: openProjects)
             } else {
                 ContentUnavailableView("Project Unavailable", systemImage: "film", description: Text("Return to All Projects and open the project again."))
+                    .background(MainWindowLifetime().frame(width: 0, height: 0))
             }
-            }.background(MainWindowLifetime().frame(width: 0, height: 0))
         }
         .defaultSize(width: 1200, height: 780)
         .windowToolbarStyle(.automatic)

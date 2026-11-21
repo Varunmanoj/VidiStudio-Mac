@@ -1505,15 +1505,20 @@ final class OpenProjectRegistry {
         case openingEditor(String)
     }
     var sharedVideoOpening: SharedVideoOpening? {
-        didSet { if sharedVideoOpening == nil { sharedVideoPanel?.orderOut(nil) } }
+        didSet {
+            if sharedVideoOpening == nil {
+                sharedVideoPanel?.orderOut(nil)
+                sharedVideoPanel = nil
+            }
+        }
     }
     private var sharedVideoPanel: SharedVideoProgressPanel?
     private var sharedVideoStarted = ContinuousClock.now
 
-    func beginSharedVideoOpening() {
+    func beginSharedVideoOpening(message: String, accessibilityID: String) {
         sharedVideoStarted = .now
         sharedVideoOpening = .preparing
-        if sharedVideoPanel == nil { sharedVideoPanel = SharedVideoProgressPanel() }
+        sharedVideoPanel = SharedVideoProgressPanel(message: message, accessibilityID: accessibilityID)
         sharedVideoPanel?.showOverCurrentWindow()
     }
 
