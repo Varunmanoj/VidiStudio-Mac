@@ -1,3 +1,9 @@
+## 2026-11-21 — Synchronized 1.0.360 Mac build and GitHub prerelease
+
+Advanced the Mac version and build to 1.0.360/360 alongside the Windows Store packaging change. Installed and launched the Release app through `script/build_and_run.sh --verify`. The Safari, Share and Finder extensions were signed with the same Apple Development team, matched the app's version and build, and registered from `/Applications/VidiStudio.app`. LaunchServices lists that app path. All 74 menu/layout regression tests and 20 packaged-engine CLI tests passed.
+
+Built the Apple Silicon DMG and ZIP under `dist/release/1.0.360/`. Verified archive integrity, nested signatures and deployment targets for 250 arm64 binaries. The [Mac GitHub prerelease](https://github.com/Varunmanoj/VidiStudio-Mac/releases/tag/v1.0.360) targets `233cc71` and its five uploaded assets match the local SHA-256 checksums. The installers are Apple Development-signed and unnotarized. The Mac prerelease was published after the user authorized GitHub publication. The public DMG URL returned HTTP 200.
+
 ## 2026-11-21 — GitHub draft for 1.0.359, build 359
 
 Built the Apple Silicon Release DMG and ZIP under `dist/release/1.0.359/`. The DMG verified and mounted read-only. Both exports passed strict nested signatures, build/version checks for the Safari, Finder and Share extensions, and verification of the YouTube Data API-only configuration. The 250 bundled arm64 Mach-O binaries passed the macOS 26.4 minimum check. The installed 1.0.359 app and all three extensions were verified again after temporary copy cleanup. The exports use Apple Development signing and are unnotarized.

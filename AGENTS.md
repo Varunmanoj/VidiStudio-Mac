@@ -33,6 +33,10 @@ App versioning between macOS (`VidiStudio Mac`) and Windows (`Vidi-Studio-Window
 
 Use `VIDISTUDIO_TEST_ENGINE` to test the packaged executable. Do not claim live Gemini or Windows validation without actually running those paths. Record progress and release evidence in `PROGRESS.md`.
 
+## Coordinated desktop releases
+
+For a release that includes Windows, follow the [Windows release and website publication workflow](../Vidi-Studio-Windows/AGENTS.md#windows-release-and-website-publication-required) for the GitHub prereleases and shared website download links. Follow this guide for the Mac build, signing and extension validation.
+
 ## Xcode MCP
 
 This Mac configures Xcode's MCP server for local ChatGPT and Codex clients as `xcode`, using `xcrun mcpbridge`. When the Xcode MCP tools are available in a session, use them as the primary integration for inspecting and controlling the open `VidiStudio.xcodeproj`: Xcode-aware navigation, scheme and target inspection, compiler diagnostics, building, testing, running, debugging, and other capabilities exposed by Xcode belong on this path.
