@@ -33,19 +33,19 @@ struct ElevenLabsVoiceSettingsView: View {
         if preferences.model.isEmpty,let model=browser.models.first { selectModel(model.id) }
         await browser.load(key:key,language:preferences.language)
     }
-    private func action(_ title: String,_ id: String, enabled: Bool = true,run: @escaping () -> Void) -> some View {
+    private func action(_ title: String,_ id: String, icon: String, enabled: Bool = true,run: @escaping () -> Void) -> some View {
         Button(title) { if enabled { run() } }.disabled(!enabled).accessibilityIdentifier(id)
-            .contextMenu { Button(title) { if enabled { run() } }.disabled(!enabled).accessibilityIdentifier(id) }
+            .contextMenu { Button(title, systemImage: icon) { if enabled { run() } }.disabled(!enabled).accessibilityIdentifier(id) }
     }
     private func searchField(_ title: String,_ id: String,text: Binding<String>) -> some View {
         HStack {
             Image(systemName:"magnifyingglass").accessibilityHidden(true)
             TextField(title,text:text).focused($focus,equals:id).accessibilityIdentifier(id)
-            if !text.wrappedValue.isEmpty { action("Clear",id+"-clear") { text.wrappedValue="" } }
+            if !text.wrappedValue.isEmpty { action("Clear",id+"-clear", icon: "xmark.circle") { text.wrappedValue="" } }
         }.padding(6).background(.quaternary,in:RoundedRectangle(cornerRadius:6))
         .contextMenu {
-            Button("Focus " + title) { focus=id }.accessibilityIdentifier(id+"-focus")
-            Button("Clear " + title) { text.wrappedValue="" }.accessibilityIdentifier(id+"-clear")
+            Button("Focus " + title, systemImage: "text.cursor") { focus=id }.accessibilityIdentifier(id+"-focus")
+            Button("Clear " + title, systemImage: "xmark.circle") { text.wrappedValue="" }.accessibilityIdentifier(id+"-clear")
         }
     }
     private func filterChoice(_ title: String,_ field: String,_ all: String) -> some View {
@@ -68,8 +68,8 @@ struct ElevenLabsVoiceSettingsView: View {
                     .contextMenu { Button("Delete ElevenLabs API Key…",role:.destructive) { deleteKey=true }.disabled(key.isEmpty).accessibilityIdentifier("elevenlabs-key-delete") }
             }
             HStack {
-                action(browser.checking ? "Checking API Key…" : "Check API Key","elevenlabs-key-check",enabled:!key.isEmpty && !browser.checking) { keyTask?.cancel();Task { await refresh() } }
-                action("Open ElevenLabs API Keys","elevenlabs-key-dashboard") { openURL(URL(string:"https://elevenlabs.io/app/settings/api-keys")!) }
+                action(browser.checking ? "Checking API Key…" : "Check API Key","elevenlabs-key-check", icon: "checkmark.circle",enabled:!key.isEmpty && !browser.checking) { keyTask?.cancel();Task { await refresh() } }
+                action("Open ElevenLabs API Keys","elevenlabs-key-dashboard", icon: "arrow.up.right.square") { openURL(URL(string:"https://elevenlabs.io/app/settings/api-keys")!) }
             }
             if let storageError { Text(storageError).foregroundStyle(.red) }
             if browser.status == "invalid" || browser.status == "unavailable" { Text(browser.keyMessage).foregroundStyle(.secondary) }
@@ -85,7 +85,7 @@ struct ElevenLabsVoiceSettingsView: View {
         Section {
             SpeechChoice(title:"Sort models",id:"elevenlabs-model-sort",value:$browser.modelSort,options:[("name","Model name (A–Z)"),("descending","Model name (Z–A)")])
             SpeechChoice(title:"Model",id:"elevenlabs-model",value:Binding(get:{ preferences.model },set:selectModel),options:modelOptions)
-            action("Refresh Models and Voices","elevenlabs-refresh",enabled:!key.isEmpty && !browser.checking) { Task { await refresh() } }
+            action("Refresh Models and Voices","elevenlabs-refresh", icon: "arrow.clockwise",enabled:!key.isEmpty && !browser.checking) { Task { await refresh() } }
             SpeechChoice(title:"Narration language",id:"elevenlabs-language",value:setting(\.language),options:[("auto","Automatic")]+(selectedModel?.languages.map { ($0.id,$0.name) } ?? []))
             SpeechChoice(title:"Voice source",id:"elevenlabs-source",value:Binding(get:{ browser.source },set:{ browser.source=$0;browser.sort=$0=="library" ? "trending" : "name";browser.filters=[:] }),options:[("account","My Voices"),("library","Voice Library")])
             searchField("Search voices","elevenlabs-voice-search",text:$browser.search)
@@ -104,15 +104,15 @@ struct ElevenLabsVoiceSettingsView: View {
             }.frame(minHeight:120,maxHeight:360).accessibilityIdentifier("elevenlabs-voices")
             if browser.loading { ProgressView().controlSize(.small).accessibilityLabel("Loading ElevenLabs voices") }
             HStack {
-                action("Load More Voices","elevenlabs-more",enabled:browser.hasMore && !browser.loading) { Task { await browser.load(key:key,language:preferences.language,more:true) } }
-                action("Reset Voice Filters","elevenlabs-filters-reset") { browser.search="";browser.filters=[:];browser.sort=browser.source=="library" ? "trending" : "name" }
+                action("Load More Voices","elevenlabs-more", icon: "plus",enabled:browser.hasMore && !browser.loading) { Task { await browser.load(key:key,language:preferences.language,more:true) } }
+                action("Reset Voice Filters","elevenlabs-filters-reset", icon: "arrow.uturn.backward") { browser.search="";browser.filters=[:];browser.sort=browser.source=="library" ? "trending" : "name" }
             }
             if !browser.message.isEmpty { Text(browser.message).foregroundStyle(.secondary) }
         } header: { Text("Models and Voices").accessibilityHeading(.h2) }
         Section {
             adjustments
             SpeechChoice(title:"Audio quality",id:"elevenlabs-format",value:setting(\.format),options:browser.formats.map { ($0.id,$0.name) })
-            action("Restore Voice Defaults","elevenlabs-controls-reset") {
+            action("Restore Voice Defaults","elevenlabs-controls-reset", icon: "arrow.uturn.backward") {
                 var p=ElevenLabsSpeechSettings();p.model=preferences.model;p.voice=preferences.voice;p.voiceName=preferences.voiceName;p.language=preferences.language;p.controls=preferences.controls;studio.settings.elevenlabsSpeech=p
             }
         } header: { Text("Voice Controls").accessibilityHeading(.h2) }
@@ -192,7 +192,7 @@ struct ElevenLabsVoiceSettingsView: View {
                     .accessibilityLabel((browser.source=="library" ? "Add & select " : "Select ")+voice.name+", "+voice.detail)
                     .accessibilityAddTraits(selected ? .isSelected : []).accessibilityIdentifier("elevenlabs-select-"+voice.id)
                     .contextMenu {
-                        Toggle("Select "+voice.name,isOn:Binding(get:{ selected },set:{ if $0 { choose(voice) } }))
+                        Toggle(isOn: Binding(get: { selected }, set: { if $0 { choose(voice) } })) { Label("Select " + voice.name, systemImage: "person.wave.2") }
                     }
                 Spacer()
                 if browser.preparing==voice.id { ProgressView().controlSize(.small).accessibilityLabel("Preparing demo of "+voice.name) }

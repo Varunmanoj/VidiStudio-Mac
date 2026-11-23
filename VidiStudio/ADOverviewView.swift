@@ -4,8 +4,12 @@ struct ADOverviewView: View {
     @Bindable var studio: StudioModel
     @Environment(\.openSettings) private var openSettings
     let sourceProject: StudioProject
-    init(studio: StudioModel, project: StudioProject) { self.studio = studio; self.sourceProject = project }
-    private var project: StudioProject { sourceProject.overviewProject }
+    private let project: StudioProject
+    init(studio: StudioModel, project: StudioProject) {
+        self.studio = studio
+        self.sourceProject = project
+        self.project = project.overviewProject
+    }
     private func audioStatus(_ cue: Segment) -> SynchronizedAudioStatus {
         .resolve(cue: cue, project: project)
     }
@@ -44,44 +48,64 @@ struct ADOverviewView: View {
             .accessibilityLabel("\(title): \(value)")
             .accessibilityAddTraits(.isStaticText)
     }
+    private func overviewGroup<Content: View>(_ title: String, @ViewBuilder content: () -> Content) -> some View {
+        GroupBox {
+            VStack(alignment: .leading, spacing: 10, content: content)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .padding(.vertical, 4)
+        } label: {
+            Text(title).accessibilityAddTraits(.isHeader).accessibilityHeading(.h3)
+        }
+        .accessibilityGroup(title)
+    }
     var body: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 16) {
-                LazyVGrid(
-                    columns: [GridItem(.adaptive(minimum: 340), spacing: 16)],
-                    alignment: .leading,
-                    spacing: 16
-                ) {
-                    GroupBox {
-                        VStack(alignment: .leading, spacing: 10) {
-                            statistic("Viewing language", value: OutputLanguage.title(sourceProject.overviewLanguageCode))
-                            Divider()
-                            statistic("Description segments", value: String(project.cues.count))
-                            Divider()
-                            statistic("Total AD characters", value: project.descriptionCharacterCount.formatted())
-                            Divider()
-                            statistic("Narration audio ready", value: String(ready))
-                            Divider()
-                            statistic("Audio needs updating", value: String(stale))
-                            Divider()
-                            statistic("Audio missing or unavailable", value: String(missing))
-                            Divider()
-                            statistic("Description time", value: timecode(project.cues.reduce(0) { $0 + max(0, $1.end - $1.start) }))
-                            Divider()
-                            statistic("Spoken transcript segments", value: String(project.transcript.count))
-                            Divider()
-                            statistic("Narration voices", value: narrationVoicesStatistic)
-                            Divider()
-                            statistic("Narration sources", value: project.importedNarrationText)
-                            if !project.importedNarrationFiles.isEmpty {
-                                statistic("Imported audio", value: "\(project.importedNarrationFiles.count) file\(project.importedNarrationFiles.count == 1 ? "" : "s")")
-                            }
-                            Divider()
-                            statistic("Description timing", value: project.hasDescriptionTimingIssues ? "\(project.descriptionTimingIssueCount) need retiming" : "Ready")
+                overviewGroup("Project details") {
+                    statistic("Project name", value: project.name)
+                    Divider()
+                    statistic("Project type", value: project.isYouTubeURLProject ? "YouTube Video" : project.cloudVideo != nil ? "Cloud Storage" : "Local Video")
+                    Divider()
+                    statistic("Video duration", value: NarrationTimeFormat.projectDuration(project.duration))
+                        .accessibilityLabel("Video duration: \(NarrationTimeFormat.spokenProjectDuration(project.duration))")
+                    Divider()
+                    statistic("Viewing language", value: OutputLanguage.title(sourceProject.overviewLanguageCode))
+                }
+                LazyVGrid(columns: [GridItem(.adaptive(minimum: 320), spacing: 16, alignment: .topLeading)], spacing: 16) {
+                    overviewGroup("Transcript") {
+                        statistic("Spoken transcript segments", value: project.transcript.count.formatted())
+                        Divider()
+                        statistic("Transcript characters", value: project.transcript.reduce(0) { $0 + $1.text.count }.formatted())
+                    }
+                    overviewGroup("Summary") {
+                        statistic("Summary status", value: project.summary.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? "Unavailable" : "Available")
+                        Divider()
+                        statistic("Summary characters", value: project.summary.count.formatted())
+                    }
+                }
+                LazyVGrid(columns: [GridItem(.adaptive(minimum: 320), spacing: 16, alignment: .topLeading)], spacing: 16) {
+                    overviewGroup("Audio description details") {
+                        statistic("Description segments", value: String(project.cues.count))
+                        Divider()
+                        statistic("Total AD characters", value: project.descriptionCharacterCount.formatted())
+                        Divider()
+                        statistic("Narration audio ready", value: String(ready))
+                        Divider()
+                        statistic("Audio needs updating", value: String(stale))
+                        Divider()
+                        statistic("Audio missing or unavailable", value: String(missing))
+                        Divider()
+                        statistic("Description time", value: timecode(project.cues.reduce(0) { $0 + max(0, $1.end - $1.start) }))
+                        Divider()
+                        statistic("Narration voices", value: narrationVoicesStatistic)
+                        Divider()
+                        statistic("Narration sources", value: project.importedNarrationText)
+                        if !project.importedNarrationFiles.isEmpty {
+                            statistic("Imported audio", value: "\(project.importedNarrationFiles.count) file\(project.importedNarrationFiles.count == 1 ? "" : "s")")
                         }
-                        .padding(.vertical, 4)
-                    } label: { Text("Audio description overview").accessibilityAddTraits(.isHeader).accessibilityHeading(.h3) }
-                    .accessibilityGroup("Audio description overview")
+                        Divider()
+                        statistic("Description timing", value: project.hasDescriptionTimingIssues ? "\(project.descriptionTimingIssueCount) need retiming" : "Ready")
+                    }
                     GroupBox {
                         VStack(alignment: .leading, spacing: 10) {
                             ForEach(DescriptionOrigin.allCases, id: \.rawValue) { origin in
@@ -228,7 +252,7 @@ struct ADOverviewView: View {
     }
 }
 
-/// Narration issues available after generation and from AD Overview at any time.
+/// Narration issues available after generation and from Overview at any time.
 struct NarrationFailuresView: View {
     let report: NarrationFailureReport
     @Environment(\.dismiss) private var dismiss

@@ -21,25 +21,27 @@ from pathlib import Path
 GALLERY = {
     "VidiStudio": ["About VidiStudio", "Settings…", "Services", "Hide VidiStudio",
                    "Hide Others", "Show All", "Quit VidiStudio"],
-    "File": ["New Project…", "Open Project Folder…", "Open in New Window",
+    "File": ["New Project…", "New YouTube Project…", "New Cloud Project…", "Open Cloud Videos…", "Open Project Folder…", "Open in New Window",
              "?Open in YouTube", "Export…", "Delete Project…", "Choose What to Delete…",
              "Remove from List", "Settings…", "Open Project Settings…", "Close"],
     "Edit": ["Search Projects…", "Clear Search", "Rename Project…"],
     "View": ["Filter Projects by Source", "Filter Projects by Language", "Sort Projects",
              "Reset Project Filters", "Project List View", "Project Grid View", "Enter Full Screen"],
-    "Project": ["Open Selected Project", "Analysis", "Show Project in Finder",
+    "Project": ["Cloud Storage", "Open Selected Project", "Analysis", "Show Project in Finder",
                 "?Open Project Configuration", "Rename Project…", "Move Project to Bin…"],
     "YouTube": ["?Open in YouTube"],
     "Help": ["VidiStudio Help", "VidiStudio Website"],
+    "Project/Cloud Storage": ["?Upload Video to Cloud Storage…", "Open Video in Google Cloud Console",
+                              "?Rename Cloud Video…", "?Remove Cloud Video…"],
     "Project/Analysis": ["Analyze Video…", "Generate Video Details & Timeline Pictures", "Generate Transcript",
                          "Generate Summary", "Generate Audio Descriptions"],
     "View/Sort Projects": ["Last Opened", "Name (A–Z)", "Duration (Longest First)", "Type (Local, then YouTube)"],
-    "View/Filter Projects by Source": ["All Projects", "Local Video Projects", "YouTube Projects"],
+    "View/Filter Projects by Source": ["All Projects", "Local Videos", "YouTube Videos", "Cloud Storage Videos"],
 }
 WINDOW_COMMANDS = ["VidiStudio"]
 
 
-SECTIONS = ["Show Transcript", "Show Summary", "Show Descriptions", "Show AD Overview", "Show AD Transcript"]
+SECTIONS = ["Show Transcript", "Show Summary", "Show Descriptions", "Show AD Transcript", "Show Overview"]
 TRANSCRIPT = {
     "VidiStudio": GALLERY["VidiStudio"],
     "File": [item for item in GALLERY["File"] if item not in {"Open in New Window", "?Open in YouTube"}],
@@ -73,7 +75,7 @@ SECTION_MENUS = {
         "Project/Narration/Narration Audio": ["Generate All AD Audio", "Generate Missing or Changed AD Audio",
             "Review Narration Issues…", "Review Narration Voices…", "Delete All Narration Audio…"],
     },
-    "AD Overview": {"Project/Narration": ["Narration Audio"]},
+    "Overview": {"Project/Narration": ["Narration Audio"]},
     "AD Transcript": {"Project/Narration": ["Narration Audio"]},
 }
 
@@ -96,15 +98,20 @@ class InstalledMenuTests(unittest.TestCase):
         subprocess.run(["xcrun", "swiftc", str(Path(__file__).with_name("installed_menu_probe.swift")),
                         "-o", str(cls.probe)], check=True)
 
-    def capture(self, path):
+    def capture(self, path, *, allow_empty=False):
         picture = Path(self.folder.name) / "menu.png"
+        arguments = [str(self.probe), str(picture)]
+        if allow_empty:
+            arguments.append("--allow-empty")
         for attempt in range(2):
-            result = subprocess.run([str(self.probe), str(picture), *path.split("/")],
+            result = subprocess.run([*arguments, *path.split("/")],
                                     capture_output=True, text=True, timeout=40)
             if attempt == 0 and result.returncode and "Menu capture failed" in result.stderr:
                 continue
             self.assertEqual(result.returncode, 0, result.stderr)
             menu = json.loads(result.stdout)
+            if allow_empty and not menu["rows"]:
+                return menu, {}, picture
             # A disappearing native popup can leave AX geometry from the last
             # frame. Only repeat an empty/background capture, never a bad icon.
             if any(normalized(row["title"]) in normalized(label["text"])
@@ -157,7 +164,7 @@ class InstalledMenuTests(unittest.TestCase):
 
         self.addCleanup(select, "Transcript")
         for section, edit in [("Summary", "Edit Summary"), ("Descriptions", "Edit Audio Description Segments"),
-                              ("AD Overview", None), ("AD Transcript", "Edit AD Transcript Segments"),
+                              ("Overview", None), ("AD Transcript", "Edit AD Transcript Segments"),
                               ("Transcript", "Edit Transcript Segments")]:
             with self.subTest(section=section):
                 select(section)
@@ -189,7 +196,14 @@ class InstalledMenuTests(unittest.TestCase):
         dynamic_paths = ["View/Filter Projects by Language"] if gallery else ["View/Project Language", "View/Transcript Saved Results"]
         for path in [*contract, *dynamic_paths, "Window"]:
             with self.subTest(context=context, menu=path):
-                menu, rows, picture = self.capture(path)
+                optional_rows = contract.get(path, [])
+                allow_empty = bool(optional_rows) and all(title.startswith("?") for title in optional_rows)
+                menu, rows, picture = self.capture(path, allow_empty=allow_empty)
+                if gallery and menu["menus"] != expected_bar:
+                    # The gallery can inherit an editor command tree during window activation.
+                    # Re-select the gallery once and require the expected tree on the next capture.
+                    subprocess.run([str(self.probe), "--gallery", "VidiStudio"], check=True, timeout=15)
+                    menu, rows, picture = self.capture(path, allow_empty=allow_empty)
                 self.assertEqual(menu["menus"], expected_bar)
                 titles = [r["title"] for r in rows.values()]
                 if path == "Window":
@@ -221,4 +235,5 @@ class InstalledMenuTests(unittest.TestCase):
                                   if t.startswith(("Generate ", "Regenerate ")) else t for t in titles]
                     expected = [t.lstrip("?") for t in contract[path] if not t.startswith("?") or t[1:] in titles]
                     self.assertEqual(titles, expected, "Unexpected, missing or misplaced command")
-                self.check_icons(path, menu, rows, picture)
+                if rows:
+                    self.check_icons(path, menu, rows, picture)

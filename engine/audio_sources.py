@@ -182,6 +182,10 @@ def normalized_audio(root, project, start, end, core):
 @contextlib.contextmanager
 def upload_range(root, project, client, start, end, core):
     with normalized_audio(root, project, start, end, core) as path:
+        if isinstance(client, core.vertex_ai.VertexSession):
+            from types import SimpleNamespace
+            yield SimpleNamespace(uri=path, mime_type='audio/wav')
+            return
         uploaded = core.gemini_adapter.ready_file(client, path, core.emit)
         try:
             yield uploaded
@@ -198,9 +202,10 @@ def transcribe(root, project, client, model, cfg, core):
         raise ValueError('Open the video preview to determine the YouTube duration before transcription.')
     if 'transcribe' in model:
         result = []
-        for start in range(0, math.ceil(duration), 1200):
+        chunk_seconds = 300 if isinstance(client, core.vertex_ai.VertexSession) else 1200
+        for start in range(0, math.ceil(duration), chunk_seconds):
             core.emit(f'Creating the transcript from imported audio, minute {start // 60}')
-            with normalized_audio(root, project, start, min(duration, start + 1200), core) as path:
+            with normalized_audio(root, project, start, min(duration, start + chunk_seconds), core) as path:
                 result.extend(core.gemini_adapter.transcribe_audio(client, model, path, start, core.emit))
         return result
     pair = core.parity.media_prompt_pair(cfg, 'transcript')

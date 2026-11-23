@@ -67,3 +67,31 @@ Settings Help uses one Help and keyboard shortcuts group on both desktops: Open 
 Piper licensing remains an actual platform exception: Mac bundles OHF piper-tts 1.8.0 (GPL v3+, including g2pW notices); Windows bundles rhasspy/piper 2023.11.14-2 (MIT). Mac has a separate g2pW notice action and Finder folder action; Windows uses File Explorer. Both retain the matching FFmpeg license, notice-index and notice-folder actions and context menus. Windows copies original Python distribution notices into its bundled engine license folder during builds. Native caption buttons remain OS-owned; Windows supplies opaque theme-matched hover/pressed fills to DWM.
 
 The paired source gate and mutation tests reject group/order/label/default drift, removed Jump to Time reference wiring, lost license menus, and information-command gating behind editor processing. Native Windows gallery/settings tests check the reference toggle, release/license rows, accessible grouping/alignment, collapsed default, ordinary/compact scrolling and actual About menu invocation while idle/busy and minimized. Runtime execution evidence is recorded in PROGRESS.md.
+
+## Vertex AI connection and private videos (1.0.362)
+
+Settings > AI groups the provider, authentication method, project ID, bucket and per-task Gemini models. The signed-in account has a green check and a text label. Both cloud fields have adjacent named Copy and Clear actions. Remove Google sign-in asks for confirmation. The Inspector, project menus and source filters expose the cloud video on both platforms.
+
+The signed-in New Project browser shows the current Google Cloud project, source bucket, bucket file, destination and refresh action on both platforms. All project buckets can be listed; file names include their folder paths. Only videos enable creation.
+
+The Vertex AI task pickers on both desktops read the same bundled capability rules. File transcription, speech generation and video understanding have separate choices. The menus retain exact version IDs and disabled empty states.
+
+The Gemini Developer API picker has a Gemini 4 heading on each desktop whenever a compatible model is present.
+
+The Cloud Storage file browser has List and Table views. Both retain the selected file while switching views and expose a named selection details area with the object path and available metadata. The Mac uses a native table and Windows uses a native single-selection list with aligned table columns and headers.
+
+The File menu creation commands share one New Project layout and preselect its source. The Cloud Storage source stays visible in the dialog and is disabled until Google sign-in. The All Projects toolbar presents one New Project button that opens the shared source picker. On Mac the fixed title header retains its top inset while the form scrolls. On Windows the native companion window keeps the same size and position, with a fixed title, project type row, and bottom actions across all three sources and both Cloud Storage modes. Additional fields scroll within the window.
+
+The Open Cloud Videos dialog has project and bucket selectors, search, sort, List and Table, selected-video metadata, and Open in Editor. Choosing an existing video from New Project opens this shared browser with the configured project and bucket selected. The browser shows the access check, byte progress, verification and local preparation. Open editor windows show the same operation in the Mac progress banner or Windows status footer. Both dialogs close after a successful import. Both apps exclude unsupported file types, identify the source project for Vertex AI in the browser and Inspector, and keep the original bucket object when deleting a project imported from it. For app-owned uploads, both platforms hide cloud rename, removal and project deletion while permissions are unverified or denied, and check the object again before mutation. A missing local folder can still be removed from the library after checking its recorded app-owned object.
+
+In Settings > AI, both AI providers use the same Local video and YouTube video groups, each with its own task choices. The Cloud Storage video group appears under Vertex AI with Google sign-in. Express mode shows compatible tasks. Shared model definitions and capability checks drive the aligned pickers and their icon-bearing checked context menus.
+
+## Project Overview
+
+The final editor section follows AD Transcript. Project details span the editor. Transcript and Summary appear side by side when space allows, followed by Audio description details and Description origins. Each pair stacks in a compact editor. Create narration audio follows the statistics. Each group has a visible heading and an accessible name. Counts and summary availability use the selected saved results in the viewing language.
+
+## Editor preview toolbar
+
+Preview and full-screen video are icon buttons with tooltips and accessible names on both desktops. The toolbar, View and Playback preview controls collapse or restore the preview area, including the timeline. The timeline follows its separate View setting when the preview returns. On Windows the packaged editor smoke test checks both tooltip states, video and timeline collapse, reclaimed editor space and the timeline setting at regular and compact widths in both appearances.
+
+The Windows native editor smoke test checks tooltip text for app-owned buttons across the five editor sections in light and dark appearances, at normal and compact widths. The test also moves the mouse over Generate, Add, and Edit and checks that their native tooltip popups open. Generate has a hover target when AI is unavailable.

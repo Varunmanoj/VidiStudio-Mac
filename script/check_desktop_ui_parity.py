@@ -4,13 +4,13 @@ import argparse
 import re
 from pathlib import Path
 
-MAC_FILES = ('StudioHelp.swift', 'CreatedExportsView.swift', 'LanguageResults.swift', 'ContentView.swift', 'SettingsView.swift', 'ImportAssetsView.swift', 'ExportOptionsMenu.swift',
+MAC_FILES = ('ADOverviewView.swift', 'StudioHelp.swift', 'CreatedExportsView.swift', 'LanguageResults.swift', 'ContentView.swift', 'SettingsView.swift', 'ImportAssetsView.swift', 'ExportOptionsMenu.swift',
              'GeminiAPISettingsView.swift', 'SarvamVoiceSettingsView.swift', 'SystemVoiceCatalog.swift', 'PiperVoiceCatalog.swift', 'GeminiVoicePreview.swift', 'SarvamVoiceBrowser.swift', 'VoiceSampleSession.swift', 'AboutSettingsView.swift', 'KeyboardShortcuts.swift', 'ProjectBrowserPage.swift',
              'ProjectSourcesSettingsView.swift', 'YouTubeViews.swift', 'YouTubeProjectPreview.swift', 'VidiStudioApp.swift')
-WIN_FILES = ('Views/HelpWindow.xaml', 'Views/HelpWindow.xaml.cs', 'MainWindow.Presentation.cs', 'MainWindow.LanguageResults.cs', 'Views/ImportAssetsDialog.cs', 'MainWindow.Accessibility.cs', 'MainWindow.xaml', 'Views/CompactDialogLayout.cs', 'Views/WindowAppearance.cs',
+WIN_FILES = ('Views/SettingsDialog.Gemini.cs', 'Views/HelpWindow.xaml', 'Views/HelpWindow.xaml.cs', 'MainWindow.Presentation.cs', 'MainWindow.LanguageResults.cs', 'Views/ImportAssetsDialog.cs', 'MainWindow.Accessibility.cs', 'MainWindow.xaml', 'Views/CompactDialogLayout.cs', 'Views/WindowAppearance.cs',
              'Views/SettingsDialog.Compact.cs', 'Views/SettingsDialog.Layout.cs',
              'Views/SettingsDialog.ElevenLabs.cs', 'Views/SettingsDialog.SarvamBrowser.cs', 'Views/SettingsDialog.SpeechLayout.cs', 'MainWindow.DialogLayoutSmoke.cs', 'Views/SettingsDialog.cs', 'Views/SettingsDialog.Sarvam.cs', 'Views/PiperVoicesDialog.cs', 'Views/PiperDeleteVoicesDialog.cs', 'Services/VoiceSampleSession.cs', 'Views/SettingsDialog.Information.cs', 'MainWindow.Menus.cs',
-             'Views/NewProjectDialog.cs', 'Views/ProjectSourcesSettingsControl.cs', 'MainWindow.YouTube.cs', 'MainWindow.xaml.cs', 'App.xaml.cs')
+             'Views/NewProjectDialog.cs', 'Views/CloudVideosDialog.cs', 'Views/ProjectSourcesSettingsControl.cs', 'MainWindow.YouTube.cs', 'MainWindow.xaml.cs', 'App.xaml.cs')
 
 def sources(workspace):
     workspace = Path(workspace)
@@ -44,6 +44,23 @@ def validate(source):
     def require(path, token, reason):
         if token not in source[path]: raise ValueError(path + ': ' + reason)
 
+    headings = ('Project details', 'Transcript', 'Summary', 'Audio description details', 'Description origins', 'Create narration audio')
+    for path, markers in (
+        ('Mac/ADOverviewView.swift', [f'overviewGroup("{title}")' for title in headings[:4]] +
+            [f'.accessibilityGroup("{title}")' for title in headings[4:]]),
+        ('Windows/MainWindow.xaml', [f'AutomationProperties.Name="{title}"' for title in headings]),
+    ):
+        section = source[path].split('x:Name="OverviewPanel"', 1)[-1]
+        last = -1
+        for marker in markers:
+            position = section.find(marker, last + 1)
+            if position < 0: raise ValueError(path + ': missing or misplaced Overview group ' + marker)
+            last = position
+
+    for path in ('Mac/ADOverviewView.swift', 'Windows/MainWindow.Presentation.cs'):
+        require(path, '"Summary status"', 'Overview must show summary availability')
+        require(path, '"Summary characters"', 'Overview must show summary length')
+
     for path, marker in (
         ('Mac/ContentView.swift', 'ProgressView(message)'),
         ('Windows/MainWindow.xaml', 'x:Name="SharedVideoRing"'),
@@ -53,6 +70,14 @@ def validate(source):
         ('Windows/MainWindow.xaml.cs', '"shared-youtube-opening"'),
     ):
         require(path, marker, 'shared project progress must cover video files and YouTube links')
+    for title in ('Copy ', 'Clear ', 'Google account connected', 'Remove Google sign-in', 'Google Cloud project ID', 'Cloud Storage bucket', 'vertex-signin-status', 'vertex-test-status', 'Vertex AI connection verified'):
+        require('Mac/GeminiAPISettingsView.swift', title, 'Cloud connection field or sign-in action is missing')
+        require('Windows/Views/SettingsDialog.Gemini.cs', title, 'Cloud connection field or sign-in action is missing')
+    for path in ('Mac/GeminiAPISettingsView.swift', 'Windows/Views/SettingsDialog.Gemini.cs'):
+        for token in ('Gemini 4', 'vertexModelPolicy', 'vertex-model-', 'Unavailable in express mode', 'No compatible models',
+                      'SignInOnly' if path.startswith('Windows/') else 'signInOnly',
+                      'ProjectModelGroups' if path.startswith('Windows/') else 'projectModelGroups'):
+            require(path, token, 'Vertex pickers must use the shared capability rules and identify empty choices')
     require('Mac/VidiStudioApp.swift', 'MainWindowLifetime(isLibrary: true)', 'All Projects must register as the library window')
     require('Mac/ContentView.swift', 'MainWindowLifetime(onClose: { openWindow(id: "studio") })', 'editor close must return to All Projects')
     require('Windows/App.xaml.cs', 'var target = ProjectLibrary();', 'external activation must start in All Projects')
@@ -63,6 +88,67 @@ def validate(source):
                       'Download YouTube Captions', 'Import YouTube Captions', 'Caption account'):
             if label in text:
                 raise ValueError(f'{path}: retired YouTube control: {label}')
+    new_project = source['Mac/ContentView.swift'].split('private struct NewProjectView:', 1)[1].split('final class SharedVideoProgressPanel', 1)[0]
+    for path, token in (
+        ('Mac/ContentView.swift', 'CloudVideosView(studio: studio, selectConfiguredBucket: true)'),
+        ('Mac/ContentView.swift', 'ProgressView(studio.message, value: studio.progress)'),
+        ('Windows/Views/NewProjectDialog.cs', 'ImportedCloudProject = await browse(window, LibraryPath);'),
+        ('Windows/Views/CloudVideosDialog.cs', 'buckets.SelectedItem = configured;'),
+        ('Windows/Views/CloudVideosDialog.cs', 'UpdateImportProgress'),
+        ('Windows/MainWindow.xaml.cs', 'if (dialog.ImportedCloudProject is { } cloudProject)'),
+    ):
+        require(path, token, 'New Project must use the shared Cloud browser and show import progress')
+    for path, token in (
+        ('Mac/ContentView.swift', 'CloudImportProgressBanner()'),
+        ('Windows/MainWindow.xaml.cs', 'CloudImportActivity.Current'),
+        ('Windows/MainWindow.xaml.cs', 'Cloud video download progress'),
+    ):
+        require(path, token, 'Open editors must display accessible Cloud Storage download progress')
+    if 'Source bucket' in new_project or 'private readonly ListView bucketVideo' in source['Windows/Views/NewProjectDialog.cs']:
+        raise ValueError('The New Project form must not contain an inline Cloud bucket browser')
+    if not all(token in new_project for token in ('.accessibilityIdentifier("new-project-title")',
+            '.fixedSize(horizontal: false, vertical: true)', '.frame(minHeight: 0, maxHeight: .infinity)',
+            'maxHeight: preferredHeight, alignment: .topLeading')):
+        raise ValueError('New Project must keep its title inset while the form shrinks and scrolls')
+    for path, token in (
+        ('Mac/ContentView.swift', 'sourcePicker([.cloud], selection: .constant(.videoFile))\n                                .disabled(true)'),
+        ('Mac/VidiStudioApp.swift', '.disabled(!studio.canBeginNewProject || !studio.settings.vertexConnected)'),
+        ('Windows/Views/NewProjectDialog.cs', 'sourceOptions.Children.Add(cloud);'),
+        ('Windows/Views/NewProjectDialog.cs', 'cloud.IsEnabled = settings.GetBool("vertexConnected");'),
+        ('Windows/MainWindow.Menus.cs', 'if (id is "new-project" or "new-youtube-project" or "new-cloud-project") return true;'),
+        ('Windows/MainWindow.Menus.cs', 'if (id == "new-cloud-project") return Model.Settings.GetBool("vertexConnected");'),
+    ):
+        require(path, token, 'Cloud project controls must stay visible and disabled before Google sign-in')
+    for path, start, end in (
+        ('Mac/ProjectBrowserPage.swift', '.toolbar {', '.safeAreaInset(edge: .bottom)'),
+        ('Windows/MainWindow.xaml', 'x:Name="GalleryToolbarActions"', '</StackPanel>'),
+    ):
+        toolbar = source[path].split(start, 1)[1].split(end, 1)[0]
+        if 'New Cloud Project' in toolbar:
+            raise ValueError(path + ': the gallery toolbar must use one New Project action')
+    for path, token in (
+        ('Windows/Views/NewProjectDialog.cs', 'Grid.SetRow(sourceCard, 1); layout.Children.Add(sourceCard);'),
+        ('Windows/Views/NewProjectDialog.cs', 'Grid.SetRow(form, 2); layout.Children.Add(form);'),
+        ('Windows/Views/WindowAppearance.cs', 'keepsSize = dialog is NewProjectDialog;'),
+        ('Windows/Views/WindowAppearance.cs', 'if (keepsSize || disposed || observing) return;'),
+        ('Windows/MainWindow.xaml.cs', 'ShowDialogAsync(dialog, Views.NewProjectDialog.WindowWidth, Views.NewProjectDialog.WindowHeight);'),
+    ):
+        require(path, token, 'Windows New Project must use fixed bounds across sources')
+    for path in ('Mac/ContentView.swift', 'Windows/Views/CloudVideosDialog.cs'):
+        for token in ('Open Cloud Videos', 'Google Cloud project', 'Source bucket', 'Search videos',
+                      'Recently Modified', 'Largest First', 'Open in Editor', 'Load Thumbnail', 'Rename Video…', 'Delete Video…'):
+            require(path, token, 'the dedicated Cloud browser must support browsing and video actions')
+    for path, token in (
+        ('Mac/VidiStudioApp.swift', '.disabled(!studio.canOpenCloudVideos)'),
+        ('Windows/MainWindow.Menus.cs', 'if (id == "open-cloud-videos") return !cloudBrowserOpen && Model.Settings.GetBool("vertexConnected");'),
+        ('Mac/ContentView.swift', 'if canDelete, let file'),
+        ('Windows/Views/CloudVideosDialog.cs', 'if (CanDelete) menu.Items.Add('),
+        ('Mac/ContentView.swift', 'if canRename, let file'),
+        ('Windows/Views/CloudVideosDialog.cs', 'if (CanRename) menu.Items.Add('),
+        ('Mac/KeyboardShortcuts.swift', 'if allProjects?.canShowDeleteProject ?? editor?.canShowDeleteProject ?? true'),
+        ('Windows/MainWindow.Menus.cs', '&& !CanDeleteProjectVideo(ProjectManagementTarget())) return false;'),
+    ):
+        require(path, token, 'the Cloud browser and mutations must respect signed-in permissions')
     require('Windows/Views/SettingsDialog.cs', 'Enumerable.Range(0, labels.Length)',
             'Settings navigation must enumerate the current sidebar labels')
     for path, action in [

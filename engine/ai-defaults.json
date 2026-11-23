@@ -1,4 +1,203 @@
 {
+  "vertexModelPolicy": {
+    "expressModels": [
+      "gemini-3.1-pro-preview",
+      "gemini-3-flash-preview",
+      "gemini-2.5-pro",
+      "gemini-2.5-flash",
+      "gemini-2.5-flash-lite"
+    ],
+    "stages": {
+      "transcript": "transcription",
+      "tts_audio": "narration",
+      "summary": "multimodal",
+      "audio_descriptions": "multimodal",
+      "screen_text": "multimodal",
+      "text_rewrite": "multimodal",
+      "youtube_transcript": "multimodal",
+      "cloud_video": "multimodal"
+    },
+    "groups": [
+      {
+        "title": "Flash",
+        "capability": "multimodal",
+        "pattern": "^gemini-[0-9]+(?:\\.[0-9]+)*-flash(?:-(?:latest|preview|exp|experimental|[0-9]+))*$"
+      },
+      {
+        "title": "Flash-Lite",
+        "capability": "multimodal",
+        "pattern": "^gemini-[0-9]+(?:\\.[0-9]+)*-flash-lite(?:-(?:latest|preview|exp|experimental|[0-9]+))*$"
+      },
+      {
+        "title": "Pro",
+        "capability": "multimodal",
+        "pattern": "^gemini-[0-9]+(?:\\.[0-9]+)*-pro(?:-(?:latest|preview|exp|experimental|[0-9]+))*$"
+      },
+      {
+        "title": "Gemini 4",
+        "capability": "multimodal",
+        "pattern": "^gemini-4-(?:neon|hydrogen|carbon|argon)(?:-(?:latest|preview|exp|experimental|[0-9]+))*$"
+      },
+      {
+        "title": "Speech and transcription",
+        "capability": "transcription",
+        "pattern": "^gemini-[0-9]+(?:\\.[0-9]+)*-transcribe(?:-(?:latest|preview|exp|experimental|[0-9]+))*$"
+      },
+      {
+        "title": "Text to speech",
+        "capability": "narration",
+        "pattern": "^gemini-[0-9]+(?:\\.[0-9]+)*-(?:flash(?:-lite)?|pro)(?:-preview)?-tts(?:-(?:latest|preview|exp|experimental|[0-9]+))*$"
+      }
+    ],
+    "projectModelGroups": [
+      {
+        "title": "Local video",
+        "signInOnly": false,
+        "rows": [
+          {
+            "id": "transcript",
+            "stage": "transcript",
+            "label": "Speech transcription",
+            "signInOnly": true
+          },
+          {
+            "id": "local_video",
+            "stage": "youtube_transcript",
+            "label": "Video transcription and re-analysis"
+          },
+          {
+            "id": "summary",
+            "stage": "summary",
+            "label": "Video summaries"
+          },
+          {
+            "id": "audio_descriptions",
+            "stage": "audio_descriptions",
+            "label": "Audio descriptions"
+          },
+          {
+            "id": "screen_text",
+            "stage": "screen_text",
+            "label": "On-screen text"
+          },
+          {
+            "id": "text_rewrite",
+            "stage": "text_rewrite",
+            "label": "Description rewrites and translation"
+          },
+          {
+            "id": "tts_audio",
+            "stage": "tts_audio",
+            "label": "Gemini narration",
+            "signInOnly": true
+          }
+        ]
+      },
+      {
+        "title": "YouTube video",
+        "signInOnly": false,
+        "rows": [
+          {
+            "id": "youtube_transcript",
+            "stage": "youtube_transcript",
+            "label": "YouTube video transcription"
+          },
+          {
+            "id": "youtube_imported_transcript",
+            "stage": "transcript",
+            "label": "Imported audio transcription",
+            "signInOnly": true
+          },
+          {
+            "id": "youtube_imported_audio",
+            "stage": "youtube_transcript",
+            "label": "Imported audio understanding"
+          },
+          {
+            "id": "youtube_summary",
+            "stage": "summary",
+            "label": "Video summaries"
+          },
+          {
+            "id": "youtube_audio_descriptions",
+            "stage": "audio_descriptions",
+            "label": "Audio descriptions",
+            "fallback": "youtube_transcript"
+          },
+          {
+            "id": "youtube_screen_text",
+            "stage": "screen_text",
+            "label": "On-screen text"
+          },
+          {
+            "id": "youtube_text_rewrite",
+            "stage": "text_rewrite",
+            "label": "Description rewrites and translation"
+          },
+          {
+            "id": "youtube_tts_audio",
+            "stage": "tts_audio",
+            "label": "Gemini narration",
+            "signInOnly": true
+          }
+        ]
+      },
+      {
+        "title": "Cloud Storage video",
+        "signInOnly": true,
+        "rows": [
+          {
+            "id": "cloud_video",
+            "stage": "youtube_transcript",
+            "label": "Cloud Storage video transcription"
+          },
+          {
+            "id": "cloud_summary",
+            "stage": "summary",
+            "label": "Video summaries"
+          },
+          {
+            "id": "cloud_audio_descriptions",
+            "stage": "audio_descriptions",
+            "label": "Audio descriptions"
+          },
+          {
+            "id": "cloud_screen_text",
+            "stage": "screen_text",
+            "label": "On-screen text"
+          },
+          {
+            "id": "cloud_text_rewrite",
+            "stage": "text_rewrite",
+            "label": "Description rewrites and translation"
+          },
+          {
+            "id": "cloud_tts_audio",
+            "stage": "tts_audio",
+            "label": "Gemini narration",
+            "signInOnly": true
+          }
+        ]
+      }
+    ],
+    "preferred": {
+      "transcription": [
+        "gemini-3.5-transcribe"
+      ],
+      "narration": [
+        "gemini-3.8-flash-lite-tts",
+        "gemini-3.8-flash-tts",
+        "gemini-3.1-flash-tts-preview",
+        "gemini-2.5-flash-preview-tts"
+      ],
+      "multimodal": [
+        "gemini-3.8-flash",
+        "gemini-3.5-flash",
+        "gemini-3-flash-preview",
+        "gemini-2.5-flash"
+      ]
+    }
+  },
   "models": {
     "transcript": "gemini-3.5-transcribe",
     "summary": "gemini-3.8-flash",

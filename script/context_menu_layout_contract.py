@@ -38,6 +38,12 @@ def check_context_menu_layouts(workspace, windows_root=None):
             raise ValueError('Mac gallery must retain Analysis and Export')
     if re.findall(r'Button\("([^"]+)"|Link\("([^"]+)"', (mac/'EditorProjectBrowser.swift').read_text(encoding='utf-8').split('.contextMenu {', 1)[1]) != [('Open in This Window',''), ('','Open in YouTube'), ('Open in New Window',''), ('Open Project Settings…',''), ('Remove from List',''), ('Delete Project…','')]:
         raise ValueError('Mac sidebar context menu changed; update Windows too')
+    for name in ('ProjectBrowserPage.swift', 'ProjectGridView.swift', 'EditorProjectBrowser.swift'):
+        if 'CloudVideoActions(studio: studio, project: project)' not in (mac/name).read_text():
+            raise ValueError('Missing project cloud actions in ' + name)
+    for menu in (sidebar, gallery):
+        if 'foreach (var action in CloudActions(project)) Item(action.Id,action.Title)' not in menu:
+            raise ValueError('Missing Windows project cloud actions')
     guard = source.split('private bool CanRunProjectContextCommand(', 1)[1].split('private async', 1)[0]
     if re.search(r'"export"[^\n]*Model.CanUseAI', guard):
         raise ValueError('Context Export must not acquire an AI requirement')

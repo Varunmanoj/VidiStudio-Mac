@@ -30,6 +30,20 @@ class DesktopUILayoutParityTests(unittest.TestCase):
         self.mutated('Windows/Views/ImportAssetsDialog.cs', 'Content = panel;', 'Content = panel; /* languagePicker */', 'inherit the project language')
         self.mutated('Windows/MainWindow.Accessibility.cs', 'Shared inspector language must be accessible, bounded and above every action.', '', 'native inspector geometry')
 
+    def test_overview_preserves_accessible_section_groups(self):
+        self.mutated('Mac/ADOverviewView.swift', 'overviewGroup("Summary")', 'overviewGroup("Details")', 'Overview group')
+        self.mutated('Windows/MainWindow.xaml', 'AutomationProperties.Name="Transcript" Background=', 'Background=', 'Overview group')
+
+    def test_overview_summary_shows_only_metadata(self):
+        mac = self.source['Mac/ADOverviewView.swift'].split('overviewGroup("Summary") {', 1)[1].split('\n                    }', 1)[0]
+        self.assertEqual([line.split('"')[1] for line in mac.splitlines() if 'statistic(' in line],
+                         ['Summary status', 'Summary characters'])
+        self.assertNotIn('Text(', mac)
+        windows = self.source['Windows/MainWindow.Presentation.cs'].split('OverviewSummary.Children.Clear();', 1)[1].split('AddInfo(OverviewStatistics', 1)[0]
+        self.assertEqual([line.split('"')[1] for line in windows.splitlines() if 'AddInfo(OverviewSummary,' in line],
+                         ['Summary status', 'Summary characters'])
+        self.assertNotIn('Children.Add', windows)
+
     def test_created_exports_share_the_project_language(self):
         self.mutated('Mac/CreatedExportsView.swift', 'project.languagesForExport(path).contains(project.languageCode)', 'true', 'Created Exports must follow project language')
         self.mutated('Windows/MainWindow.Presentation.cs', 'project.LanguagesForExport(path).Contains(project.SelectedLanguage)', 'true', 'Created Exports must follow project language')
@@ -45,6 +59,15 @@ class DesktopUILayoutParityTests(unittest.TestCase):
         ):
             with self.subTest(path=path, marker=marker):
                 self.mutated(path, marker, '', 'shared project progress')
+
+    def test_open_editor_displays_cloud_download_progress(self):
+        for path, token in (
+            ('Mac/ContentView.swift', 'CloudImportProgressBanner()'),
+            ('Windows/MainWindow.xaml.cs', 'CloudImportActivity.Current'),
+            ('Windows/MainWindow.xaml.cs', 'Cloud video download progress'),
+        ):
+            with self.subTest(path=path, token=token):
+                self.mutated(path, token, '', 'Open editors must display accessible Cloud Storage download progress')
 
     def test_external_projects_keep_all_projects_available(self):
         self.mutated('Mac/VidiStudioApp.swift', 'MainWindowLifetime(isLibrary: true)', 'MainWindowLifetime()', 'library window')
@@ -70,6 +93,37 @@ class DesktopUILayoutParityTests(unittest.TestCase):
                      'new[] { 0, 1, 2, 3, 8, 4, 5, 6, 7 }', 'current sidebar labels')
         self.mutated('Mac/YouTubeProjectPreview.swift', 'YouTubeService.shared.video(videoID)', 'missing', 'must retain metadata lookup')
         self.mutated('Windows/Views/NewProjectDialog.cs', 'YouTubeService.Shared.VideoAsync(', 'missing(', 'must retain metadata lookup')
+
+    def test_new_project_preserves_title_inset_in_taller_modes(self):
+        self.mutated('Mac/ContentView.swift', 'maxHeight: preferredHeight, alignment: .topLeading',
+                     'maxHeight: preferredHeight', 'New Project must keep its title inset')
+
+    def test_cloud_sources_are_visible_but_disabled_before_sign_in(self):
+        for path, token in (
+            ('Mac/ContentView.swift', 'sourcePicker([.cloud], selection: .constant(.videoFile))\n                                .disabled(true)'),
+            ('Windows/Views/NewProjectDialog.cs', 'cloud.IsEnabled = settings.GetBool("vertexConnected");'),
+            ('Windows/Views/NewProjectDialog.cs', 'sourceOptions.Children.Add(cloud);'),
+            ('Windows/MainWindow.Menus.cs', 'if (id is "new-project" or "new-youtube-project" or "new-cloud-project") return true;'),
+        ):
+            with self.subTest(path=path, token=token):
+                self.mutated(path, token, '', 'Cloud project controls must stay visible and disabled')
+
+    def test_gallery_toolbar_has_no_separate_cloud_creation_action(self):
+        for path, token in (
+            ('Mac/ProjectBrowserPage.swift', 'Button("New Project", systemImage: "plus", action: newProject)'),
+            ('Windows/MainWindow.xaml', 'AutomationProperties.Name="New Project"'),
+        ):
+            with self.subTest(path=path):
+                self.mutated(path, token, token.replace("New Project", "New Cloud Project"),
+                             'toolbar must use one New Project action')
+
+    def test_windows_new_project_does_not_fit_again_after_source_changes(self):
+        self.mutated('Windows/Views/WindowAppearance.cs', 'if (keepsSize || disposed || observing) return;',
+                     'if (disposed || observing) return;', 'New Project must use fixed bounds')
+
+    def test_windows_new_project_source_picker_stays_above_scrolling_form(self):
+        self.mutated('Windows/Views/NewProjectDialog.cs', 'Grid.SetRow(sourceCard, 1); layout.Children.Add(sourceCard);',
+                     'contents.Children.Add(sourceCard);', 'New Project must use fixed bounds')
 
     def test_sample_players_cannot_overlap_or_leak_the_shared_session(self):
         for file in ['SystemVoiceCatalog.swift','PiperVoiceCatalog.swift','GeminiVoicePreview.swift','SarvamVoiceSettingsView.swift']:

@@ -78,11 +78,40 @@ struct UserFacingIssue: Equatable {
            technicalDetails == "This project already exists. Please continue with the existing project or delete the existing project before continuing." {
             return duplicateProject(isYouTube: command == "import-youtube")
         }
+        if command == "cloud-import" || command == "cloud-preview" {
+            let allowed = [
+                "Google Cloud denied permission to download this video. Check Google sign-in and your access to the object.",
+                "VidiStudio could not verify download permission. Check your connection and Google Cloud access, then retry.",
+                "The selected file has changed. Refresh the file list and choose it again.",
+                "The selected video is no longer available in Cloud Storage. Refresh the file list.",
+                "Downloaded video checksum did not match Cloud Storage. Retry the import.",
+                "Choose a supported Cloud Storage video.",
+                "The selected video exceeds the supported import size.",
+                "Choose a bucket in the selected Google Cloud project.",
+                "Use Google sign-in in Settings > AI to connect your account."
+            ]
+            let message = technicalDetails.flatMap { allowed.contains($0) ? $0 : nil }
+                ?? "Check Google sign-in, your access to the selected video, and your connection. Then try again."
+            return UserFacingIssue(title: "Couldn’t Download the Cloud Video", message: message)
+        }
+        let detail = technicalDetails?.lowercased() ?? ""
+        if detail.contains("storage.objects.get") && detail.contains("gcp-sa-aiplatform") {
+            return UserFacingIssue(title: "Vertex AI Needs Video Access",
+                                   message: "Ask your Google Cloud administrator to grant the Vertex AI service agent read access to this video, then retry.")
+        }
         if command == "generate-summary" {
             return UserFacingIssue(title: "Summary Couldn’t Be Created",
                                    message: "The summary could not be created. Your transcript is safe. Please try again.")
         }
-        let detail = technicalDetails?.lowercased() ?? ""
+        if command == "cloud-delete-project-video" {
+            let message: String
+            if detail.contains("changed") || detail.contains("newer cloud video") {
+                message = "The cloud video changed. Refresh the project and check its video in Cloud Storage before trying again."
+            } else {
+                message = "Check Google sign-in, the project and bucket, and your permission to delete the video. Then try again."
+            }
+            return UserFacingIssue(title: "Couldn’t Delete the Cloud Video", message: message)
+        }
         if command.hasPrefix("export-youtube-") {
             if detail.contains("duration") || detail.contains("timing") {
                 return UserFacingIssue(

@@ -4055,3 +4055,142 @@ Verified the Edge listing draft retained both screenshots, the 440 × 280 and 14
 ## 2026-11-19 — Chrome promotional images submitted for review
 
 Verified that the Chrome Web Store draft for Describe with Vidi Studio retained both screenshots and contained the matching 440 × 280 small promotional tile and 1400 × 560 marquee. The developer dashboard showed version 1.0.349 with activeTab and contextMenus in both the draft and published package records. The original Chrome store ZIP retained its recorded SHA-256 and has no host or optional permissions. Saved the listing and submitted it through the built-in browser. Google confirmed submission for review with deferred publication selected. No extension package or permission changes were made for this submission.
+
+## 1.0.362 · Optional Vertex AI and Cloud Storage · 2026-11-23
+
+Settings > AI supports the existing Developer API connection, desktop Google OAuth with PKCE and a loopback callback, and a separate device-stored express key. The selected Cloud project supplies the signed-in inference resource and quota project. A project-owned object records its bucket, object name, generation and CRC32C. Upload and import retain a local video. Rename and delete use generation preconditions. The editor, gallery, filters and project context menus identify cloud videos and can open them in Cloud Console. Cloud settings fields support Copy and Clear. Google sign-in has an accessible connection indicator and a confirmed removal action.
+
+The external OAuth brand in vidistudio is in Testing. Both platform clients are configured. The private bucket vidistudio-391751953953-videos uses asia-south1 with uniform access and enforced public access prevention. Cloud Billing API confirmed billingEnabled=true. Local private client configuration files are ignored by Git.
+
+The packaged Mac engine completed browser sign-in, returned 36 Gemini publisher models, and processed a disposable private video with gemini-3.8-flash for transcription and summary. Upload, rename, bucket listing, owned-copy import, removal of the copy and removal of the original test project object succeeded. A catalog-listed older model returned HTTP 404. Initial Mac accessibility inspection found Google account connected, Reconnect Google Account, Remove Google sign-in, and both named Copy and Clear controls. The helper now has a stable Apple Development identity for future Keychain access. A later Mac live retest timed out waiting on Keychain. Windows OAuth timed out waiting for browser consent. An invalid express credential was rejected without printing its value. A working express key was unavailable.
+
+Mac regression run passed 92 tests across menu parity, UI layout, general desktop parity and cloud behavior. The native Windows gallery/settings suite exercised signed-in/express Settings, menus, themes and compact layouts. After correcting the import dialog’s radio selection, the separate packaged Windows dialog suite passed its native light/dark, resizing, cancellation and confirmation checks. Website guide and privacy edits are local. The Help build rendered 16 chapters for each platform and both outputs passed the cloud search and export-anchor check. No publication or production OAuth verification was performed.
+
+
+Final native checks found the signed-in green check through the Mac accessibility tree. On the installed Mac, copying and clearing each Cloud field disabled both actions when empty, pasting restored the exact value, and canceling Remove Google sign-in preserved the account. The owner’s project and bucket were saved in Settings. A later change limited the status line to the active Vertex connection. Separate processes on both desktops verified save, restart, replacement and removal using disposable OS credential-store entries. Both packaged client configurations matched their private JSON handoff files. The Google Cloud bucket listed no remaining test objects. The numbered synchronous Gemini speech models use 5-minute audio chunks and word timestamps; streamed speech models are excluded from file transcription. The native macOS helper is signed as com.vidistudio.processing-engine with the same Apple Development identity as the app.
+
+The final installed Mac 1.0.362/362 and its Safari, Share and Finder extensions passed signing and registration checks for team LLVWNNUV26. Spotlight and LaunchServices found one installed VidiStudio. The packaged engine passed 28 media and processing regressions. A separate live storage test used the CLI account to replace a disposable object, then verified analysis, rename and deletion refused the new generation and preserved the local project and replacement. The fixture was cleaned up.
+
+The final Windows ARM64 Debug package (1.0.362.0) was rebuilt and installed. The packaged GallerySettingsOnly and DialogsOnly suites passed. The Windows checkout passed 94 shared regression tests. The final MSIX and Mac ZIP each contain the client configuration from the corresponding private handoff file. Signed-in Windows cloud processing and successful express video processing still require live user credentials.
+
+Signed-in project browsing. New Project exposes Cloud Storage only after Google sign-in. New Project from Cloud Storage… in File and the All Projects toolbar opens the bucket picker directly. The picker lists the selected Cloud project's buckets, shows full file names, and creates an owned copy in the configured destination. The user can import the same stored video more than once. The recorded source generation must still match before download. Unit tests covered mixed MIME types and stale generation. A live test using explicit Cloud CLI credentials listed a nested MP4 and a text file, imported the video twice, and removed both project-owned copies while preserving the original. The fixture was cleaned up. The Mac and Windows checkouts passed 94 and 96 regression tests respectively. The updated Help passed the browser search and export-anchor checks.
+
+Final picker verification used the installed Windows ARM64 app with fixture bucket contents. The native gallery suite exercised signed-out and signed-in New Project, bucket selection, disabled creation for text files, and selection of the exact video name and generation. Screenshots show the source selector remains visible when switching to bucket browsing. Native context menu and dialog suites passed. The Mac package passed 28 processing regressions and signing/registration checks for all three extensions; final manual Mac bucket-picker inspection was blocked by the locked screen.
+
+## 1.0.363 · Accessible Vertex connection test · 2026-11-23
+
+After Test Connection succeeds, the Mac and Windows AI settings place a green checkmark beside the button. The icon has the accessible name “Vertex AI connection verified” and success triggers a native announcement. Retesting and changing the connection clear the old result. A live signed-in test on the installed Mac exposed a Test Connection button followed by a single named image in the accessibility tree. The Windows ARM64 Debug package passed its native Settings suite, including the initially hidden icon, simulated verified state, accessible name, button adjacency and reset when switching methods. Screen-reader speech output was not audited by listening.
+
+The installed Mac app and its Safari, Finder and Share extensions passed signing and registration checks for version 1.0.363, build 363, team LLVWNNUV26. Spotlight and LaunchServices found one installed copy. The installed engine passed 28 regression tests. The desktop menu and layout suites passed 75 tests in each checkout. The Windows app was installed as 1.0.363.0. The shared Help source now includes a generic seven-topic Vertex AI walkthrough. Both 17-chapter guide builds and browser navigation passed locally. Website publication is pending.
+
+## 1.0.364 · Vertex AI model pickers
+
+Settings and processing now share capability rules for signed-in Vertex and express mode. File transcription, narration and prompted media tasks have separate model choices. Valid saved choices keep their exact IDs. A legacy incompatible choice resolves to the same available model in Settings and processing. In express mode Video understanding handles prompted transcripts. The dedicated transcription and narration rows show their unavailable state.
+
+The installed Mac accessibility menu showed the Speech and transcription heading with exactly the stable and preview file transcription IDs. The original AI provider selection was restored after inspection. The packaged engine returned a timed transcript from a live signed-in request using synthetic speech and the stable file model. The Mac checkout passed 97 shared regression tests and the installed engine passed 28 media/processing tests. The app and its three extensions passed signing and registration checks for 1.0.364, build 364, team LLVWNNUV26. Spotlight and LaunchServices each listed only the installed app. A live express request and spoken VoiceOver output were not tested for this change.
+
+## 1.0.365 · Gemini 4 in Developer API Settings
+
+Compatible Gemini 4 models have their own heading in the task picker and context menu. Native accessibility inspection of the installed app, using the existing Developer API catalog, showed Gemini 4 Argon, Carbon, Hydrogen and Neon under the Gemini 4 heading in Video summaries. The app and all three extensions passed signing and registration for build 365, team LLVWNNUV26. Spotlight and LaunchServices each listed only /Applications/VidiStudio.app. The Mac checkout passed 97 cross-platform and processing regressions.
+
+The final installed engine passed 28 media and playback regressions. The Windows ARM64 1.0.365.0 packaged dialog and gallery/settings suites passed on rerun. The shared Help update was built and browser-tested locally and is awaiting publication.
+
+## 1.0.366 · Cloud Storage file details and views · 2026-11-23
+
+The Cloud Storage Inspector shows the filename, bucket, full object path, local thumbnail and available recorded object metadata. The bucket browser remembers List or Table, retains its selection when switching, and shows selected-file details and a named thumbnail. Uploads can store a small JPEG with the object. Older uploads and external videos can generate a thumbnail on request using the selected generation.
+
+The installed Mac app exposed the live synthetic video, thumbnail, path, size, type, class and dates in both views through accessibility inspection. The same object stayed selected and Create Project stayed enabled when switching. The packaged engine verified the stored and generated thumbnail, then removed the disposable cloud object. The app and Safari, Share and Finder extensions passed signing and registration for build 366, team LLVWNNUV26. Spotlight and LaunchServices each showed one app. The checkout passed 97 regression tests and the installed engine passed 28. Shared Help passed its local build, navigation and search checks.
+
+A separate native Inspector check opened a disposable local fixture and verified the named thumbnail, filename, cloud path, size, type, storage class and both timestamps in the accessibility tree.
+
+## 1.0.367 · Cloud Storage menu icons · 2026-11-23
+
+Added icons to the Cloud Storage project commands and the bucket browser’s view, refresh and thumbnail context actions. The installed Mac gallery screenshot showed distinct external link, pencil and crossed-out cloud icons on the three cloud project context commands. The Project menu exposed the Cloud Storage submenu. The earlier disposable gallery entry was removed. The installed app and Safari, Share and Finder extensions passed signing and registration for 1.0.367, build 367, team LLVWNNUV26. Spotlight and LaunchServices showed one installed app. Both checkouts passed 78 menu and layout tests each.
+
+The installed Mac engine passed 28 media and playback regressions. The shared Help update passed the local production build and browser navigation check.
+
+## 1.0.368 · Menu icon checks and design system · 2026-11-23
+
+The shared design guide and agent instructions require meaningful icons for app-owned menu actions on both desktops. The menu parity command runs the icon declaration check as part of builds and the tracked pre-commit hook. Mutation tests remove icons from representative menu bar, context, explicit AppKit and WinUI declarations and require the check to fail. Missing command icons were added in Settings, project menus, selection menus and dialogs.
+
+Mac passed 89 source and native-symbol regressions, 28 packaged engine regressions and the installed gallery menu image suite. The screenshot probe now verifies that entirely optional menus are actually empty before accepting an empty result, and gives a transient window activation one gallery reselection. The app and all three extensions verified at 1.0.368 build 368 with stable team LLVWNNUV26 and only one installed app in Spotlight and LaunchServices. The source gate covers supported declaration forms. Installed image coverage is the gallery menu suite.
+
+## 1.0.372 · New Project sources and dialog header · 2026-11-23
+
+The File menu opens New Project with Video File, YouTube Video or Cloud Storage preselected. New Cloud Project opens the bucket browser. Cloud Storage stays visible in the source picker, File menu and All Projects toolbar and is disabled until Google sign-in. The New Project title keeps a top inset as the form scrolls.
+
+Installed and launched 1.0.372, build 372. Verified stable signing for the app and Safari, Share and Finder extensions with team LLVWNNUV26, registration under the installed app, and one copy in Spotlight and LaunchServices. All 89 source regressions and 28 packaged engine tests passed. In the installed dark-mode app, verified all three File defaults, the title inset for the YouTube and Cloud sheets, scrolling to the Cloud dialog actions, and Escape back to the library. A native SwiftUI fixture verified the production source picker's selected and disabled accessibility states for both connection states without altering the saved account.
+
+Updated the shared design system and all agent guides to require a DESIGN.md update for design or interaction changes. The generic Help guide was built and checked locally.
+
+The installed gallery menu icon suite passed on retry after the first run missed the Sort Projects submenu capture. The native Mac dialog check covered the current dark appearance and window size. Mac light appearance and a separate minimum-size run were not exercised in this update.
+
+## 1.0.374 · One New Project toolbar action · 2026-11-24
+
+Removed the standalone Cloud creation button from All Projects. The New Project button opens the shared source picker and the File menu includes New Cloud Project. The Mac sheet layout remains the desktop reference for the Windows sizing fix.
+
+Installed and launched 1.0.374, build 374, and verified signing continuity for the app and all three extensions with Apple Development team LLVWNNUV26. The Safari, Share and Finder extensions are registered from the installed bundle. Spotlight and LaunchServices showed only the Applications copy. The 91 source regressions passed. In the installed Mac app in dark appearance, verified the toolbar action, the three options in the New Project picker, Escape cancellation and the three File creation commands. Mac light appearance and a separate minimum-size run were not exercised.
+
+Updated the workspace design system and the generic Help guide. Local Help validation passed.
+
+The installed engine passed 28 media and playback tests.
+
+## 1.0.375 · Windows New Project layout parity build · 2026-11-24
+
+Installed and launched 1.0.375, build 375. Verified the Applications copy in Spotlight and LaunchServices and the Safari, Share and Finder registrations and signatures with Apple Development team LLVWNNUV26. The toolbar and New Project sheet use the same Mac UI already inspected in 1.0.374. All 91 source regressions and 28 packaged engine tests passed.
+
+## 1.0.377 · Compact Windows layout parity build · 2026-11-24
+
+Built, installed and launched 1.0.377, build 377, for desktop version synchronization. The app and its Safari, Share and Finder extensions verified with stable Apple Development team LLVWNNUV26 and registrations from the installed bundle. Spotlight and LaunchServices showed one Applications copy. All 92 source regressions and 28 packaged engine tests passed. The Mac toolbar and sheet layout match the installed 1.0.374 native inspection.
+
+## 1.0.379 · Open Cloud Videos · 2026-11-24
+
+File > Open Cloud Videos lists accessible Google Cloud projects and their buckets after sign-in. The browser searches object names and paths, sorts the list, and offers List and Table, video metadata, available thumbnails, and Open in Editor. Imports use the configured destination and preserve the source. Cloud rename, removal and cloud project deletion require Google-confirmed object permissions. The engine checks them again before a mutation and guards the selected generation.
+
+Installed and launched 1.0.379, build 379. The app and its Safari, Share and Finder extensions passed signing and registration with team LLVWNNUV26. Spotlight and LaunchServices showed one Applications copy. All 111 source regressions and 28 installed engine tests passed. A native accessibility check on build 378 verified actual project and bucket discovery, visible search and sort fields, List and Table, and disabled import for the empty bucket. A read-only check with the installed engine confirmed Google can return per-object permissions. No live cloud object was renamed or deleted.
+
+The installed 379 menu image check verified the File command and its icon. The Project > Cloud Storage submenu could not be opened by the gallery test with the available selection.
+
+## 1.0.380 · Import from the shared cloud browser · 2026-11-24
+
+Choose from Cloud Storage opens the shared browser with the configured project and bucket selected. The browser displays transfer bytes and the current import step. Cancelling returns to New Project. A successful import closes both dialogs and opens the project editor. Missing thumbnails can still be generated in the browser.
+
+Built, installed and launched 1.0.380, build 380. The app and its Safari, Share and Finder extensions verified with team LLVWNNUV26 and current registrations. Spotlight and LaunchServices both showed one Applications copy. All 111 source tests and 28 installed engine tests passed. In the installed Mac app, a disposable live video verified the source picker handoff, automatic bucket selection, cancellation back to New Project, byte progress in the browser, and opening the editor with both dialogs closed. The original and project copy had matching checksums. Both disposable cloud objects were removed and the local fixture moved to the Bin.
+
+## 1.0.381 · Cloud project deletion and video-only browsing · 2026-11-24
+
+Delete Project uses the recorded owned object even if the local folder is missing. It verifies the Cloud Storage object generation, ownership metadata and delete permission before removing the object or confirming it is already absent. A cloud error keeps the project available for retry. The shared bucket browser filters supported videos before either desktop displays the list.
+
+Installed and launched 1.0.381, build 381. The app and its Safari, Share and Finder extensions verified with team LLVWNNUV26 and registered under the installed bundle. Spotlight and LaunchServices showed one Applications copy. All 113 source tests and 28 installed engine tests passed. The live bucket check found no active copies of the prior disposable clip and two soft-deleted copies retained under the bucket’s seven-day policy. The old test entry was absent on relaunch. The installed browser showed only the MP4 from a three-object fixture. After moving the disposable project folder out of the library, the native Delete Project action removed its gallery entry and active cloud copy. The bucket check confirmed the original upload still existed before test cleanup.
+
+## 2026-11-24 · Project Overview after AD Transcript
+
+Renamed the final editor section to Overview across the picker, window title, search announcements, View and Project menus, and keyboard reference. Command-4 opens AD Transcript and Command-5 opens Overview. Project details, Transcript and Summary precede the existing description statistics, origins and narration actions. Summary displays availability and a character count for the active saved result. Its text stays in the Summary tab.
+
+Installed and launched 1.0.384 (build 384), verified all three embedded extensions and signing continuity with team LLVWNNUV26, and confirmed a single Spotlight and LaunchServices app path. A concurrent desktop update subsequently installed 1.0.385 (build 385). Checked both native editor menus and keyboard shortcuts on 385. The installed Overview exposed all six groups in light and dark appearance at 1280- and 870-point widths. A populated English project showed 47 transcript segments and only “Available” and 2,454 characters under Summary. Transcript and Summary reflowed from adjacent to stacked. Restored the System appearance and original editor size. The paired menu, icon and UI checks passed. The focused Mac test run passed 88 tests, the final UI contract passed 40 tests, and the language-results suite passed 51 with the installed 384 engine selected. The website guide and shortcuts were updated and verified locally.
+
+## 2026-11-24 · Source-specific AI models and Cloud Storage imports (1.0.385, build 385)
+
+Settings > AI groups Local video and YouTube video separately under both providers. Vertex AI with Google sign-in also has Cloud Storage video. The project source and task select the saved Gemini model. The pickers and their context menus share capability filtering, icons, labels and checked state. Express mode shows its compatible tasks and preserves its own choices.
+
+An existing bucket video is checked for object read access and generation, downloaded, and verified by size and checksum. The editor uses the local copy for playback and export. Signed-in Vertex uses the original object and the source Cloud project for video analysis. Import stages appear in the browser and open editors. The Inspector identifies the original object and inference project. Deleting the local project preserves the referenced object and clears its cached gallery record in other windows. Google Cloud permission, generation, checksum and Vertex service-agent errors have specific messages.
+
+Built, signed, installed and launched 1.0.385 through the Release verification script. The app and Safari, Finder and Share extensions all match build 385 and Apple Development team LLVWNNUV26. PlugInKit verified all three installed registrations, and Spotlight and LaunchServices show one app under /Applications/VidiStudio.app. Menu, icon and layout checks passed, along with 186 focused source tests and 68 packaged engine tests. The installed engine rejected a stale generation before streaming, imported checksum-matching media without a second cloud object, and refused remote deletion of the referenced original. A separate live Vertex run produced a transcript, summary and Audio Description from the original bucket URI. The summary initially received a service-agent access error and succeeded with the compatible model used for transcription. The disposable test objects were soft-deleted after validation.
+
+Native Mac accessibility inspection confirmed both provider layouts and the existing-bucket import from New Cloud Project to the editor. The editor showed the original Storage path. A native deletion moved the disposable project to the Bin and exposed a stale library entry, which the final build clears across windows. The revised cache-eviction handler passed idle and busy model checks. The Mac locked before the final native gallery retest. Help and the design guide were updated locally.
+
+Evidence is in `build/cloud-source-models-385-refresh-install.log`, `build/cloud-source-models-385-tests.log` and `build/cloud-source-models-385-packaged.log`.
+
+## 1.0.386 · Editor preview and single Mac installation · 2026-11-24
+
+Built and installed signed 1.0.386 (build 386). The app, Safari, Share and Finder extensions retained Apple Development team LLVWNNUV26, and all three extensions each have one registration under the installed bundle. An old local picker test bundle under /private/tmp was registered with LaunchServices. Unregistered it and archived it outside the app bundle format. Spotlight and LaunchServices then listed one VidiStudio app, at /Applications/VidiStudio.app. Verified one running process.
+
+In the native editor, checked both preview tooltips, the toolbar hiding the video and timeline, and Command-Shift-V restoring both. Icon, menu and UI checks passed, as did 83 source parity tests and 51 packaged language-result tests.
+
+The native Mac preview checks also passed in Light and Dark. Restored the original appearance setting.
+
+## 1.0.387 · Windows editor tooltip parity · 2026-11-24
+
+Built and installed the synchronized Mac build 387 with Safari, Share and Finder extensions. Verified the existing Apple Development team LLVWNNUV26, three installed extension registrations, and one VidiStudio app in Spotlight. The Windows tooltip change follows the editor action labels and scope already used on Mac. Mac icon, menu, UI and 83 parity tests passed.
+
+The packaged Mac engine passed 51 language-result tests.

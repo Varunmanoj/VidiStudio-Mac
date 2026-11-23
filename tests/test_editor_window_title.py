@@ -12,7 +12,7 @@ class EditorWindowTitleTests(unittest.TestCase):
         source = (mac / 'VidiStudio/KeyboardShortcuts.swift').read_text()
         members = declaration(source, 'var activeSectionTitle: String') + '\n' + declaration(source, 'func windowTitle(projectName:')
         harness = 'struct Fixture { var activeSection: String;\n' + members + '\n}\n' + '''
-let sections = [("transcript", "Transcript"), ("summary", "Summary"), ("descriptions", "Descriptions"), ("ad-overview", "AD Overview"), ("ad-transcript", "AD Transcript")]
+let sections = [("transcript", "Transcript"), ("summary", "Summary"), ("descriptions", "Descriptions"), ("ad-overview", "Overview"), ("ad-transcript", "AD Transcript")]
 for (id, title) in sections {
     let fixture = Fixture(activeSection: id)
     precondition(fixture.windowTitle(projectName: "Test हिन्दी") == "Test हिन्दी — " + title)

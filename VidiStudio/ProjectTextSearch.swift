@@ -55,7 +55,7 @@ struct ProjectSearchHit: Identifiable {
 
 enum SearchResultStatus {
     static func sectionName(_ section: String) -> String {
-        ["transcript": "Transcript", "summary": "Summary", "descriptions": "Descriptions", "ad-transcript": "AD Transcript", "ad-overview": "AD Overview"][section] ?? section
+        ["transcript": "Transcript", "summary": "Summary", "descriptions": "Descriptions", "ad-transcript": "AD Transcript", "ad-overview": "Overview"][section] ?? section
     }
     static func editor(query: ProjectSearchQuery, section: String, count: Int) -> String {
         let title = sectionName(section)
@@ -63,7 +63,7 @@ enum SearchResultStatus {
             return query.section == nil ? "Search cleared. All \(title) content shown." : "\(sectionName(query.section!)). All content shown."
         }
         if let scope = query.section, scope != section { return "\(title). Search is limited to \(sectionName(scope))." }
-        if section == "ad-overview" { return "AD Overview. Search is available in the four text tabs." }
+        if section == "ad-overview" { return "Overview. Search is available in the four text tabs." }
         return count == 0 ? "No search results in \(title)." : "\(count) search \(count == 1 ? "result" : "results") in \(title)."
     }
     static func gallery(query: String, count: Int) -> String {

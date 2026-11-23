@@ -387,6 +387,7 @@ struct ProjectBrowserPage: View {
         if project.youtubeURL.flatMap(StudioModel.youtubeVideoID) != nil {
             Button("Open in YouTube", systemImage: "arrow.up.right.square") { studio.openYouTubeInBrowser(project) }
         }
+        CloudVideoActions(studio: studio, project: project).disabled(studio.busy)
         Button("Open Project Settings…", systemImage: "gearshape") { studio.requestProjectManagement("project-settings", project: project) }
             .disabled(!studio.canManageProject("project-settings", project: project))
         Button("Open in Project Folder", systemImage: "folder") {
@@ -414,10 +415,12 @@ struct ProjectBrowserPage: View {
             clear(project)
         }
         .disabled(busy || project.integrityPlaceholder == true || !project.hasGeneratedContent)
-        Button("Delete Project…", systemImage: "trash", role: .destructive) {
-            delete(project)
+        if studio.canDeleteProjectVideo(project) {
+            Button("Delete Project…", systemImage: "trash", role: .destructive) {
+                delete(project)
+            }
+            .disabled(busy)
         }
-        .disabled(busy)
         }.disabled(busy)
     }
 }

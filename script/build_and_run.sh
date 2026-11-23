@@ -52,6 +52,9 @@ if [[ -z "$SIGNING_IDENTITY" ]]; then
   fi
   SIGNING_IDENTITY="$mapfile_output"
 fi
+# The OAuth refresh token is accessed by the bundled engine. Resource executables
+# need their own stable requirement across PyInstaller rebuilds.
+codesign --force --identifier com.vidistudio.processing-engine --sign "$SIGNING_IDENTITY" "$APP/Contents/Resources/Engine/vidistudio-engine"
 codesign --force --deep --sign "$SIGNING_IDENTITY" "$APP" > build/codesign.log 2>&1
 codesign --force --sign "$SIGNING_IDENTITY" --entitlements Config/VidiStudioShareExtension.entitlements "$SHARE_EXTENSION" >> build/codesign.log 2>&1
 codesign --force --sign "$SIGNING_IDENTITY" --entitlements Config/VidiStudioFinderExtension.entitlements "$FINDER_EXTENSION" >> build/codesign.log 2>&1

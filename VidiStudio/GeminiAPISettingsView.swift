@@ -10,6 +10,7 @@ private enum GeminiModelGroup: Int, CaseIterable, Identifiable {
     case flash
     case flashLite
     case pro
+    case gemini4
     case omni
     case speech
     case other
@@ -22,6 +23,7 @@ private enum GeminiModelGroup: Int, CaseIterable, Identifiable {
         case .flash: "Flash"
         case .flashLite: "Flash-Lite"
         case .pro: "Pro"
+        case .gemini4: "Gemini 4"
         case .omni: "Omni"
         case .speech: "Speech and transcription"
         case .other: "Other models"
@@ -34,6 +36,39 @@ private struct GeminiModelMenuGroup: Identifiable {
     let options: [GeminiModelOption]
 
     var id: GeminiModelGroup { group }
+}
+
+struct VertexModelPolicy: Decodable {
+    struct Group: Decodable {
+        let title: String
+        let capability: String
+        let pattern: String
+    }
+    struct ProjectModelRow: Decodable, Identifiable {
+        let id: String
+        let stage: String
+        let label: String
+        let fallback: String?
+        let signInOnly: Bool?
+    }
+    struct ProjectGroup: Decodable, Identifiable {
+        var id: String { title }
+        let title: String
+        let signInOnly: Bool
+        let rows: [ProjectModelRow]
+    }
+    let projectModelGroups: [ProjectGroup]
+    let groups: [Group]
+    let stages: [String: String]
+    let preferred: [String: [String]]
+    let expressModels: [String]
+
+    static let bundled: VertexModelPolicy? = {
+        struct Defaults: Decodable { let vertexModelPolicy: VertexModelPolicy }
+        guard let url = Bundle.main.resourceURL?.appendingPathComponent("Engine/_internal/ai-defaults.json"),
+              let data = try? Data(contentsOf: url) else { return nil }
+        return (try? JSONDecoder().decode(Defaults.self, from: data))?.vertexModelPolicy
+    }()
 }
 
 private enum GeminiOutputLanguages {
@@ -50,6 +85,9 @@ private enum GeminiOutputLanguages {
 struct GeminiAPISettingsView: View {
     @Bindable var studio: StudioModel
     @Environment(\.openURL) private var openURL
+    @State private var removingGoogleSignIn = false
+    @State private var vertexKey = ""
+    @State private var vertexStatus = ""
     @State private var keyDebounceTask: Task<Void, Never>?
     @State private var showingDeleteConfirmation = false
     @State private var advancedExpanded = false
@@ -87,23 +125,180 @@ struct GeminiAPISettingsView: View {
 
     private let apiKeyPage = URL(string: "https://aistudio.google.com/api-keys")!
 
-    private let localVideoRows = [
-        GeminiModelRow(id: "transcript", label: "Speech transcription"),
-        GeminiModelRow(id: "summary", label: "Video summaries"),
-        GeminiModelRow(id: "audio_descriptions", label: "Audio descriptions"),
-        GeminiModelRow(id: "screen_text", label: "On-screen text"),
-        GeminiModelRow(id: "text_rewrite", label: "Description rewrites"),
-        GeminiModelRow(id: "tts_audio", label: "Gemini narration"),
-    ]
-
-    private let youtubeVideoRows = [
-        GeminiModelRow(id: "youtube_transcript", label: "YouTube video model"),
-        GeminiModelRow(id: "transcript", label: "Imported audio transcription"),
-        GeminiModelRow(id: "audio_descriptions", label: "Audio descriptions with imported audio"),
-    ]
+    private func choiceMenu(_ selection: Binding<String>, options: [(String, String)]) -> some View {
+        ForEach(options, id: \.0) { option in
+            Toggle(option.1, systemImage: "cpu", isOn: Binding(get: { selection.wrappedValue == option.0 }, set: { if $0 { selection.wrappedValue = option.0 } }))
+        }
+    }
 
     var body: some View {
+        Section("AI provider") {
+            Picker("Provider", selection: $studio.settings.aiProvider) {
+                Text("Gemini Developer API").tag("developer")
+                Text("Vertex AI").tag("vertex")
+            }.contextMenu { choiceMenu($studio.settings.aiProvider, options: [("developer", "Gemini Developer API"), ("vertex", "Vertex AI")]) }
+        }.disabled(studio.busy)
         outputLanguageSections
+        if studio.settings.aiProvider == "vertex" { vertexSettings } else { developerSettings }
+    }
+
+    private func clearVertexTestResult() {
+        studio.vertexConnectionVerified = false
+        studio.vertexConnectionMessage = ""
+    }
+
+    private func storeVertexKey(_ value: String) {
+        if KeychainStore.vertex.write(value) {
+            studio.settings.vertexCredentialRevision += 1
+            vertexKey = ""
+            vertexStatus = value.isEmpty ? "Key removed" : "Key saved"
+        } else { vertexStatus = "Could not update Keychain" }
+    }
+
+    private func cloudField(_ label: String, _ value: Binding<String>) -> some View {
+        let copy = {
+            NSPasteboard.general.clearContents()
+            NSPasteboard.general.setString(value.wrappedValue, forType: .string)
+        }
+        let clear = { value.wrappedValue = "" }
+        return LabeledContent(label) {
+            HStack {
+                TextField(label, text: value).labelsHidden()
+                Button("Copy " + label, systemImage: "doc.on.doc", action: copy)
+                    .labelStyle(.iconOnly).help("Copy " + label).disabled(value.wrappedValue.isEmpty)
+                Button("Clear " + label, systemImage: "trash", role: .destructive, action: clear)
+                    .labelStyle(.iconOnly).help("Clear " + label).disabled(value.wrappedValue.isEmpty)
+            }
+            .contextMenu {
+                Button("Copy " + label, systemImage: "doc.on.doc", action: copy).disabled(value.wrappedValue.isEmpty)
+                Button("Clear " + label, systemImage: "trash", role: .destructive, action: clear).disabled(value.wrappedValue.isEmpty)
+            }
+        }
+    }
+
+    @ViewBuilder private var expressKeyActions: some View {
+        Button("Save Key") { storeVertexKey(vertexKey) }.disabled(vertexKey.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+        Button("Remove Key") { storeVertexKey("") }.disabled(!KeychainStore.vertex.containsValue())
+        Button("Use Google sign-in") { studio.settings.vertexAuth = "signin" }
+    }
+
+    @ViewBuilder private var googleSignInActions: some View {
+        Button(studio.settings.vertexConnected ? "Reconnect Google Account" : "Sign in with Google") { studio.execute("vertex-connect") }
+        Button("Remove Google sign-in", systemImage: "trash", role: .destructive) { removingGoogleSignIn = true }
+            .disabled(!studio.settings.vertexConnected)
+    }
+
+    @ViewBuilder private var vertexSettings: some View {
+        Section("Vertex AI") {
+            Picker("Authentication", selection: $studio.settings.vertexAuth) {
+                Text("Google sign-in").tag("signin")
+                Text("Express API key").tag("express")
+            }.contextMenu { choiceMenu($studio.settings.vertexAuth, options: [("signin", "Google sign-in"), ("express", "Express API key")]) }
+            if studio.settings.vertexAuth == "express" {
+                SecureField("Vertex AI express API key", text: $vertexKey)
+                HStack { expressKeyActions }.contextMenu { expressKeyActions }
+                if KeychainStore.vertex.containsValue() { Text("Express key saved") }
+            } else {
+                cloudField("Google Cloud project ID", $studio.settings.vertexProject)
+                cloudField("Cloud Storage bucket", $studio.settings.vertexBucket)
+                let connected = studio.settings.vertexConnected
+                Label(connected ? "Google account connected" : "Signed out",
+                      systemImage: connected ? "checkmark.circle.fill" : "person.crop.circle")
+                    .foregroundStyle(connected ? Color.green : Color.secondary)
+                    .accessibilityIdentifier("vertex-signin-status")
+                    .onAppear { studio.settings.vertexConnected = KeychainStore.hasVertexSignIn }
+                    .onChange(of: connected) { _, active in
+                        NSAccessibility.post(element: NSApp as Any, notification: .announcementRequested,
+                            userInfo: [.announcement: active ? "Google account connected" : "Signed out", .priority: NSAccessibilityPriorityLevel.medium.rawValue])
+                    }
+                HStack { googleSignInActions }
+                    .contextMenu { googleSignInActions }
+                    .alert("Remove Google sign-in from this Mac?", isPresented: $removingGoogleSignIn) {
+                        Button("Remove Google sign-in", role: .destructive) { studio.execute("vertex-disconnect") }
+                        Button("Cancel", role: .cancel) {}
+                    }
+            }
+            HStack(spacing: 8) {
+                Button("Test Connection") { studio.execute("vertex-check") }
+                    .contextMenu { Button("Test Connection") { studio.execute("vertex-check") } }
+                if studio.vertexConnectionVerified {
+                    Image(systemName: "checkmark.circle.fill")
+                        .foregroundStyle(.green)
+                        .accessibilityLabel("Vertex AI connection verified")
+                        .accessibilityIdentifier("vertex-test-status")
+                        .help("Vertex AI connection verified")
+                }
+            }
+            .onChange(of: studio.vertexConnectionVerified) { _, verified in
+                if verified {
+                    NSAccessibility.post(element: NSApp as Any, notification: .announcementRequested,
+                        userInfo: [.announcement: "Vertex AI connection verified", .priority: NSAccessibilityPriorityLevel.medium.rawValue])
+                }
+            }
+            if !vertexStatus.isEmpty { Text(vertexStatus) }
+            if !studio.vertexConnectionMessage.isEmpty { Text(studio.vertexConnectionMessage) }
+        }.disabled(studio.busy)
+        .onChange(of: studio.settings.vertexAuth) { clearVertexTestResult() }
+        .onChange(of: studio.settings.vertexProject) { clearVertexTestResult() }
+        .onChange(of: studio.settings.vertexBucket) { clearVertexTestResult() }
+        .onChange(of: studio.settings.vertexCredentialRevision) { clearVertexTestResult() }
+        let express = studio.settings.vertexAuth == "express"
+        let groups = VertexModelPolicy.bundled?.projectModelGroups ?? []
+        ForEach(groups.filter { !express || !$0.signInOnly }) { group in
+            Section(group.title) {
+                ForEach(group.rows.filter { !express || $0.signInOnly != true }) { row in
+                    vertexModelPicker(row, express: express)
+                }
+            }
+        }
+    }
+
+    private func vertexModelPicker(_ row: VertexModelPolicy.ProjectModelRow, express: Bool) -> some View {
+        let policy = VertexModelPolicy.bundled
+        let capability = policy?.stages[row.stage] ?? ""
+        let catalog = express ? policy?.expressModels ?? [] : studio.settings.vertexCatalog
+        let groups = (policy?.groups ?? []).compactMap { group -> (title: String, names: [String])? in
+            guard group.capability == capability else { return nil }
+            let names = Set(catalog.filter { $0.range(of: group.pattern, options: .regularExpression) != nil }).sorted()
+            return names.isEmpty ? nil : (group.title, names)
+        }
+        let choices = groups.flatMap(\.names)
+        func selectedModel(_ saved: [String: String]) -> String {
+            [saved[row.id], saved[row.fallback ?? row.stage]].compactMap { $0 }.first(where: choices.contains)
+                ?? policy?.preferred[capability]?.first(where: choices.contains) ?? choices.sorted().first ?? ""
+        }
+        let selection = Binding<String>(get: {
+            selectedModel(express ? studio.settings.vertexExpressModels : studio.settings.vertexModels)
+        }, set: { value in
+            guard choices.contains(value) else { return }
+            var saved = express ? studio.settings.vertexExpressModels : studio.settings.vertexModels
+            let previous = selectedModel(saved)
+            // Keep inherited choices stable when their previous default is edited.
+            for dependent in policy?.projectModelGroups.flatMap(\.rows) ?? []
+                where dependent.id != row.id && (dependent.fallback ?? dependent.stage) == row.id && saved[dependent.id] == nil {
+                saved[dependent.id] = previous
+            }
+            saved[row.id] = value
+            if express { studio.settings.vertexExpressModels = saved }
+            else { studio.settings.vertexModels = saved }
+        })
+        let emptyLabel = express ? "Unavailable in express mode" : "No compatible models"
+        return Picker(row.label, selection: selection) {
+            if choices.isEmpty { Text(emptyLabel).tag("") }
+            ForEach(groups, id: \.title) { group in
+                modelOptionsSection(group.title, options: group.names.map(GeminiModelOption.init(name:)), exactIDs: true)
+            }
+        }
+        .accessibilityIdentifier("vertex-model-" + row.id)
+        .contextMenu {
+            ForEach(groups, id: \.title) { group in
+                Section(group.title) { choiceMenu(selection, options: group.names.map { ($0, $0) }) }
+            }
+        }
+        .disabled(choices.isEmpty)
+    }
+
+    @ViewBuilder private var developerSettings: some View {
         Section {
             HStack(spacing: 8) {
                 SecureField("API key", text: $apiKey)
@@ -256,21 +451,14 @@ struct GeminiAPISettingsView: View {
             } header: { Text("Account Plan").accessibilityAddTraits(.isHeader).accessibilityHeading(.h2) }
         }
 
-        Section {
-            ForEach(localVideoRows) { row in
-                modelPicker(row)
+        ForEach((VertexModelPolicy.bundled?.projectModelGroups ?? []).filter { !$0.signInOnly }) { group in
+            Section {
+                ForEach(group.rows) { row in
+                    modelPicker(row)
+                }
+            } header: {
+                Text(group.title).accessibilityAddTraits(.isHeader).accessibilityHeading(.h2)
             }
-        } header: {
-            Text("Local video").accessibilityAddTraits(.isHeader).accessibilityHeading(.h2)
-        }
-
-        Section {
-            ForEach(youtubeVideoRows) { row in
-                modelPicker(row)
-            }
-        } header: {
-            Text("YouTube video").accessibilityAddTraits(.isHeader).accessibilityHeading(.h2)
-        } footer: {
         }
         Section {
             DisclosureGroup("Advanced", isExpanded: $advancedExpanded) {
@@ -302,18 +490,31 @@ struct GeminiAPISettingsView: View {
         )
     }
 
-    private func modelPicker(_ row: GeminiModelRow) -> some View {
-        Picker(row.label, selection: modelBinding(row.id)) {
-            ForEach(modelGroups(for: row.id)) { modelGroup in
-                Section {
-                    ForEach(modelGroup.options) { option in
-                        Text(modelDisplayName(option.name)).tag(option.name)
-                    }
-                } header: { Text(modelGroup.group.title).accessibilityAddTraits(.isHeader).accessibilityHeading(.h2) }
+    private func modelPicker(_ row: VertexModelPolicy.ProjectModelRow) -> some View {
+        let selection = modelBinding(row.id)
+        let groups = modelGroups(for: row.stage)
+        return Picker(row.label, selection: selection) {
+            ForEach(groups) { modelGroup in
+                modelOptionsSection(modelGroup.group.title, options: modelGroup.options)
+            }
+        }
+        .contextMenu {
+            ForEach(groups) { group in
+                Section(group.group.title) {
+                    choiceMenu(selection, options: group.options.map { ($0.name, modelDisplayName($0.name)) })
+                }
             }
         }
         .disabled(!studio.geminiModelsLoaded)
         .accessibilityHint("Choose from models available to your Gemini account.")
+    }
+
+    private func modelOptionsSection(_ title: String, options: [GeminiModelOption], exactIDs: Bool = false) -> some View {
+        Section {
+            ForEach(options) { option in
+                Text(exactIDs ? option.name : modelDisplayName(option.name)).tag(option.name)
+            }
+        } header: { Text(title).accessibilityAddTraits(.isHeader).accessibilityHeading(.h2) }
     }
 
     private func modelGroups(for stage: String) -> [GeminiModelMenuGroup] {
@@ -334,6 +535,7 @@ struct GeminiAPISettingsView: View {
 
     private func modelGroup(for name: String) -> GeminiModelGroup {
         let normalized = name.lowercased()
+        if normalized.range(of: #"^(?:models/)?gemini-4(?:[.-]|$)"#, options: .regularExpression) != nil { return .gemini4 }
         if normalized.contains("latest") { return .latest }
         if normalized.contains("tts") || normalized.contains("transcribe") { return .speech }
         if normalized.contains("flash-lite") { return .flashLite }

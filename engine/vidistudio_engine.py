@@ -7,6 +7,8 @@ import threading
 import network_activity
 import sarvam_tts
 import elevenlabs_tts
+import cloud_video
+import vertex_ai
 import gemini_adapter
 import parity
 import youtube_metadata
@@ -85,6 +87,8 @@ def safe_error(exc):
     if 'API_KEY_INVALID' in str(exc) or 'API key not valid' in raw_message:
         return 'API key not valid. Please check your Gemini API key in Settings.'
     message = str(exc)
+    vertex_key = os.environ.get("VIDISTUDIO_VERTEX_KEY", "")
+    if vertex_key: message = message.replace(vertex_key, "[redacted]")
     try:
         key = config().get('apiKey')
         if key: message = message.replace(key, '[redacted]')
@@ -578,9 +582,11 @@ def ai_stage_label(stage):
     return {'transcribe': 'Transcription', 'generate-summary': 'Summary', 'generate-ad-cues': 'AD segment generation'}.get(stage, stage)
 
 
-def gemini_client():
+def gemini_client(project=None):
     from google import genai
     cfg = config()
+    if cfg.get('aiProvider') == 'vertex':
+        return vertex_ai.client(cfg, project)
     if not cfg.get('apiKey'): raise ValueError('Add a Gemini API key in Settings first.')
     return network_activity.ClientProxy(genai.Client(api_key=cfg['apiKey'], http_options={'timeout': 300000, 'api_version':cfg.get('apiVersion','v1beta')}))
 
@@ -603,24 +609,47 @@ def validate_youtube_for_gemini(url):
         client.close()
 
 
+def project_model_stage(cfg, key, project):
+    vertex = cfg.get('aiProvider') == 'vertex'
+    source = 'cloud' if vertex and project and project.get('cloudVideo') else (project or {}).get('sourceType')
+    if not vertex and source == 'cloud':
+        source = 'local'
+    express = vertex and vertex_ai.express(cfg)
+    if key in ('transcript', 'youtube_transcript'):
+        audio_model = key == 'transcript' and not express and output_languages.selected(cfg, key) == 'auto'
+        if source == 'cloud':
+            key = 'cloud_video'
+        elif source == 'youtube':
+            if audio_sources.preferences(project)['transcription'] != 'imported':
+                key = 'youtube_transcript'
+            else:
+                key = 'youtube_imported_transcript' if audio_model else 'youtube_imported_audio'
+        elif (key == 'transcript' and not audio_model) or (key == 'youtube_transcript' and project):
+            key = 'local_video'
+    elif source in ('youtube', 'cloud'):
+        key = f'{source}_{key}'
+    return key
+
+
 def client_and_model(kind, project=None):
     cfg = config()
     key = {'tts':'tts_audio','transcribe':'transcript','generate-summary':'summary','generate-ad-cues':'audio_descriptions'}.get(kind,kind)
-    # Keep one set of local-file choices, including imported YouTube audio.
     if key.startswith('youtube_') and key != 'youtube_transcript':
         key = key.removeprefix('youtube_')
-    if (project and project.get('sourceType') == 'youtube'
-            and key in ('transcript', 'audio_descriptions')
-            and audio_sources.preferences(project)['transcription'] == 'youtube'):
-        key = 'youtube_transcript'
-    # Dedicated ASR models have no output-translation prompt. Use the saved
-    # multimodal model for explicitly translated transcripts (also for imported audio).
-    if key == 'transcript' and output_languages.selected(cfg, key) != 'auto' and 'transcribe' in cfg['models'].get(key, '').lower():
-        key = 'youtube_transcript'
-    model = cfg['models'].get(key)
-    if not model: raise ValueError('Choose a Gemini model in Settings first.')
-    if key == 'youtube_transcript' and any(token in model.lower() for token in ('transcribe', 'tts')):
-        raise ValueError('Choose a video model for YouTube in Settings > Gemini > YouTube video model, such as Gemini Flash.')
+    video_request = key in ('transcript', 'youtube_transcript', 'summary', 'audio_descriptions')
+    if cfg.get('aiProvider') == 'vertex':
+        model = vertex_ai.model_for(cfg, project_model_stage(cfg, key, project))
+        return gemini_client(project if video_request else None), model
+    if vertex_ai.referenced_video(project) and video_request:
+        raise ValueError('Choose Vertex AI with Google sign-in in Settings > AI to analyze this Cloud Storage video.')
+    stage = project_model_stage(cfg, key, project)
+    row = vertex_ai.PROJECT_MODEL_ROWS.get(stage, {})
+    fallback = row.get('fallback', row.get('stage', stage))
+    model = cfg['models'].get(stage) or cfg['models'].get(fallback)
+    if not model:
+        raise ValueError('Choose a Gemini model in Settings first.')
+    if row.get('stage', stage) == 'youtube_transcript' and any(token in model.lower() for token in ('transcribe', 'tts')):
+        raise ValueError('Choose a video model in Settings > AI for the video source.')
     return gemini_client(), model
 
 
@@ -768,6 +797,10 @@ def file_expiry(value):
 
 
 def reusable_video(root,p,client):
+    if isinstance(client, vertex_ai.VertexSession):
+        return vertex_ai.media(config(), p, local(root, p['source']))
+    if vertex_ai.referenced_video(p):
+        raise ValueError('Choose Vertex AI with Google sign-in in Settings > AI to analyze this Cloud Storage video.')
     if p.get('sourceType') == 'youtube':
         raise ValueError('YouTube videos use their public link and do not need a Files API upload.')
     source=local(root,p['source']);ensure_supported_local_video(source)
@@ -920,7 +953,7 @@ def reanalyze_transcript_segment(root, p, draft):
     imported_transcription = p.get('sourceType') == 'youtube' and audio_sources.preferences(p)['transcription'] == 'imported'
     key = 'youtube_transcript' if p.get('sourceType') == 'youtube' and not imported_transcription else 'transcript'
     # Dedicated audio transcription models cannot accept video ranges and editing prompts.
-    model_key = 'youtube_transcript' if 'transcribe' in cfg['models'].get(key, '') else key
+    model_key = 'youtube_transcript'
     pair = parity.media_prompt_pair(cfg, key)
     context = dict(selectedRange=dict(start=start, end=end), editableRange=dict(start=left, end=right),
         editableIDs=sorted(editable), existingTranscript=existing, existingDescriptions=p.get('cues', []),
@@ -941,7 +974,7 @@ def reanalyze_transcript_segment(root, p, draft):
         'a conflict with AD; return accurate speech timing so conflicts can be reported safely. '
         'Include at least one spoken segment intersecting selectedRange; if there is no speech return an empty list.\n'
         + json.dumps(context, ensure_ascii=False))
-    client, model = client_and_model(model_key)
+    client, model = client_and_model(model_key, p)
     audio_cleanup = contextlib.ExitStack()
     try:
         if imported_transcription:
@@ -1031,11 +1064,12 @@ def _ai_video_once(root, p, stage):
             else:
                 data=[]
                 (root/'transcript').mkdir(parents=True, exist_ok=True)
-                for start in range(0,math.ceil(p['duration']),1200):
+                chunk_seconds = 300 if isinstance(client, vertex_ai.VertexSession) else 1200
+                for start in range(0,math.ceil(p['duration']),chunk_seconds):
                     chunk=root/'transcript'/f'audio-{start}.wav'
                     emit(f'Creating the transcript from minute {start//60}')
                     try:
-                        run([tool('ffmpeg'),'-y','-v','error','-ss',str(start),'-i',local(root,p['source']),'-t','1200','-vn','-ac','1','-ar','16000',chunk])
+                        run([tool('ffmpeg'),'-y','-v','error','-ss',str(start),'-i',local(root,p['source']),'-t',str(chunk_seconds),'-vn','-ac','1','-ar','16000',chunk])
                         data.extend(gemini_adapter.transcribe_audio(client,model,chunk,start,lambda text:emit(text)))
                     finally:
                         chunk.unlink(missing_ok=True)
@@ -1130,7 +1164,7 @@ def gemini_speech(output, text, project):
     from google.genai import types
     cfg = config()
     output = Path(output)
-    client, model = client_and_model('tts')
+    client, model = client_and_model('tts', project or None)
     raw_wav = None
     try:
         # Gemini 3.8 TTS treats input as a verbatim transcript. Older TTS models
@@ -1320,11 +1354,14 @@ def narration_voice(cfg):
     return f'System default ({resolved})' if resolved else 'System default'
 
 
-def narration_signature(cfg):
+def narration_signature(cfg, project=None):
     if cfg.get('ttsMode') == 'elevenlabs': return elevenlabs_tts.signature(cfg)
     if cfg.get('ttsMode') == 'sarvam': return sarvam_tts.signature(cfg)
     if cfg.get('ttsMode', 'system') == 'gemini':
-        return f"gemini|{cfg.get('geminiVoice', 'Kore')}|{cfg.get('models', {}).get('tts_audio', '')}"
+        stage = project_model_stage(cfg, 'tts_audio', project)
+        model = (vertex_ai.model_for(cfg, stage) if cfg.get('aiProvider') == 'vertex'
+                 else cfg.get('models', {}).get(stage) or cfg.get('models', {}).get('tts_audio', ''))
+        return f"gemini|{cfg.get('geminiVoice', 'Kore')}|{model}"
     rate, pitch, volume = speech_controls(cfg)
     if cfg.get('ttsMode') == 'piper':
         return f"piper|{narration_voice(cfg)}|{rate:.3f}|{pitch:.3f}|{volume:.3f}"
@@ -1497,7 +1534,7 @@ def synthesize(root,p,segment=None,changed=False,regenerate_all=False,segments=N
     cues = validate_cues(p['cues'],p['duration'],p['transcript'])
     if not cues: raise ValueError('Create audio description segments first.')
     cfg = config()
-    signature = narration_signature(cfg)
+    signature = narration_signature(cfg, p)
     engine_name = narration_engine(cfg)
     voice_name = narration_voice(cfg)
     narration_folder = language_results.generation_asset_folder('audio-description', os.environ.get('VIDISTUDIO_OUTPUT_LANGUAGE', p.get('selectedLanguage', 'auto')))
@@ -3049,6 +3086,8 @@ def validate_analysis_prerequisites(command, root, project):
         raise ValueError('Generate the summary first.')
 
 def dispatch_project(args, root, p):
+    if args.command in ('cloud-upload','cloud-remove','cloud-rename'):
+        return cloud_video.update(args, root, p, config(), SimpleNamespace(**globals()))
     core = SimpleNamespace(**globals())
     if args.command in audio_sources.COMMANDS:
         return audio_sources.execute(args, root, p, core)
@@ -3067,7 +3106,7 @@ def dispatch_project(args, root, p):
     elif args.command in ('prepare-analysis-video','check-video-availability'):
         if p.get('sourceType') == 'youtube' or not p.get('source'):
             raise ValueError('YouTube videos are accessed directly; no preparation is needed.')
-        client=gemini_client()
+        client=gemini_client(p)
         try:
             if args.command=='prepare-analysis-video': reusable_video(root,p,client)
             else: remote_video_status(root,p,client)
@@ -3127,9 +3166,62 @@ def dispatch_project(args, root, p):
         import_assets.save_summary(p, text, origin)
     elif args.command in parity.COMMANDS: parity.execute(args,root,p,core)
 
+def import_local_video(args, cloud_reference=None):
+    if not args.video or not args.library: raise ValueError('Import requires --video and --library.')
+    ensure_supported_local_video(args.video)
+    if args.command != 'cloud-import':
+        ensure_unique_local_video(args.library, args.video.name)
+    info=probe(args.video)
+    streams=info['streams']; video=next((s for s in streams if s['codec_type']=='video'),None)
+    if not video: raise ValueError('The selected file has no video stream.')
+    duration=float(info['format'].get('duration',video.get('duration',0)))
+    if not math.isfinite(duration) or duration<=0: raise ValueError('The video duration could not be determined.')
+    root=args.library.resolve()/(args.video.stem[:60]+'-'+str(uuid.uuid4())[:8])
+    for folder in ['source','metadata','thumbnails']: (root/folder).mkdir(parents=True,exist_ok=True)
+    source='source/'+args.video.name
+    emit('Copying source video into local project')
+    shutil.copy2(args.video,root/source)
+    p=dict(schemaVersion=2,id=str(uuid.uuid4()),name=args.video.stem,source=source,duration=duration,width=video.get('width',0),height=video.get('height',0),hasAudio=any(s['codec_type']=='audio' for s in streams),createdAt=time.time(),updatedAt=time.time(),thumbnails=[],transcript=[],summary='',cues=[],exports=[],exportMediaInfo={},status='Imported',transcriptGenerated=False,summaryGenerated=False,descriptionsGenerated=False)
+    if cloud_reference:
+        p.update(sourceType='cloud', cloudVideo=cloud_reference)
+    language_results.migrate(p, language_results.default_language(config()))
+    atomic_json(root/'metadata/probe.json',info); save(root,p)
+    emit('Project imported',project=str(root))
+    with project_lock(root):
+        thumbnails(root,p)
+        cleanup_project_storage(root,p)
+        save(root,p)
+        if args.command == 'cloud-create':
+            cloud_video.update(SimpleNamespace(command='cloud-upload'), root, p, config(), SimpleNamespace(**globals()))
+    emit('Import complete',project=str(root),progress=1); return
+
+
+def delete_cloud_project_video(args):
+    owner = args.cloud_owner
+    record = dict(project=args.source_project, bucket=args.source_bucket, object=args.name,
+                  generation=args.source_generation)
+    if not owner or not all(record.values()):
+        raise ValueError('The project has no complete cloud video reference.')
+    root = args.project
+    manifest = root / 'project.json' if root else None
+    if manifest and manifest.is_file():
+        with project_lock(root):
+            project = json.loads(manifest.read_text(encoding='utf-8'))
+            current = project.get('cloudVideo')
+            if current and current.get('ownership') == 'referenced':
+                raise PermissionError('This project references an existing Cloud Storage video.')
+            if project['id'] != owner or not current or any(current.get(key) != value for key, value in record.items()):
+                raise ValueError('The project’s recorded cloud video changed. Refresh the project and retry.')
+            cloud_video.delete_project_object(config(), owner, record, emit)
+            cloud_video.detach_cloud_video(root, project, save)
+    else:
+        cloud_video.delete_project_object(config(), owner, record, emit)
+    emit('Cloud project video removed', cloudProjectVideoDeleted=True)
+
+
 def main():
     parser=argparse.ArgumentParser(description=__doc__)
-    parser.add_argument('command',choices=['elevenlabs-settings','preview-sarvam-sample','check-sarvam-key','list-sarvam-models','normalize-speech','check-api-key','reanalyze-transcript-segment','undo-transcript','redo-transcript','reanalyze-segment','prepare-analysis-video','check-video-availability','cleanup-project','clear-generated','delete-generated','delete-segment-audio','list-models','list-voices','preview-tts','synthesize-speech','import-video','probe-video','generate-thumbnails','transcribe','generate-summary','generate-ad-cues','synthesize-tts','export-final-video','export-selectable-video','export-closed-audio-description-video','export-open-audio-description-video','export-closed-caption-video','export-dual-closed-caption-video','export-open-caption-video','export-original-audio','export-described-audio','export-youtube-described-audio','export-youtube-original-audio','download-youtube-audio','export-hls','save-cues','save-segments','save-summary','doctor','read-youtube-metadata','expire-youtube-cache',*parity.COMMANDS,*import_assets.COMMANDS,*audio_sources.COMMANDS,*language_results.COMMANDS])
+    parser.add_argument('command',choices=['cloud-projects','cloud-delete-project-video','cloud-object-permissions','cloud-object-rename','cloud-object-delete','cloud-browse','cloud-preview','cloud-list','cloud-import','cloud-create','vertex-connect','vertex-disconnect','vertex-check','cloud-upload','cloud-rename','cloud-remove','elevenlabs-settings','preview-sarvam-sample','check-sarvam-key','list-sarvam-models','normalize-speech','check-api-key','reanalyze-transcript-segment','undo-transcript','redo-transcript','reanalyze-segment','prepare-analysis-video','check-video-availability','cleanup-project','clear-generated','delete-generated','delete-segment-audio','list-models','list-voices','preview-tts','synthesize-speech','import-video','probe-video','generate-thumbnails','transcribe','generate-summary','generate-ad-cues','synthesize-tts','export-final-video','export-selectable-video','export-closed-audio-description-video','export-open-audio-description-video','export-closed-caption-video','export-dual-closed-caption-video','export-open-caption-video','export-original-audio','export-described-audio','export-youtube-described-audio','export-youtube-original-audio','download-youtube-audio','export-hls','save-cues','save-segments','save-summary','doctor','read-youtube-metadata','expire-youtube-cache',*parity.COMMANDS,*import_assets.COMMANDS,*audio_sources.COMMANDS,*language_results.COMMANDS])
     parser.add_argument('--project',type=Path); parser.add_argument('--video',type=Path); parser.add_argument('--library',type=Path); parser.add_argument('--input',type=Path)
     parser.add_argument('--media-format', choices=VIDEO_EXPORT_FORMATS + AUDIO_EXPORT_FORMATS)
     parser.add_argument('--content',choices=['transcript','summary','descriptions','combined'],default='descriptions'); parser.add_argument('--url'); parser.add_argument('--name'); parser.add_argument('--timestamp',type=float,default=0); parser.add_argument('--duration',type=float); parser.add_argument('--segment'); parser.add_argument('--segments', action='append'); parser.add_argument('--format',choices=['srt','vtt','txt','json','md'],default='srt'); parser.add_argument('--changed',action='store_true'); parser.add_argument('--start-stage',default='transcribe')
@@ -3155,7 +3247,23 @@ def main():
     parser.add_argument('--disposition', choices=['keep', 'replace', 'discard'], default='keep')
     import_assets.add_arguments(parser)
     audio_sources.add_arguments(parser)
+    parser.add_argument('--cloud-owner')
+    parser.add_argument('--source-project')
+    parser.add_argument('--new-name')
+    parser.add_argument('--source-bucket')
+    parser.add_argument('--source-generation')
     args=parser.parse_args()
+    if args.command == 'vertex-connect':
+        vertex_ai.sign_in()
+        emit('Google account connected', vertexConnected=True)
+        return
+    if args.command == 'vertex-disconnect':
+        vertex_ai.disconnect()
+        emit('Google account disconnected', vertexConnected=False)
+        return
+    if args.command == 'vertex-check':
+        emit('Vertex AI connection verified', vertexModels=vertex_ai.catalog(config()))
+        return
     if args.language and not (args.command == 'select-overview-language' and args.language == 'project'):
         os.environ['VIDISTUDIO_OUTPUT_LANGUAGE'] = language_results.language(args.language)
     if args.command == 'expire-youtube-cache':
@@ -3210,26 +3318,54 @@ def main():
         tls = ssl.create_default_context(cafile=certifi.where())
         from sarvamai import SarvamAI
         emit('VidiStudio is ready',sarvamReady=bool(SarvamAI and sarvam_tts.bundled_models()),python=platform.python_version(),ffmpeg=tool('ffmpeg'),ffprobe=tool('ffprobe'),sslReady=tls.verify_mode == ssl.CERT_REQUIRED and tls.check_hostname); return
-    if args.command=='import-video':
-        if not args.video or not args.library: raise ValueError('Import requires --video and --library.')
-        ensure_supported_local_video(args.video)
-        ensure_unique_local_video(args.library, args.video.name)
-        info=probe(args.video)
-        streams=info['streams']; video=next((s for s in streams if s['codec_type']=='video'),None)
-        if not video: raise ValueError('The selected file has no video stream.')
-        duration=float(info['format'].get('duration',video.get('duration',0)))
-        if not math.isfinite(duration) or duration<=0: raise ValueError('The video duration could not be determined.')
-        root=args.library.resolve()/(args.video.stem[:60]+'-'+str(uuid.uuid4())[:8])
-        for folder in ['source','metadata','thumbnails']: (root/folder).mkdir(parents=True,exist_ok=True)
-        source='source/'+args.video.name
-        emit('Copying source video into local project')
-        shutil.copy2(args.video,root/source)
-        p=dict(schemaVersion=2,id=str(uuid.uuid4()),name=args.video.stem,source=source,duration=duration,width=video.get('width',0),height=video.get('height',0),hasAudio=any(s['codec_type']=='audio' for s in streams),createdAt=time.time(),updatedAt=time.time(),thumbnails=[],transcript=[],summary='',cues=[],exports=[],exportMediaInfo={},status='Imported',transcriptGenerated=False,summaryGenerated=False,descriptionsGenerated=False)
-        language_results.migrate(p, language_results.default_language(config()))
-        atomic_json(root/'metadata/probe.json',info); save(root,p)
-        emit('Project imported',project=str(root))
-        with project_lock(root): thumbnails(root,p);cleanup_project_storage(root,p);save(root,p)
-        emit('Import complete',project=str(root),progress=1); return
+    if args.command == 'cloud-projects':
+        emit('Cloud projects loaded', cloudProjects=cloud_video.accessible_projects(config()))
+        return
+    if args.command == 'cloud-object-permissions':
+        if not args.source_bucket or not args.name:
+            raise ValueError('Choose a bucket video first.')
+        emit('Cloud permissions checked', cloudPermissions=cloud_video.object_permissions(
+            config(), args.source_bucket, args.name))
+        return
+    if args.command == 'cloud-delete-project-video':
+        delete_cloud_project_video(args)
+        return
+    if args.command in ('cloud-object-rename', 'cloud-object-delete'):
+        cloud_video.manage_bucket_video(config(), args, emit)
+        return
+    if args.command == 'cloud-browse':
+        cfg = config()
+        if args.source_bucket:
+            emit('Bucket files loaded', cloudFiles=cloud_video.bucket_files(cfg, args.source_bucket, args.source_project))
+        else:
+            emit('Project buckets loaded', cloudBuckets=cloud_video.project_buckets(cfg, args.source_project))
+        return
+    if args.command == 'cloud-preview':
+        if not args.source_bucket or not args.name or not args.source_generation:
+            raise ValueError('Choose a bucket video first.')
+        image = cloud_video.preview(config(), args.source_bucket, args.name, args.source_generation,
+                                    MAX_LOCAL_VIDEO_SIZE_BYTES, SimpleNamespace(**globals()), args.source_project)
+        emit('Thumbnail loaded' if image else 'Thumbnail unavailable',
+             cloudPreview=dict(bucket=args.source_bucket, name=args.name, generation=args.source_generation, thumbnail=image))
+        return
+    if args.command == 'cloud-list':
+        emit('Bucket videos loaded', cloudObjects=cloud_video.video_names(config()))
+        return
+    if args.command == 'cloud-import':
+        if not args.name or not args.library: raise ValueError('Choose a bucket video and project library.')
+        with tempfile.TemporaryDirectory(prefix='vidistudio-cloud-import-') as tmp:
+            cfg = config()
+            source_bucket = args.source_bucket or cfg.get('vertexBucket')
+            if not source_bucket:
+                raise ValueError('Choose a source bucket before importing a Cloud Storage video.')
+            source_cfg = dict(cfg, vertexBucket=source_bucket)
+            args.video, reference = cloud_video.download(source_cfg, args.name, Path(tmp), MAX_LOCAL_VIDEO_SIZE_BYTES, emit,
+                                                         generation=args.source_generation, source_project=args.source_project)
+            import_local_video(args, reference)
+        return
+    if args.command in ('cloud-create','import-video'):
+        import_local_video(args)
+        return
     if not args.project: raise ValueError('--project is required.')
     root=args.project.resolve()
     if args.command in ('copy-results', 'translate-results'):

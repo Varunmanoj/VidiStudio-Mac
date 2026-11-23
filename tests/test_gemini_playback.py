@@ -26,8 +26,11 @@ class GeminiPlayback(unittest.TestCase):
         members = '\n'.join(declaration(source, marker) for marker in (
             '    var ttsMode =', '    var narrationPlayback =',
             '    mutating func normalizeNarrationPlayback()'))
+        members += '\n' + declaration((MAC / 'VidiStudio/SpeechProviderSettings.swift').read_text(), '    var usesCloudNarration:')
         harness = '''import Foundation
 struct Settings: Codable {
+    var summarySpeech: String?
+    var initialSummarySpeech: String { "system" }
 MEMBERS
 }
 var settings = Settings()
@@ -101,7 +104,12 @@ class Program {
  }
 }
 namespace Vidi_Studio_Windows.Services {
- static class CredentialStore { public static string? Read()=>null; public static bool Write(string value)=>false; }
+ sealed class TestSlot { public string? Read()=>null; public bool Write(string value)=>true; public bool ContainsValue()=>false; }
+ static class CredentialStore {
+  public static readonly TestSlot Vertex=new(), Sarvam=new(), ElevenLabs=new();
+  public static bool HasGoogleSignIn=>false;
+  public static string? Read()=>null; public static bool Write(string value)=>false;
+ }
  static class PromptDefaults { public static void Upgrade(JsonObject saved, JsonObject defaults) {} }
 }
 namespace Vidi_Studio_Windows.Models { static class Json { public static JsonSerializerOptions Options = new(); } }

@@ -4,7 +4,18 @@ from pathlib import Path
 import runpy
 import sys
 
-checker = Path(__file__).resolve().parents[2] / 'script/check_menu_parity.py'
+from check_menu_icons import check as check_icons
+
+root = Path(__file__).resolve().parents[1]
+sibling = root.parent / ('Vidi-Studio-Windows' if root.name == 'VidiStudio Mac' else 'VidiStudio Mac')
+for desktop in (root, sibling):
+    if not desktop.is_dir():
+        continue
+    failures = check_icons(desktop)
+    if failures:
+        raise SystemExit('Menu actions missing icon declarations:\n' + '\n'.join(failures))
+
+checker = root.parent / 'script/check_menu_parity.py'
 if not checker.is_file():
     if '--allow-missing' in sys.argv:
         print('SKIP: desktop menu parity requires the combined Mac/Windows workspace.')

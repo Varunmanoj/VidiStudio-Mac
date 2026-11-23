@@ -92,7 +92,7 @@ struct SegmentRangeFilterControls: View {
             .pickerStyle(.radioGroup)
             .contextMenu {
                 ForEach(SegmentRangeFilter.TimeMatch.allCases) { mode in
-                    Toggle(mode.title, isOn: Binding(get: { ranges.timeMatch == mode }, set: { if $0 { ranges.timeMatch = mode } }))
+                    Toggle(mode.title, systemImage: "line.3.horizontal.decrease.circle", isOn: Binding(get: { ranges.timeMatch == mode }, set: { if $0 { ranges.timeMatch = mode } }))
                 }
             }
         }
@@ -107,7 +107,7 @@ struct SegmentRangeFilterControls: View {
                 .accessibilityIdentifier("segment-filter-type")
                 .contextMenu {
                     ForEach(SegmentRangeFilter.Mode.allCases) { mode in
-                        Toggle(mode.title, isOn: Binding(get: { ranges.mode == mode }, set: { if $0 { changeMode(mode) } }))
+                        Toggle(mode.title, systemImage: "line.3.horizontal.decrease.circle", isOn: Binding(get: { ranges.mode == mode }, set: { if $0 { changeMode(mode) } }))
                             .accessibilityIdentifier("filter-mode-\(mode.rawValue)")
                     }
                 }
@@ -124,7 +124,7 @@ struct SegmentRangeFilterControls: View {
                                                 in: RoundedRectangle(cornerRadius: 6))
                                     .accessibilityIdentifier("filter-segment-\(option.id)")
                                     .contextMenu {
-                                        Toggle(option.title, isOn: selection(option))
+                                        Toggle(option.title, systemImage: "list.bullet", isOn: selection(option))
                                             .accessibilityIdentifier("filter-segment-number-menu")
                                     }
                             }

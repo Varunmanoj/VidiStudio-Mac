@@ -159,28 +159,32 @@ enum ProjectSourceFilter: String, CaseIterable, Identifiable {
     case all
     case local
     case youtube
+    case cloud
 
     var id: Self { self }
 
     var title: String {
         switch self {
-        case .all: return "All"
-        case .local: return "Video File"
-        case .youtube: return "YouTube"
+        case .all: return "All Projects"
+        case .cloud: return "Cloud Storage Videos"
+        case .local: return "Local Videos"
+        case .youtube: return "YouTube Videos"
         }
     }
 
     var accessibilityLabel: String {
         switch self {
         case .all: return "All Projects"
-        case .local: return "Local Video Projects"
-        case .youtube: return "YouTube Projects"
+        case .cloud: return "Cloud Storage Videos"
+        case .local: return "Local Videos"
+        case .youtube: return "YouTube Videos"
         }
     }
 
     var iconName: String {
         switch self {
         case .all: return "square.stack"
+        case .cloud: return "cloud"
         case .local: return "film"
         case .youtube: return "play.rectangle"
         }
@@ -189,7 +193,8 @@ enum ProjectSourceFilter: String, CaseIterable, Identifiable {
     func matches(_ project: StudioProject) -> Bool {
         switch self {
         case .all: return true
-        case .local: return !project.isYouTubeURLProject
+        case .cloud: return project.cloudVideo != nil
+        case .local: return !project.isYouTubeURLProject && project.cloudVideo == nil
         case .youtube: return project.isYouTubeURLProject
         }
     }
@@ -198,10 +203,10 @@ enum ProjectSourceFilter: String, CaseIterable, Identifiable {
 extension StudioProject {
     /// SF Symbol shared with the New Project dialog's source picker.
     var sourceIconName: String {
-        isYouTubeURLProject ? ProjectSourceFilter.youtube.iconName : ProjectSourceFilter.local.iconName
+        cloudVideo != nil ? ProjectSourceFilter.cloud.iconName : isYouTubeURLProject ? ProjectSourceFilter.youtube.iconName : ProjectSourceFilter.local.iconName
     }
 
     var sourceTitle: String {
-        isYouTubeURLProject ? "YouTube Video" : "Video File"
+        cloudVideo != nil ? "Cloud Storage Video" : isYouTubeURLProject ? "YouTube Video" : "Video File"
     }
 }

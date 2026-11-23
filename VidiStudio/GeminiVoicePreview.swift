@@ -14,7 +14,7 @@ import Combine
     private var directories: [URL] = []
     private func cacheKey(_ settings: StudioSettings, _ text: String) -> String {
         // Session-only key; never logged or persisted.
-        [settings.apiKey, settings.apiVersion, settings.models["tts_audio"] ?? "", settings.geminiVoice, settings.prompts["tts_audio"]?["user_prompt"] ?? "", text].joined(separator: "\u{0}")
+        [settings.aiProvider, settings.vertexAuth, settings.vertexProject, settings.vertexModels["tts_audio"] ?? "", settings.apiVersion, settings.models["tts_audio"] ?? "", settings.geminiVoice, settings.prompts["tts_audio"]?["user_prompt"] ?? "", text].joined(separator: "\u{0}")
     }
     func hasCached(settings: StudioSettings, text: String) -> Bool { cache[cacheKey(settings, text)].map { FileManager.default.fileExists(atPath: $0.path) } ?? false }
     func play(settings: StudioSettings, text: String) {
@@ -23,7 +23,8 @@ import Combine
         let key = cacheKey(settings, text)
         if let file = cache[key] { guard VoiceSampleSession.shared.begin(sampleOwner) else { return }; playFile(file); return }
         guard ConnectivityService.shared.available(.gemini) else { error = ConnectivityService.shared.reason(.gemini); return }
-        guard !settings.apiKey.isEmpty else { error = "Enter your Gemini API key in Settings → Gemini to preview this voice."; return }
+        guard settings.hasApiKey else { error = "Connect your AI provider in Settings → AI to preview this voice."; return }
+        if settings.aiProvider == "vertex", settings.vertexAuth == "express" { error = "Use Google sign-in in Settings → AI for Gemini narration."; return }
         guard let engine = Bundle.main.resourceURL?.appendingPathComponent("Engine/vidistudio-engine") else {
             error = "A required part of VidiStudio is unavailable. Reinstall the application, then try again."
             return

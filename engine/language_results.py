@@ -210,7 +210,7 @@ def copy_results(p, request, translator=None):
     return made
 
 
-def translate_payloads(sources, source, target, core):
+def translate_payloads(sources, source, target, core, project=None):
     """Translate text only in bounded batches. IDs and timing never go to the model."""
     fields = []
     for kind, _, data in sources:
@@ -231,7 +231,7 @@ def translate_payloads(sources, source, target, core):
             fields.append((row, key, chunks))
     entries = [(field, chunk) for field, (_, _, chunks) in enumerate(fields) for chunk in chunks]
     translated = [[] for _ in fields]
-    client, model = core.client_and_model('text_rewrite')
+    client, model = core.client_and_model('text_rewrite', project)
     schema = {'type': 'object', 'properties': {'translations': {'type': 'array', 'items': {
         'type': 'object', 'properties': {'index': {'type': 'integer'}, 'text': {'type': 'string'}},
         'required': ['index', 'text']}}}, 'required': ['translations']}
@@ -562,7 +562,7 @@ def _run(args, root, p, core, dispatch):
         project(p)
     elif command in ('copy-results', 'translate-results'):
         core.emit('Translating content' if command == 'translate-results' else 'Copying content', contentTransferProgress=0.0)
-        translator = (lambda sources, source, target: translate_payloads(sources, source, target, core)) if command == 'translate-results' else None
+        translator = (lambda sources, source, target: translate_payloads(sources, source, target, core, p)) if command == 'translate-results' else None
         made = copy_results(p, copy_request, translator=translator)
         core.emit('Saving translated content' if translator else 'Saving copied content', copiedResultIDs=made, contentTransferProgress=0.95)
     elif command == 'assign-result-language':

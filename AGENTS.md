@@ -1,5 +1,9 @@
 # VidiStudio Mac agent guide
 
+Follow the shared [VidiStudio design system](../DESIGN.md). Use consistent icon meanings across platforms, with visible labels and accessible names. Every app-owned menu action, submenu and toggle needs a meaningful icon, including in Settings, dialogs and context menus. Run `python3 script/check_menu_icons.py` and the menu parity checks, then verify affected menus in the installed apps.
+
+Update the shared [DESIGN.md](../DESIGN.md) in the same task whenever you change the app's design or interaction. Document the affected layout and behavior, availability, keyboard and screen-reader expectations, and platform differences.
+
 Native SwiftUI macOS 26.4+ Apple Silicon app in `VidiStudio.xcodeproj`. `VidiStudio/` owns native UI and engine invocation. `engine/vidistudio_engine.py` owns all project processing and writes. The sibling VidiStudio Online repository is a visual/workflow reference, not a desktop runtime dependency. Website product documentation is part of desktop feature work as required below; unrelated online application changes require an explicit request. Preserve unrelated work.
 
 ## Required Help and website documentation synchronization

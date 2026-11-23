@@ -42,7 +42,9 @@ class SegmentMenuStability(unittest.TestCase):
         import re, json
         shortcut=declaration((MAC/'VidiStudio/KeyboardShortcuts.swift').read_text(),'struct StudioShortcut:')
         commands=(MAC/'VidiStudio/KeyboardShortcuts.swift').read_text()+(MAC/'VidiStudio/VidiStudioApp.swift').read_text()
-        titles=sorted(set(re.findall(r'(?:Button|Menu)\("([^"\n]+)", systemImage: "[^"]+"', commands)))
+        titles = set(re.findall(r'(?:Button|Menu)\("([^"\n]+)", systemImage: "[^"]+"', commands))
+        titles.update(re.findall(r'^\s*"([^"\n]+)"\s*:\s*"[^"\n]+"', source.read_text(), re.M))
+        titles = sorted(titles)
         harness='''import AppKit
 import SwiftUI
 '''+shortcut+'''
@@ -56,7 +58,10 @@ import SwiftUI
  for name in '''+json.dumps(titles,ensure_ascii=False)+''' {menu.addItem(NSMenuItem(title:name,action:nil,keyEquivalent:""))}
  menu.removeItem(system);menu.addItem(system)
  NativeMenuIcons.applyApplicationItems(to:menu)
- let images=menu.items.dropLast().map { $0.image! }
+ let images = menu.items.dropLast().map { item in
+  guard let image = item.image else { fatalError("Missing native menu icon for " + item.title) }
+  return image
+ }
  for _ in 0..<100 { NativeMenuIcons.applyApplicationItems(to:menu) }
  for (index,item) in menu.items.dropLast().enumerated() {
   precondition(item.image === images[index],"Unchanged icon must retain identity")

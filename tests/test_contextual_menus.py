@@ -12,7 +12,7 @@ ROOT = Path(__file__).resolve().parents[1]
 WORKSPACE = Path(os.environ.get('VIDISTUDIO_DESKTOP_WORKSPACE', ROOT.parent))
 MAC = WORKSPACE / 'VidiStudio Mac'
 WIN = Path(os.environ.get('VIDISTUDIO_WINDOWS_ROOT', WORKSPACE / 'Vidi-Studio-Windows'))
-SECTIONS = ['transcript', 'summary', 'descriptions', 'ad-overview', 'ad-transcript']
+SECTIONS = ['transcript', 'summary', 'descriptions', 'ad-transcript', 'ad-overview']
 # Expected user-visible destinations, independent of implementation language.
 SCOPES = {
     'transcribe': [0], 'import-transcript': [0], 'delete-transcript': [0],
@@ -20,12 +20,12 @@ SCOPES = {
     'generate-ad-cues': [2], 'import-descriptions': [2], 'delete-descriptions': [2],
     'synthesize-tts': [2,3,4], 'synthesize-changed': [2,3,4], 'review-narration-issues': [2,3,4],
     'review-narration-voices': [2,3,4], 'delete-narration': [2,3,4],
-    'import-ad-audio': [2,4], 'narration': [2,4], 'caption-ad-transcript': [2,4],
+    'import-ad-audio': [2,3], 'narration': [2,3], 'caption-ad-transcript': [2,3],
     'add': [0,2], 'reanalyze-selection': [0,2], 'undo': [0,2], 'redo': [0,2],
-    'segment-select-all': [0,2,4], 'segment-delete-selected': [0,2,4], 'segment-edit-selected': [0,2,4],
-    'segment-deselect-all': [0,2,4], 'follow': [0,2,4], 'filter-segments': [0,2,4],
-    'caption-cycle': [0,2,4], 'caption-off': [0,2,4], 'caption-transcript': [0,2,4],
-    'copy-to': [0,1,2,4], 'segment-edit-mode': [0,1,2,4], 'delete-current': [0,1,2],
+    'segment-select-all': [0,2,3], 'segment-delete-selected': [0,2,3], 'segment-edit-selected': [0,2,3],
+    'segment-deselect-all': [0,2,3], 'follow': [0,2,3], 'filter-segments': [0,2,3],
+    'caption-cycle': [0,2,3], 'caption-off': [0,2,3], 'caption-transcript': [0,2,3],
+    'copy-to': [0,1,2,3], 'segment-edit-mode': [0,1,2,3], 'delete-current': [0,1,2],
     'summary-play': [1], 'summary-stop': [1], 'summary-zoom-in': [1], 'analyze': [],
     'prepare-video': [0,1,2,3,4], 'export': [0,1,2,3,4], 'import-assets': [0,1,2,3,4],
     'transcript': [0,1,2,3,4], 'summary': [0,1,2,3,4], 'descriptions': [0,1,2,3,4],
@@ -65,6 +65,8 @@ import AppKit
 struct OutputLanguage { let id: String; let title: String }
 struct SavedLanguageResult { let id: String; let language: String; let kind: String }
 struct StudioProject {
+    var ownsCloudVideo = false
+    var cloudVideo: [String: String]?
     var savedLanguageResults: [SavedLanguageResult] = []
     func languageResults(kind: String, includingDrafts: Bool) -> [SavedLanguageResult] { [] }
     func activeLanguageResultID(_ kind: String) -> String? { nil }
@@ -94,8 +96,8 @@ struct ConnectivityService { static let shared = ConnectivityService(); func ava
             harness += f'precondition(actions.isCommandVisible("{command}") == {str(expected).lower()}, "visibility: {section} {youtube} {command}")\n'
             if not expected:
                 harness += f'precondition(!actions.canRun("{command}")); calls = []; actions.run("{command}"); precondition(calls.isEmpty, "hidden command dispatched: {command}")\n'
-        defaults = [['transcript'], ['summary'], ['descriptions'], ['descriptions'], ['transcript', 'descriptions']]
-        titles = ['Transcript', 'Summary', 'Descriptions', 'Descriptions', 'AD Transcript']
+        defaults = [['transcript'], ['summary'], ['descriptions'], ['transcript', 'descriptions'], ['descriptions']]
+        titles = ['Transcript', 'Summary', 'Descriptions', 'AD Transcript', 'Descriptions']
         for section, kinds, title in zip(SECTIONS, defaults, titles):
             harness += f'actions.activeSection = "{section}"; precondition(actions.copyKinds(currentSectionOnly: true) == {json.dumps(kinds)}); precondition(actions.copyKinds(currentSectionOnly: false) == ["transcript", "summary", "descriptions"]); precondition(actions.currentSectionCopyTitle == "Copy and Translate {title}…")\n'
         harness += """
@@ -195,8 +197,8 @@ class Check {
             harness += f'check.editMode = {str(editing).lower()}; check.summaryEditMode = {str(section == "summary" and editing).lower()};\n'
             harness += f'check.Section.SelectedIndex = {SECTIONS.index(section)}; check.Model.Project!.IsYouTube = {str(youtube).lower()};\n'
             harness += f'if (check.EditorCommandVisible("{command}") != {str(expected).lower()}) throw new Exception("{section} {youtube} {command}");\n'
-        defaults = [['transcript'], ['summary'], ['descriptions'], ['descriptions'], ['transcript', 'descriptions']]
-        titles = ['Transcript', 'Summary', 'Descriptions', 'Descriptions', 'AD Transcript']
+        defaults = [['transcript'], ['summary'], ['descriptions'], ['transcript', 'descriptions'], ['descriptions']]
+        titles = ['Transcript', 'Summary', 'Descriptions', 'AD Transcript', 'Descriptions']
         for index, (kinds, title) in enumerate(zip(defaults, titles)):
             expected = 'new[] { ' + ', '.join(json.dumps(kind) for kind in kinds) + ' }'
             harness += f'check.Section.SelectedIndex = {index}; if (!check.CopyDefaultKinds(true).SequenceEqual({expected}) || !check.CopyDefaultKinds(false).SequenceEqual(new[] {{ "transcript", "summary", "descriptions" }}) || check.CurrentSectionCopyTitle != "Copy and Translate {title}…") throw new Exception("Copy defaults {index}");\n'

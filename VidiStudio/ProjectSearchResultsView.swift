@@ -94,7 +94,7 @@ struct ProjectSearchResultsView: View {
                                 }
                                 .tag(hit.id)
                                 .contextMenu {
-                                    Button(group.result.state == "draft" ? "Review Draft…" : "Open Result") { search.selectedHitID = hit.id; open(hit) }.disabled(!canOpen)
+                                    Button(group.result.state == "draft" ? "Review Draft…" : "Open Result", systemImage: group.result.state == "draft" ? "doc.text.magnifyingglass" : "arrow.up.right.square") { search.selectedHitID = hit.id; open(hit) }.disabled(!canOpen)
                                 }
                             }
                         }

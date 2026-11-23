@@ -21,7 +21,7 @@ Status for the existing-asset, provenance, Markdown, narration-source, and expor
 | Description rows: provenance, overlap, narration preview, More Options, context menu | Present for new controls |
 | Add/Edit Segment provenance picker and timing/save actions | Present |
 | Summary empty state, Markdown toolbar, preview, Markdown Help, provenance picker | Present |
-| AD Overview narration sources/warnings, narration issues/voices dialogs | Present |
+| Overview narration sources/warnings, narration issues/voices dialogs | Present |
 | Export dialog: source picker, save/cancel, described-export gating | Present |
 | Settings, project browser, playback, narration, integrity | Existing controls audited; new controls have help text |
 

@@ -113,8 +113,15 @@ class Parity(unittest.TestCase):
     def test_new_project_does_not_require_api_key(self):
         root = Path(__file__).resolve().parents[1]
         model = (root / 'VidiStudio' / 'StudioModel.swift').read_text(encoding='utf-8')
-        self.assertIn('func beginNewProject()', model)
-        self.assertIn('isCreatingProject = true', model)
+        self.assertIn('func beginNewProject(source: NewProjectSource = .videoFile)', model)
+        entry = model.split('func beginNewProject(', 1)[1].split('\n    }', 1)[0]
+        self.assertIn('source != .cloud || settings.vertexConnected', entry)
+        self.assertIn('newProjectSource = source', entry)
+        self.assertIn('isCreatingProject = true', entry)
+        self.assertNotIn('apiKey', entry)
+        view = (root / 'VidiStudio' / 'ContentView.swift').read_text(encoding='utf-8')
+        self.assertIn('_source = State(initialValue: studio.newProjectSource)', view)
+        self.assertIn('_cloudImport = State(initialValue: studio.newProjectSource == .cloud)', view)
         self.assertNotIn('requestGeminiSettings', model)
         help_page = (root / 'docs' / 'help' / 'projects.html').read_text(encoding='utf-8')
         self.assertIn('does not require a Gemini API key', help_page)

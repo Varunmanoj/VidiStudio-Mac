@@ -127,7 +127,7 @@ struct ExportOptionToggle: View {
     @Binding var isOn: Bool
     init(_ title: String, isOn: Binding<Bool>) { self.title = title; _isOn = isOn }
     var body: some View {
-        Toggle(title, isOn: $isOn).contextMenu { Toggle(title, isOn: $isOn) }
+        Toggle(title, isOn: $isOn).contextMenu { Toggle(title, systemImage: "speaker.wave.2", isOn: $isOn) }
     }
 }
 

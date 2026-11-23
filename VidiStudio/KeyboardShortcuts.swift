@@ -20,7 +20,7 @@ final class EditorShortcutActions {
         switch activeSection {
         case "summary": return "Summary"
         case "descriptions": return "Descriptions"
-        case "ad-overview": return "AD Overview"
+        case "ad-overview": return "Overview"
         case "ad-transcript": return "AD Transcript"
         default: return "Transcript"
         }
@@ -45,6 +45,8 @@ final class EditorShortcutActions {
         }
     }
     var resultProject: StudioProject?
+    var cloudPermission: ((String) -> Bool)?
+    var canShowDeleteProject: Bool { resultProject?.ownsCloudVideo != true || cloudPermission?("cloud-remove") == true }
     var viewingLanguage = "auto"
     var viewingLanguages: [OutputLanguage] = []
     var captionDisplayMode = "off"
@@ -143,6 +145,7 @@ final class EditorShortcutActions {
     var apiKeyVerified: Bool? = nil
     var aiProcessingBlocked = false
     var hasValidApiKey: Bool { hasApiKey && apiKeyVerified != false && !aiProcessingBlocked && ConnectivityService.shared.available(.gemini) }
+    var vertexEnabled = false
     var youtubeProject = false
     @ObservationIgnored var youtubeHandler: ((String) -> Void)?
     var ttsUsesGemini = false
@@ -333,7 +336,11 @@ final class EditorShortcutActions {
         case "saved-results": return !hasUnsavedSummaryEdits && resultProject?.savedLanguageResults.contains { $0.language == viewingLanguage && savedResultKinds.contains($0.kind) } == true
         case "project-language": return !hasUnsavedSummaryEdits && !viewingLanguages.isEmpty
         case "copy-to": return hasCopyableResults && !hasUnsavedSummaryEdits
-        case "delete-project", "delete-content": return !hasUnsavedSummaryEdits
+        case "cloud-open": return resultProject?.cloudVideo != nil
+        case "cloud-remove", "cloud-rename": return cloudPermission?(action) == true
+        case "cloud-upload": return vertexEnabled && !youtubeProject && resultProject?.cloudVideo == nil
+        case "delete-project": return !hasUnsavedSummaryEdits && canShowDeleteProject
+        case "delete-content": return !hasUnsavedSummaryEdits
         case "language-results", "rename-project", "trash-project", "import-assets", "import-transcript", "import-summary", "import-descriptions", "import-ad-audio": return true
         case "import-original-audio": return canImportOriginalAudio
         case "clear-segment-filter": return canFilterSegments && segmentFilterActive
@@ -496,8 +503,8 @@ struct StudioShortcut: Identifiable {
         .init(id: "transcript", title: "Show Transcript", key: "1", modifiers: .command, spoken: "Command + 1", group: "Editor"),
         .init(id: "summary", title: "Show Summary", key: "2", modifiers: .command, spoken: "Command + 2", group: "Editor"),
         .init(id: "descriptions", title: "Show Descriptions", key: "3", modifiers: .command, spoken: "Command + 3", group: "Editor"),
-        .init(id: "ad-overview", title: "Show AD Overview", key: "4", modifiers: .command, spoken: "Command + 4", group: "Editor"),
-        .init(id: "ad-transcript", title: "Show AD Transcript", key: "5", modifiers: .command, spoken: "Command + 5", group: "Editor"),
+        .init(id: "ad-transcript", title: "Show AD Transcript", key: "4", modifiers: .command, spoken: "Command + 4", group: "Editor"),
+        .init(id: "ad-overview", title: "Show Overview", key: "5", modifiers: .command, spoken: "Command + 5", group: "Editor"),
         .init(id: "segment-edit-mode", title: "Enter or Leave Segment Edit Mode", key: "e", modifiers: [.command, .option], spoken: "Command + Option + E", group: "Segments"),
         .init(id: "reanalyze-selection", title: "Re-Analyze a Video Section", key: "r", modifiers: [.command, .option], spoken: "Command + Option + R", group: "Segments"),
         .init(id: "add", title: "Add Segment", key: "n", modifiers: [.command, .shift], spoken: "Command + Shift + N", group: "Segments"),
@@ -534,6 +541,9 @@ struct StudioCommands: Commands {
     private func canRunProject(_ action: String) -> Bool {
         allProjects?.canRun(action) ?? (editor?.canRun(action) == true)
     }
+    private func allowsCloudMutation(_ action: String) -> Bool {
+        allProjects?.allowsCloudMutation(action) ?? (editor?.cloudPermission?(action) == true)
+    }
     private func runProject(_ action: String) {
         if let allProjects { allProjects.run(action) } else { editor?.run(action) }
     }
@@ -553,7 +563,7 @@ struct StudioCommands: Commands {
     @ViewBuilder private func projectLanguageMenu() -> some View {
         Menu("Project Language") {
             ForEach(editor?.viewingLanguages ?? []) { language in
-                Toggle(language.title, isOn: Binding(get: { editor?.viewingLanguage == language.id }, set: { selected in
+                Toggle(language.title, systemImage: "globe", isOn: Binding(get: { editor?.viewingLanguage == language.id }, set: { selected in
                     if selected { editor?.selectProjectLanguage(language.id) }
                 }))
                 .accessibilityIdentifier("project-language-" + language.id)
@@ -564,7 +574,7 @@ struct StudioCommands: Commands {
     }
 
     @ViewBuilder private func savedResultsMenu() -> some View {
-        Menu(editor?.savedResultsTitle ?? "Saved Results") {
+        Menu(editor?.savedResultsTitle ?? "Saved Results", systemImage: "doc.text") {
             if let project = editor?.resultProject {
                 ForEach(editor?.savedResultKinds ?? [], id: \.self) { kind in
                     ForEach(project.languageResults(kind: kind, includingDrafts: true)) { result in
@@ -602,9 +612,11 @@ struct StudioCommands: Commands {
             .keyboardShortcut("e", modifiers: [.command, .shift])
             .disabled(allProjects != nil ? allProjects?.canRun("export") != true : editor?.available != true || editor?.exportHandler == nil)
             Divider()
-            Button("Delete Project…", systemImage: "trash", role: .destructive) { runProject("delete-project") }
-                .accessibilityIdentifier("delete-project")
-                .disabled(!canRunProject("delete-project"))
+            if allProjects?.canShowDeleteProject ?? editor?.canShowDeleteProject ?? true {
+                Button("Delete Project…", systemImage: "trash", role: .destructive) { runProject("delete-project") }
+                    .accessibilityIdentifier("delete-project")
+                    .disabled(!canRunProject("delete-project"))
+            }
             Button("Choose What to Delete…", systemImage: "eraser", role: .destructive) { runProject("delete-content") }
                 .accessibilityIdentifier("delete-content")
                 .disabled(!canRunProject("delete-content"))
@@ -627,8 +639,9 @@ struct StudioCommands: Commands {
             if let allProjects {
                 Menu("Filter Projects by Source", systemImage: "line.3.horizontal.decrease.circle") {
                     Button("All Projects", systemImage: allProjects.sourceFilter.wrappedValue == .all ? "checkmark" : "square.stack") { allProjects.run("projects-source-all") }
-                    Button("Local Video Projects", systemImage: allProjects.sourceFilter.wrappedValue == .local ? "checkmark" : "film") { allProjects.run("projects-source-local") }
-                    Button("YouTube Projects", systemImage: allProjects.sourceFilter.wrappedValue == .youtube ? "checkmark" : "play.rectangle") { allProjects.run("projects-source-youtube") }
+                    Button("Local Videos", systemImage: allProjects.sourceFilter.wrappedValue == .local ? "checkmark" : "film") { allProjects.run("projects-source-local") }
+                    Button("YouTube Videos", systemImage: allProjects.sourceFilter.wrappedValue == .youtube ? "checkmark" : "play.rectangle") { allProjects.run("projects-source-youtube") }
+                    Button("Cloud Storage Videos", systemImage: allProjects.sourceFilter.wrappedValue == .cloud ? "checkmark" : "cloud") { allProjects.run("projects-source-cloud") }
                 }
                 libraryLanguageMenu()
                 Menu("Sort Projects", systemImage: "arrow.up.arrow.down") {
@@ -868,6 +881,18 @@ struct StudioCommands: Commands {
             }
         }
         CommandMenu("Project") {
+            Menu("Cloud Storage", systemImage: "cloud") {
+                if studio.settings.vertexConnected {
+                    Button("Upload Video to Cloud Storage…", systemImage: "icloud.and.arrow.up") { runProject("cloud-upload") }.disabled(!canRunProject("cloud-upload"))
+                }
+                Button("Open Video in Google Cloud Console", systemImage: "arrow.up.right.square") { runProject("cloud-open") }.disabled(!canRunProject("cloud-open"))
+                if allowsCloudMutation("cloud-rename") {
+                    Button("Rename Cloud Video…", systemImage: "pencil") { runProject("cloud-rename") }.disabled(!canRunProject("cloud-rename"))
+                }
+                if allowsCloudMutation("cloud-remove") {
+                    Button("Remove Cloud Video…", systemImage: "icloud.slash") { runProject("cloud-remove") }.disabled(!canRunProject("cloud-remove"))
+                }
+            }
             if let allProjects {
                 Button("Open Selected Project", systemImage: "macwindow") { allProjects.run("open-selected-project") }
                     .disabled(!allProjects.canRun("open-selected-project"))
@@ -1018,8 +1043,10 @@ struct StudioCommands: Commands {
             Divider()
             Button("Rename Project…", systemImage: "pencil") { browser?.run("rename-project") }
                 .disabled(browser?.canRun("rename-project") != true)
-            Button("Move Project to Bin…", systemImage: "trash", role: .destructive) { browser?.run("trash-project") }
-                .disabled(browser?.canRun("trash-project") != true)
+            if browser?.canShowDeleteProject != false {
+                Button("Move Project to Bin…", systemImage: "trash", role: .destructive) { browser?.run("trash-project") }
+                    .disabled(browser?.canRun("trash-project") != true)
+            }
         }
         if youtubeMenusVisible {
             CommandMenu("YouTube") {

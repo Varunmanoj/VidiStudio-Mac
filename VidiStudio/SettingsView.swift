@@ -156,7 +156,7 @@ struct SettingsView: View {
         NavigationSplitView {
             List(sections, id: \.self, selection: $studio.settingsSection) { item in
                 Label {
-                    Text(item)
+                    Text(item == "Gemini" ? "AI" : item)
                 } icon: {
                     Image(systemName: sectionIcons[item] ?? "gearshape")
                         .frame(width: 20, height: 20)
@@ -164,7 +164,7 @@ struct SettingsView: View {
                 }
                     .labelStyle(.titleAndIcon)
                     .padding(.vertical, 2)
-                    .help(item)
+                    .help(item == "Gemini" ? "AI" : item)
                     .tag(item)
             }
                 .listStyle(.sidebar)
@@ -173,7 +173,7 @@ struct SettingsView: View {
                 .navigationSplitViewColumnWidth(min: 210, ideal: 240, max: 300)
         } detail: {
         Form {
-            Text(section).font(.title2.bold()).accessibilityAddTraits(.isHeader).accessibilityHeading(.h1)
+            Text(section == "Gemini" ? "AI" : section).font(.title2.bold()).accessibilityAddTraits(.isHeader).accessibilityHeading(.h1)
             if section == "About" { AboutSettingsView() }
             if section == "Help" { Section {
                 Button("Open VidiStudio Help", systemImage: "questionmark.circle") { StudioHelp.open() }
@@ -362,8 +362,8 @@ struct SettingsView: View {
         }
         .lineLimit(nil)
         .formStyle(.grouped)
-        .accessibilityGroup("\(section) settings")
-        .navigationTitle(section)
+        .accessibilityGroup((section == "Gemini" ? "AI" : section) + " settings")
+        .navigationTitle(section == "Gemini" ? "AI" : section)
         }
         .safeAreaInset(edge: .top, spacing: 0) { ActiveExportProgressView() }
         .navigationSplitViewStyle(.balanced)

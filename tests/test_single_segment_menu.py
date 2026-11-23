@@ -22,7 +22,7 @@ namespace Models { class Segment { public string Id = "same-id"; public bool IsD
 class Project { public bool IsYouTube; public List<Segment> Cues = new(), Transcript = new(); } }
 enum OnlineService { YouTube }
 class ConnectivityService { public static ConnectivityService Shared = new(); public bool Available(OnlineService s) => true; }
-class ModelState { public Models.Project? Project = new(); public bool Idle = true, CanUseAI = true; public string Engine = "local"; public string CurrentNarrationEngine() => Engine; }
+class ModelState { public Models.Project? Project = new(); public bool Idle = true, CanUseAI = true, CanNarrate = true; public string Engine = "local"; public string CurrentNarrationEngine() => Engine; }
 class Picker { public int SelectedIndex; }
 class Rows { public List<object> SelectedItems = new(), Items = new(); }
 class Speech { public int Plays, Pauses; public object? Source; public void Play() { Plays++; } public void Pause() { Pauses++; } }
@@ -40,15 +40,15 @@ static void Main() {
  c.Segments.Items.Clear(); c.Segments.Items.Add(transcript); c.Segments.Items.Add(description);
  c.Segments.SelectedItems.Clear(); if(count>0)c.Segments.SelectedItems.Add(row); if(count>1)c.Segments.SelectedItems.Add(ReferenceEquals(row,transcript)?description:transcript);
  foreach(var action in actions) {
- var timed = tab is 0 or 2 or 4; var kindAllowed=tab==4||row.IsDescription==(tab==2);
+ var timed = tab is 0 or 2 or 3; var kindAllowed=tab==3||row.IsDescription==(tab==2);
  var adOnly = new[]{"segment-one-preview","segment-one-synthesize","segment-one-rewrite","segment-one-import-audio","segment-one-delete-audio"}.Contains(action);
  var allowed = action!="segment-one-preview-stop"&&(!adOnly||row.IsDescription)&&(action!="segment-one-reanalyze"||!row.IsDescription);
  if(c.CanRunSingleSegmentCommand(action)!=(timed&&editing&&count==1&&kindAllowed&&allowed))throw new Exception("selection policy: "+action);
  if(c.CanRunRowCommand(action,row)!=(timed&&kindAllowed&&allowed))throw new Exception("context policy: "+action);
  }
  }}}
- c.Section.SelectedIndex=4;c.editMode=true;c.Segments.SelectedItems.Clear();c.Segments.SelectedItems.Add(description);
- c.Model.CanUseAI=false;c.Model.Engine="gemini";description.Audio=null;description.AudioReady=false;
+ c.Section.SelectedIndex=3;c.editMode=true;c.Segments.SelectedItems.Clear();c.Segments.SelectedItems.Add(description);
+ c.Model.CanUseAI=false;c.Model.CanNarrate=false;c.Model.Engine="gemini";description.Audio=null;description.AudioReady=false;
  foreach(var action in new[]{"segment-one-rewrite","segment-one-synthesize","segment-one-delete-audio","segment-one-preview"})if(c.CanRunSingleSegmentCommand(action))throw new Exception("prerequisite");
  c.previewingSegment=description;description.IsPreviewing=true;
  if(!c.CanRunSingleSegmentCommand("segment-one-preview")||!c.CanRunSingleSegmentCommand("segment-one-preview-stop"))throw new Exception("active narration controls");

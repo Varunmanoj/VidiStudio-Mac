@@ -1,7 +1,7 @@
 """Check shared tab/source visibility and menu/accelerator wiring."""
 import re
 
-SECTIONS = ['transcript', 'summary', 'descriptions', 'ad-overview', 'ad-transcript']
+SECTIONS = ['transcript', 'summary', 'descriptions', 'ad-transcript', 'ad-overview']
 
 
 def _policy(source, swift):
@@ -199,8 +199,8 @@ def check_export_completion_sound(mac, windows):
             if token not in mac: raise ValueError('Mac sound preference mapping missing: ' + token)
         token = f'AddSoundPreference(narrationGroup, "{label}", "{key}", "{resource}", "{identifier}", "{identifier}-menu")'
         if token not in windows: raise ValueError('Windows sound preference mapping missing: ' + token)
-    for token in ('Toggle(title, isOn: $enabled).accessibilityIdentifier(menuIdentifier)',
-                  'Button(previewTitle) { preview.toggle(resource) }',
+    for token in ( 'Toggle(isOn: $enabled) { Label(title, systemImage: "speaker.wave.2") }.accessibilityIdentifier(menuIdentifier)',
+                  'Button(previewTitle, systemImage: preview.isPlaying(resource) ? "pause.fill" : "play.fill") { preview.toggle(resource) }',
                   'Button { preview.toggle(resource) } label:',
                   'preview.isPlaying(resource) ? "Pause" : "Play"',
                   '.accessibilityIdentifier(identifier + "-preview-menu")',

@@ -41,7 +41,7 @@ class DesktopMenuParity(unittest.TestCase):
             with self.assertRaises(ValueError): check(mac, changed_model, changed_windows)
 
     def test_editor_sections_are_available_in_view_and_project(self):
-        expected = ('Editor Sections', ['transcript', 'summary', 'descriptions', 'ad-overview', 'ad-transcript'])
+        expected = ('Editor Sections', ['transcript', 'summary', 'descriptions', 'ad-transcript', 'ad-overview'])
         rows = self.checker.shortcut_rows(self.mac)
         for marker in ['CommandGroup(after: .sidebar)', 'CommandMenu("Project")']:
             self.assertIn(expected, self.checker.swift_group(self.mac, marker, rows))

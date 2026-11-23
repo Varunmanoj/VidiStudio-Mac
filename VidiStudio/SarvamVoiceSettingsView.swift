@@ -15,7 +15,7 @@ struct SpeechChoice: View {
         .accessibilityIdentifier(id)
         .contextMenu {
             ForEach(options, id: \.0) { option in
-                Toggle(option.1, isOn: Binding(get: { value == option.0 }, set: { if $0 { value = option.0 } }))
+                Toggle(option.1, systemImage: "speaker.wave.2", isOn: Binding(get: { value == option.0 }, set: { if $0 { value = option.0 } }))
                     .accessibilityIdentifier(id + "-" + option.0)
             }
         }
@@ -38,8 +38,8 @@ struct SpeechAdjustment: View {
             }
         }
         .contextMenu {
-            Button("Increase \(title)") { value = min(range.upperBound, value + step) }.disabled(value >= range.upperBound).accessibilityIdentifier(id + "-increase")
-            Button("Decrease \(title)") { value = max(range.lowerBound, value - step) }.disabled(value <= range.lowerBound).accessibilityIdentifier(id + "-decrease")
+            Button("Increase \(title)", systemImage: "plus") { value = min(range.upperBound, value + step) }.disabled(value >= range.upperBound).accessibilityIdentifier(id + "-increase")
+            Button("Decrease \(title)", systemImage: "minus") { value = max(range.lowerBound, value - step) }.disabled(value <= range.lowerBound).accessibilityIdentifier(id + "-decrease")
             Button("Restore Default") { value = initial }.accessibilityIdentifier(id + "-reset")
         }
     }
@@ -272,7 +272,7 @@ struct SummaryVoiceSettingsView: View {
             .contextMenu {
                 Menu("Summary voice") {
                     ForEach(voiceOptions, id: \.0) { option in
-                        Toggle(option.1, isOn: Binding(get: { (local.engine == "piper" ? local.piperVoice : local.systemVoice) == option.0 }, set: { if $0 { field(local.engine == "piper" ? \.piperVoice : \.systemVoice).wrappedValue = option.0 } }))
+                        Toggle(option.1, systemImage: "speaker.wave.2", isOn: Binding(get: { (local.engine == "piper" ? local.piperVoice : local.systemVoice) == option.0 }, set: { if $0 { field(local.engine == "piper" ? \.piperVoice : \.systemVoice).wrappedValue = option.0 } }))
                     }
                 }
                 .accessibilityIdentifier("summary-voice")

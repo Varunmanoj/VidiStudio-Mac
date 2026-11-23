@@ -1,6 +1,7 @@
 import SwiftUI
 
 struct EditorProjectBrowser: View {
+    let studio: StudioModel
     let projects: [StudioProject]
     let selectedID: String?
     @Binding var grid: Bool
@@ -19,7 +20,7 @@ struct EditorProjectBrowser: View {
 
     private var filtered: [StudioProject] {
         projects.filter { (search.isEmpty || $0.name.localizedCaseInsensitiveContains(search)) &&
-            (source == "all" || $0.isYouTubeURLProject == (source == "youtube")) && $0.matchesLanguage(languageFilter) }
+            (ProjectSourceFilter(rawValue: source) ?? .all).matches($0) && $0.matchesLanguage(languageFilter) }
     }
     private var selected: StudioProject? { projects.first { $0.id == selectedID } }
 
@@ -32,6 +33,7 @@ struct EditorProjectBrowser: View {
                 Text("All projects").tag("all")
                 Text("Local videos").tag("local")
                 Text("YouTube videos").tag("youtube")
+                Text("Cloud Storage Videos").tag("cloud")
             }.labelsHidden()
             OutputLanguagePicker(title: "Project language filter", selection: $languageFilter, includesAll: true, options: languageOptions)
                 .onChange(of: languageOptions, initial: true) { _, options in
@@ -108,6 +110,7 @@ struct EditorProjectBrowser: View {
             if let url = project.youtubeWatchURL { Link("Open in YouTube", destination: url) }
             Button("Open in New Window", systemImage: "macwindow.badge.plus") { openNewWindow(project) }
                 .accessibilityIdentifier("open-editor-window")
+            CloudVideoActions(studio: studio, project: project).disabled(busy)
             Button("Open Project Settings…", systemImage: "gearshape") { openSettings(project) }.disabled(busy || project.integrityPlaceholder == true)
             Divider()
             Button("Remove from List", systemImage: "minus.circle") { removeFromList(project) }

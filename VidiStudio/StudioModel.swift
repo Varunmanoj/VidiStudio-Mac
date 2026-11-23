@@ -560,6 +560,17 @@ struct StudioProject: Codable, Identifiable {
     var status: String
     var error: String?
     var geminiVideo: AnalysisVideoAvailability?
+    var cloudVideo: [String: String]?
+    var referencesCloudVideo: Bool { cloudVideo?["ownership"] == "referenced" }
+    var ownsCloudVideo: Bool { cloudVideo != nil && !referencesCloudVideo }
+    var cloudConsoleURL: URL? {
+        guard let bucket = cloudVideo?["bucket"], let object = cloudVideo?["object"] else { return nil }
+        var url = URLComponents()
+        url.scheme = "https"
+        url.host = "console.cloud.google.com"
+        url.path = "/storage/browser/_details/" + bucket + "/" + object
+        return url.url
+    }
     var sourceType: String?
     var youtubeMetadata: YouTubeVideo?
     var youtubeURL: String?
@@ -1152,6 +1163,15 @@ struct StudioSettings: Codable, Equatable {
         get { KeychainStore.read() ?? "" }
         set { KeychainStore.write(newValue) }
     }
+    var aiProvider = "developer"
+    var vertexAuth = "signin"
+    var vertexProject = ""
+    var vertexBucket = ""
+    var vertexConnected = false
+    var vertexCredentialRevision = 0
+    var vertexModels: [String: String] = [:]
+    var vertexExpressModels: [String: String] = [:]
+    var vertexCatalog: [String] = []
     var geminiPlan = "free"
     var models: [String: String] = [:]
     var prompts: [String: [String: String]] = [:]
@@ -1161,7 +1181,10 @@ struct StudioSettings: Codable, Equatable {
     var videoProcessing = "agentic"
 
     var hasApiKey: Bool {
-        !apiKey.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+        if aiProvider == "vertex" {
+            return vertexAuth == "express" ? KeychainStore.vertex.containsValue() : vertexConnected
+        }
+        return !apiKey.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
     }
     var theme = "system"
     /// Reveals advanced Settings surfaces such as Developer prompts. Off by default.
@@ -1339,6 +1362,7 @@ struct StudioSettings: Codable, Equatable {
 extension Notification.Name {
     static let vidiStudioOpenSettingsSection = Notification.Name("VidiStudioOpenSettingsSection")
     static let vidiStudioSettingsDidChange = Notification.Name("VidiStudioSettingsDidChange")
+    static let vidiStudioCloudAccountDidChange = Notification.Name("VidiStudioCloudAccountDidChange")
     static let vidiStudioProjectNarrationDidChange = Notification.Name("VidiStudioProjectNarrationDidChange")
     static let vidiStudioProjectFollowDidChange = Notification.Name("VidiStudioProjectFollowDidChange")
     static let vidiStudioLanguageWillChange = Notification.Name("VidiStudioLanguageWillChange")
@@ -1593,6 +1617,7 @@ final class StudioModel {
     var selectedID: String? { didSet { if persistsProjectSelection { UserDefaults.standard.set(selectedID, forKey: "lastProjectID") } } }
     var settings = StudioSettings() {
         didSet {
+            if settings.aiProvider != oldValue.aiProvider || settings.vertexAuth != oldValue.vertexAuth || settings.vertexProject != oldValue.vertexProject { aiServiceIssue = nil }
             if settings.apiKey != oldValue.apiKey {
                 aiServiceIssue = nil
                 apiKeyVerified = nil
@@ -1646,15 +1671,91 @@ final class StudioModel {
     var screenTimestamp = 0.0
     var process: Process?
     var isCreatingProject = false
+    var isBrowsingCloudVideos = false
+    var canBeginNewProject: Bool { !busy && !isCreatingProject && !isBrowsingCloudVideos }
+    var canOpenCloudVideos: Bool {
+        settings.vertexConnected && canBeginNewProject
+    }
+    func openCloudVideos() {
+        guard canOpenCloudVideos else { return }
+        isBrowsingCloudVideos = true
+    }
+    private(set) var newProjectSource = NewProjectSource.videoFile
     /// Opens the New Project dialog. Local and YouTube projects can be created
     /// without a Gemini key; AI actions explain their own prerequisites later.
-    func beginNewProject() {
-        // Creating a project never requires a Gemini key. AI actions remain
-        // gated separately and explain their prerequisite when invoked.
+    func beginNewProject(source: NewProjectSource = .videoFile) {
+        guard canBeginNewProject, source != .cloud || settings.vertexConnected else { return }
+        newProjectSource = source
         isCreatingProject = true
     }
     var availableGeminiModels: [GeminiModelOption] = []
     var geminiModelsLoaded = false
+    var cloudBuckets: [String] = []
+    var cloudProjects: [CloudProjectChoice] = []
+    var cloudFiles: [StorageFileChoice] = []
+    var cloudPreview: StorageFilePreview?
+    private var projectCloudPermissions: [String: CloudObjectPermissions] = [:]
+    private var checkingProjectCloudPermissions: Set<String> = []
+    private(set) var cloudPermissionsSession = UUID()
+
+    func invalidateCloudPermissions() {
+        cloudPermissionsSession = UUID()
+        projectCloudPermissions.removeAll()
+    }
+
+    func verifyCloudPermissions(bucket: String, object: String) async -> CloudObjectPermissions? {
+        guard settings.vertexConnected,
+              let engine = Bundle.main.resourceURL?.appendingPathComponent("Engine/vidistudio-engine") else { return nil }
+        let configuration = StudioSettings.url.path
+        return await Task.detached(priority: .utility) {
+            let process = Process()
+            process.executableURL = engine
+            process.arguments = ["cloud-object-permissions", "--source-bucket", bucket, "--name", object]
+            process.environment = ProcessInfo.processInfo.environment.merging(["VIDISTUDIO_CONFIG": configuration]) { _, path in path }
+            let output = Pipe()
+            process.standardOutput = output
+            process.standardError = FileHandle.nullDevice
+            do { try process.run() } catch { return nil }
+            let data = output.fileHandleForReading.readDataToEndOfFile()
+            process.waitUntilExit()
+            guard process.terminationStatus == 0, let lines = String(data: data, encoding: .utf8) else { return nil }
+            for line in lines.split(separator: "\n") {
+                if let result = try? JSONDecoder().decode(CloudPermissionResponse.self, from: Data(line.utf8)),
+                   let verified = result.cloudPermissions { return verified }
+            }
+            return nil
+        }.value
+    }
+
+    func cloudPermissionKey(for project: StudioProject?) -> String? {
+        guard settings.vertexConnected, project?.ownsCloudVideo == true, let cloud = project?.cloudVideo,
+              cloud["project"] == settings.vertexProject, cloud["bucket"] == settings.vertexBucket,
+              let object = cloud["object"], let generation = cloud["generation"] else { return nil }
+        return "\(settings.vertexProject)/\(settings.vertexBucket)/\(object)#\(generation)"
+    }
+
+    func cloudPermissions(for project: StudioProject?) -> CloudObjectPermissions? {
+        cloudPermissionKey(for: project).flatMap { projectCloudPermissions[$0] }
+    }
+
+    func canDeleteProjectVideo(_ project: StudioProject?) -> Bool {
+        project?.ownsCloudVideo != true || cloudPermissions(for: project)?.delete == true
+    }
+
+    func checkProjectCloudPermissions(_ project: StudioProject?) async {
+        guard let key = cloudPermissionKey(for: project), let cloud = project?.cloudVideo,
+              let bucket = cloud["bucket"], let object = cloud["object"] else { return }
+        let session = cloudPermissionsSession
+        let request = "\(session)/\(key)"
+        guard checkingProjectCloudPermissions.insert(request).inserted else { return }
+        defer { checkingProjectCloudPermissions.remove(request) }
+        projectCloudPermissions.removeValue(forKey: key)
+        let verified = await verifyCloudPermissions(bucket: bucket, object: object)
+        guard cloudPermissionKey(for: project) == key, session == cloudPermissionsSession else { return }
+        projectCloudPermissions[key] = verified
+    }
+    var vertexConnectionVerified = false
+    var vertexConnectionMessage = ""
     var apiKeyCheckFailureMessage: String? = nil
     var apiKeyVerified: Bool? = nil
     /// Non-nil after a quota, billing, or service-level Gemini failure. It
@@ -1707,7 +1808,7 @@ final class StudioModel {
         if settings.ttsMode == "sarvam" { return settings.hasSarvamApiKey && settings.sarvamKeyStatus != "invalid" && ConnectivityService.shared.available(.sarvam) }
         return settings.ttsMode != "gemini" || hasValidApiKey
     }
-    var hasValidApiKey: Bool { hasApiKey && apiKeyVerified != false && !isAIProcessingBlocked && ConnectivityService.shared.available(.gemini) }
+    var hasValidApiKey: Bool { hasApiKey && (settings.aiProvider == "vertex" || apiKeyVerified != false) && !isAIProcessingBlocked && ConnectivityService.shared.available(.gemini) }
     func onlineReason(_ command: String, project: StudioProject? = nil, extra: [String] = []) -> String? {
         OnlineRequirements.services(command, project: project ?? selected, settings: settings, extra: extra)
             .compactMap { ConnectivityService.shared.reason($0) }.first
@@ -1718,7 +1819,7 @@ final class StudioModel {
         ConnectivityService.shared.check()
         return false
     }
-    var isApiKeyInvalid: Bool { hasApiKey && apiKeyVerified == false }
+    var isApiKeyInvalid: Bool { settings.aiProvider != "vertex" && hasApiKey && apiKeyVerified == false }
     var engineCheckStatus: EngineCheckStatus = .unchecked
     var selected: StudioProject? { projects.first { $0.id == selectedID } }
 
@@ -1987,6 +2088,7 @@ final class StudioModel {
             for (key, value) in saved where key != "models" && key != "prompts" { merged[key] = value }
         }
         var seededCaptionDisplayMode = false
+        merged["vertexConnected"] = KeychainStore.hasVertexSignIn
         if let data = try? JSONSerialization.data(withJSONObject: merged), let decoded = try? JSONDecoder().decode(StudioSettings.self, from: data) {
             settings = decoded
         }
@@ -2032,6 +2134,9 @@ final class StudioModel {
 
     func applyExternalSettings(_ updated: StudioSettings) {
         let libraryChanged = settings.libraryPath != updated.libraryPath
+        if settings.vertexConnected != updated.vertexConnected || settings.vertexProject != updated.vertexProject || settings.vertexBucket != updated.vertexBucket {
+            invalidateCloudPermissions()
+        }
         applyingExternalSettings = true
         settings = updated
         settings.normalizeNarrationPlayback()
@@ -2059,7 +2164,11 @@ final class StudioModel {
         removedProjectFolders = ProjectListVisibility().removedFolders
         let root = ProjectFolderIdentity.normalize(URL(fileURLWithPath: settings.libraryPath))
         let previous = selected?.folder.map { ProjectFolderIdentity.normalize($0) }
-        var candidates: [URL: Bool] = [:]
+        var knownCloudProjects: [URL: StudioProject] = [:]
+        for project in projects where project.cloudVideo != nil {
+            if let folder = project.folder { knownCloudProjects[ProjectFolderIdentity.normalize(folder)] = project }
+        }
+        var candidates = knownCloudProjects.mapValues { _ in true }
         let libraryFolders = (try? FileManager.default.contentsOfDirectory(
             at: root,
             includingPropertiesForKeys: [.isDirectoryKey],
@@ -2087,6 +2196,14 @@ final class StudioModel {
             if let project = Self.loadProject(at: folder) {
                 loaded.append(project)
                 integrity[project.id] = StudioProjectIntegrity.inspect(project)
+                continue
+            }
+
+            // Keep the recorded object available for an explicitly confirmed deletion.
+            if var cloudProject = knownCloudProjects[folder] {
+                cloudProject.integrityPlaceholder = true
+                loaded.append(cloudProject)
+                integrity[cloudProject.id] = StudioProjectIntegrity.inspect(cloudProject)
                 continue
             }
 
@@ -2349,12 +2466,65 @@ final class StudioModel {
             assign(url.standardizedFileURL.path)
         }
     }
+    func cloudAction(_ action: String, project: StudioProject) {
+        guard !busy, !project.isYouTubeURLProject else { return }
+        switch action {
+        case "cloud-open":
+            if let url = project.cloudConsoleURL { NSWorkspace.shared.open(url) }
+        case "cloud-upload":
+            guard settings.vertexConnected, project.cloudVideo == nil, confirmDeletion(title: "Upload video to Cloud Storage?", message: settings.vertexBucket, actionTitle: "Upload") else { return }
+            execute(action, project: project)
+        case "cloud-remove":
+            guard cloudPermissions(for: project)?.delete == true,
+                  confirmDeletion(title: "Remove cloud video?", message: "The verified local video will be kept.", actionTitle: "Remove") else { return }
+            execute(action, project: project)
+        case "cloud-rename":
+            guard cloudPermissions(for: project)?.rename == true, let object = project.cloudVideo?["object"] else { return }
+            let alert = NSAlert()
+            alert.messageText = "Rename Cloud Video"
+            let field = NSTextField(string: (object as NSString).lastPathComponent)
+            field.frame.size = NSSize(width: 320, height: 26)
+            field.setAccessibilityLabel("Video filename")
+            alert.accessoryView = field
+            alert.addButton(withTitle: "Rename")
+            alert.addButton(withTitle: "Cancel")
+            alert.window.initialFirstResponder = field
+            if alert.runModal() == .alertFirstButtonReturn { execute(action, extra: ["--name",field.stringValue], project: project) }
+        default: break
+        }
+    }
+
     func trashProject(_ project: StudioProject, completion: (() -> Void)? = nil) {
+        guard !busy, project.folder != nil else { return }
+        if project.ownsCloudVideo, let cloud = project.cloudVideo {
+            guard let cloudProject = cloud["project"], let bucket = cloud["bucket"],
+                  let object = cloud["object"], let generation = cloud["generation"] else {
+                present(.projectDelete, context: "Missing cloud video reference")
+                return
+            }
+            execute("cloud-delete-project-video", extra: [
+                "--cloud-owner", project.id, "--source-project", cloudProject, "--source-bucket", bucket,
+                "--name", object, "--source-generation", generation
+            ], project: project) { deleted in
+                guard deleted != nil else { return }
+                self.trashLocalProject(project, completion: completion)
+            }
+            return
+        }
+        trashLocalProject(project, completion: completion)
+    }
+
+    private func trashLocalProject(_ project: StudioProject, completion: (() -> Void)?) {
         guard !busy, let folder = project.folder else { return }
         guard FileManager.default.fileExists(atPath: folder.path) else {
             forgetProject(project)
             NotificationCenter.default.post(name: .vidiStudioProjectDeleted, object: self, userInfo: ["projectID": project.id])
-            completion?(); return
+            completion?()
+            return
+        }
+        if let current = Self.loadProject(at: folder), current.id != project.id || current.ownsCloudVideo {
+            present(.projectDelete, context: "Project changed after cloud video deletion")
+            return
         }
         busy = true
         message = "Moving project to Bin…"
@@ -2362,7 +2532,7 @@ final class StudioModel {
         Task {
             do {
                 try await Task.detached { try FileManager.default.trashItem(at: folder, resultingItemURL: nil) }.value
-                if selectedID == project.id { selectedID = nil }
+                forgetProject(project)
                 reload()
                 busy = false
                 message = "Project moved to Bin"
@@ -2376,6 +2546,13 @@ final class StudioModel {
                 present(.projectDelete, technicalDetails: error.localizedDescription, context: "Move project to Bin")
             }
         }
+    }
+
+    func projectWasDeleted(_ id: String) {
+        if let project = projects.first(where: { $0.id == id }) {
+            forgetProject(project)
+        }
+        if !busy { reload() }
     }
 
     /// Removes a project entry whose folder no longer exists. There is nothing
@@ -2403,7 +2580,7 @@ final class StudioModel {
         case "project-settings", "rename-project":
             let report = integrityReport(for: project)
             return project.integrityPlaceholder != true && !report.manifestUnreadable && !report.folderMissing
-        case "trash-project": return true
+        case "trash-project": return canDeleteProjectVideo(project)
         case "show-in-finder": return FileManager.default.fileExists(atPath: folder.path)
         case "open-configuration": return settings.developerMode && FileManager.default.fileExists(atPath: folder.appendingPathComponent("project.json").path)
         default: return false
@@ -2425,6 +2602,10 @@ final class StudioModel {
 
     func confirmTrashProject(_ project: StudioProject, completion: (() -> Void)? = nil) {
         guard !busy, project.folder != nil else { return }
+        if !canDeleteProjectVideo(project) {
+            error = "Google Cloud must confirm permission to delete the project’s video."
+            return
+        }
         let folderExists = project.folder.map { FileManager.default.fileExists(atPath: $0.path) } ?? false
         let damaged = project.integrityPlaceholder == true || integrityReport(for: project).isDamaged
         let title: String
@@ -2443,7 +2624,8 @@ final class StudioModel {
             message = "The complete project folder, including its source video or YouTube link, generated content, narration, and exports, will be moved to the Bin. You can restore it until the Bin is emptied."
             actionTitle = "Move to Bin"
         }
-        guard confirmDeletion(title: title, message: message, actionTitle: actionTitle) else { return }
+        guard confirmDeletion(title: title, message: message + (project.ownsCloudVideo ? " The project-owned video will also be deleted from Google Cloud Storage."
+            : project.referencesCloudVideo ? " The original Cloud Storage video will remain in its bucket." : ""), actionTitle: actionTitle) else { return }
         trashProject(project, completion: completion)
     }
     func deleteGeneratedContent(_ project: StudioProject, components: Set<GeneratedContentComponent>) {
@@ -2585,6 +2767,7 @@ final class StudioModel {
         }
     }
     func loadGeminiModels() {
+        guard settings.aiProvider != "vertex" else { return }
         guard !busy else { return }
         guard settings.hasApiKey else {
             apiKeyVerified = nil
@@ -2654,17 +2837,20 @@ final class StudioModel {
             "transcript": ["gemini-3.5-transcribe"],
             "tts_audio": ["gemini-3.8-flash-lite-tts", "gemini-3.8-flash-tts", "gemini-3.1-flash-tts-preview", "gemini-2.5-flash-preview-tts"],
         ]
-        for stage in ["transcript", "youtube_transcript", "summary", "audio_descriptions", "screen_text", "text_rewrite", "tts_audio"] {
-            let options = geminiModels(for: stage)
+        let groups = VertexModelPolicy.bundled?.projectModelGroups.filter { !$0.signInOnly } ?? []
+        for row in groups.flatMap(\.rows) {
+            let options = geminiModels(for: row.stage)
             guard !options.isEmpty else { continue }
-            let current = settings.models[stage] ?? ""
+            let current = settings.models[row.id] ?? ""
             guard !options.contains(where: { $0.name == current }) else { continue }
-            let preferred = priorities[stage]?.compactMap { name in options.first { $0.name == name } }.first
+            let inherited = settings.models[row.fallback ?? row.stage]
+            let preferred = options.first(where: { $0.name == inherited })
+                ?? priorities[row.stage]?.compactMap { name in options.first { $0.name == name } }.first
                 ?? options.first(where: { $0.name == "gemini-3.8-flash" })
                 ?? options.first(where: { $0.name == "gemini-3.5-flash" })
                 ?? options.first(where: { $0.name == "gemini-2.5-flash" })
                 ?? options.first
-            settings.models[stage] = preferred?.name
+            settings.models[row.id] = preferred?.name
         }
     }
     private func confirmAnalysisReplacement(_ command: String, project: StudioProject) -> Bool {
@@ -2742,10 +2928,10 @@ final class StudioModel {
             alert.messageText = targetSegment.audio == nil
                 ? "Generate segment narration with a different voice in “\(current.name)”?"
                 : "Regenerate segment narration with a different voice in “\(current.name)”?"
-            alert.informativeText = "This project already contains narration generated using \(existingLabels.joined(separator: ", ")). You have selected \(settings.currentNarrationSummary). Proceeding will generate narration for this AD segment with the new voice, so the voices in the project will differ and be detailed in AD Overview. Do you want to proceed?"
+            alert.informativeText = "This project already contains narration generated using \(existingLabels.joined(separator: ", ")). You have selected \(settings.currentNarrationSummary). Proceeding will generate narration for this AD segment with the new voice, so the voices in the project will differ and be detailed in Overview. Do you want to proceed?"
         } else {
             alert.messageText = "Generate narration with a different voice in “\(current.name)”?"
-            alert.informativeText = "This project already contains narration generated using \(existingLabels.joined(separator: ", ")). You have selected \(settings.currentNarrationSummary). Proceeding will result in different narration voices across the project, which will be detailed in AD Overview. Do you want to proceed with generating narration?"
+            alert.informativeText = "This project already contains narration generated using \(existingLabels.joined(separator: ", ")). You have selected \(settings.currentNarrationSummary). Proceeding will result in different narration voices across the project, which will be detailed in Overview. Do you want to proceed with generating narration?"
         }
         alert.alertStyle = .warning
         alert.addButton(withTitle: "Cancel")
@@ -2782,6 +2968,11 @@ final class StudioModel {
         completion: ((StudioProject?) -> Void)? = nil
     ) {
         guard !busy else { completion?(nil); return }
+        if ["vertex-check", "vertex-connect", "vertex-disconnect"].contains(command) {
+            vertexConnectionVerified = false
+            vertexConnectionMessage = ""
+            if command != "vertex-check" { invalidateCloudPermissions() }
+        }
         youtubeAudioExportRecovery = nil
         var extra = command == "synthesize-tts" && !extra.contains("--segment") && !extra.contains("--changed") && !extra.contains("--regenerate-all")
             ? extra + ["--regenerate-all"] : extra
@@ -2790,7 +2981,7 @@ final class StudioModel {
             error = nil
             engineCheckStatus = .checking
         }
-        let target = project ?? (["check-sarvam-key", "list-sarvam-models", "import-video", "import-youtube", "doctor", "validate-config", "list-models", "check-api-key"].contains(command) ? nil : selected)
+        let target = project ?? (["vertex-connect", "vertex-disconnect", "vertex-check", "cloud-import", "cloud-create", "cloud-browse", "cloud-preview", "cloud-list", "cloud-projects", "cloud-object-rename", "cloud-object-delete", "check-sarvam-key", "list-sarvam-models", "import-video", "import-youtube", "doctor", "validate-config", "list-models", "check-api-key"].contains(command) ? nil : selected)
         if target?.youtubeMetadata?.visibility == "private" { errorTitle = "Private Video Cannot Be Opened"; error = "Choose a public or unlisted video, or import the original file."; completion?(nil); return }
         guard requireInternet(command, project: target, extra: extra) else {
             if let cleanupURL { try? FileManager.default.removeItem(at: cleanupURL) }
@@ -2806,6 +2997,43 @@ final class StudioModel {
             errorTitle = "Audio Export Isn’t Available"
             error = "This project uses a YouTube link, so its original soundtrack is not stored on this Mac. You can still export narration-only audio or text."
             return
+        }
+        let vertexVideoTask = target?.isYouTubeURLProject == false && ["analyze", "regenerate-all", "analyze-video", "transcribe", "generate-summary", "generate-ad-cues",
+            "reanalyze-segment", "reanalyze-transcript-segment"].contains(command)
+        if target?.referencesCloudVideo == true, vertexVideoTask, settings.aiProvider != "vertex" {
+            errorTitle = "Vertex AI Required"
+            error = "Choose Vertex AI with Google sign-in in Settings > AI to analyze this Cloud Storage video."
+            completion?(nil)
+            return
+        }
+        let vertexSpeechTask = settings.ttsMode == "gemini" && ["synthesize-tts", "synthesize-speech", "preview-tts"].contains(command)
+        if settings.aiProvider == "vertex", settings.vertexAuth == "express", vertexSpeechTask || vertexVideoTask {
+            let stage = command == "generate-summary" ? "summary" : ["generate-ad-cues", "reanalyze-segment"].contains(command) ? "audio_descriptions" : "youtube_transcript"
+            let inlineModel = settings.vertexExpressModels[stage] ?? "gemini-3-flash-preview"
+            let limit = inlineModel.hasPrefix("gemini-3") ? 256_000_000 : 15_000_000
+            let size = target.flatMap { project in project.folder.flatMap { try? $0.appendingPathComponent(project.source).resourceValues(forKeys: [.fileSizeKey]).fileSize } } ?? 0
+            if vertexSpeechTask || target?.cloudVideo != nil || size > limit {
+                let projectID = vertexVideoTask && target?.referencesCloudVideo == true
+                    ? target?.cloudVideo?["project"] ?? "" : settings.vertexProject
+                guard settings.vertexConnected, !projectID.isEmpty else {
+                    error = "Connect Google and choose a Cloud project in Settings > AI for this task."
+                    completion?(nil)
+                    return
+                }
+                guard confirmDeletion(title: "Use Google sign-in?", message: "Vertex AI will use project “" + projectID + "”.", actionTitle: "Use Google sign-in") else { completion?(nil); return }
+                settings.vertexAuth = "signin"
+            }
+        }
+        if let target, settings.aiProvider == "vertex", vertexVideoTask {
+            if settings.vertexAuth == "signin", target.cloudVideo == nil {
+                guard settings.vertexConnected else { error = "Sign in with Google in Settings > AI."; return }
+                guard confirmDeletion(title: "Upload video to Cloud Storage?", message: settings.vertexBucket, actionTitle: "Upload") else { return }
+                execute("cloud-upload", project: target) { updated in
+                    guard let updated, updated.cloudVideo != nil else { return }
+                    self.execute(command, extra: extra, project: updated, configurationURL: configurationURL, cleanupURL: cleanupURL, completion: completion)
+                }
+                return
+            }
         }
         if let target {
             if !extra.contains("--language") { extra += ["--language", target.operationLanguage(command)] }
@@ -2902,35 +3130,21 @@ final class StudioModel {
         var completedProjectPath: String?
         progress = 0
         message = UserFacingProgress.message(for: command)
-        var temporaryExecutionDirectory: URL?
-        var effectiveConfigurationURL = configurationURL
         let sarvamKey = settings.sarvamApiKey
         let elevenlabsKey = settings.elevenlabsApiKey
         let apiKey = settings.apiKey.trimmingCharacters(in: .whitespacesAndNewlines)
-        if effectiveConfigurationURL == nil && !apiKey.isEmpty {
-            let tempDir = FileManager.default.temporaryDirectory.appendingPathComponent("vidistudio-run-\(UUID().uuidString)")
-            let tempConfig = tempDir.appendingPathComponent("config.json")
-            do {
-                try FileManager.default.createDirectory(at: tempDir, withIntermediateDirectories: true, attributes: [.posixPermissions: 0o700])
-                var executionDict = (try? JSONSerialization.jsonObject(with: JSONEncoder().encode(settings))) as? [String: Any] ?? [:]
-                executionDict["apiKey"] = apiKey
-                let data = try JSONSerialization.data(withJSONObject: executionDict)
-                try data.write(to: tempConfig, options: .atomic)
-                try FileManager.default.setAttributes([.posixPermissions: 0o600], ofItemAtPath: tempConfig.path)
-                effectiveConfigurationURL = tempConfig
-                temporaryExecutionDirectory = tempDir
-            } catch {
-                effectiveConfigurationURL = StudioSettings.url
-            }
-        }
         let task = Process(); task.executableURL = engine
         task.arguments = [command] + (target?.folder.map { ["--project", $0.path] } ?? []) + extra
         var environment = ProcessInfo.processInfo.environment.merging([
-            "VIDISTUDIO_CONFIG": (effectiveConfigurationURL ?? StudioSettings.url).path,
+            "VIDISTUDIO_CONFIG": (configurationURL ?? StudioSettings.url).path,
             "VIDISTUDIO_PIPER_VOICES": PiperStorage.voicesDirectory.path,
             "VIDISTUDIO_NETWORK_EVENTS": "1",
             "VIDISTUDIO_YOUTUBE_AVAILABLE": ConnectivityService.shared.available(.youtube) ? "1" : "0",
         ]) { _, new in new }
+        environment.removeValue(forKey: "VIDISTUDIO_VERTEX_KEY")
+        if settings.aiProvider == "vertex", settings.vertexAuth == "express", let key = KeychainStore.vertex.read() {
+            environment["VIDISTUDIO_VERTEX_KEY"] = key
+        }
         if !apiKey.isEmpty { environment["VIDISTUDIO_API_KEY"] = apiKey }
         if settings.hasSarvamApiKey { environment["VIDISTUDIO_SARVAM_API_KEY"] = settings.sarvamApiKey }
         environment.removeValue(forKey:"VIDISTUDIO_ELEVENLABS_API_KEY")
@@ -2944,7 +3158,6 @@ final class StudioModel {
         do { try task.run() } catch {
             stderr.fileHandleForReading.readabilityHandler = nil
             if let cleanupURL { try? FileManager.default.removeItem(at: cleanupURL) }
-            if let temporaryExecutionDirectory { try? FileManager.default.removeItem(at: temporaryExecutionDirectory) }
             let detail = error.localizedDescription
             let issue = UserFacingIssue.forEngine(command: command, technicalDetails: detail)
             if command == "doctor" { engineCheckStatus = .failed(issue.message) }
@@ -2970,12 +3183,39 @@ final class StudioModel {
         let isKeyCheck = command == "check-api-key" || command == "list-models"
         let checkedKey = settings.apiKey.trimmingCharacters(in: .whitespacesAndNewlines)
         var keyCheckGotVerdict = false
+        var cloudAnnouncementStep = -1
+        let cloudImport = command == "cloud-import" ? CloudImportActivity.shared.begin() : nil
         let connectionWatch = ConnectionRecoveryWatch { [weak self] in self?.cancelCurrentOperation() }
         Task {
-            defer { connectionWatch.stop(); DeletionActivityRegistry.shared.finish(deletionActivity) }
+            defer {
+                connectionWatch.stop()
+                DeletionActivityRegistry.shared.finish(deletionActivity)
+                CloudImportActivity.shared.finish(cloudImport)
+            }
             do {
                 for try await line in output.fileHandleForReading.bytes.lines {
                     guard let data = line.data(using: .utf8), let event = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else { continue }
+                    if ["vertex-connect", "vertex-disconnect", "vertex-check"].contains(command),
+                       event["networkActive"] == nil, let status = event["message"] as? String {
+                        vertexConnectionVerified = command == "vertex-check" && event["vertexModels"] is [[String: Any]] && event["error"] == nil
+                        vertexConnectionMessage = vertexConnectionVerified ? "" : status
+                    }
+                    if let buckets = event["cloudBuckets"] as? [String] { cloudBuckets = buckets }
+                    if let rows = event["cloudProjects"], let data = try? JSONSerialization.data(withJSONObject: rows),
+                       let projects = try? JSONDecoder().decode([CloudProjectChoice].self, from: data) { cloudProjects = projects }
+                    if let rows = event["cloudFiles"], let data = try? JSONSerialization.data(withJSONObject: rows),
+                       let files = try? JSONDecoder().decode([StorageFileChoice].self, from: data) { cloudFiles = files }
+                    if let preview = event["cloudPreview"], let data = try? JSONSerialization.data(withJSONObject: preview),
+                       let result = try? JSONDecoder().decode(StorageFilePreview.self, from: data) { cloudPreview = result }
+                    if let connected = event["vertexConnected"] as? Bool {
+                        settings.vertexConnected = connected
+                        if command == "vertex-connect" || command == "vertex-disconnect" {
+                            NotificationCenter.default.post(name: .vidiStudioCloudAccountDidChange, object: self)
+                        }
+                    }
+                    if let models = event["vertexModels"] as? [[String: Any]], settings.vertexAuth == "signin" {
+                        settings.vertexCatalog = models.compactMap { $0["name"] as? String }
+                    }
                     connectionWatch.consume(event)
                     if let rows = event["sarvamModels"] as? [[String: Any]], let data = try? JSONSerialization.data(withJSONObject: rows), let models = try? JSONDecoder().decode([SarvamModelOption].self, from: data), !models.isEmpty {
                         sarvamModels = models
@@ -3013,6 +3253,9 @@ final class StudioModel {
                         }
                         if !eventIsError && !eventIsWarning {
                             message = text
+                            if let cloudImport {
+                                CloudImportActivity.shared.update(cloudImport, message: text, fraction: event["progress"] as? Double)
+                            }
                             if exportActivity?.cancelling != true { exportActivity?.status = text }
                         }
                     }
@@ -3030,6 +3273,14 @@ final class StudioModel {
                         }
                         let planName = (event["plan"] as? String ?? settings.geminiPlan) == "paid" ? "Paid Plan" : "Free Plan"
                         apiKeyVerificationMessage = "The entered Gemini API key is valid. \(availableGeminiModels.count) models available (\(planName))."
+                    }
+                    if command.hasPrefix("cloud-"), !eventIsError, let status = event["message"] as? String {
+                        let step = (event["progress"] as? Double).map { Int($0 * 10) }
+                        if step == nil || step != cloudAnnouncementStep {
+                            NSAccessibility.post(element: NSApp as Any, notification: .announcementRequested,
+                                userInfo: [.announcement: status, .priority: NSAccessibilityPriorityLevel.medium.rawValue])
+                            cloudAnnouncementStep = step ?? -1
+                        }
                     }
                     if let value = event["progress"] as? Double {
                         progress = value
@@ -3160,7 +3411,6 @@ final class StudioModel {
             task.waitUntilExit()
             stderr.fileHandleForReading.readabilityHandler = nil
             if let cleanupURL { try? FileManager.default.removeItem(at: cleanupURL) }
-            if let temporaryExecutionDirectory { try? FileManager.default.removeItem(at: temporaryExecutionDirectory) }
             reload()
             if Self.isExportCommand(command), let folder = target?.folder {
                 var finalized: Set<String> = []
@@ -3226,6 +3476,10 @@ final class StudioModel {
             let completedProject = completedProjectPath.flatMap { path in
                 projects.first(where: { $0.folder?.path == path })
             } ?? (target.flatMap { t in projects.first(where: { $0.id == t.id }) })
+            if command == "cloud-delete-project-video" {
+                completion?(task.terminationStatus == 0 && !operationWasCancelled && !connectionWatch.interrupted ? target : nil)
+                return
+            }
             if command == "synthesize-tts" {
                 let shouldShowVoiceReport = pendingVoiceMismatchReview
                 pendingVoiceMismatchReview = false
@@ -3241,7 +3495,7 @@ final class StudioModel {
                 command: command, enabled: settings.soundAfterExport,
                 succeeded: task.terminationStatus == 0 && !exportFailed && !connectionWatch.interrupted,
                 cancelled: operationWasCancelled, hasOutput: !completedExportPaths.isEmpty)
-            completion?(task.terminationStatus == 0 ? completedProject : nil)
+            completion?(task.terminationStatus == 0 && !operationWasCancelled ? completedProject : nil)
         }
     }
 
@@ -3530,4 +3784,43 @@ func timecode(_ seconds: Double) -> String {
     if seconds >= 3600 { return NarrationTimeFormat.timestamp(seconds) }
     let value = max(0, Int(seconds))
     return String(format: "%02d:%02d", value / 60, value % 60)
+}
+
+struct CloudProjectChoice: Decodable, Identifiable {
+    let id: String
+    let name: String
+    var label: String { name == id ? id : "\(name) (\(id))" }
+}
+
+struct CloudObjectPermissions: Decodable, Sendable {
+    let delete: Bool
+    let rename: Bool
+}
+
+private struct CloudPermissionResponse: Decodable {
+    let cloudPermissions: CloudObjectPermissions?
+}
+
+struct StorageFileChoice: Decodable, Identifiable {
+    var id: String { name }
+    let name: String
+    let generation: String
+    let video: Bool
+    let size: String?
+    let contentType: String?
+    let storageClass: String?
+    let created: String?
+    let updated: String?
+    let thumbnail: String?
+    let projectOwned: Bool?
+
+    var filename: String { name.split(separator: "/").last.map(String.init) ?? name }
+    var formattedSize: String { size.flatMap(Int64.init).map { ByteCountFormatter.string(fromByteCount: $0, countStyle: .file) } ?? "—" }
+}
+
+struct StorageFilePreview: Decodable {
+    let bucket: String
+    let name: String
+    let generation: String
+    let thumbnail: String?
 }

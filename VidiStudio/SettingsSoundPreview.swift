@@ -74,8 +74,8 @@ struct SettingsSoundRow: View {
             .help(previewTitle)
         }
         .contextMenu {
-            Toggle(title, isOn: $enabled).accessibilityIdentifier(menuIdentifier)
-            Button(previewTitle) { preview.toggle(resource) }
+            Toggle(isOn: $enabled) { Label(title, systemImage: "speaker.wave.2") }.accessibilityIdentifier(menuIdentifier)
+            Button(previewTitle, systemImage: preview.isPlaying(resource) ? "pause.fill" : "play.fill") { preview.toggle(resource) }
                 .accessibilityIdentifier(identifier + "-preview-menu")
         }
     }

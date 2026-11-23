@@ -94,7 +94,7 @@ struct SarvamVoiceBrowser: View {
             }.buttonStyle(.plain).accessibilityLabel("Select " + voice.label + ", " + voice.languages.map { SarvamCatalog.shared.languages[$0] ?? $0 }.joined(separator: ", "))
                 .accessibilityAddTraits(selectedVoice == voice.id ? .isSelected : [])
                 .contextMenu {
-                    Toggle("Select " + voice.label, isOn: Binding(get: { selectedVoice == voice.id }, set: { if $0 { select(voice) } }))
+                    Toggle(isOn: Binding(get: { selectedVoice == voice.id }, set: { if $0 { select(voice) } })) { Label("Select " + voice.label, systemImage: "person.wave.2") }
                     Button("Play Sample") { if canPlaySample { sample.play(voice, language: narrationLanguage, key: apiKey) } }.disabled(!canPlaySample)
                     Button("Stop Sample") { sample.stop() }.disabled(!sample.active)
                 }

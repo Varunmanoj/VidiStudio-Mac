@@ -254,7 +254,7 @@ struct SystemVoiceBrowser: View {
                                     .accessibilityLabel("Select \(voice.name), \(dialect.name)")
                                     .accessibilityAddTraits(selectedName == voice.name ? .isSelected : [])
                                     .contextMenu {
-                                        Button("Select " + voice.name) { settings.systemVoice = voice.name }
+                                        Button("Select " + voice.name, systemImage: "person.wave.2") { settings.systemVoice = voice.name }
                                         Button("Play Sample") { catalog.preview(voice, settings: settings) }.disabled(VoiceSampleSession.shared.busy)
                                         Button("Stop Sample") { catalog.stop() }.disabled(!catalog.isPlayingSample)
                                     }

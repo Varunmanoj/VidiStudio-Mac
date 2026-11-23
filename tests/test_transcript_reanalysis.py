@@ -54,7 +54,7 @@ class TranscriptRangeTests(unittest.TestCase):
         for value in ['USER MULTILINGUAL','Manual draft','Hindi and English','draftTranscript','userHint','She waves.', 'A conversation.', 'Opening', 'original scripts', 'code-switching']:
             self.assertIn(value,prompt)
         self.assertIn('SYSTEM MULTILINGUAL',system)
-        model.assert_called_once_with('youtube_transcript')
+        model.assert_called_once_with('youtube_transcript', p)
         self.assertEqual(call.call_args.kwargs['processing'],dict(type='static', start_offset='2s',end_offset='27s',fps=4))
         self.assertEqual(p['cues'],old['cues']);self.assertEqual(p['summary'],old['summary'])
         self.assertEqual(p['transcript'][0],old['transcript'][0]);self.assertEqual(p['transcript'][-1],old['transcript'][-1])
@@ -66,14 +66,15 @@ class TranscriptRangeTests(unittest.TestCase):
         self.assertEqual(p['transcript'],old['transcript']);e.restore_transcript(p,redo=True)
         self.assertEqual(p['transcript'],generated);self.assertEqual(p['cues'],old['cues'])
 
-    def test_local_video_reuse_and_audio_model_fallback(self):
-        for configured,expected in [('gemini-special-transcribe','youtube_transcript'),('gemini-video','transcript')]:
+    def test_local_video_reuse_and_source_specific_range_model(self):
+        for configured in ('gemini-special-transcribe', 'gemini-video'):
             p=self.project();p.update(source='video.mp4',sourceType='upload')
             cfg=copy.deepcopy(e.config());cfg['models']['transcript']=configured
             cfg['prompts']['transcript']['system_instruction']='LOCAL TRANSCRIPT SYSTEM'
             with patch.object(e,'reusable_video',return_value=SimpleNamespace(uri='files/reused',mime_type='video/mp4')) as ready:
                 call,model=self.analyze(p,cfg=cfg)
-            ready.assert_called_once();model.assert_called_once_with(expected)
+            ready.assert_called_once();model.assert_called_once_with('youtube_transcript', p)
+            self.assertEqual(e.project_model_stage(cfg, 'youtube_transcript', p), 'local_video')
             self.assertEqual(call.call_args.args[2:4],('files/reused','video/mp4'))
             self.assertIn('LOCAL TRANSCRIPT SYSTEM',call.call_args.args[5])
             self.assertIn('potentially multilingual',call.call_args.args[5])

@@ -75,6 +75,9 @@ def speech_segments(result, offset=0):
     return segments
 
 def transcribe_audio(client,model,path,offset=0,emit=lambda *_:None):
+    import vertex_ai
+    if isinstance(client, vertex_ai.VertexSession):
+        return client.transcribe_audio(model, path, offset)
     f=ready_file(client,path,emit)
     try:
         result=client.interactions.create(model=model,input=[{'type':'audio','uri':f.uri,'mime_type':f.mime_type}],generation_config={'transcription_config':{'language_codes':[],'mode':{'type':'verbatim','timestamp_granularities':['word'],'diarization_mode':'speaker'}}})

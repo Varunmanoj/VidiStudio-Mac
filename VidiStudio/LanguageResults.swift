@@ -126,6 +126,7 @@ extension StudioProject {
         let descriptions = result("descriptions")?.payload
         value.cues = descriptions?.cues ?? []
         value.transcript = result("transcript")?.payload.transcript ?? []
+        value.summary = result("summary")?.payload.summary ?? ""
         value.importedADTranscript = descriptions?.importedADTranscript
         value.importedAudioDescription = result("adAudio")?.payload.importedAudioDescription
         value.descriptionTimingAudit = descriptions?.descriptionTimingAudit

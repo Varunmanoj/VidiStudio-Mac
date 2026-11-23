@@ -48,6 +48,7 @@ final class VidiStudioAppDelegate: NSObject, NSApplicationDelegate {
 
 @main
 struct VidiStudioApp: App {
+    @Environment(\.openWindow) private var openWindow
     @NSApplicationDelegateAdaptor(VidiStudioAppDelegate.self) private var appDelegate
     @State private var studio = StudioModel()
     @State private var openProjects = OpenProjectRegistry()
@@ -68,7 +69,27 @@ struct VidiStudioApp: App {
         .windowToolbarStyle(.automatic)
         .commands {
             CommandGroup(replacing: .newItem) {
-                Button("New Project…", systemImage: "plus") { studio.beginNewProject() }.keyboardShortcut("n").disabled(studio.busy)
+                Button("New Project…", systemImage: "plus") {
+                    openWindow(id: "studio")
+                    studio.beginNewProject()
+                }
+                .keyboardShortcut("n")
+                .disabled(!studio.canBeginNewProject)
+                Button("New YouTube Project…", systemImage: "play.rectangle") {
+                    openWindow(id: "studio")
+                    studio.beginNewProject(source: .youtube)
+                }
+                .disabled(!studio.canBeginNewProject)
+                Button("New Cloud Project…", systemImage: "cloud") {
+                    openWindow(id: "studio")
+                    studio.beginNewProject(source: .cloud)
+                }
+                .disabled(!studio.canBeginNewProject || !studio.settings.vertexConnected)
+                Button("Open Cloud Videos…", systemImage: "icloud.and.arrow.down") {
+                    openWindow(id: "studio")
+                    studio.openCloudVideos()
+                }
+                .disabled(!studio.canOpenCloudVideos)
                 Button("Open Project Folder…", systemImage: "folder") { studio.openProject() }.keyboardShortcut("o", modifiers: [.command, .shift]).disabled(studio.busy)
             }
         }

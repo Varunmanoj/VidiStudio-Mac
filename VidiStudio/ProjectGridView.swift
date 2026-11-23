@@ -1,6 +1,25 @@
 import SwiftUI
 import AppKit
 
+struct CloudVideoActions: View {
+    let studio: StudioModel
+    let project: StudioProject
+
+    var body: some View {
+        if project.cloudVideo != nil {
+            Button("Open Video in Google Cloud Console", systemImage: "arrow.up.right.square") { studio.cloudAction("cloud-open", project: project) }
+            if studio.cloudPermissions(for: project)?.rename == true {
+                Button("Rename Cloud Video…", systemImage: "pencil") { studio.cloudAction("cloud-rename", project: project) }
+            }
+            if studio.cloudPermissions(for: project)?.delete == true {
+                Button("Remove Cloud Video…", systemImage: "icloud.slash") { studio.cloudAction("cloud-remove", project: project) }
+            }
+        } else if !project.isYouTubeURLProject && studio.settings.vertexConnected {
+            Button("Upload Video to Cloud Storage…", systemImage: "icloud.and.arrow.up") { studio.cloudAction("cloud-upload", project: project) }
+        }
+    }
+}
+
 struct ProjectGridView: View {
     let studio: StudioModel
     let projects: [StudioProject]
@@ -63,7 +82,8 @@ struct ProjectGridView: View {
                         if project.youtubeURL.flatMap(StudioModel.youtubeVideoID) != nil {
                             Button("Open in YouTube", systemImage: "arrow.up.right.square") { studio.openYouTubeInBrowser(project) }
                         }
-                        Button("Open Project Settings…", systemImage: "gearshape") { studio.requestProjectManagement("project-settings", project: project) }
+                        CloudVideoActions(studio: studio, project: project).disabled(studio.busy)
+        Button("Open Project Settings…", systemImage: "gearshape") { studio.requestProjectManagement("project-settings", project: project) }
             .disabled(!studio.canManageProject("project-settings", project: project))
         Button("Open in Project Folder", systemImage: "folder") {
                             if let folder = project.folder { NSWorkspace.shared.open(folder) }
@@ -87,7 +107,9 @@ struct ProjectGridView: View {
                             .disabled(busy)
                         Divider()
                         Button("Choose Content to Delete…", systemImage: "eraser", role: .destructive) { clear(project) }.disabled(busy || project.integrityPlaceholder == true || !project.hasGeneratedContent)
-                        Button("Delete Project…", systemImage: "trash", role: .destructive) { delete(project) }.disabled(busy)
+                        if studio.canDeleteProjectVideo(project) {
+                            Button("Delete Project…", systemImage: "trash", role: .destructive) { delete(project) }.disabled(busy)
+                        }
                         }.disabled(busy)
                     }
                 }
@@ -146,6 +168,11 @@ struct ProjectBrowserActions {
     var preserveOpenProject = false
     var editorModel: StudioModel? = nil
 
+    var canShowDeleteProject: Bool {
+        guard let model = editorModel ?? listModel else { return true }
+        return model.canDeleteProjectVideo(model.selected)
+    }
+
     func canRun(_ command: String) -> Bool {
         guard hasProject, let model = editorModel ?? listModel, let project = model.selected else { return false }
         if editorModel == nil && !model.listedProjects.contains(where: { $0.id == project.id }) { return false }
@@ -181,6 +208,13 @@ struct AllProjectsActions {
     var languageOptions: [OutputLanguage] = []
     var focusSearch: (() -> Void)? = nil
 
+    var canShowDeleteProject: Bool { studio.canDeleteProjectVideo(project) }
+
+    func allowsCloudMutation(_ action: String) -> Bool {
+        let permissions = studio.cloudPermissions(for: project)
+        return action == "cloud-rename" ? permissions?.rename == true : permissions?.delete == true
+    }
+
     func canRun(_ action: String) -> Bool {
         if action == "focus-search" { return focusSearch != nil }
         if action == "clear-search" { return !search.wrappedValue.isEmpty }
@@ -190,7 +224,9 @@ struct AllProjectsActions {
             return sourceFilter.wrappedValue != .all || languageFilter.wrappedValue != "all" || !search.wrappedValue.isEmpty
         }
         guard !studio.busy, let project else { return false }
-        if action == "delete-project" { return project.folder != nil }
+        if ["cloud-remove", "cloud-rename"].contains(action) { return allowsCloudMutation(action) }
+        if action.hasPrefix("cloud-") { return action == "cloud-upload" ? !project.isYouTubeURLProject && project.cloudVideo == nil && studio.settings.vertexConnected : project.cloudVideo != nil }
+        if action == "delete-project" { return project.folder != nil && canShowDeleteProject }
         if action == "remove-from-list" { return project.folder != nil && studio.listedProjects.contains { $0.id == project.id } }
         if ["rename-project", "youtube-open-browser", "project-settings", "show-in-finder", "open-configuration"].contains(action) {
             return studio.canManageProject(action, project: project)
@@ -210,6 +246,7 @@ struct AllProjectsActions {
     func run(_ action: String) {
         guard canRun(action) else { return }
         switch action {
+        case "cloud-open", "cloud-upload", "cloud-remove", "cloud-rename": if let project { studio.cloudAction(action, project: project) }
         case "focus-search": focusSearch?()
         case "clear-search": search.wrappedValue = ""; focusSearch?()
         case "projects-sort-opened": projectSort.wrappedValue = .lastOpened
@@ -218,6 +255,7 @@ struct AllProjectsActions {
         case "projects-sort-type": projectSort.wrappedValue = .type
         case "projects-source-all": sourceFilter.wrappedValue = .all
         case "projects-source-local": sourceFilter.wrappedValue = .local
+        case "projects-source-cloud": sourceFilter.wrappedValue = .cloud
         case "projects-source-youtube": sourceFilter.wrappedValue = .youtube
         case "projects-reset-filters":
             search.wrappedValue = ""; sourceFilter.wrappedValue = .all; languageFilter.wrappedValue = "all"

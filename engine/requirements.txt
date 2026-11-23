@@ -4,3 +4,9 @@ deno==2.9.7
 sarvamai==0.1.46
 
 httpx==0.28.1
+
+google-cloud-storage==3.17.1
+grpcio==1.85.3
+grpc-google-iam-v1==0.14.5
+google-auth-oauthlib==1.5.0
+keyring==25.7.0

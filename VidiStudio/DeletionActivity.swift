@@ -9,6 +9,7 @@ import SwiftUI
         let id = UUID(); activities[id] = "\(title) · \(projectName)"; return id
     }
     func begin(command: String, projectName: String) -> UUID? {
+        if command == "cloud-delete-project-video" { return begin(title: "Deleting cloud video…", projectName: projectName) }
         guard ["delete-results", "delete-generated", "delete-export", "delete-segment-audio"].contains(command) else { return nil }
         return begin(title: "Deleting selected content…", projectName: projectName)
     }
@@ -32,6 +33,47 @@ struct DeletionProgressBanner: View {
             .padding(12).background(.bar)
             .accessibilityElement(children: .ignore)
             .accessibilityLabel(message)
+        }
+    }
+}
+
+@MainActor @Observable final class CloudImportActivity {
+    static let shared = CloudImportActivity()
+    private(set) var progress: [UUID: (message: String, fraction: Double?)] = [:]
+
+    func begin() -> UUID {
+        let id = UUID()
+        update(id, message: "Checking Cloud Storage access…", fraction: nil)
+        return id
+    }
+
+    func update(_ id: UUID, message: String, fraction: Double?) {
+        progress[id] = (message, message.hasPrefix("Downloading video:") ? fraction : nil)
+    }
+
+    func finish(_ id: UUID?) {
+        if let id { progress[id] = nil }
+    }
+}
+
+struct CloudImportProgressBanner: View {
+    private var activity = CloudImportActivity.shared
+
+    var body: some View {
+        ForEach(activity.progress.keys.sorted { $0.uuidString < $1.uuidString }, id: \.self) { id in
+            if let status = activity.progress[id] {
+                Group {
+                    if let fraction = status.fraction {
+                        ProgressView(status.message, value: fraction)
+                    } else {
+                        ProgressView(status.message)
+                    }
+                }
+                .controlSize(.small)
+                .padding(12)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .background(.bar)
+            }
         }
     }
 }

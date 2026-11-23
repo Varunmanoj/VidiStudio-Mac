@@ -277,7 +277,7 @@ def execute(args,root,p,e):
     elif command=='rewrite-cue':
         cue=next((c for c in p['cues'] if c['id']==args.segment),None)
         if not cue:raise ValueError('Select a description to rewrite.')
-        client,model=e.client_and_model('text_rewrite');cfg=e.config();pair=media_prompt_pair(cfg,'text_rewrite')
+        client,model=e.client_and_model('text_rewrite', p);cfg=e.config();pair=media_prompt_pair(cfg,'text_rewrite')
         try:
             result=client.interactions.create(model=model,input=render(pair['user_prompt'],p,text=cue['text'],target_duration=cue['end']-cue['start']),system_instruction=pair['system_instruction'])
             text=gemini_adapter.output_text(result).strip()
@@ -295,7 +295,7 @@ def execute(args,root,p,e):
     elif command=='capture-frame':
         args.timestamp=frame_timestamp(args.timestamp,p['duration'])
         cfg=e.config();youtube=p.get('sourceType')=='youtube' and not p.get('source');key='youtube_screen_text' if youtube else 'screen_text';pair=media_prompt_pair(cfg,key)
-        client,model=e.client_and_model('screen_text')
+        client,model=e.client_and_model('screen_text', p)
         try:
             prompt=render(pair['user_prompt'],p,timestamp_seconds=args.timestamp,timestamp_timestamp=clock(args.timestamp))
             if youtube:raw=gemini_adapter.video_interaction(client,model,p['youtubeURL'],None,prompt,pair['system_instruction'],processing=cfg.get('videoProcessing','agentic'))

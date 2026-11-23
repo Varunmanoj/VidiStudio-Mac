@@ -90,7 +90,7 @@ defer {
     for menu in openMenus.reversed() { AXUIElementPerformAction(menu, kAXCancelAction as CFString) }
 }
 if ["--section", "--gallery"].contains(CommandLine.arguments[1]) {
-    let allowed = ["Show Transcript", "Show Summary", "Show Descriptions", "Show AD Overview", "Show AD Transcript"]
+    let allowed = ["Show Transcript", "Show Summary", "Show Descriptions", "Show AD Transcript", "Show Overview"]
     let section = CommandLine.arguments[2]
     let gallery = CommandLine.arguments[1] == "--gallery"
     guard gallery || allowed.contains(section) else { fail("Unknown editor section") }
@@ -103,7 +103,9 @@ if ["--section", "--gallery"].contains(CommandLine.arguments[1]) {
     exit(0)
 }
 
-for name in CommandLine.arguments.dropFirst(2) {
+let menuPath = CommandLine.arguments.dropFirst(2)
+let allowsEmptyMenu = menuPath.first == "--allow-empty"
+for name in menuPath.dropFirst(allowsEmptyMenu ? 1 : 0) {
     guard let item = items.first(where: {title($0) == name}),
           AXUIElementPerformAction(item, kAXPressAction as CFString) == .success else { fail("Cannot open "+name) }
     pause(0.7)
@@ -118,6 +120,11 @@ for name in CommandLine.arguments.dropFirst(2) {
     items = children(menu)
 }
 let bounds = frame(openMenus.last!)
+if allowsEmptyMenu, !items.contains(where: { !title($0).isEmpty }) {
+    let result = try JSONSerialization.data(withJSONObject: ["menus": roots.map(title), "rows": [], "labels": []])
+    FileHandle.standardOutput.write(result)
+    exit(0)
+}
 guard bounds.width > 0, bounds.height > 0 else { fail("Menu is not displayed on the unlocked desktop") }
 let path = CommandLine.arguments[1]
 let capture = Process()
