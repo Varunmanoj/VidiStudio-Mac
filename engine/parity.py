@@ -1,4 +1,5 @@
 import youtube_metadata
+import vertex_ai
 """Project operations shared by the native UI and portable command line."""
 import contextlib
 import base64, copy, json, math, re, shutil, time, uuid
@@ -215,7 +216,8 @@ def execute(args,root,p,e):
         if not args.url or not args.library: raise ValueError('YouTube import requires --url and --library.')
         url=youtube_url(args.url);ident=url.split('=')[-1];name=args.name or 'YouTube video'
         ensure_unique_youtube_video(args.library, url)
-        details = youtube_metadata.read(args.youtube_metadata, ident) if getattr(args, 'youtube_metadata', None) else None
+        verify_owner = lambda video, channel: vertex_ai.require_private_youtube_owner(e.config(), video, channel)
+        details = youtube_metadata.read(args.youtube_metadata, ident, verify_owner) if getattr(args, 'youtube_metadata', None) else None
         if details:
             if not args.name: name = details.get('title') or name
         else:
@@ -225,9 +227,9 @@ def execute(args,root,p,e):
                     if title and not args.name:name=title[:200]
         root=args.library.resolve()/('YouTube-'+ident+'-'+uuid.uuid4().hex[:8])
         root.mkdir(parents=True,exist_ok=True)
-        thumbnail=download_youtube_thumbnail(root,ident)
+        thumbnail=None if details and details["visibility"] == "private" else download_youtube_thumbnail(root,ident)
         p=dict(schemaVersion=2,id=str(uuid.uuid4()),name=name,source='',sourceType='youtube',youtubeURL=url,duration=args.duration or 0,width=0,height=0,hasAudio=True,createdAt=time.time(),updatedAt=time.time(),thumbnails=[thumbnail] if thumbnail else [],transcript=[],summary='',cues=[],exports=[],exportMediaInfo={},status='Imported')
-        if details: p['youtubeMetadata']=details; p['duration']=details['duration']
+        if details: youtube_metadata.store(p, details)
         p['transcriptGenerated']=False;p['summaryGenerated']=False;p['descriptionsGenerated']=False
         language_results.migrate(p, language_results.default_language(e.config() if hasattr(e, 'config') else {}))
         e.save(root,p);e.emit('YouTube project imported',project=str(root));return
@@ -236,11 +238,12 @@ def execute(args,root,p,e):
         for path in removed: path.unlink(missing_ok=True)
         return
     if command=='update-youtube-metadata':
-        details=youtube_metadata.read(args.youtube_metadata, youtube_url(p['youtubeURL']).split('=')[-1])
+        verify_owner = lambda video, channel: vertex_ai.require_private_youtube_owner(e.config(), video, channel)
+        details=youtube_metadata.read(args.youtube_metadata, youtube_url(p['youtubeURL']).split('=')[-1], verify_owner)
         previous=p.get('youtubeMetadata') or {}
         for key in ('playlists', 'openedFromPlaylist', 'playlistChannelTitle', 'playlistLookupStatus'):
             if details.get(key) is None and key in previous: details[key]=previous[key]
-        p['youtubeMetadata']=details; p['duration']=details['duration']
+        youtube_metadata.store(p, details)
         e.save(root,p); return
     if command=='prepare-video':
         prepare_video(root,p,e);return

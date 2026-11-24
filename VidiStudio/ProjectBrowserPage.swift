@@ -327,6 +327,7 @@ struct ProjectBrowserPage: View {
                 }
                 .pickerStyle(.segmented)
 
+                Button("My YouTube Videos…") { openWindow(id: "youtube-browser") }.disabled(busy)
                 Button("Open Project Folder", systemImage: "folder", action: openProjectFolder)
                     .disabled(busy)
                 Button("New Project", systemImage: "plus", action: newProject)

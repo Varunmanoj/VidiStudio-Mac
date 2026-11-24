@@ -4206,3 +4206,45 @@ Built and installed signed 1.0.388 (build 388). Verified one app in Spotlight an
 The final build keeps the Vertex AI analysis limit on Cloud Storage upload and import. The temporary change that allowed uploads above that limit was reverted. In Open Cloud Videos, the button, keyboard action and row menu use the same size warning before importing an oversized object. Choose a Smaller Video and Cancel both keep the browser open. The engine also rechecks the object metadata before opening the download stream.
 
 Installed signed build 389. The app and all three installed extensions retained Apple Development team LLVWNNUV26 and one registration each. Menu and layout checks and 125 focused tests passed. A 3.26 GB sparse file was rejected by the installed engine before project creation on both import routes. Native Mac dialog observation remained blocked by the locked automation session.
+
+## 1.0.390 · Google sign-in and video browsers · 2026-11-24
+
+Restored YouTube Accounts, My YouTube Videos and caption import. The desktop OAuth client already used for Vertex AI now requests Google Cloud and YouTube permissions together. Public and unlisted link lookup keeps the separate YouTube Data API key. Private imports validate the channel owner and require signed-in Vertex AI for analysis. Both video browsers center loading feedback and offer Actions > Select in List and Table. Cloud actions retain the selected object's permission and generation checks.
+
+Installed and launched signed Mac build 390. The app and Safari, Share and Finder extensions retain Apple Development team LLVWNNUV26 and the matching version and build. One installed app and one registration per extension were verified. Passed 142 focused source tests and 28 installed-engine tests. The configured OAuth authorization endpoints reached Google sign-in, and both desktop Data API configurations returned public video metadata. Live account consent, caption retrieval and paid private-video analysis were not exercised.
+
+## 1.0.392 · New Project picker and video browser groups · 2026-11-24
+
+My YouTube Videos now opens inside the YouTube New Project flow. Choose Video returns the selected video and preview to the same form, and Cancel preserves its choices. Open Cloud Videos matches the YouTube browser view and action controls, with a thumbnail column, retained selection and Cloud metadata. File places the three creation commands together, followed by a divider, the two video browsers and another divider.
+
+Built, signed and installed Mac build 392 with matching Safari, Share and Finder extension builds and one registration per extension. Spotlight and LaunchServices found one installed app. Passed 145 focused source tests, 28 installed-engine tests and the engine media/TLS check. The Mac inspection service still reported a locked session after the unlock, so the rendered menu and browser were unavailable to automation.
+
+## 1.0.393 · Separate Google Cloud and YouTube sign-in · 2026-11-24
+
+AI Settings requests Cloud access for Vertex AI and Cloud Storage. YouTube Accounts requests YouTube access for browsing and authorized captions. Both keep separate device credentials and removal actions. Private video checks use the YouTube credential for the signed-in Cloud account’s channel and send analysis through Vertex AI. Existing saved connections are retained and can reconnect separately.
+
+Installed signed Mac build 393 with matching Safari, Share and Finder extension versions, preserved signing team LLVWNNUV26, and verified one application registration and one instance of each extension. Passed 147 focused source tests, 28 packaged-engine tests, and the bundled engine media and TLS check. The two scoped authorization requests reached Google sign-in for each desktop client. Live consent, revocation, caption download and private analysis were not exercised.
+
+## 1.0.394 · Open Cloud Videos shortcut · 2026-11-24
+
+Command-Option-G opens the Cloud browser through the same action as File > Open Cloud Videos. The Settings Help shortcut reference reads the same binding.
+
+Built and installed Mac 1.0.394, build 394. Refreshed a duplicate Share extension registration detected after launch, then verified one registered app with all three matching extensions on signing team LLVWNNUV26. Passed 148 focused source tests and 28 packaged-engine tests. Interactive shortcut verification was unavailable because the inspection session reported a locked desktop.
+
+## 1.0.395 · Signed-out Cloud browser and Settings Help · 2026-11-24
+
+File and Command-Option-G open Cloud Videos before sign-in. The empty state offers Google Cloud sign-in and Done. The browser shows its project controls after sign-in. Settings > Help lists the Open Cloud Videos and My YouTube Videos shortcuts together near the project commands.
+
+Installed the signed Mac app and verified one app, matching Safari, Share and Finder extensions on team LLVWNNUV26, and bundled media and TLS health. Passed 149 focused source tests and 28 packaged-engine tests. Interactive Mac verification remained blocked by the automation session reporting a locked screen.
+
+## 1.0.396 · Cloud project discovery after first sign-in · 2026-11-24
+
+The Cloud browser can discover projects without a configured default. Bucket browsing, downloads and permission checks use the selected source project when no default is saved. Any saved default continues as the request’s quota project.
+
+Built, signed and launched version 1.0.396, build 396. Spotlight and LaunchServices show only the installed app, and PlugInKit shows one instance of each matching extension on signing team LLVWNNUV26. The packaged engine passed the media and TLS check and 28 installed-engine tests. 150 focused source tests passed, including first-time project and bucket discovery. The installed engine had no available Google Cloud sign-in for a live discovery request. The native inspection service remained locked.
+
+## 1.0.397 · Branded Google sign-in return page · 2026-11-24
+
+Google Cloud and YouTube sign-in now return to a centered VidiStudio page with the app icon, service name, and light and dark colors. The page tells the user when to return to the app and how to retry after a cancellation. Both native callbacks bundle the same HTML and load the icon locally.
+
+Built, signed and launched version 1.0.397 (build 397). Spotlight and LaunchServices show one app at `/Applications/VidiStudio.app`. PlugInKit lists one installed copy of each matching Safari, Share and Finder extension, all signed by team LLVWNNUV26. Tested all four simulated return responses from the installed resources in WebKit and Chromium at 320 and 1280 px in both color schemes. Verified the visible app icon, accessible heading, centered layout and absence of external requests. The 91 desktop parity tests, 45 Cloud/YouTube source tests, 22 packaged-engine CLI tests and the installed engine doctor passed. No live Google consent or token exchange was exercised. Evidence is in `build/sign-in-return-397-*.log`.

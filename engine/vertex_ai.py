@@ -10,6 +10,7 @@ from types import SimpleNamespace
 
 
 import network_activity
+import youtube_metadata
 
 MODEL_POLICY = json.loads(Path(__file__).with_name('ai-defaults.json').read_text(encoding='utf-8'))['vertexModelPolicy']
 EXPRESS_MODELS = MODEL_POLICY['expressModels']
@@ -18,6 +19,7 @@ MAX_CLOUD_VIDEO_SIZE_BYTES = 2 * 1024**3 - 500 * 1024
 CLOUD_VIDEO_SIZE_MESSAGE = 'This video is too large for Cloud Storage analysis. Choose a smaller video.'
 PROJECT_MODEL_ROWS = {row['id']: row for group in MODEL_POLICY['projectModelGroups'] for row in group['rows']}
 SCOPE = 'https://www.googleapis.com/auth/cloud-platform'
+YOUTUBE_SCOPE = 'https://www.googleapis.com/auth/youtube.force-ssl'
 SERVICE = 'com.vidistudio.vertex-oauth'
 
 
@@ -53,7 +55,14 @@ def sign_in():
                                   success_message='Google sign-in complete. Return to VidiStudio.')
     if not creds.refresh_token:
         raise ValueError('Google did not grant offline access. Reconnect in Settings.')
-    vault().set_password(SERVICE, client['client_id'], creds.refresh_token)
+    save_google_sign_in(creds.refresh_token)
+
+
+def save_google_sign_in(refresh_token):
+    refresh_token = refresh_token.strip()
+    if not refresh_token or len(refresh_token) > 8192 or not refresh_token.isascii() or any(c.isspace() for c in refresh_token):
+        raise ValueError('Google sign-in could not be saved. Try again.')
+    vault().set_password(SERVICE, oauth_client()['client_id'], refresh_token)
 
 
 def disconnect():
@@ -63,9 +72,9 @@ def disconnect():
         store.delete_password(SERVICE, account)
 
 
-def credentials(project):
+def credentials(project, *, allow_missing_project=False):
     from google.oauth2.credentials import Credentials
-    if not project:
+    if not project and not allow_missing_project:
         raise ValueError('Enter your Google Cloud project ID in Settings > AI.')
     client = oauth_client()
     token = vault().get_password(SERVICE, client['client_id'])
@@ -73,7 +82,51 @@ def credentials(project):
         raise ValueError('Use Google sign-in in Settings > AI to connect your account.')
     return Credentials(None, refresh_token=token, token_uri='https://oauth2.googleapis.com/token',
                        client_id=client['client_id'], client_secret=client['client_secret'],
-                       scopes=[SCOPE], quota_project_id=project)
+                       scopes=[SCOPE], quota_project_id=project or None)
+
+
+def youtube_owner_credentials(channel_id):
+    from google.oauth2.credentials import Credentials
+    subject = os.environ.get('VIDISTUDIO_CLOUD_SUBJECT', '')
+    if not re.fullmatch(r'[A-Za-z0-9_-]{1,128}', subject) or not re.fullmatch(r'[A-Za-z0-9_-]{1,128}', channel_id or ''):
+        raise ValueError(youtube_metadata.PRIVATE_MESSAGE)
+    account = f'{subject}:{channel_id}'
+    store = vault()
+    if os.name == 'nt':
+        refresh = store.get_password('VidiStudio/YouTube/' + account, 'YouTube refresh token')
+    else:
+        refresh = store.get_password('com.vidistudio.youtube', account)
+    if not refresh:
+        raise ValueError(youtube_metadata.PRIVATE_MESSAGE)
+    client = oauth_client()
+    return Credentials(None, refresh_token=refresh, token_uri='https://oauth2.googleapis.com/token',
+                       client_id=client['client_id'], client_secret=client['client_secret'],
+                       scopes=[YOUTUBE_SCOPE])
+
+
+def require_private_youtube_owner(cfg, video_id, channel_id):
+    from google.auth.transport.requests import AuthorizedSession
+    if not cfg.get('vertexProject', '').strip() or not re.fullmatch(r'[A-Za-z0-9_-]{11}', video_id or ''):
+        raise ValueError(youtube_metadata.PRIVATE_MESSAGE)
+    try:
+        with AuthorizedSession(youtube_owner_credentials(channel_id)) as session:
+            response = session.get('https://www.googleapis.com/youtube/v3/videos',
+                                   params={'part': 'snippet,status', 'id': video_id}, timeout=15)
+            response.raise_for_status()
+            matching = any(item.get('id') == video_id and
+                           item.get('status', {}).get('privacyStatus') == 'private' and
+                           item.get('snippet', {}).get('channelId') == channel_id
+                           for item in response.json().get('items', []))
+            if matching:
+                owner = session.get('https://www.googleapis.com/youtube/v3/channels',
+                                    params={'part': 'id', 'mine': 'true', 'maxResults': 50}, timeout=15)
+                owner.raise_for_status()
+                if any(channel.get('id') == channel_id for channel in owner.json().get('items', [])):
+                    return
+    except Exception as exc:
+        # A failed or expired authorization cannot be used as proof of ownership.
+        raise ValueError(youtube_metadata.PRIVATE_MESSAGE) from exc
+    raise ValueError(youtube_metadata.PRIVATE_MESSAGE)
 
 
 def express(cfg):

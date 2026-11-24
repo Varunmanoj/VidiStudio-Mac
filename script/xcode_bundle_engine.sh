@@ -20,14 +20,23 @@ python3 script/package_browser_extension.py --local-resources "$TARGET_BUILD_DIR
 python3 script/build_help.py
 ditto build/help/VidiStudio.help "$TARGET_BUILD_DIR/$UNLOCALIZED_RESOURCES_FOLDER_PATH/VidiStudio.help"
 
-if [[ -f "$SRCROOT/Config/youtube-release.json" ]]; then
-  python3 - "$SRCROOT/Config/youtube-release.json" "$TARGET_BUILD_DIR/$UNLOCALIZED_RESOURCES_FOLDER_PATH/youtube-config.json" <<'PYCONFIG'
+if [[ -f "$SRCROOT/Config/youtube-release.json" || -f "$SRCROOT/Config/vertex-desktop.json" ]]; then
+  python3 - "$SRCROOT/Config" "$TARGET_BUILD_DIR/$UNLOCALIZED_RESOURCES_FOLDER_PATH/youtube-config.json" <<'PYCONFIG'
 import json
 import sys
 from pathlib import Path
 
-api_key = json.loads(Path(sys.argv[1]).read_text(encoding="utf-8-sig")).get("apiKey", "")
-Path(sys.argv[2]).write_text(json.dumps({"apiKey": api_key}), encoding="utf-8")
+def read_config(name):
+    path = Path(sys.argv[1]) / name
+    return json.loads(path.read_text(encoding="utf-8-sig")) if path.is_file() else {}
+
+api_key = read_config("youtube-release.json").get("apiKey", "")
+client = read_config("vertex-desktop.json").get("installed", {})
+Path(sys.argv[2]).write_text(json.dumps({
+    "apiKey": api_key,
+    "clientID": client.get("client_id", ""),
+    "clientSecret": client.get("client_secret", ""),
+}), encoding="utf-8")
 PYCONFIG
 else
   rm -f "$TARGET_BUILD_DIR/$UNLOCALIZED_RESOURCES_FOLDER_PATH/youtube-config.json"

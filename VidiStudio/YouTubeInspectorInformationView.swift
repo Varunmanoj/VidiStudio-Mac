@@ -59,8 +59,8 @@ struct YouTubeInspectorInformationView: View {
         guard let id = project.youtubeURL.flatMap(StudioModel.youtubeVideoID), !refreshing else { return }
         refreshing = true; issue = nil; defer { refreshing = false }
         do {
-            let value = try await YouTubeService.shared.video(id)
-            try value.requireAvailable()
+            let value = try await YouTubeService.shared.projectVideo(id, privateChannelID: project.privateYouTubeChannel, settings: studio.settings)
+            try value.requireAvailable(allowPrivate: project.privateYouTubeChannel != nil)
             try Task.checkCancellation()
             fetched = value
             while studio.busy { try await Task.sleep(for: .milliseconds(100)); try Task.checkCancellation() }

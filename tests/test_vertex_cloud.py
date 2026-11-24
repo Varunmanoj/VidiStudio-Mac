@@ -1,5 +1,6 @@
 import io
 import json
+import os
 import sys
 import tempfile
 import unittest
@@ -14,6 +15,51 @@ import vertex_ai
 
 
 class VertexCloudTests(unittest.TestCase):
+    def test_cloud_sign_in_writes_only_the_cloud_credential(self):
+        with patch.object(vertex_ai, 'vault') as vault, patch.object(vertex_ai, 'oauth_client', return_value={'client_id': 'test-desktop-client'}):
+            vertex_ai.save_google_sign_in('fake-refresh-token')
+            vault.return_value.set_password.assert_called_once_with(
+                vertex_ai.SERVICE, 'test-desktop-client', 'fake-refresh-token')
+            for invalid in ('', 'two words', 'x' * 8193):
+                with self.subTest(invalid=invalid[:12]), self.assertRaisesRegex(ValueError, 'Google sign-in could not be saved'):
+                    vertex_ai.save_google_sign_in(invalid)
+            self.assertEqual(vault.return_value.set_password.call_count, 1)
+
+    def test_private_youtube_requires_the_vertex_account_to_own_the_channel(self):
+        details = Mock()
+        details.json.return_value = {'items': [{'id': 'jNQXAC9IVRw', 'status': {'privacyStatus': 'private'},
+                                               'snippet': {'channelId': 'owner'}}]}
+        channels = Mock()
+        cfg = {'vertexProject': 'sample-project'}
+        with patch('google.auth.transport.requests.AuthorizedSession') as authorized, patch.object(vertex_ai, 'youtube_owner_credentials') as credentials:
+            session = authorized.return_value.__enter__.return_value
+            session.get.side_effect = [details, channels, details, channels]
+            channels.json.side_effect = [{'items': [{'id': 'other-account'}]}, {'items': [{'id': 'owner'}]}]
+            with self.assertRaisesRegex(ValueError, 'Private Video Cannot Be Opened'):
+                vertex_ai.require_private_youtube_owner(cfg, 'jNQXAC9IVRw', 'owner')
+            vertex_ai.require_private_youtube_owner(cfg, 'jNQXAC9IVRw', 'owner')
+            credentials.assert_called_with('owner')
+
+    def test_cloud_and_youtube_use_separate_scopes_and_vault_entries(self):
+        client = {'client_id': 'test-desktop-client', 'client_secret': 'test-secret'}
+        with patch.dict(os.environ, {'VIDISTUDIO_CLOUD_SUBJECT': 'cloud-owner'}), \
+                patch.object(vertex_ai, 'vault') as vault, patch.object(vertex_ai, 'oauth_client', return_value=client):
+            service_and_account = (('VidiStudio/YouTube/cloud-owner:private-channel', 'YouTube refresh token')
+                                   if os.name == 'nt' else ('com.vidistudio.youtube', 'cloud-owner:private-channel'))
+            tokens = {
+                (vertex_ai.SERVICE, client['client_id']): 'cloud-refresh',
+                service_and_account: 'youtube-refresh',
+            }
+            vault.return_value.get_password.side_effect = lambda service, account: tokens.get((service, account))
+            cloud = vertex_ai.credentials('sample-project')
+            youtube = vertex_ai.youtube_owner_credentials('private-channel')
+            self.assertEqual((cloud.refresh_token, cloud.scopes), ('cloud-refresh', [vertex_ai.SCOPE]))
+            self.assertEqual((youtube.refresh_token, youtube.scopes), ('youtube-refresh', [vertex_ai.YOUTUBE_SCOPE]))
+            with self.assertRaisesRegex(ValueError, 'Private Video Cannot Be Opened'):
+                vertex_ai.youtube_owner_credentials('different-channel')
+            vertex_ai.disconnect()
+            vault.return_value.delete_password.assert_called_once_with(vertex_ai.SERVICE, client['client_id'])
+
     def test_accessible_projects_paginates_and_omits_inactive_projects(self):
         first = Mock()
         second = Mock()
@@ -39,6 +85,18 @@ class VertexCloudTests(unittest.TestCase):
         auth.assert_called_once_with('destination-project')
         session.list_buckets.assert_called_once_with(project='source-project', timeout=30)
         self.assertEqual(cfg['vertexBucket'], 'destination-bucket')
+
+    def test_first_cloud_sign_in_can_browse_without_a_default_project(self):
+        with patch('google.auth.transport.requests.AuthorizedSession') as authorized, patch.object(vertex_ai, 'credentials') as auth:
+            response = authorized.return_value.__enter__.return_value.get.return_value
+            response.json.return_value = {'projects': [{'projectId': 'source', 'state': 'ACTIVE'}]}
+            self.assertEqual(cloud_video.accessible_projects({}), [{'id': 'source', 'name': 'source'}])
+            auth.assert_called_once_with(None, allow_missing_project=True)
+
+        with patch('google.cloud.storage.Client') as client, patch.object(vertex_ai, 'credentials') as auth:
+            client.return_value.__enter__.return_value.list_buckets.return_value = [SimpleNamespace(name='video-bucket')]
+            self.assertEqual(cloud_video.project_buckets({}, 'source'), ['video-bucket'])
+            auth.assert_called_once_with('source')
 
     def test_object_permissions_checks_source_and_candidate_destination(self):
         from google.iam.v1.iam_policy_pb2 import TestIamPermissionsResponse

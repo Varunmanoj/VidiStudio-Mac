@@ -63,6 +63,11 @@ struct VidiStudioApp: App {
                 .writingToolsAffordanceVisibility(.hidden)
                 .frame(minWidth: 760, minHeight: 560)
                 .task { YouTubeService.expireCaches(library: studio.settings.libraryPath) }
+                .onChange(of: YouTubeService.shared.googleConnectionRevision) {
+                    studio.invalidateCloudPermissions()
+                    studio.settings.vertexConnected = KeychainStore.hasVertexSignIn
+                    NotificationCenter.default.post(name: .vidiStudioCloudAccountDidChange, object: studio)
+                }
         }
         .handlesExternalEvents(matching: ["*"])
         .defaultSize(width: 1200, height: 780)
@@ -85,12 +90,13 @@ struct VidiStudioApp: App {
                     studio.beginNewProject(source: .cloud)
                 }
                 .disabled(!studio.canBeginNewProject || !studio.settings.vertexConnected)
+                Divider()
                 Button("Open Cloud Videos…", systemImage: "icloud.and.arrow.down") {
                     openWindow(id: "studio")
                     studio.openCloudVideos()
                 }
+                .keyboardShortcut(StudioShortcut.cloudBrowser.key, modifiers: StudioShortcut.cloudBrowser.modifiers)
                 .disabled(!studio.canOpenCloudVideos)
-                Button("Open Project Folder…", systemImage: "folder") { studio.openProject() }.keyboardShortcut("o", modifiers: [.command, .shift]).disabled(studio.busy)
             }
         }
         .commands { StudioCommands(studio: studio) }
@@ -104,6 +110,16 @@ struct VidiStudioApp: App {
         }
         .defaultSize(width: 1200, height: 780)
         .windowToolbarStyle(.automatic)
+        Window("My YouTube Videos", id: "youtube-browser") {
+            YouTubeBrowserView(studio: studio)
+                .background(MainWindowLifetime().frame(width: 0, height: 0))
+        }
+        Window("YouTube Details", id: "youtube-details") {
+            Group {
+            if let project = studio.selected, project.isYouTubeURLProject { ScrollView { YouTubeDetailsView(studio: studio, project: project, startWithCaptions: studio.youtubeDetailAction == "youtube-captions") } }
+            else { Text("Choose a YouTube project.").padding() }
+            }.background(MainWindowLifetime().frame(width: 0, height: 0))
+        }
         Settings { SettingsView(studio: studio, openProjects: openProjects) }
             .windowToolbarStyle(.unifiedCompact)
             .defaultSize(width: 980, height: 740)

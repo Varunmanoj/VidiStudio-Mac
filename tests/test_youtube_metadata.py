@@ -14,6 +14,21 @@ class YouTubeMetadataTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError,'Private Video Cannot Be Opened'): metadata.validate(value, value['videoID'])
         value['visibility']='unlisted'
         self.assertEqual(metadata.validate(value)['visibility'], 'unlisted')
+    def test_private_access_requires_verified_ownership_and_survives_cache_expiry(self):
+        details = self.sample(channelID='owned-channel')
+        details['visibility'] = 'private'
+        verified = []
+        owner = lambda video, channel: verified.append((video, channel))
+        project = dict(sourceType='youtube', youtubeURL='https://www.youtube.com/watch?v=jNQXAC9IVRw')
+        metadata.store(project, metadata.validate(details, 'jNQXAC9IVRw', owner))
+        self.assertEqual(verified, [('jNQXAC9IVRw', 'owned-channel')])
+        metadata.expire(Path('.'), project, now=project['youtubeMetadata']['fetchedAt'] + 31 * 86400)
+        self.assertNotIn('youtubeMetadata', project)
+        with self.assertRaisesRegex(ValueError, 'Private Video'):
+            metadata.guard(project)
+        metadata.guard(project, owner)
+        self.assertEqual(verified[-1], ('jNQXAC9IVRw', 'owned-channel'))
+
     def test_unavailable_and_nonfinite_duration(self):
         for duration in (0, -1, math.inf, math.nan, True, '18'):
             value=self.sample(); value['duration']=duration

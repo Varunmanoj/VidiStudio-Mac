@@ -4,23 +4,20 @@ import math
 import time
 from pathlib import Path
 
-PRIVATE_MESSAGE = ('Private Video Cannot Be Opened. This video is private. '
-                   'Signing in to Google does not give Gemini access. '
-                   'Choose a public or unlisted video, or import your original local video.')
+PRIVATE_MESSAGE = ('Private Video Cannot Be Opened. Connect the video’s owner in YouTube Accounts '
+                   'and sign in to Google Cloud with the same account, or import the original video file.')
 FIELDS = ('videoID', 'title', 'description', 'channelID', 'channelTitle', 'duration',
           'visibility', 'publishedAt', 'thumbnailURL', 'captionsAvailable', 'tags',
           'language', 'audioLanguage', 'categoryID', 'embeddable', 'uploadStatus',
           'liveStatus', 'viewCount', 'likeCount', 'commentCount', 'fetchedAt', 'playlists', 'openedFromPlaylist', 'playlistChannelTitle', 'playlistLookupStatus')
 
-def validate(value, video_id=None):
+def validate(value, video_id=None, private_owner=None):
     if not isinstance(value, dict):
         raise ValueError('YouTube details must be an object.')
     data = {key: value[key] for key in FIELDS if key in value}
     if video_id and data.get('videoID') != video_id:
         raise ValueError('YouTube details belong to a different video.')
-    if data.get('visibility') == 'private':
-        raise ValueError(PRIVATE_MESSAGE)
-    if data.get('visibility') not in ('public', 'unlisted'):
+    if data.get('visibility') not in ('public', 'unlisted', 'private'):
         raise ValueError('This YouTube video is unavailable. Check the video and account permissions.')
     duration = data.get('duration')
     if isinstance(duration, bool) or not isinstance(duration, (float, int)) or not math.isfinite(duration) or duration <= 0:
@@ -37,15 +34,43 @@ def validate(value, video_id=None):
         if not isinstance(data['playlists'], list): raise ValueError('Invalid YouTube playlist list.')
         data['playlists'] = [playlist(item) for item in data['playlists']]
     if data.get('openedFromPlaylist') is not None: data['openedFromPlaylist'] = playlist(data['openedFromPlaylist'])
+    if data['visibility'] == 'private':
+        if not private_owner or not data.get('channelID'):
+            raise ValueError(PRIVATE_MESSAGE)
+        private_owner(data.get('videoID'), data['channelID'])
     data['fetchedAt'] = time.time()
     return data
 
-def read(path, video_id):
-    return validate(json.loads(Path(path).read_text(encoding='utf-8')), video_id)
+def read(path, video_id, private_owner=None):
+    return validate(json.loads(Path(path).read_text(encoding='utf-8')), video_id, private_owner)
 
-def guard(project):
-    if project.get('sourceType') == 'youtube' and project.get('youtubeMetadata', {}).get('visibility') == 'private':
+
+def private_channel(project):
+    details = project.get('youtubeMetadata') or {}
+    return project.get('youtubePrivateChannelID') or (details.get('channelID') if details.get('visibility') == 'private' else None)
+
+
+def is_private(project):
+    return bool(private_channel(project)) or (project.get('youtubeMetadata') or {}).get('visibility') == 'private'
+
+
+def store(project, details):
+    project['youtubeMetadata'] = details
+    project['duration'] = details['duration']
+    if details['visibility'] == 'private':
+        project['youtubePrivateChannelID'] = details['channelID']
+    else:
+        project.pop('youtubePrivateChannelID', None)
+
+
+def guard(project, private_owner=None):
+    if project.get('sourceType') != 'youtube' or not is_private(project):
+        return
+    channel = private_channel(project)
+    if not private_owner or not channel:
         raise ValueError(PRIVATE_MESSAGE)
+    from parity import youtube_url
+    private_owner(youtube_url(project['youtubeURL']).split('=')[-1], channel)
 
 
 def clear(root, project):

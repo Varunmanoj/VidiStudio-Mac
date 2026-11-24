@@ -109,12 +109,12 @@ struct SettingsView: View {
     @State private var finderExtensionEnabled = FIFinderSyncController.isExtensionEnabled
     private var section: String { studio.settingsSection }
     private var sections: [String] {
-        var sections = ["Appearance", "Projects", "Narration", "Gemini"]
+        var sections = ["Appearance", "Projects", "Narration", "Gemini", "YouTube Accounts"]
         if studio.settings.developerMode { sections.append("Developer prompts") }
         sections += ["Storage", "Help", "About"]
         return sections
     }
-    private let sectionIcons = ["Appearance": "circle.lefthalf.filled", "Projects": "rectangle.stack", "Narration": "speaker.wave.2", "Gemini": "sparkles", "Developer prompts": "text.bubble", "Storage": "folder", "Help": "questionmark.circle", "About": "info.circle"]
+    private let sectionIcons = ["Appearance": "circle.lefthalf.filled", "Projects": "rectangle.stack", "Narration": "speaker.wave.2", "Gemini": "sparkles", "YouTube Accounts": "person.crop.circle", "Developer prompts": "text.bubble", "Storage": "folder", "Help": "questionmark.circle", "About": "info.circle"]
     private let promptStageOrder = ["multilingual_media", "transcript", "youtube_transcript", "summary", "audio_descriptions", "screen_text", "youtube_screen_text", "text_rewrite", "tts_audio"]
     private func prompt(_ stage: String, _ key: String) -> Binding<String> {
         Binding(get: { studio.settings.prompts[stage]?[key] ?? "" }, set: { studio.settings.prompts[stage, default: [:]][key] = $0 })
@@ -293,6 +293,7 @@ struct SettingsView: View {
                 }
             } header: { Text("Developer prompts").accessibilityAddTraits(.isHeader).accessibilityHeading(.h2) }
             }
+            if section == "YouTube Accounts" { YouTubeAccountsView() }
             if section == "Storage" { Section {
                 LabeledContent("Default folder for new projects") {
                     HStack {

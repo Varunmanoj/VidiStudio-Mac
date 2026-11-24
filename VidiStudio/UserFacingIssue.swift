@@ -213,7 +213,7 @@ struct UserFacingIssue: Equatable {
         case "import-youtube", "prepare-youtube":
             return UserFacingIssue(
                 title: "YouTube Video Couldn’t Be Added",
-                message: "Use a YouTube video with visibility set to Public or Unlisted. Private and other restricted visibility settings cannot be analyzed by Gemini. Check the link, your Gemini settings, and your internet connection, then try again."
+                message: "Check the video link and your AI connection. For a private video, connect the Google account that owns it to Vertex AI."
             )
         case "prepare-video", "probe-video", "generate-thumbnails":
             return UserFacingIssue(

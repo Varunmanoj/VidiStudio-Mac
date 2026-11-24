@@ -2,14 +2,11 @@ import AppKit
 import Foundation
 
 struct YouTubeProjectPreview {
-    let videoID: String
-    let canonicalURL: String
-    let title: String
+    let video: YouTubeVideo
     let thumbnail: NSImage
-}
-
-private struct YouTubeOEmbedMetadata: Decodable {
-    let title: String
+    var videoID: String { video.id }
+    var canonicalURL: String { video.url }
+    var title: String { video.title }
 }
 
 enum YouTubeProjectPreviewError: LocalizedError {
@@ -35,12 +32,21 @@ enum YouTubeProjectPreviewFetcher {
         guard let videoID = StudioModel.youtubeVideoID(from: rawURL) else {
             throw YouTubeProjectPreviewError.invalidURL
         }
-        let canonicalURL = "https://www.youtube.com/watch?v=\(videoID)"
         let video = try await YouTubeService.shared.video(videoID)
         try video.requireAvailable()
         guard let thumbnailURL = URL(string: video.thumbnailURL) else { throw YouTubeProjectPreviewError.thumbnailUnavailable }
         let (data, _) = try await URLSession.shared.data(from: thumbnailURL)
         let thumbnail = NSImage(data: data) ?? NSImage(systemSymbolName: "film", accessibilityDescription: "Video")!
-        return YouTubeProjectPreview(videoID: videoID, canonicalURL: canonicalURL, title: video.title, thumbnail: thumbnail)
+        return YouTubeProjectPreview(video: video, thumbnail: thumbnail)
+    }
+
+    static func selectedVideo(_ video: YouTubeVideo) async -> YouTubeProjectPreview {
+        let placeholder = NSImage(systemSymbolName: "film", accessibilityDescription: "Video")!
+        guard let url = URL(string: video.thumbnailURL), url.scheme == "https",
+              let (data, _) = try? await URLSession.shared.data(from: url),
+              let thumbnail = NSImage(data: data) else {
+            return YouTubeProjectPreview(video: video, thumbnail: placeholder)
+        }
+        return YouTubeProjectPreview(video: video, thumbnail: thumbnail)
     }
 }

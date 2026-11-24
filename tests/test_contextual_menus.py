@@ -30,10 +30,10 @@ SCOPES = {
     'prepare-video': [0,1,2,3,4], 'export': [0,1,2,3,4], 'import-assets': [0,1,2,3,4],
     'transcript': [0,1,2,3,4], 'summary': [0,1,2,3,4], 'descriptions': [0,1,2,3,4],
     'ad-overview': [0,1,2,3,4], 'ad-transcript': [0,1,2,3,4],
-    'youtube-details': [0,1,2,3,4], 'youtube-refresh': [0,1,2,3,4],
-    'import-original-audio': [0,1,2,3,4],
+    'youtube-captions': [0], 'youtube-details': [0,1,2,3,4], 'youtube-refresh': [0,1,2,3,4],
+    'import-original-audio': [0,1,2,3,4], 'youtube-browser': [],
 }
-SOURCE_ONLY = {'youtube-details', 'youtube-refresh', 'import-original-audio'}
+SOURCE_ONLY = {'youtube-captions', 'youtube-details', 'youtube-refresh', 'import-original-audio'}
 
 
 def declaration(source, marker):
@@ -111,7 +111,7 @@ struct ConnectivityService { static let shared = ConnectivityService(); func ava
     actions.activeSection = "descriptions"; actions.available = true
     calls = []; actions.run("synthesize-tts"); precondition(calls == ["synthesize-tts"])
     actions.activeSection = "transcript"; actions.youtubeProject = true
-    calls = []; actions.run("youtube-details"); precondition(calls == ["youtube-details"])
+    calls = []; actions.run("youtube-captions"); precondition(calls == ["youtube-captions"])
     actions.activeSection = "summary"; actions.summaryEditing = false
     calls = []; actions.run("import-summary"); precondition(calls == ["import-summary"])
     actions.available = false

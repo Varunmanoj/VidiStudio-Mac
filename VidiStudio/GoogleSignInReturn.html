@@ -1,0 +1,97 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="color-scheme" content="light dark">
+  <title>{{HEADING}} · VidiStudio</title>
+  {{FAVICON}}
+  <style>
+    :root {
+      color-scheme: light dark;
+      --background: #eef3fc;
+      --glow: #dbeafe;
+      --card: #fff;
+      --line: #d3ddeb;
+      --ink: #17243a;
+      --muted: #415471;
+      --accent: #154dad;
+      --shadow: #183b6b19;
+      font-family: system-ui, sans-serif;
+    }
+    @media (prefers-color-scheme: dark) {
+      :root {
+        --background: #101725;
+        --glow: #1f3560;
+        --card: #172234;
+        --line: #374965;
+        --ink: #f2f6ff;
+        --muted: #c0cee5;
+        --accent: #aacbff;
+        --shadow: #0005;
+      }
+    }
+    body {
+      margin: 0;
+      padding: clamp(1rem, 5vw, 3rem);
+      min-height: 100vh;
+      box-sizing: border-box;
+      display: grid;
+      align-items: center;
+      justify-items: center;
+      background: radial-gradient(ellipse at top, var(--glow), transparent 70%), var(--background);
+      color: var(--ink);
+      line-height: 1.6;
+    }
+    main {
+      box-sizing: border-box;
+      width: min(100%, 33rem);
+      padding: clamp(1.5rem, 5vw, 2.75rem);
+      border: 1px solid var(--line);
+      border-radius: 1.5rem;
+      background: var(--card);
+      box-shadow: 0 1.25rem 4rem var(--shadow);
+    }
+    .brand {
+      display: flex;
+      align-items: center;
+      gap: 1rem;
+      margin-bottom: 1.75rem;
+      font-size: 1.25rem;
+      font-weight: 700;
+    }
+    .brand img {
+      width: 3.75rem;
+      height: 3.75rem;
+      object-fit: contain;
+    }
+    .service {
+      margin: 0 0 .35rem;
+      color: var(--accent);
+      font-weight: 650;
+    }
+    h1 {
+      margin: 0 0 .75rem;
+      font-size: clamp(1.65rem, 1.2rem + 2vw, 2.375rem);
+      line-height: 1.16;
+    }
+    p { color: var(--muted); }
+    .message { margin: 0; }
+    .next {
+      margin: 1.5rem 0 0;
+      padding-top: 1rem;
+      border-top: 1px solid var(--line);
+      color: var(--ink);
+    }
+  </style>
+</head>
+<body>
+  <main aria-labelledby="page-heading">
+    <header class="brand">{{APP_ICON}}<span>VidiStudio</span></header>
+    <p class="service">{{SERVICE}} sign-in</p>
+    <h1 id="page-heading">{{HEADING}}</h1>
+    <p class="message">{{MESSAGE}}</p>
+    <p class="next">Close this tab and switch back to the app.</p>
+  </main>
+</body>
+</html>

@@ -11,15 +11,19 @@ from uuid import UUID
 import vertex_ai
 
 
+def quota_project(cfg, source_project=None):
+    return (cfg.get('vertexProject') or '').strip() or source_project
+
+
 def bucket_for(cfg, source_project=None):
     from google.cloud import storage
     from google.auth.transport.requests import AuthorizedSession
-    quota_project = (cfg.get('vertexProject') or '').strip()
-    project = source_project or quota_project
+    quota = quota_project(cfg, source_project)
+    project = source_project or quota
     name = (cfg.get('vertexBucket') or '').strip()
     if not name or '/' in name:
         raise ValueError('Enter the bucket name in Settings > AI.')
-    creds = vertex_ai.credentials(quota_project)
+    creds = vertex_ai.credentials(quota)
     client = storage.Client(project=project, credentials=creds)
     bucket = client.get_bucket(name)
     with AuthorizedSession(creds) as session:
@@ -184,7 +188,7 @@ def accessible_projects(cfg):
 
     projects = {}
     params = {'query': 'state:ACTIVE', 'pageSize': 100}
-    with AuthorizedSession(vertex_ai.credentials(cfg.get('vertexProject', '').strip())) as session:
+    with AuthorizedSession(vertex_ai.credentials(quota_project(cfg), allow_missing_project=True)) as session:
         while True:
             response = session.get('https://cloudresourcemanager.googleapis.com/v3/projects:search',
                                    params=params, timeout=20)
@@ -202,7 +206,7 @@ def accessible_projects(cfg):
 
 def project_buckets(cfg, source_project=None):
     from google.cloud import storage
-    project = cfg.get('vertexProject', '').strip()
+    project = quota_project(cfg, source_project)
     with storage.Client(project=project, credentials=vertex_ai.credentials(project)) as client:
         return sorted(bucket.name for bucket in client.list_buckets(project=source_project or project, timeout=30))
 
@@ -345,14 +349,14 @@ def download(cfg, name, directory, limit, emit, generation=None, source_project=
 
 
 @contextmanager
-def iam_permission_test(cfg, bucket):
+def iam_permission_test(cfg, bucket, source_project=None):
     from google.auth.transport.grpc import secure_authorized_channel
     from google.auth.transport.requests import Request
     from google.iam.v1.iam_policy_pb2 import TestIamPermissionsRequest, TestIamPermissionsResponse
 
     bucket_resource = f'projects/_/buckets/{bucket}'
     routing = (('x-goog-request-params', urlencode({'bucket': bucket_resource})),)
-    with secure_authorized_channel(vertex_ai.credentials(cfg.get('vertexProject', '').strip()),
+    with secure_authorized_channel(vertex_ai.credentials(quota_project(cfg, source_project)),
                                    Request(), 'storage.googleapis.com:443') as channel:
         test = channel.unary_unary('/google.storage.v2.Storage/TestIamPermissions',
                                   request_serializer=TestIamPermissionsRequest.SerializeToString,
@@ -365,8 +369,8 @@ def iam_permission_test(cfg, bucket):
         yield bucket_resource, allowed
 
 
-def object_permissions(cfg, bucket, object_name, destination=None):
-    with iam_permission_test(cfg, bucket) as (bucket_resource, allowed):
+def object_permissions(cfg, bucket, object_name, destination=None, *, source_project=None):
+    with iam_permission_test(cfg, bucket, source_project) as (bucket_resource, allowed):
         held = allowed(f'{bucket_resource}/objects/{object_name}', 'storage.objects.get', 'storage.objects.delete')
         delete = 'storage.objects.delete' in held
         # The candidate destination is checked against any object-specific IAM rules before copying.
@@ -393,7 +397,7 @@ def manage_bucket_video(cfg, args, emit):
         destination = prefix + separator + filename(args.new_name)
         if destination == blob.name:
             return
-        if not object_permissions(cfg, bucket.name, blob.name, destination)['rename']:
+        if not object_permissions(cfg, bucket.name, blob.name, destination, source_project=args.source_project)['rename']:
             raise PermissionError('Your Google account does not have permission to rename this video.')
         emit('Copying video to its new name…')
         bucket.copy_blob(blob, bucket, destination, if_source_generation_match=generation, if_generation_match=0)
@@ -404,7 +408,7 @@ def manage_bucket_video(cfg, args, emit):
             raise ValueError('The new copy may exist. Refresh the bucket and check both names before retrying.') from exc
         emit('Cloud video renamed')
     else:
-        if not object_permissions(cfg, bucket.name, blob.name)['delete']:
+        if not object_permissions(cfg, bucket.name, blob.name, source_project=args.source_project)['delete']:
             raise PermissionError('Your Google account does not have permission to delete this video.')
         emit('Deleting cloud video…')
         blob.delete(if_generation_match=generation)

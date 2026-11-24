@@ -11,10 +11,12 @@ class GalleryEditMenu(unittest.TestCase):
         harness='''import SwiftUI
 struct OutputLanguage {}
 enum ProjectListSort {case lastOpened, name, duration, type}
-enum ProjectSourceFilter {case all, local, youtube}
-struct StudioProject {var id="one"; var folder:URL?=URL(fileURLWithPath:"/tmp/project");var integrityPlaceholder:Bool?=false;var hasGeneratedContent=true;var isYouTubeURLProject=false;var canGenerateDescriptions=true}
+enum ProjectSourceFilter {case all, local, youtube, cloud}
+struct StudioProject {var id="one"; var folder:URL?=URL(fileURLWithPath:"/tmp/project");var integrityPlaceholder:Bool?=false;var hasGeneratedContent=true;var isYouTubeURLProject=false;var canGenerateDescriptions=true;var cloudVideo:[String:String]?=nil;var ownsCloudVideo=false}
 @MainActor final class ConnectivityService {static let shared=ConnectivityService();enum Service {case youtube,gemini};func available(_ service:Service)->Bool {true}}
 @MainActor final class StudioModel {
+ struct Settings {var vertexConnected=false};var settings=Settings()
+ var hasValidApiKey=true
  var busy=false;var listedProjects=[StudioProject()];var hasApiKey=true;var apiKeyVerified:Bool?=true;var isAIProcessingBlocked=false;var developer=false;var calls=[String]()
  func canManageProject(_ action:String,project:StudioProject)->Bool {
   if action=="youtube-open-browser" {return project.isYouTubeURLProject}
@@ -22,6 +24,10 @@ struct StudioProject {var id="one"; var folder:URL?=URL(fileURLWithPath:"/tmp/pr
   return !busy && project.folder != nil && project.integrityPlaceholder != true
  }
  func requestProjectManagement(_ action:String,project:StudioProject){calls.append(action+":"+project.id)}
+ struct CloudPermissions {var rename=false;var delete=false}
+ func cloudPermissions(for project:StudioProject?)->CloudPermissions? {nil}
+ func canDeleteProjectVideo(_ project:StudioProject?)->Bool {project?.folder != nil}
+ func cloudAction(_ action:String,project:StudioProject){calls.append(action+":"+project.id)}
  func removeProjectFromList(_ project:StudioProject){calls.append("remove:"+project.id)}
 }
 @MainActor
@@ -69,6 +75,6 @@ struct StudioProject {var id="one"; var folder:URL?=URL(fileURLWithPath:"/tmp/pr
         self.assertIn('Command("open-gallery-window", libraryOnly: true)',win_file)
         self.assertIn('case "open-gallery-window": openNewWindow(project)',(MAC/'VidiStudio/ProjectBrowserPage.swift').read_text())
         self.assertIn('libraryOnlyMenuItems.Contains(item) && !LibraryCommandVisible(id)',win)
-        self.assertIn('if (id == "youtube-open-browser") return ProjectManagementTarget()?.IsYouTube == true;',win)
+        self.assertIn('if (id == "youtube-open-browser") return youtubeBrowserCanRun != null || ProjectManagementTarget()?.IsYouTube == true;',win)
         self.assertIn('case "open-gallery-window":\n            case "open-selected-project": if (SelectedGalleryProject()',win)
         self.assertIn('!desktopEditorVisible && menu.Title is "Playback" ?',win)

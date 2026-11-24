@@ -83,11 +83,37 @@ def validate(source):
     require('Windows/App.xaml.cs', 'var target = ProjectLibrary();', 'external activation must start in All Projects')
     require('Windows/MainWindow.xaml.cs', 'App.OpenOrActivateEditor(folder)', 'external activation must open a separate editor')
     require('Windows/MainWindow.Menus.cs', 'if (wasEditor && windowClosed) App.ShowProjectLibrary();', 'editor close must return to All Projects')
-    for path, text in source.items():
-        for label in ('My YouTube Videos', 'YouTube Accounts', 'Choose YouTube captions after',
-                      'Download YouTube Captions', 'Import YouTube Captions', 'Caption account'):
-            if label in text:
-                raise ValueError(f'{path}: retired YouTube control: {label}')
+    for path, token in (
+        ('Mac/SettingsView.swift', 'YouTubeAccountsView()'),
+        ('Windows/Views/SettingsDialog.cs', 'new YouTubeAccountsPanel(this)'),
+        ('Mac/VidiStudioApp.swift', 'Window("My YouTube Videos", id: "youtube-browser")'),
+        ('Windows/MainWindow.YouTube.cs', 'ShowYouTubeBrowserAsync'),
+        ('Mac/ContentView.swift', 'Choose YouTube captions after creating'),
+        ('Windows/Views/NewProjectDialog.cs', 'Choose YouTube captions after creating'),
+    ):
+        require(path, token, 'YouTube account, browser or caption control is missing')
+    for path, token in (
+        ('Mac/ContentView.swift', 'VideoBrowserRowCheckbox(title: video.filename, id: video.id, selection: $videoID)'),
+        ('Mac/YouTubeViews.swift', 'VideoBrowserRowCheckbox(title: video.title, id: video.id, selection: $selectedVideoID)'),
+        ('Windows/Views/CloudVideosDialog.cs', 'videoSelection.ModeItem('),
+        ('Windows/MainWindow.YouTube.cs', 'videoSelection.ModeItem('),
+    ):
+        require(path, token, 'both video browsers need the shared checkbox selection')
+    for path, token in (
+        ('Mac/ContentView.swift', 'if let listingMessage { VideoBrowserLoadingIndicator(message: listingMessage) }'),
+        ('Mac/YouTubeViews.swift', 'if loading { VideoBrowserLoadingIndicator(message: loadingMessage) }'),
+        ('Windows/Views/CloudVideosDialog.cs', 'results.Children.Add(centeredLoading)'),
+        ('Windows/MainWindow.YouTube.cs', 'results.Children.Add(loadingRow)'),
+    ):
+        require(path, token, 'browser results need centered loading progress')
+    for path, token in (
+        ('Mac/ContentView.swift', '.sheet(isPresented: $showingYouTubePicker)'),
+        ('Mac/ContentView.swift', 'youtubeURL = preview.canonicalURL'),
+        ('Windows/Views/NewProjectDialog.cs', 'await browse(window) is { } video'),
+        ('Windows/Views/NewProjectDialog.cs', 'youtubeUrl.Text = video.Url'),
+        ('Windows/MainWindow.xaml.cs', 'BrowseYouTubeVideo = owner => ShowYouTubeBrowserAsync(owner)'),
+    ):
+        require(path, token, 'the YouTube picker must return its video to the open New Project form')
     new_project = source['Mac/ContentView.swift'].split('private struct NewProjectView:', 1)[1].split('final class SharedVideoProgressPanel', 1)[0]
     for path, token in (
         ('Mac/ContentView.swift', 'CloudVideosView(studio: studio, selectConfiguredBucket: true)'),
@@ -138,9 +164,16 @@ def validate(source):
         for token in ('Open Cloud Videos', 'Google Cloud project', 'Source bucket', 'Search videos',
                       'Recently Modified', 'Largest First', 'Open in Editor', 'Load Thumbnail', 'Rename Video…', 'Delete Video…'):
             require(path, token, 'the dedicated Cloud browser must support browsing and video actions')
+    for path, tokens in (
+        ('Mac/ContentView.swift', ('Picker("Video layout"', 'Text("List View")', 'Text("Table View")', 'TableColumn("Thumbnail")')),
+        ('Windows/Views/CloudVideosDialog.cs', ('Content = "List View"', 'Content = "Table View"', "Text='Thumbnail'",
+                                              'CompactActions(actions, openEditor, cancel)', 'videoScroll.HorizontalScrollMode')),
+    ):
+        for token in tokens:
+            require(path, token, 'the Cloud browser must match the YouTube browser layout and thumbnail table')
     for path, token in (
         ('Mac/VidiStudioApp.swift', '.disabled(!studio.canOpenCloudVideos)'),
-        ('Windows/MainWindow.Menus.cs', 'if (id == "open-cloud-videos") return !cloudBrowserOpen && Model.Settings.GetBool("vertexConnected");'),
+        ('Windows/MainWindow.Menus.cs', 'if (id == "open-cloud-videos") return !cloudBrowserOpen;'),
         ('Mac/ContentView.swift', 'if canDelete, let file'),
         ('Windows/Views/CloudVideosDialog.cs', 'if (CanDelete) menu.Items.Add('),
         ('Mac/ContentView.swift', 'if canRename, let file'),
@@ -149,15 +182,23 @@ def validate(source):
         ('Windows/MainWindow.Menus.cs', '&& !CanDeleteProjectVideo(ProjectManagementTarget())) return false;'),
     ):
         require(path, token, 'the Cloud browser and mutations must respect signed-in permissions')
-    require('Windows/Views/SettingsDialog.cs', 'Enumerable.Range(0, labels.Length)',
-            'Settings navigation must enumerate the current sidebar labels')
+    for path, token in (
+        ('Mac/ContentView.swift', 'if studio.settings.vertexConnected { connectedBrowser }'),
+        ('Mac/ContentView.swift', 'else { signedOutBrowser }'),
+        ('Mac/ContentView.swift', 'try await YouTubeService.shared.signInToCloud()'),
+        ('Windows/Views/CloudVideosDialog.cs', 'signedOutBrowser.Visibility = connected ? Visibility.Collapsed : Visibility.Visible;'),
+        ('Windows/Views/CloudVideosDialog.cs', 'await YouTubeService.Shared.SignInToCloudAsync(request.Token);'),
+    ):
+        require(path, token, 'the signed-out Cloud browser must open and offer Cloud sign-in')
+    require('Windows/Views/SettingsDialog.cs', 'new[] { 0, 1, 2, 3, 8, 4, 5, 6, 7 }',
+            'Settings must place YouTube Accounts after AI without changing section IDs')
     for path, action in [
         ('Mac/YouTubeProjectPreview.swift', 'YouTubeService.shared.video(videoID)'),
-        ('Windows/Views/NewProjectDialog.cs', 'YouTubeService.Shared.VideoAsync('),
-        ('Mac/ProjectSourcesSettingsView.swift', 'Button("Video Details…"'),
-        ('Windows/Views/ProjectSourcesSettingsControl.cs', '("Video Details…", "youtube-details")'),
-        ('Mac/YouTubeViews.swift', 'YouTubeService.shared.video(id)'),
-        ('Windows/MainWindow.YouTube.cs', 'service.VideoAsync(id, cancellation.Token)'),
+        ('Windows/Views/NewProjectDialog.cs', 'YouTubeService.Shared.ProjectVideoAsync('),
+        ('Mac/ProjectSourcesSettingsView.swift', 'Button("YouTube Details & Captions…"'),
+        ('Windows/Views/ProjectSourcesSettingsControl.cs', '("YouTube Details & Captions…", "youtube-captions")'),
+        ('Mac/YouTubeViews.swift', 'YouTubeService.shared.projectVideo('),
+        ('Windows/MainWindow.YouTube.cs', 'YouTubeService.Shared.ProjectVideoAsync(id, project.PrivateYouTubeChannel, Model.Settings)'),
     ]:
         require(path, action, 'linked YouTube videos must retain metadata lookup and details')
     for reader in ('Mac/StudioHelp.swift', 'Windows/Views/HelpWindow.xaml.cs'):
@@ -193,7 +234,7 @@ def validate(source):
     require('Windows/Views/SettingsDialog.Information.cs', 'private bool shortcutReferenceExpanded = false;', 'Help reference starts collapsed')
     require('Windows/Views/SettingsDialog.Information.cs', 'IsExpanded = shortcutReferenceExpanded', 'Help reference must retain expansion across navigation')
     require('Windows/Views/SettingsDialog.Information.cs', 'reference.Expanding += (_, _) => shortcutReferenceExpanded = true', 'Help reference must retain expansion across navigation')
-    require('Mac/KeyboardShortcuts.swift', 'ForEach(StudioShortcut.editor + StudioShortcut.youtube)', 'Help must retain the complete shared shortcut list')
+    require('Mac/KeyboardShortcuts.swift', 'ForEach((StudioShortcut.editor + StudioShortcut.youtube).filter', 'Help must retain the complete shared shortcut list')
     require('Mac/KeyboardShortcuts.swift', '.init(id: "jump-to-time", title: "Jump to Time…"', 'Help must retain Jump to Time')
     require('Windows/Views/SettingsDialog.Information.cs', 'menuOwner.DesktopShortcutReference', 'Help must retain the complete shared shortcut list')
     for action in ('about-ffmpeg-license', 'about-license-index', 'about-license-folder'):

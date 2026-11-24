@@ -182,10 +182,23 @@ struct GeminiAPISettingsView: View {
         Button("Use Google sign-in") { studio.settings.vertexAuth = "signin" }
     }
 
+    private func updateGoogleSignIn(disconnect: Bool) {
+        Task {
+            do {
+                if disconnect { try await YouTubeService.shared.disconnectCloudAccount() }
+                else { try await YouTubeService.shared.signInToCloud() }
+                studio.settings.vertexConnected = KeychainStore.hasVertexSignIn
+                studio.invalidateCloudPermissions()
+            } catch is CancellationError {
+            } catch { studio.error = error.localizedDescription }
+        }
+    }
+
     @ViewBuilder private var googleSignInActions: some View {
-        Button(studio.settings.vertexConnected ? "Reconnect Google Account" : "Sign in with Google") { studio.execute("vertex-connect") }
+        Button(studio.settings.vertexConnected ? "Reconnect Google Account" : "Sign in with Google") { updateGoogleSignIn(disconnect: false) }
+            .disabled(YouTubeService.shared.signingIn)
         Button("Remove Google sign-in", systemImage: "trash", role: .destructive) { removingGoogleSignIn = true }
-            .disabled(!studio.settings.vertexConnected)
+            .disabled(!studio.settings.vertexConnected || YouTubeService.shared.signingIn)
     }
 
     @ViewBuilder private var vertexSettings: some View {
@@ -214,8 +227,10 @@ struct GeminiAPISettingsView: View {
                 HStack { googleSignInActions }
                     .contextMenu { googleSignInActions }
                     .alert("Remove Google sign-in from this Mac?", isPresented: $removingGoogleSignIn) {
-                        Button("Remove Google sign-in", role: .destructive) { studio.execute("vertex-disconnect") }
+                        Button("Remove Google sign-in", role: .destructive) { updateGoogleSignIn(disconnect: true) }
                         Button("Cancel", role: .cancel) {}
+                    } message: {
+                        Text("This removes Google Cloud access from this Mac. Your YouTube accounts and projects stay available.")
                     }
             }
             HStack(spacing: 8) {

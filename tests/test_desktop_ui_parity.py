@@ -76,23 +76,78 @@ class DesktopUILayoutParityTests(unittest.TestCase):
         self.mutated('Windows/MainWindow.xaml.cs', 'App.OpenOrActivateEditor(folder)', 'ShowEditor()', 'separate editor')
         self.mutated('Windows/MainWindow.Menus.cs', 'if (wasEditor && windowClosed) App.ShowProjectLibrary();', '', 'editor close must return')
 
-    def test_youtube_link_controls_replace_signed_in_features(self):
+    def test_both_video_browsers_keep_checkbox_selection(self):
+        self.mutated('Mac/ContentView.swift', 'VideoBrowserRowCheckbox(title: video.filename, id: video.id, selection: $videoID)', '',
+                     'both video browsers need the shared checkbox selection')
+        self.mutated('Mac/YouTubeViews.swift', 'VideoBrowserRowCheckbox(title: video.title, id: video.id, selection: $selectedVideoID)', '',
+                     'both video browsers need the shared checkbox selection')
+        for path in ('Windows/Views/CloudVideosDialog.cs', 'Windows/MainWindow.YouTube.cs'):
+            self.mutated(path, 'videoSelection.ModeItem(', '', 'both video browsers need the shared checkbox selection')
+
+    def test_loading_indicators_stay_in_the_video_results(self):
+        self.mutated('Mac/ContentView.swift', 'if let listingMessage { VideoBrowserLoadingIndicator(message: listingMessage) }', '',
+                     'browser results need centered loading progress')
+        self.mutated('Mac/YouTubeViews.swift', 'if loading { VideoBrowserLoadingIndicator(message: loadingMessage) }', '',
+                     'browser results need centered loading progress')
+        self.mutated('Windows/Views/CloudVideosDialog.cs', 'results.Children.Add(centeredLoading)', '',
+                     'browser results need centered loading progress')
+        self.mutated('Windows/MainWindow.YouTube.cs', 'results.Children.Add(loadingRow)', '',
+                     'browser results need centered loading progress')
+
+    def test_signed_out_cloud_browser_opens_with_cloud_sign_in(self):
         for path, token in (
-            ('Mac/SettingsView.swift', 'var sections ='),
-            ('Windows/Views/SettingsDialog.cs', 'var labels ='),
-            ('Mac/ProjectBrowserPage.swift', 'Button("'),
-            ('Windows/MainWindow.xaml', 'Click="NewProject_Click"'),
-            ('Mac/ContentView.swift', 'Text("New Project")'),
-            ('Windows/Views/NewProjectDialog.cs', 'var youtubeRow ='),
-            ('Mac/ImportAssetsView.swift', 'Section("Text assets")'),
-            ('Windows/Views/ImportAssetsDialog.cs', 'public sealed class ImportAssetsPicker'),
+            ('Mac/ContentView.swift', 'else { signedOutBrowser }'),
+            ('Windows/Views/CloudVideosDialog.cs', 'signedOutBrowser.Visibility = connected ? Visibility.Collapsed : Visibility.Visible;'),
+        ):
+            self.mutated(path, token, '', 'the signed-out Cloud browser must open and offer Cloud sign-in')
+
+    def test_cloud_browser_matches_youtube_layout_and_thumbnail_table(self):
+        for path, token in (
+            ('Mac/ContentView.swift', 'TableColumn("Thumbnail")'),
+            ('Windows/Views/CloudVideosDialog.cs', 'videoScroll.HorizontalScrollMode'),
+            ('Windows/Views/CloudVideosDialog.cs', 'CompactActions(actions, openEditor, cancel)'),
+        ):
+            with self.subTest(path=path, token=token):
+                self.mutated(path, token, '', 'the Cloud browser must match the YouTube browser layout')
+
+    def test_youtube_account_controls_coexist_with_link_metadata(self):
+        for path, token in (
+            ('Mac/SettingsView.swift', 'YouTubeAccountsView()'),
+            ('Windows/Views/SettingsDialog.cs', 'new YouTubeAccountsPanel(this)'),
+            ('Mac/VidiStudioApp.swift', 'Window("My YouTube Videos", id: "youtube-browser")'),
+            ('Windows/MainWindow.YouTube.cs', 'ShowYouTubeBrowserAsync'),
         ):
             with self.subTest(path=path):
-                self.mutated(path, token, token + ' /* YouTube Accounts */', 'retired YouTube control')
-        self.mutated('Windows/Views/SettingsDialog.cs', 'Enumerable.Range(0, labels.Length)',
-                     'new[] { 0, 1, 2, 3, 8, 4, 5, 6, 7 }', 'current sidebar labels')
+                self.mutated(path, token, '', 'YouTube account, browser or caption control is missing')
         self.mutated('Mac/YouTubeProjectPreview.swift', 'YouTubeService.shared.video(videoID)', 'missing', 'must retain metadata lookup')
-        self.mutated('Windows/Views/NewProjectDialog.cs', 'YouTubeService.Shared.VideoAsync(', 'missing(', 'must retain metadata lookup')
+        self.mutated('Windows/Views/NewProjectDialog.cs', 'YouTubeService.Shared.ProjectVideoAsync(', 'missing(', 'must retain metadata lookup')
+
+    def test_cloud_and_youtube_settings_use_separate_sign_in_actions(self):
+        workspace = Path(os.environ.get('VIDISTUDIO_DESKTOP_WORKSPACE', ROOT.parent))
+        mac = workspace / 'VidiStudio Mac' / 'VidiStudio'
+        windows = workspace / 'Vidi-Studio-Windows' / 'Vidi Studio Windows'
+        for settings, accounts, service, cloud_call, youtube_call, cloud_remove, youtube_remove in (
+            (mac / 'GeminiAPISettingsView.swift', mac / 'YouTubeViews.swift', mac / 'YouTubeService.swift',
+             'signInToCloud()', 'signIn()', 'disconnectCloudAccount()', 'private func removeYouTubeAccount'),
+            (windows / 'Views/SettingsDialog.Gemini.cs', windows / 'Views/YouTubeAccountsPanel.cs',
+             windows / 'Services/YouTubeService.cs', 'SignInToCloudAsync(', 'SignInAsync(',
+             'DisconnectCloudAccountAsync()', 'private void RemoveYouTubeAccount'),
+        ):
+            with self.subTest(platform=settings.parent):
+                self.assertIn(cloud_call, settings.read_text(encoding='utf-8'))
+                self.assertIn(youtube_call, accounts.read_text(encoding='utf-8'))
+                self.assertNotIn(cloud_call, accounts.read_text(encoding='utf-8'))
+                service_text = service.read_text(encoding='utf-8')
+                self.assertNotIn('oauth2.googleapis.com/revoke', service_text)
+                youtube_section = service_text.split(youtube_remove, 1)[1].split(cloud_remove, 1)[0]
+                self.assertNotIn('updateCloudCredential', youtube_section)
+                self.assertNotIn('UpdateCloudCredentialAsync', youtube_section)
+
+    def test_youtube_picker_returns_to_new_project(self):
+        self.mutated('Mac/ContentView.swift', 'youtubeURL = preview.canonicalURL', '',
+                     'the YouTube picker must return its video to the open New Project form')
+        self.mutated('Windows/Views/NewProjectDialog.cs', 'youtubeUrl.Text = video.Url', '',
+                     'the YouTube picker must return its video to the open New Project form')
 
     def test_new_project_preserves_title_inset_in_taller_modes(self):
         self.mutated('Mac/ContentView.swift', 'maxHeight: preferredHeight, alignment: .topLeading',

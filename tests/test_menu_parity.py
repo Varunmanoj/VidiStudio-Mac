@@ -107,18 +107,39 @@ class DesktopMenuParity(unittest.TestCase):
             with self.assertRaises(ValueError):
                 self.checker.compare_piper_settings_samples(changed_mac, changed_windows)
 
-    def test_youtube_commands_exclude_signed_in_features(self):
+    def test_file_gives_video_browsers_a_separate_group(self):
+        expected = ['new-project', 'new-youtube-project', 'new-cloud-project', '-',
+                    'open-cloud-videos', 'youtube-browser', '-', 'open-project']
+        rows = self.checker.shortcut_rows(self.mac)
+        mac_file = self.checker.swift_group(self.app, 'CommandGroup(replacing: .newItem)', rows)
+        mac_file += self.checker.swift_group(self.mac, 'CommandGroup(after: .newItem)', rows)
+        start = self.windows.index('MenuBarItem[] Layout()')
+        layout = self.windows[start:self.windows.index('galleryMenus.AddRange(Layout())', start)]
+        win_file = dict(self.checker.windows_nodes(layout))['File']
+        self.assertEqual(mac_file[:len(expected)], expected)
+        self.assertEqual(win_file[:len(expected)], expected)
+
+    def test_open_cloud_videos_shortcut_uses_the_file_action(self):
+        self.assertIn('.keyboardShortcut(StudioShortcut.cloudBrowser.key, modifiers: StudioShortcut.cloudBrowser.modifiers)', self.app)
+        command = next(row for row in self.checker.shortcut_rows(self.mac) if row['id'] == 'open-cloud-videos')
+        self.assertEqual((command['key'], command['modifiers']), ('"g"', '[.command, .option]'))
+        self.assertIn('["open-cloud-videos"] = (VirtualKey.G, VirtualKeyModifiers.Control | VirtualKeyModifiers.Menu, "Ctrl+Alt+G")', self.windows)
+        self.assertIn('ForEach([StudioShortcut.cloudBrowser, StudioShortcut.youtubeBrowser])', self.mac)
+        start = self.windows.index('string Text)> DesktopShortcuts')
+        reference = self.windows[start:].split('};', 1)[0]
+        self.assertRegex(reference, r'\["open-cloud-videos"\].*\n\s*\["youtube-browser"\]')
+
+    def test_youtube_library_entry_is_exclusive_to_all_projects(self):
         import runpy
         root = Path(os.environ.get('VIDISTUDIO_DESKTOP_WORKSPACE', Path(__file__).resolve().parents[2]))
         check = runpy.run_path(str(root / 'VidiStudio Mac/script/contextual_menu_contract.py'))['check_contextual_menus']
         check(self.mac, self.windows)
-        for command in ('youtube-browser', 'youtube-accounts', 'youtube-captions'):
-            for mac, windows in [
-                (self.mac.replace('CommandMenu("YouTube") {', f'CommandMenu("YouTube") {{ Button("Removed") {{ studio.runYouTube("{command}") }}', 1), self.windows),
-                (self.mac, self.windows.replace('Menu("YouTube", Command("youtube-open-browser"))', f'Menu("YouTube", Command("{command}"), Command("youtube-open-browser"))', 1)),
-            ]:
-                with self.assertRaisesRegex(ValueError, 'retired YouTube command'):
-                    check(mac, windows)
+        for mac, windows in [
+            (self.mac.replace('if allProjects != nil {\n                Button("My YouTube Videos…"', 'if youtubeMenusVisible {\n                Button("My YouTube Videos…"', 1), self.windows),
+            (self.mac, self.windows.replace('if (id == "youtube-browser") return !desktopEditorVisible && youtubeBrowserCanRun == null;', '')),
+            (self.mac, self.windows.replace('"analyze" or "youtube-browser" => false,', '"analyze" => false,')),
+        ]:
+            with self.assertRaises(ValueError): check(mac, windows)
 
     def test_project_sort_and_website_commands_cannot_be_omitted(self):
         for command in ('projects-sort-opened', 'projects-sort-name', 'projects-sort-duration', 'projects-sort-type', 'website'):

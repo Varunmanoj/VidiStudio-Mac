@@ -47,6 +47,7 @@ private struct NewProjectView: View {
     @State private var createdProject: StudioProject?
     @State private var cloudImport = false
     @State private var showingCloudBrowser = false
+    @State private var showingYouTubePicker = false
     @State private var importedCloudProject: StudioProject?
 
     init(studio: StudioModel) {
@@ -60,6 +61,7 @@ private struct NewProjectView: View {
     @State private var youtubePreview: YouTubeProjectPreview?
     @State private var youtubeFetchError: String?
     @State private var fetchingYouTube = false
+    @State private var chooseYouTubeCaptions = false
 
     private var trimmedYouTubeURL: String {
         youtubeURL.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -128,6 +130,20 @@ private struct NewProjectView: View {
                     }
                     if !studio.settings.vertexConnected { Text("Sign in to Google in Settings > AI.") }
                 }
+                if source == .youtube {
+                    Button("My YouTube Videos…", systemImage: "play.rectangle", action: browseYouTubeVideos)
+                        .disabled(studio.busy || fetchingYouTube)
+                        .contextMenu {
+                            Button("My YouTube Videos…", systemImage: "play.rectangle", action: browseYouTubeVideos)
+                                .disabled(studio.busy || fetchingYouTube)
+                        }
+                    Toggle("Choose YouTube captions after creating", isOn: $chooseYouTubeCaptions)
+                        .contextMenu {
+                            Toggle(isOn: $chooseYouTubeCaptions) {
+                                Label("Choose YouTube captions after creating", systemImage: "captions.bubble")
+                            }
+                        }
+                }
                 if source == .cloud && cloudImport {
                     Button("Choose from Cloud Storage…", systemImage: "icloud.and.arrow.down", action: browseCloudVideos)
                         .disabled(!studio.settings.vertexConnected || studio.busy)
@@ -161,7 +177,8 @@ private struct NewProjectView: View {
                             .requiresInternet(.youtube)
                         }
                         if fetchingYouTube {
-                            ProgressView("Fetching video details…")
+                            VideoBrowserLoadingIndicator(message: "Fetching video details…")
+                                .frame(maxWidth: .infinity)
                                 .controlSize(.small)
                         }
                         if let youtubeFetchError {
@@ -277,7 +294,9 @@ private struct NewProjectView: View {
         .frame(minHeight: 320, idealHeight: preferredHeight, maxHeight: preferredHeight, alignment: .topLeading)
         .onChange(of: studio.settings.vertexConnected) { if !studio.settings.vertexConnected && source == .cloud { source = .videoFile; cloudImport = false } }
         .onChange(of: youtubeURL) {
-            youtubePreview = nil
+            if StudioModel.youtubeVideoID(from: trimmedYouTubeURL) != youtubePreview?.videoID {
+                youtubePreview = nil
+            }
             youtubeFetchError = nil
         }
         .alert(studio.errorTitle, isPresented: Binding(get: { studio.error != nil }, set: { if !$0 { studio.dismissError() } })) {
@@ -290,6 +309,13 @@ private struct NewProjectView: View {
             }
         } message: {
             Text(studio.error ?? "")
+        }
+        .sheet(isPresented: $showingYouTubePicker) {
+            YouTubeBrowserView(studio: studio, onChooseVideo: { preview in
+                youtubePreview = preview
+                youtubeURL = preview.canonicalURL
+                youtubeFetchError = nil
+            })
         }
         .sheet(isPresented: $showingCloudBrowser, onDismiss: {
             guard let project = importedCloudProject else { return }
@@ -313,6 +339,11 @@ private struct NewProjectView: View {
                 )
             }
         }
+    }
+
+    private func browseYouTubeVideos() {
+        guard source == .youtube, !studio.busy, !fetchingYouTube else { return }
+        showingYouTubePicker = true
     }
 
     private func browseCloudVideos() {
@@ -373,7 +404,7 @@ private struct NewProjectView: View {
             _ = studio.importVideo(at: videoURL, completion: finished)
         case .youtube:
             guard let youtubePreview else { return }
-            _ = studio.importYouTube(at: youtubePreview.canonicalURL, name: youtubePreview.title, completion: finished)
+            studio.openYouTubeVideo(youtubePreview.video, completion: finished)
         }
     }
 
@@ -401,6 +432,7 @@ private struct NewProjectView: View {
         dismiss()
         DispatchQueue.main.async {
             openWindow(id: "project-editor", value: project.id)
+            if chooseYouTubeCaptions { studio.youtubeDetailAction = "youtube-captions"; openWindow(id: "youtube-details") }
         }
     }
 
@@ -408,12 +440,19 @@ private struct NewProjectView: View {
     private func fetchYouTubeDetails() async {
         let requestedURL = trimmedYouTubeURL
         guard studio.validateYouTubeForCreation(requestedURL) else { return }
+        let selected = youtubePreview?.video
         youtubePreview = nil
         youtubeFetchError = nil
         fetchingYouTube = true
         defer { fetchingYouTube = false }
         do {
-            let preview = try await YouTubeProjectPreviewFetcher.fetch(requestedURL)
+            let preview: YouTubeProjectPreview
+            if let selected, selected.visibility == "private", StudioModel.youtubeVideoID(from: requestedURL) == selected.id {
+                let current = try await YouTubeService.shared.projectVideo(selected.id, privateChannelID: selected.channelID, settings: studio.settings)
+                preview = await YouTubeProjectPreviewFetcher.selectedVideo(current)
+            } else {
+                preview = try await YouTubeProjectPreviewFetcher.fetch(requestedURL)
+            }
             guard requestedURL == trimmedYouTubeURL else { return }
             youtubePreview = preview
         } catch {
@@ -459,6 +498,8 @@ private struct CloudVideosView: View {
     let openEditor: (StudioProject) -> Void
     @State private var selectConfiguredBucket: Bool
     @State private var importing = false
+    @State private var signInTask: Task<Void, Never>?
+    @FocusState private var signInFocused: Bool
 
     init(studio: StudioModel, selectConfiguredBucket: Bool = false, openEditor: @escaping (StudioProject) -> Void) {
         self.studio = studio
@@ -470,6 +511,7 @@ private struct CloudVideosView: View {
     @State private var projectID = ""
     @State private var bucket = ""
     @State private var videoID: String?
+    @State private var selectingVideos = false
     @State private var search = ""
     @State private var sort = Sort.name
     @State private var permissions: CloudObjectPermissions?
@@ -515,6 +557,8 @@ private struct CloudVideosView: View {
         }
     }
 
+    @State private var listingMessage: String?
+
     private var file: StorageFileChoice? { videos.first { $0.id == videoID } }
     private var canBrowse: Bool { studio.settings.vertexConnected && !studio.busy }
     private var canOpen: Bool {
@@ -528,6 +572,64 @@ private struct CloudVideosView: View {
     }
 
     var body: some View {
+        Group {
+            if studio.settings.vertexConnected { connectedBrowser }
+            else { signedOutBrowser }
+        }
+        .padding(20)
+        .frame(width: 850, height: 580)
+        .interactiveDismissDisabled(studio.busy)
+        .task(id: studio.settings.vertexConnected) {
+            if studio.settings.vertexConnected {
+                refreshProjects()
+            } else {
+                projectID = ""
+                bucket = ""
+                videoID = nil
+            }
+        }
+        .onDisappear { signInTask?.cancel() }
+        .alert(studio.errorTitle, isPresented: Binding(get: { studio.error != nil }, set: { if !$0 { studio.dismissError() } })) {
+            Button("OK", role: .cancel) { studio.dismissError() }
+        } message: { Text(studio.error ?? "") }
+    }
+
+    private var signedOutBrowser: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            Text("Open Cloud Videos").font(.title2.bold()).accessibilityHeading(.h1)
+            Text("Sign in to Google Cloud to browse your storage buckets.")
+            HStack {
+                Button("Sign in with Google", systemImage: "person.crop.circle.badge.plus", action: signInToCloud)
+                    .focused($signInFocused).disabled(signInTask != nil)
+                if signInTask != nil {
+                    Button("Cancel Sign-in", systemImage: "xmark.circle") { signInTask?.cancel() }
+                }
+                Button("Done", role: .cancel) { dismiss() }.keyboardShortcut(.cancelAction)
+            }
+            if signInTask != nil { ProgressView("Waiting for Google sign-in").controlSize(.small) }
+        }
+        .contextMenu {
+            Button("Sign in with Google", systemImage: "person.crop.circle.badge.plus", action: signInToCloud)
+                .disabled(signInTask != nil)
+            Button("Cancel Sign-in", systemImage: "xmark.circle") { signInTask?.cancel() }.disabled(signInTask == nil)
+            Button("Done", systemImage: "checkmark") { dismiss() }
+        }
+        .onAppear { signInFocused = true }
+    }
+
+    private func signInToCloud() {
+        guard signInTask == nil, !studio.settings.vertexConnected else { return }
+        signInTask = Task {
+            defer { signInTask = nil }
+            do {
+                try await YouTubeService.shared.signInToCloud()
+                studio.settings.vertexConnected = KeychainStore.hasVertexSignIn
+            } catch is CancellationError {
+            } catch { studio.error = error.localizedDescription }
+        }
+    }
+
+    private var connectedBrowser: some View {
         VStack(alignment: .leading, spacing: 12) {
             Text("Open Cloud Videos").font(.title2.bold()).accessibilityHeading(.h1)
             HStack {
@@ -535,55 +637,65 @@ private struct CloudVideosView: View {
                     Text("Choose a project").tag("")
                     ForEach(projects) { Text($0.label).tag($0.id) }
                 }
-                Picker("Source bucket", selection: $bucket) {
-                    Text("Choose a bucket").tag("")
-                    ForEach(buckets, id: \.self) { Text($0).tag($0) }
+                .disabled(!canBrowse)
+                Spacer()
+                Button("Refresh", systemImage: "arrow.clockwise", action: refresh).disabled(!canBrowse)
+                Button("Cancel", role: .cancel) {
+                    if studio.busy { studio.cancelCurrentOperation() }
+                    else { dismiss() }
                 }
+                .keyboardShortcut(.cancelAction)
             }
-            .disabled(!canBrowse)
+            Picker("Source bucket", selection: $bucket) {
+                Text("Choose a bucket").tag("")
+                ForEach(buckets, id: \.self) { Text($0).tag($0) }
+            }
+            .disabled(!canBrowse || projectID.isEmpty)
             HStack {
                 TextField("Search videos", text: $search).focused($searching)
                     .contextMenu { searchActions }
                 Picker("Sort by", selection: $sort) {
                     ForEach(Sort.allCases) { Text($0.rawValue).tag($0) }
                 }
-                Picker("File view", selection: $fileView) {
-                    Text("List").tag("List")
-                    Text("Table").tag("Table")
-                }
             }
             .disabled(!canBrowse || bucket.isEmpty)
+            Picker("Video layout", selection: $fileView) {
+                Text("List View").tag("List")
+                Text("Table View").tag("Table")
+            }
+            .pickerStyle(.segmented).fixedSize()
+            .disabled(!canBrowse || bucket.isEmpty)
+            .contextMenu { videoLayoutActions }
 
             Group {
                 if fileView == "Table" {
                     Table(videos, selection: $videoID) {
-                        TableColumn("Video") { videoName($0) }
-                        TableColumn("Object path", value: \.name)
+                        TableColumn("Thumbnail") { videoThumbnail($0, width: 80, height: 45) }.width(90)
+                        TableColumn("Title") { videoTitle($0) }.width(min: 160, ideal: 220)
+                        TableColumn("Object path", value: \.name).width(min: 150, ideal: 240)
                         TableColumn("Size", value: \.formattedSize).width(min: 60, ideal: 90)
                         TableColumn("Modified") { Text($0.updated ?? "—") }
                     }
                 } else {
                     List(videos, selection: $videoID) { video in
-                        VStack(alignment: .leading, spacing: 3) {
-                            videoName(video)
-                            Text(video.name).foregroundStyle(.secondary).lineLimit(1)
+                        HStack(spacing: 12) {
+                            videoThumbnail(video, width: 100, height: 60)
+                            VStack(alignment: .leading, spacing: 4) {
+                                videoTitle(video)
+                                Text(video.name).foregroundStyle(.secondary).lineLimit(1)
+                                Text(video.formattedSize).font(.caption)
+                            }
                         }.tag(video.id)
                     }
                 }
             }
             .frame(minHeight: 160, maxHeight: .infinity)
-            .accessibilityLabel("Bucket video list")
+            .accessibilityLabel(fileView == "Table" ? "Cloud videos table" : "Cloud videos list")
+            .overlay(alignment: .center) {
+                if let listingMessage { VideoBrowserLoadingIndicator(message: listingMessage) }
+            }
             .contextMenu(forSelectionType: String.self) { selection in
-                if let target = selection.count == 1 ? videos.first(where: { selection.contains($0.id) }) : nil {
-                    if target.id == videoID {
-                        videoActions
-                    } else {
-                        Button("Open in Editor", systemImage: "square.and.arrow.down") { importVideo(target) }
-                            .disabled(!canBrowse || projectID.isEmpty || bucket.isEmpty)
-                    }
-                } else {
-                    Button("Refresh", systemImage: "arrow.clockwise", action: refresh).disabled(!canBrowse)
-                }
+                videoActions(for: selection.count == 1 ? videos.first(where: { selection.contains($0.id) }) : nil)
             }
             .disabled(!canBrowse)
 
@@ -606,13 +718,13 @@ private struct CloudVideosView: View {
                 .accessibilityElement(children: .contain)
                 .accessibilityLabel("Selected video details")
             }
-            if studio.busy {
+            if studio.busy && listingMessage == nil {
                 if importing && studio.message.hasPrefix("Downloading video:") {
                     ProgressView(studio.message, value: studio.progress)
                 } else {
                     ProgressView(studio.message)
                 }
-            } else if !bucket.isEmpty {
+            } else if !studio.busy && !bucket.isEmpty {
                 Text(videos.isEmpty ? "No matching videos" : "\(videos.count) videos").foregroundStyle(.secondary)
             }
             if !projectID.isEmpty {
@@ -620,13 +732,8 @@ private struct CloudVideosView: View {
                     .font(.caption)
             }
             HStack {
-                Button("Cancel", role: .cancel) {
-                    if studio.busy { studio.cancelCurrentOperation() }
-                    else { dismiss() }
-                }
-                .keyboardShortcut(.cancelAction)
                 Menu("Actions", systemImage: "ellipsis.circle") {
-                    videoActions
+                    videoActions(for: file)
                     Divider()
                     searchActions
                     Menu("Google Cloud project", systemImage: "cloud") {
@@ -652,26 +759,14 @@ private struct CloudVideosView: View {
                             }
                         }
                     }
-                    Menu("File view", systemImage: "rectangle.split.2x1") {
-                        ForEach(["List", "Table"], id: \.self) { choice in
-                            Toggle(isOn: Binding(get: { fileView == choice }, set: { if $0 { fileView = choice } })) {
-                                Label(choice, systemImage: choice == "List" ? "list.bullet" : "tablecells")
-                            }
-                        }
-                    }
+                    Menu("Video layout", systemImage: "rectangle.split.2x1") { videoLayoutActions }
                 }
                 .disabled(!canBrowse)
-                Spacer()
-                Button("Refresh", systemImage: "arrow.clockwise", action: refresh).disabled(!canBrowse)
                 Button("Open in Editor", systemImage: "square.and.arrow.down", action: importVideo)
                     .keyboardShortcut(.defaultAction).disabled(!canOpen)
+                Spacer()
             }
         }
-        .padding(20)
-        .frame(width: 760, height: 555)
-        .interactiveDismissDisabled(studio.busy)
-        .task { refreshProjects() }
-        .onChange(of: studio.settings.vertexConnected) { if !studio.settings.vertexConnected { dismiss() } }
         .onChange(of: projectID) { refreshBuckets() }
         .onChange(of: bucket) { refreshFiles() }
         .onChange(of: search) { if file == nil { videoID = nil } }
@@ -679,7 +774,7 @@ private struct CloudVideosView: View {
             permissions = nil
             permissionsFor = nil
             guard let permissionKey, let file else { return }
-            let verified = await studio.verifyCloudPermissions(bucket: bucket, object: file.name)
+            let verified = await studio.verifyCloudPermissions(bucket: bucket, object: file.name, sourceProject: projectID)
             guard !Task.isCancelled, self.permissionKey == permissionKey else { return }
             permissions = verified
             permissionsFor = permissionKey
@@ -697,9 +792,6 @@ private struct CloudVideosView: View {
         } message: { target in
             Text("Delete gs://\(bucket)/\(target.name) from Cloud Storage?")
         }
-        .alert(studio.errorTitle, isPresented: Binding(get: { studio.error != nil }, set: { if !$0 { studio.dismissError() } })) {
-            Button("OK", role: .cancel) { studio.dismissError() }
-        } message: { Text(studio.error ?? "") }
     }
 
     @ViewBuilder private var searchActions: some View {
@@ -707,23 +799,39 @@ private struct CloudVideosView: View {
         Button("Clear Search", systemImage: "xmark.circle") { search = "" }.disabled(search.isEmpty)
     }
 
-    @ViewBuilder private var videoActions: some View {
-        Button("Open in Editor", systemImage: "square.and.arrow.down", action: importVideo).disabled(!canOpen)
-        if let file, thumbnail(for: file) == nil, matchingPreview(for: file) == nil {
-            Button("Load Thumbnail", systemImage: "photo") { loadThumbnail(file) }.disabled(!canBrowse)
-        }
-        if canRename, let file {
-            Button("Rename Video…", systemImage: "pencil") {
-                pendingRename = file
-                newName = file.filename
-                showingRename = true
+    @ViewBuilder private func videoActions(for target: StorageFileChoice?) -> some View {
+        Toggle(isOn: $selectingVideos) { Label("Select", systemImage: "checklist") }
+            .disabled(!canBrowse || videos.isEmpty)
+        if let target {
+            if selectingVideos {
+                Toggle(isOn: Binding(
+                    get: { videoID == target.id },
+                    set: { checked in
+                        if checked { videoID = target.id }
+                        else if videoID == target.id { videoID = nil }
+                    }
+                )) { Label("Select Video", systemImage: "checkmark.square") }
             }
-        }
-        if canDelete, let file {
-            Button("Delete Video…", systemImage: "trash", role: .destructive) {
-                pendingDelete = file
-                showingDelete = true
+            Button("Open in Editor", systemImage: "square.and.arrow.down") { importVideo(target) }
+                .disabled(!canBrowse || projectID.isEmpty || bucket.isEmpty)
+            if thumbnail(for: target) == nil, matchingPreview(for: target) == nil {
+                Button("Load Thumbnail", systemImage: "photo") { loadThumbnail(target) }.disabled(!canBrowse)
             }
+            if canRename, let file, target.id == file.id, target.generation == file.generation {
+                Button("Rename Video…", systemImage: "pencil") {
+                    pendingRename = file
+                    newName = file.filename
+                    showingRename = true
+                }
+            }
+            if canDelete, let file, target.id == file.id, target.generation == file.generation {
+                Button("Delete Video…", systemImage: "trash", role: .destructive) {
+                    pendingDelete = file
+                    showingDelete = true
+                }
+            }
+        } else {
+            Button("Open in Editor", systemImage: "square.and.arrow.down", action: importVideo).disabled(true)
         }
         Button("Refresh", systemImage: "arrow.clockwise", action: refresh).disabled(!canBrowse)
     }
@@ -745,15 +853,33 @@ private struct CloudVideosView: View {
         studio.execute("cloud-preview", extra: arguments(file))
     }
 
-    private func videoName(_ video: StorageFileChoice) -> some View {
-        HStack(spacing: 6) {
-            if let image = thumbnail(for: video) {
-                Image(nsImage: image).resizable().scaledToFit().frame(width: 44, height: 25).accessibilityHidden(true)
-            } else {
-                Image(systemName: "film").frame(width: 44).accessibilityHidden(true)
+    @ViewBuilder private var videoLayoutActions: some View {
+        ForEach(["List", "Table"], id: \.self) { choice in
+            Toggle(isOn: Binding(get: { fileView == choice }, set: { if $0 { fileView = choice } })) {
+                Label(choice + " View", systemImage: choice == "List" ? "list.bullet" : "tablecells")
             }
-            Text(video.filename).lineLimit(1)
         }
+    }
+
+    private func videoTitle(_ video: StorageFileChoice) -> some View {
+        HStack(spacing: 6) {
+            if selectingVideos {
+                VideoBrowserRowCheckbox(title: video.filename, id: video.id, selection: $videoID)
+            }
+            Text(video.filename).font(.headline).lineLimit(1)
+        }
+    }
+
+    @ViewBuilder private func videoThumbnail(_ video: StorageFileChoice, width: CGFloat, height: CGFloat) -> some View {
+        Group {
+            if let image = thumbnail(for: video) {
+                Image(nsImage: image).resizable().scaledToFit()
+            } else {
+                Image(systemName: "film").foregroundStyle(.secondary)
+            }
+        }
+        .frame(width: width, height: height)
+        .accessibilityHidden(true)
     }
 
     private func refresh() {
@@ -768,7 +894,9 @@ private struct CloudVideosView: View {
         studio.cloudBuckets = []
         studio.cloudFiles = []
         videoID = nil
+        listingMessage = "Loading Cloud projects…"
         studio.execute("cloud-projects") { _ in
+            listingMessage = nil
             if projectID.isEmpty { projectID = studio.settings.vertexProject }
         }
     }
@@ -780,7 +908,9 @@ private struct CloudVideosView: View {
         studio.cloudBuckets = []
         studio.cloudFiles = []
         guard !projectID.isEmpty else { return }
+        listingMessage = "Loading buckets…"
         studio.execute("cloud-browse", extra: ["--source-project", projectID]) { _ in
+            listingMessage = nil
             if selectConfiguredBucket, projectID == studio.settings.vertexProject {
                 selectConfiguredBucket = false
                 bucket = studio.settings.vertexBucket
@@ -794,7 +924,10 @@ private struct CloudVideosView: View {
         studio.cloudFiles = []
         videoID = nil
         guard !bucket.isEmpty else { return }
-        studio.execute("cloud-browse", extra: ["--source-project", projectID, "--source-bucket", bucket])
+        listingMessage = "Loading videos…"
+        studio.execute("cloud-browse", extra: ["--source-project", projectID, "--source-bucket", bucket]) { _ in
+            listingMessage = nil
+        }
     }
 
     private func arguments(_ file: StorageFileChoice) -> [String] {
@@ -857,7 +990,11 @@ struct ContentView: View {
     @AppStorage("projectGridItemSize") private var projectGridItemSize = 180.0
 
     private func openEditor(_ project: StudioProject) {
-        if project.youtubeMetadata?.visibility == "private" { studio.error = "Private Video Cannot Be Opened. Choose a public or unlisted video, or import the original file."; return }
+        if let channel = project.privateYouTubeChannel, YouTubeService.shared.privateConnection(channel, settings: studio.settings) == nil {
+            studio.errorTitle = "Private Video Cannot Be Opened"
+            studio.error = YouTubeVideo.privateVideoMessage
+            return
+        }
         ProjectOpenHistory.record(project)
         studio.selectedID = project.id
         // The project ID is the WindowGroup value and therefore its window identity.
@@ -1370,7 +1507,7 @@ struct ProjectEditorWindow: View {
             }
         }
         .sheet(isPresented: $studio.showingYouTubeDetails) {
-            if let project = studio.selected { ScrollView { YouTubeDetailsView(studio: studio, project: project) } }
+            if let project = studio.selected { ScrollView { YouTubeDetailsView(studio: studio, project: project, startWithCaptions: studio.youtubeDetailAction == "youtube-captions") } }
         }
         .onAppear {
             if !AppWindowLifetime.hasLibraryWindow { openWindow(id: "studio") }
@@ -1379,7 +1516,7 @@ struct ProjectEditorWindow: View {
             if let project = studio.selected { ProjectOpenHistory.record(project) }
             editorShortcutActions.youtubeHandler = { action in
                 if action == "youtube-refresh" { studio.youtubeInspectorRefresh = UUID(); showInspector = true }
-                else { studio.showingYouTubeDetails = true }
+                else { studio.youtubeDetailAction = action; studio.showingYouTubeDetails = true }
             }
             studio.refreshProjectIntegrity(for: projectID)
             openProjects.open(projectID, name: studio.selected?.name ?? "Project", folder: studio.selected?.folder, owner: windowOwner, actions: editorShortcutActions)
@@ -1394,8 +1531,8 @@ struct ProjectEditorWindow: View {
             guard let project = studio.selected, project.isYouTubeURLProject, let id = project.youtubeURL.flatMap(StudioModel.youtubeVideoID) else { youtubeOpeningIssue = nil; return }
             youtubeOpening = true; youtubeOpeningIssue = nil
             do {
-                let video = try await YouTubeService.shared.video(id)
-                try video.requireAvailable()
+                let video = try await YouTubeService.shared.projectVideo(id, privateChannelID: project.privateYouTubeChannel, settings: studio.settings)
+                try video.requireAvailable(allowPrivate: project.privateYouTubeChannel != nil)
                 guard !Task.isCancelled else { return }
                 studio.saveYouTubeMetadata(video, project: project)
             } catch {

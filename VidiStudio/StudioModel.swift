@@ -573,6 +573,10 @@ struct StudioProject: Codable, Identifiable {
     }
     var sourceType: String?
     var youtubeMetadata: YouTubeVideo?
+    var youtubePrivateChannelID: String?
+    var privateYouTubeChannel: String? {
+        youtubePrivateChannelID ?? (youtubeMetadata?.visibility == "private" ? youtubeMetadata?.channelID ?? "" : nil)
+    }
     var youtubeURL: String?
     var originalAudio: OriginalAudioAsset?
     var audioSources: AudioSourceSettings?
@@ -936,6 +940,7 @@ struct ImportAssetSelection {
     var adAudioMode: ImportedADAudioMode = .narration
     /// Reviewed timing JSON created by the TXT timing editor.
     var transcriptTiming: URL?
+    var transcriptCaptionProvenance: URL?
     var adTranscriptTiming: URL?
 
     var hasAny: Bool {
@@ -1598,7 +1603,9 @@ final class StudioModel {
     var languageDeletionProject: StudioProject?
     var languageDeletionComponent: GeneratedContentComponent?
 
+    var showingYouTubeBrowser = false
     var showingYouTubeDetails = false
+    var youtubeDetailAction = "youtube-details"
     var youtubeInspectorRefresh = UUID()
     static let defaultErrorTitle = "VidiStudio Couldn’t Finish"
     var projects: [StudioProject] = []
@@ -1673,9 +1680,7 @@ final class StudioModel {
     var isCreatingProject = false
     var isBrowsingCloudVideos = false
     var canBeginNewProject: Bool { !busy && !isCreatingProject && !isBrowsingCloudVideos }
-    var canOpenCloudVideos: Bool {
-        settings.vertexConnected && canBeginNewProject
-    }
+    var canOpenCloudVideos: Bool { canBeginNewProject }
     func openCloudVideos() {
         guard canOpenCloudVideos else { return }
         isBrowsingCloudVideos = true
@@ -1703,7 +1708,7 @@ final class StudioModel {
         projectCloudPermissions.removeAll()
     }
 
-    func verifyCloudPermissions(bucket: String, object: String) async -> CloudObjectPermissions? {
+    func verifyCloudPermissions(bucket: String, object: String, sourceProject: String? = nil) async -> CloudObjectPermissions? {
         guard settings.vertexConnected,
               let engine = Bundle.main.resourceURL?.appendingPathComponent("Engine/vidistudio-engine") else { return nil }
         let configuration = StudioSettings.url.path
@@ -1711,6 +1716,7 @@ final class StudioModel {
             let process = Process()
             process.executableURL = engine
             process.arguments = ["cloud-object-permissions", "--source-bucket", bucket, "--name", object]
+                + (sourceProject.map { ["--source-project", $0] } ?? [])
             process.environment = ProcessInfo.processInfo.environment.merging(["VIDISTUDIO_CONFIG": configuration]) { _, path in path }
             let output = Pipe()
             process.standardOutput = output
@@ -1750,7 +1756,7 @@ final class StudioModel {
         guard checkingProjectCloudPermissions.insert(request).inserted else { return }
         defer { checkingProjectCloudPermissions.remove(request) }
         projectCloudPermissions.removeValue(forKey: key)
-        let verified = await verifyCloudPermissions(bucket: bucket, object: object)
+        let verified = await verifyCloudPermissions(bucket: bucket, object: object, sourceProject: cloud["project"])
         guard cloudPermissionKey(for: project) == key, session == cloudPermissionsSession else { return }
         projectCloudPermissions[key] = verified
     }
@@ -1824,7 +1830,13 @@ final class StudioModel {
         if settings.ttsMode == "sarvam" { return settings.hasSarvamApiKey && settings.sarvamKeyStatus != "invalid" && ConnectivityService.shared.available(.sarvam) }
         return settings.ttsMode != "gemini" || canUseGeminiNarration
     }
-    var hasValidApiKey: Bool { !readyAIConnections.isEmpty && ConnectivityService.shared.available(.gemini) }
+    var hasValidApiKey: Bool {
+        if let channel = selected?.privateYouTubeChannel {
+            guard YouTubeService.shared.privateConnection(channel, settings: settings) != nil,
+                  readyAIConnections.contains(.googleSignIn) else { return false }
+        }
+        return !readyAIConnections.isEmpty && ConnectivityService.shared.available(.gemini)
+    }
     func onlineReason(_ command: String, project: StudioProject? = nil, extra: [String] = []) -> String? {
         OnlineRequirements.services(command, project: project ?? selected, settings: settings, extra: extra)
             .compactMap { ConnectivityService.shared.reason($0) }.first
@@ -2415,7 +2427,7 @@ final class StudioModel {
             do {
                 guard let id = Self.youtubeVideoID(from: rawURL) else { throw YouTubeFailure("Enter a valid YouTube video link.") }
                 let video = try await YouTubeService.shared.video(id)
-                openYouTubeVideo(video) { completion?($0) }
+                openYouTubeVideo(video, name: name) { completion?($0) }
             } catch { self.error = error.localizedDescription; completion?(nil) }
         }
         return true
@@ -3020,7 +3032,15 @@ final class StudioModel {
             (project?.cloudVideo?["size"].flatMap { Int64($0) } ?? 0) > LocalVideoFilePolicy.maximumSizeBytes)
             && OnlineRequirements.videoAICommands.contains(command)
         let narration = OnlineRequirements.narrationCommands.contains(command)
-        let ready = readyAIConnections.filter { $0.supports(existingBucketVideo: requiresCloudAnalysis, narration: narration) }
+        if let channel = project?.privateYouTubeChannel,
+           YouTubeService.shared.privateConnection(channel, settings: settings) == nil {
+            present(UserFacingIssue(title: "Google Sign-in Required",
+                                    message: YouTubeVideo.privateVideoMessage), context: command)
+            return false
+        }
+        let ready = readyAIConnections.filter {
+            $0.supports(existingBucketVideo: requiresCloudAnalysis || project?.privateYouTubeChannel != nil, narration: narration)
+        }
         if ready.contains(activeAIConnection) { return true }
         let fallback = activeAIConnection == .express && ready.contains(.googleSignIn) ? .googleSignIn : ready.first
         guard let connection = fallback else {
@@ -3068,7 +3088,6 @@ final class StudioModel {
             engineCheckStatus = .checking
         }
         let target = project ?? (["vertex-connect", "vertex-disconnect", "vertex-check", "cloud-import", "cloud-create", "cloud-browse", "cloud-preview", "cloud-list", "cloud-projects", "cloud-object-rename", "cloud-object-delete", "check-sarvam-key", "list-sarvam-models", "import-video", "import-youtube", "doctor", "validate-config", "list-models", "check-api-key"].contains(command) ? nil : selected)
-        if target?.youtubeMetadata?.visibility == "private" { errorTitle = "Private Video Cannot Be Opened"; error = "Choose a public or unlisted video, or import the original file."; completion?(nil); return }
         guard requireInternet(command, project: target, extra: extra) else {
             if let cleanupURL { try? FileManager.default.removeItem(at: cleanupURL) }
             completion?(nil)
@@ -3249,6 +3268,7 @@ final class StudioModel {
             "VIDISTUDIO_NETWORK_EVENTS": "1",
             "VIDISTUDIO_YOUTUBE_AVAILABLE": ConnectivityService.shared.available(.youtube) ? "1" : "0",
         ]) { _, new in new }
+        environment["VIDISTUDIO_CLOUD_SUBJECT"] = YouTubeService.shared.cloudSubject
         environment.removeValue(forKey: "VIDISTUDIO_VERTEX_KEY")
         if settings.aiProvider == "vertex", settings.vertexAuth == "express", let key = KeychainStore.vertex.read() {
             environment["VIDISTUDIO_VERTEX_KEY"] = key
@@ -3786,6 +3806,7 @@ final class StudioModel {
         if let transcript = selection.transcript {
             var arguments = ["--input", transcript.path]
             if let timing = selection.transcriptTiming { arguments += ["--timing-input", timing.path] }
+            if let provenance = selection.transcriptCaptionProvenance { arguments += ["--caption-provenance", provenance.path] }
             steps.append(("import-transcript", arguments))
         }
         if let adTranscript = selection.adTranscript {

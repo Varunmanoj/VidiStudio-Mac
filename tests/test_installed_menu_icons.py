@@ -21,7 +21,7 @@ from pathlib import Path
 GALLERY = {
     "VidiStudio": ["About VidiStudio", "Settings…", "Services", "Hide VidiStudio",
                    "Hide Others", "Show All", "Quit VidiStudio"],
-    "File": ["New Project…", "New YouTube Project…", "New Cloud Project…", "Open Cloud Videos…", "Open Project Folder…", "Open in New Window",
+    "File": ["New Project…", "New YouTube Project…", "New Cloud Project…", "Open Cloud Videos…", "My YouTube Videos…", "Open Project Folder…", "Open in New Window",
              "?Open in YouTube", "Export…", "Delete Project…", "Choose What to Delete…",
              "Remove from List", "Settings…", "Open Project Settings…", "Close"],
     "Edit": ["Search Projects…", "Clear Search", "Rename Project…"],
@@ -29,7 +29,7 @@ GALLERY = {
              "Reset Project Filters", "Project List View", "Project Grid View", "Enter Full Screen"],
     "Project": ["Cloud Storage", "Open Selected Project", "Analysis", "Show Project in Finder",
                 "?Open Project Configuration", "Rename Project…", "Move Project to Bin…"],
-    "YouTube": ["?Open in YouTube"],
+    "YouTube": ["My YouTube Videos…", "YouTube Accounts…", "?Open in YouTube"],
     "Help": ["VidiStudio Help", "VidiStudio Website"],
     "Project/Cloud Storage": ["?Upload Video to Cloud Storage…", "Open Video in Google Cloud Console",
                               "?Rename Cloud Video…", "?Remove Cloud Video…"],
@@ -38,13 +38,13 @@ GALLERY = {
     "View/Sort Projects": ["Last Opened", "Name (A–Z)", "Duration (Longest First)", "Type (Local, then YouTube)"],
     "View/Filter Projects by Source": ["All Projects", "Local Videos", "YouTube Videos", "Cloud Storage Videos"],
 }
-WINDOW_COMMANDS = ["VidiStudio"]
+WINDOW_COMMANDS = ["VidiStudio", "My YouTube Videos", "YouTube Details"]
 
 
 SECTIONS = ["Show Transcript", "Show Summary", "Show Descriptions", "Show AD Transcript", "Show Overview"]
 TRANSCRIPT = {
     "VidiStudio": GALLERY["VidiStudio"],
-    "File": [item for item in GALLERY["File"] if item not in {"Open in New Window", "?Open in YouTube"}],
+    "File": [item for item in GALLERY["File"] if item not in {"Open in New Window", "My YouTube Videos…", "?Open in YouTube"}],
     "Edit": ["Search Project…", "Clear Search", "Copy and Translate…", "Edit Transcript Segments"],
     "View": ["Editor Sections", "Project Language", "Transcript Saved Results", "Hide Preview",
              "Full-Screen Video", "Hide Timeline", "Show Thumbnail Images", "Filter Transcript…", "Sort Transcripts…",
@@ -206,6 +206,13 @@ class InstalledMenuTests(unittest.TestCase):
                     menu, rows, picture = self.capture(path, allow_empty=allow_empty)
                 self.assertEqual(menu["menus"], expected_bar)
                 titles = [r["title"] for r in rows.values()]
+                if path == "File":
+                    command_rows = {row["title"]: row for row in rows.values()}
+                    browser_end = "My YouTube Videos…" if gallery else "Open Cloud Videos…"
+                    for before, after in (("New Cloud Project…", "Open Cloud Videos…"), (browser_end, "Open Project Folder…")):
+                        first, second = command_rows[before], command_rows[after]
+                        gap = second["y"] - first["y"] - (first["height"] + second["height"]) / 2
+                        self.assertGreater(gap, 3, f"Expected a divider between {before} and {after}")
                 if path == "Window":
                     system = {"Minimize", "Zoom", "Fill", "Center", "Move & Resize", "Full Screen Tile",
                               "Bring All to Front", "Remove Window from Set", "Add Window to Set",

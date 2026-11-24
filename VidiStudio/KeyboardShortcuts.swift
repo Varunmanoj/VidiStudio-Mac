@@ -256,7 +256,7 @@ final class EditorShortcutActions {
         if action.hasPrefix("segment-one-") { return segmentEditMode && rowCommandVisible(action, kind: selectedSegmentKind) && (action != "segment-one-preview-stop" || selectedSegmentPreviewing) }
         if action.hasPrefix("summary-") { return activeSection == "summary" }
         switch action {
-        case "analyze": return false // These commands belong to All Projects.
+        case "analyze", "youtube-browser": return false // These commands belong to All Projects.
         case "transcribe", "import-transcript", "delete-transcript": return activeSection == "transcript"
         case "generate-summary", "import-summary", "delete-summary": return activeSection == "summary"
         case "generate-ad-cues", "import-descriptions", "delete-descriptions": return activeSection == "descriptions"
@@ -271,6 +271,7 @@ final class EditorShortcutActions {
             return ["transcript", "descriptions", "ad-transcript"].contains(activeSection)
         case "copy-to", "segment-edit-mode": return ["transcript", "summary", "descriptions", "ad-transcript"].contains(activeSection)
         case "delete-current": return ["transcript", "summary", "descriptions"].contains(activeSection)
+        case "youtube-captions": return youtubeProject && activeSection == "transcript"
         case "youtube-details", "youtube-refresh", "import-original-audio": return youtubeProject
         default: return true
         }
@@ -316,7 +317,7 @@ final class EditorShortcutActions {
     func run(_ action: String) {
         guard canRun(action) else { return }
         if action == "copy-to" { copyHandler?(false); return }
-        if ["youtube-details", "youtube-refresh"].contains(action) { youtubeHandler?(action); return }
+        if ["youtube-details", "youtube-refresh", "youtube-captions"].contains(action) { youtubeHandler?(action); return }
         handler?(action)
     }
 
@@ -325,7 +326,7 @@ final class EditorShortcutActions {
         if action == "clear-search" { return searchAvailable && handler != nil && hasSearchText }
         guard available, handler != nil, isCommandVisible(action) else { return false }
         if ["play", "back", "forward", "jump-to-time"].contains(action), youtubeProject, !ConnectivityService.shared.available(.youtube) { return false }
-        if ["youtube-details", "youtube-refresh"].contains(action) { return youtubeHandler != nil }
+        if ["youtube-details", "youtube-refresh", "youtube-captions"].contains(action) { return youtubeHandler != nil }
         if action.hasPrefix("segment-one-") {
             guard segmentEditMode, selectedSegmentCount == 1, let kind = selectedSegmentKind else { return false }
             return canRunRowCommand(action, kind: kind, hasAudio: selectedSegmentHasAudio, audioReady: selectedSegmentAudioReady, isPreviewing: selectedSegmentPreviewing)
@@ -483,10 +484,21 @@ struct StudioShortcut: Identifiable {
         default: return "arrow.clockwise"
         }
     }
+    static let youtubeBrowser: StudioShortcut = .init(id: "youtube-browser", title: "My YouTube Videos…", key: "y", modifiers: [.command, .option], spoken: "Command + Option + Y", group: "YouTube")
+
     static let youtube: [StudioShortcut] = [
+        youtubeBrowser,
+        .init(id: "youtube-accounts", title: "YouTube Accounts…", key: "y", modifiers: [.command, .option, .shift], spoken: "Command + Option + Shift + Y", group: "YouTube"),
+        .init(id: "youtube-open-editor", title: "Open in Editor", key: .return, modifiers: [.command], spoken: "Command + Return", group: "YouTube"),
         .init(id: "youtube-open-browser", title: "Open in YouTube", key: .return, modifiers: [.command, .shift], spoken: "Command + Shift + Return", group: "YouTube"),
+        .init(id: "youtube-refresh-list", title: "Refresh Videos", key: "r", modifiers: [.command], spoken: "Command + R", group: "YouTube"),
+        .init(id: "youtube-load-videos", title: "Load More Videos", key: "l", modifiers: [.command, .option], spoken: "Command + Option + L", group: "YouTube"),
+        .init(id: "youtube-load-playlists", title: "Load More Playlists", key: "l", modifiers: [.command, .option, .shift], spoken: "Command + Option + Shift + L", group: "YouTube")
     ]
+    static let cloudBrowser: StudioShortcut = .init(id: "open-cloud-videos", title: "Open Cloud Videos…", key: "g", modifiers: [.command, .option], spoken: "Command + Option + G", group: "Cloud Storage")
+
     static let editor: [StudioShortcut] = [
+        cloudBrowser,
         .init(id: "focus-search", title: "Search Project…", key: "f", modifiers: .command, spoken: "Command + F", group: "Search"),
         .init(id: "export", title: "Export…", key: "e", modifiers: [.command, .shift], spoken: "Command + Shift + E", group: "File"),
         .init(id: "preview", title: "Show or Hide Preview", key: "v", modifiers: [.command, .shift], spoken: "Command + Shift + V", group: "Playback"),
@@ -535,6 +547,7 @@ struct StudioShortcut: Identifiable {
 }
 struct StudioCommands: Commands {
     let studio: StudioModel
+    @FocusedValue(\.youtubeBrowser) private var youtubeBrowser
     @FocusedValue(\.projectBrowser) private var browser
     @FocusedValue(\.editorShortcuts) private var editor
     @FocusedValue(\.allProjects) private var allProjects
@@ -594,17 +607,21 @@ struct StudioCommands: Commands {
          .disabled(editor?.canRun("saved-results") != true)
     }
 
-    private var youtubeMenusVisible: Bool { allProjects != nil || editor?.youtubeProject == true }
+    private var youtubeMenusVisible: Bool { allProjects != nil || editor?.youtubeProject == true || youtubeBrowser != nil }
 
     var body: some Commands {
         CommandGroup(after: .newItem) {
+            if allProjects != nil {
+                Button("My YouTube Videos…", systemImage: "play.rectangle") { studio.runYouTube("youtube-browser"); openWindow(id: "youtube-browser") }.keyboardShortcut("y", modifiers: [.command, .option]).disabled(studio.busy)
+            }
+            Divider()
+            Button("Open Project Folder…", systemImage: "folder") { studio.openProject() }.keyboardShortcut("o", modifiers: [.command, .shift]).disabled(studio.busy)
             if let allProjects {
                 Button("Open in New Window", systemImage: "macwindow.badge.plus") { allProjects.run("open-gallery-window") }
                     .disabled(!allProjects.canRun("open-gallery-window"))
-                Divider()
             }
-            if youtubeMenusVisible && browser?.canRun("youtube-open-browser") == true {
-                Button("Open in YouTube", systemImage: "arrow.up.right.square") { browser?.run("youtube-open-browser") }.keyboardShortcut(.return, modifiers: [.command, .shift])
+            if youtubeMenusVisible && (youtubeBrowser != nil || browser?.canRun("youtube-open-browser") == true) {
+                Button("Open in YouTube", systemImage: "arrow.up.right.square") { if youtubeBrowser != nil { youtubeBrowser?.run("youtube-open-browser") } else { browser?.run("youtube-open-browser") } }.keyboardShortcut(.return, modifiers: [.command, .shift]).disabled(youtubeBrowser != nil ? youtubeBrowser?.canRun("youtube-open-browser") != true : browser?.canRun("youtube-open-browser") != true)
             }
             Divider()
             Button("Export…", systemImage: "square.and.arrow.up") {
@@ -969,6 +986,9 @@ struct StudioCommands: Commands {
                     Menu("YouTube", systemImage: "play.rectangle") {
                         Button("Video Details…", systemImage: "info.circle") { editor?.run("youtube-details") }.disabled(editor?.canRun("youtube-details") != true)
                         Button("Refresh YouTube Details", systemImage: "arrow.clockwise") { editor?.run("youtube-refresh") }.disabled(editor?.canRun("youtube-refresh") != true)
+                        if editor?.isCommandVisible("youtube-captions") == true {
+                            Button("Import YouTube Captions…", systemImage: "captions.bubble") { editor?.run("youtube-captions") }.disabled(editor?.canRun("youtube-captions") != true)
+                        }
                     }
                 }
                 if editor?.isCommandVisible("synthesize-tts") == true {
@@ -1051,8 +1071,26 @@ struct StudioCommands: Commands {
         }
         if youtubeMenusVisible {
             CommandMenu("YouTube") {
-                if browser?.canRun("youtube-open-browser") == true {
-                    Button("Open in YouTube", systemImage: "arrow.up.right.square") { browser?.run("youtube-open-browser") }.keyboardShortcut(.return, modifiers: [.command, .shift])
+                if allProjects != nil {
+                Button("My YouTube Videos…", systemImage: "play.rectangle") { studio.runYouTube("youtube-browser"); openWindow(id: "youtube-browser") }.keyboardShortcut("y", modifiers: [.command, .option]).disabled(studio.busy)
+                }
+                Button("YouTube Accounts…", systemImage: "person.crop.circle") { youtubeBrowser?.run("youtube-accounts"); if youtubeBrowser == nil { SettingsSectionRequest.request("YouTube Accounts"); openSettings() } }
+                    .keyboardShortcut("y", modifiers: [.command, .option, .shift])
+                if allProjects == nil {
+                Divider()
+                Button("List View", systemImage: youtubeBrowser?.layout == "list" ? "checkmark" : "list.bullet") { youtubeBrowser?.run("youtube-list") }.disabled(youtubeBrowser == nil)
+                Button("Table View", systemImage: youtubeBrowser?.layout == "table" ? "checkmark" : "tablecells") { youtubeBrowser?.run("youtube-table") }.disabled(youtubeBrowser == nil)
+                Divider()
+                Button(youtubeBrowser?.openTitle ?? "Open in Editor", systemImage: "pencil") { youtubeBrowser?.run("youtube-open-editor") }.keyboardShortcut(.return, modifiers: [.command]).disabled(youtubeBrowser?.canRun("youtube-open-editor") != true)
+                }
+                if youtubeBrowser != nil || browser?.canRun("youtube-open-browser") == true {
+                    Button("Open in YouTube", systemImage: "arrow.up.right.square") { if youtubeBrowser != nil { youtubeBrowser?.run("youtube-open-browser") } else { browser?.run("youtube-open-browser") } }.keyboardShortcut(.return, modifiers: [.command, .shift]).disabled(youtubeBrowser != nil ? youtubeBrowser?.canRun("youtube-open-browser") != true : browser?.canRun("youtube-open-browser") != true)
+                }
+                if allProjects == nil {
+                Divider()
+                Button("Refresh Videos", systemImage: "arrow.clockwise") { youtubeBrowser?.run("youtube-refresh-list") }.keyboardShortcut("r", modifiers: [.command]).disabled(youtubeBrowser?.canRun("youtube-refresh-list") != true)
+                Button("Load More Videos", systemImage: "plus") { youtubeBrowser?.run("youtube-load-videos") }.keyboardShortcut("l", modifiers: [.command, .option]).disabled(youtubeBrowser?.canRun("youtube-load-videos") != true)
+                Button("Load More Playlists", systemImage: "plus") { youtubeBrowser?.run("youtube-load-playlists") }.keyboardShortcut("l", modifiers: [.command, .option, .shift]).disabled(youtubeBrowser?.canRun("youtube-load-playlists") != true)
                 }
             }
         }
@@ -1113,6 +1151,9 @@ struct ShortcutReferenceView: View {
             Text("These shortcuts apply to the native macOS app. Editor commands are available with a project open and no editing sheet or processing operation active.")
             Text("The File menu contains Export with Video, Audio, and Text choices. View can show or hide the preview, the complete timeline, and thumbnail images. Thumbnail images are hidden by default; the choice is remembered. The centered transport row in the timeline shares the Playback menu shortcuts for a single Play/Pause toggle, Stop Video, and five-second Rewind/Fast Forward on local and YouTube videos. Pause keeps the current position; Stop returns to the beginning and stops narration. Playback also contains Transcript Overlay controls on Transcript, Descriptions, and AD Transcript, plus Summary Reading commands that become available only on Summary. Summary Reading includes Previous and Next Sentence and Paragraph navigation, which jump to the target text and read it aloud from the centered Summary transport. Project > Segments mirrors segment editing, creation, selection, bulk editing, deletion, Follow, Undo, and Redo. Project > Analysis contains Video Details and Timeline Pictures, Analyze Video, and the individual Transcript, Summary, and Audio Description stages. The inspector stays specific to its open section. Existing content is regenerated only after confirmation.")
             shortcutRow("New Project", value: "Command + N")
+            ForEach([StudioShortcut.cloudBrowser, StudioShortcut.youtubeBrowser]) { shortcut in
+                shortcutRow(shortcut.title, value: shortcut.spoken)
+            }
             shortcutRow("Open Project Folder", value: "Command + Shift + O")
             shortcutRow("Rename Selected Project", value: "Return; All Projects")
             shortcutRow("Settings", value: "Command + Comma")
@@ -1123,7 +1164,7 @@ struct ShortcutReferenceView: View {
             shortcutRow("Project List View", value: "Command + Option + 1")
             shortcutRow("Project Grid View", value: "Command + Option + 2")
             shortcutRow("VidiStudio Help", value: "Command + Option + Slash")
-            ForEach(StudioShortcut.editor + StudioShortcut.youtube) { shortcut in
+            ForEach((StudioShortcut.editor + StudioShortcut.youtube).filter { !["open-cloud-videos", "youtube-browser"].contains($0.id) }) { shortcut in
                 shortcutRow(shortcut.title, value: shortcut.spoken)
             }
             shortcutRow("Read Summary from Start", value: "Playback → Summary Reading menu; Summary section")
