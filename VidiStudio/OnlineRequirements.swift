@@ -45,7 +45,7 @@ enum OnlineRequirements {
         if command == "download-voice" { return [.voices] }
         guard let project, project.isYouTubeURLProject else { return [] }
         if command == "prepare-video" { return [.youtube] }
-        if ["export-youtube-original-audio", "export-youtube-described-audio", "combine-imported-audio"].contains(command) {
+        if project.usesStandaloneYouTubeAudio && ["export-youtube-original-audio", "export-youtube-described-audio", "combine-imported-audio"].contains(command) {
             let importedAD = extra.firstIndex(of: "--ad-source").map { i in extra.indices.contains(i + 1) && extra[i + 1] == "imported" } ?? false
             let fullMix = project.importedAudioDescription?.mode == "fullMix"
                 && (command == "combine-imported-audio" || importedAD)

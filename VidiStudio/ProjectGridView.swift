@@ -122,8 +122,13 @@ struct ProjectGridView: View {
 struct ProjectThumbnail: View {
     let project: StudioProject
     @State private var thumbnail: NSImage?
+    private var thumbnailPaths: [String] {
+        [project.youtubePlaybackVideo?.thumbnail].compactMap { $0 } + project.thumbnails
+    }
     private var youtubeThumbnail: URL? {
-        guard let source = project.youtubeURL, let url = URLComponents(string: source) else { return nil }
+        if let thumbnail = project.youtubeMetadata?.safeThumbnailURL { return thumbnail }
+        guard project.privateYouTubeChannel == nil,
+              let source = project.youtubeURL, let url = URLComponents(string: source) else { return nil }
         let videoID = url.host == "youtu.be"
             ? url.path.split(separator: "/").first.map(String.init)
             : url.queryItems?.first(where: { $0.name == "v" })?.value
@@ -146,9 +151,9 @@ struct ProjectThumbnail: View {
                 Image(systemName: "film").font(.largeTitle).foregroundStyle(.secondary)
             }
         }.accessibilityHidden(true)
-            .task(id: project.thumbnails) {
+            .task(id: thumbnailPaths) {
                 thumbnail = nil
-                for path in project.thumbnails {
+                for path in thumbnailPaths {
                     if let url = project.url(path), let image = NSImage(contentsOf: url) {
                         thumbnail = image
                         break

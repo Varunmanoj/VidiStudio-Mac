@@ -202,25 +202,14 @@ struct VideoBrowserLoadingIndicator: View {
                 Text("Search, filters, and sorting apply to loaded videos. Load more to include additional results.").font(.caption)
                 Group {
                     if layout == "table" { youtubeTable }
-                    else {
-                List(filtered, selection: $selectedVideoID) { video in
-                    HStack {
-                        if selectingVideos {
-                            VideoBrowserRowCheckbox(title: video.title, id: video.id, selection: $selectedVideoID)
-                        }
-                        AsyncImage(url: URL(string: video.thumbnailURL)) { image in image.resizable().scaledToFit() } placeholder: { Image(systemName: "film") }.frame(width: 100, height: 60).accessibilityHidden(true)
-                        VStack(alignment: .leading) {
-                            Text(video.title).font(.headline); Text(video.detail).accessibilityLabel(video.spokenDetail)
-                            Text("Published: \(video.publishedAt) · Views: \(video.viewCount ?? "Unavailable") · Likes: \(video.likeCount ?? "Unavailable") · Comments: \(video.commentCount ?? "Unavailable")").font(.caption)
-                            Text(video.captionsAvailable ? "Captions available" : "Caption availability not reported").font(.caption)
-                        }
-                        Spacer()
-                        Button(openTitle, systemImage: openIcon) { openInEditor(video, choose: chooseMode) }.disabled(!canRunOpeningAction(video))
-                        Button("Open in YouTube", systemImage: "arrow.up.right.square") { openInBrowser(video) }
-                    }.tag(video.id)
-                    .contextMenu { videoActions(for: video) }
+                    else { youtubeList }
                 }
-                    }
+                .contextMenu(forSelectionType: String.self) { selection in
+                    videoActions(for: filtered.first { selection.contains($0.id) })
+                } primaryAction: { selection in
+                    guard !selectingVideos, selection.count == 1,
+                          let video = filtered.first(where: { selection.contains($0.id) }) else { return }
+                    openInEditor(video, choose: chooseMode)
                 }
                 .overlay(alignment: .center) {
                     if loading { VideoBrowserLoadingIndicator(message: loadingMessage) }
@@ -290,6 +279,30 @@ struct VideoBrowserLoadingIndicator: View {
 
         .onDisappear { request?.cancel(); generation = UUID() }
     }
+    private var youtubeList: some View {
+        List(filtered, selection: $selectedVideoID) { video in
+            HStack {
+                if selectingVideos {
+                    VideoBrowserRowCheckbox(title: video.title, id: video.id, selection: $selectedVideoID)
+                }
+                AsyncImage(url: URL(string: video.thumbnailURL)) { image in image.resizable().scaledToFit() }
+                    placeholder: { Image(systemName: "film") }
+                    .frame(width: 100, height: 60).accessibilityHidden(true)
+                VStack(alignment: .leading) {
+                    Text(video.title).font(.headline)
+                    Text(video.detail).accessibilityLabel(video.spokenDetail)
+                    Text("Published: \(video.publishedAt) · Views: \(video.viewCount ?? "Unavailable") · Likes: \(video.likeCount ?? "Unavailable") · Comments: \(video.commentCount ?? "Unavailable")").font(.caption)
+                    Text(video.captionsAvailable ? "Captions available" : "Caption availability not reported").font(.caption)
+                }
+                Spacer()
+                Button(openTitle, systemImage: openIcon) { openInEditor(video, choose: chooseMode) }
+                    .disabled(!canRunOpeningAction(video))
+                Button("Open in YouTube", systemImage: "arrow.up.right.square") { openInBrowser(video) }
+            }.tag(video.id)
+        }
+        .accessibilityLabel("YouTube videos list")
+    }
+
     private var youtubeTable: some View {
         Table(filtered, selection: $selectedVideoID) {
             TableColumnForEach(selectingVideos ? [0] : [], id: \.self) { _ in
@@ -318,9 +331,6 @@ struct VideoBrowserLoadingIndicator: View {
                     .accessibilityLabel("Actions for " + video.title)
             }.width(106)
         }.accessibilityLabel("YouTube videos table")
-        .contextMenu(forSelectionType: String.self) { selection in
-            videoActions(for: filtered.first { selection.contains($0.id) })
-        }
     }
 
     @ViewBuilder private func videoActions(for target: YouTubeVideo?) -> some View {
@@ -366,6 +376,7 @@ struct VideoBrowserLoadingIndicator: View {
 
     private func canRunOpeningAction(_ video: YouTubeVideo) -> Bool {
         !studio.busy && !loading && service.selected != nil && canOpen(video)
+            && (!selectingVideos || selectedVideoID == video.id)
     }
 
     private func openInEditor(_ video: YouTubeVideo, choose: Bool) {
@@ -384,7 +395,7 @@ struct VideoBrowserLoadingIndicator: View {
                 guard !Task.isCancelled, generation == stamp, service.selectedID == connection.id else { return }
                 try current.requireAvailable(allowPrivate: canOpen(current))
                 if choose, let onChooseVideo {
-                    let preview = await YouTubeProjectPreviewFetcher.selectedVideo(current)
+                    let preview = await YouTubeProjectPreviewFetcher.selectedVideo(current, account: connection)
                     guard !Task.isCancelled, generation == stamp, service.selectedID == connection.id else { return }
                     onChooseVideo(preview)
                     dismiss()
@@ -511,12 +522,23 @@ struct VideoBrowserLoadingIndicator: View {
 }
 
 extension StudioProject {
+    @MainActor var connectedYouTubeStudioURL: URL? {
+        guard isYouTubeURLProject, let channel = youtubeMetadata?.channelID ?? privateYouTubeChannel, !channel.isEmpty,
+              YouTubeService.shared.connections.contains(where: { $0.channelID == channel }),
+              let id = youtubeURL.flatMap(StudioModel.youtubeVideoID) else { return nil }
+        return URL(string: "https://studio.youtube.com/video/\(id)/edit")
+    }
+
     var youtubeWatchURL: URL? {
         guard let id = youtubeURL.flatMap(StudioModel.youtubeVideoID) else { return nil }
         return URL(string: "https://www.youtube.com/watch?v=\(id)")
     }
 }
 extension StudioModel {
+    func openProjectInYouTubeStudio(_ project: StudioProject) {
+        if let url = project.connectedYouTubeStudioURL { NSWorkspace.shared.open(url) }
+    }
+
     func openYouTubeInBrowser(_ project: StudioProject) {
         guard let url = project.youtubeWatchURL else { return }
         NSWorkspace.shared.open(url)

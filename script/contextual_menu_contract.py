@@ -181,10 +181,12 @@ def check_single_segment_commands(mac, windows, content, commands):
 def check_jump_to_time(mac, windows, context, playback, dialog, win_dialog):
     required = [
         ('jump-to-time', mac), ('Jump to Time…', mac),
-        ('["play", "back", "forward", "jump-to-time"].contains(action)', mac),
+        ('["play", "stop", "back", "forward", "jump-to-time", "fullscreen"', mac),
+        ('playerUnavailable || (drivesYouTubePlayer', mac),
         ('case "jump-to-time": return canJumpToTime', mac),
         ('Command("jump-to-time")', windows), ('case "jump-to-time": await ShowJumpToTimeAsync()', windows),
-        ('"play" or "back" or "forward" or "jump-to-time"', windows),
+        ('"play" or "stop" or "back" or "forward" or "jump-to-time" or "fullscreen"', windows),
+        ('!VideoTransportAvailable || (p.UsesYouTubePlayer', windows),
         ('case "jump-to-time": return double.IsFinite(p.Duration) && p.Duration > 0', windows),
         ('playback.goTo(seconds)', context), ('!showingJumpToTime', context),
         ('if playbackActive { play(from: seconds) }', playback),

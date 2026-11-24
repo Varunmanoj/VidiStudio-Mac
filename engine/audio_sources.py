@@ -10,6 +10,7 @@ import hashlib
 import json
 import math
 import os
+import re
 import shutil
 import tempfile
 from pathlib import Path
@@ -242,6 +243,8 @@ def inspect(args, project, core):
 def execute(args, root, project, core):
     if project.get('sourceType') != 'youtube':
         raise ValueError('Original audio selection is available for YouTube projects.')
+    if args.command != 'remove-original-audio' and project.get('youtubePlaybackVideo') is not None:
+        raise ValueError('Remove the local playback video before importing original audio.')
     if args.command == 'inspect-original-audio':
         result = inspect(args, project, core)
         if args.output:
@@ -279,7 +282,7 @@ def execute(args, root, project, core):
             if result['videoDuration'] is not None:
                 working['duration'] = result['videoDuration']
         if args.command == 'remove-original-audio':
-            working.pop('originalAudio', None)
+            removed = working.pop('originalAudio', None)
             working['audioSources'] = dict(DEFAULTS)
         else:
             selected = preferences(working)
@@ -299,4 +302,12 @@ def execute(args, root, project, core):
         raise
     project.clear()
     project.update(working)
+    if args.command == 'remove-original-audio':
+        old_path = (removed or {}).get('path')
+        # Older projects may point at a user file or a shared result asset.
+        if isinstance(old_path, str) and re.fullmatch(r'imports/[a-f0-9]{32}\.[a-z0-9]+', old_path):
+            import language_results
+            if old_path not in language_results.referenced_paths(working):
+                with contextlib.suppress(OSError, ValueError):
+                    (core.local(root, 'imports') / Path(old_path).name).unlink(missing_ok=True)
     core.emit('Audio sources saved', project=str(root))

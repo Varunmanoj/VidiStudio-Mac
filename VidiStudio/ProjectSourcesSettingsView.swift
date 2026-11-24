@@ -46,12 +46,14 @@ struct ProjectSourcesSettingsView: View {
                         InspectorInformationRow(label: "Summary", value: project.summary.isEmpty ? "Not available" : project.summaryOriginLabel.title + (project.summaryOriginSource.map { " · \($0)" } ?? ""))
                         InspectorInformationRow(label: "AD transcript", value: project.importedADTranscript?.sourceName ?? (project.cues.isEmpty ? "Not available" : "Project descriptions"))
                         InspectorInformationRow(label: "AD audio", value: project.importedAudioDescription?.sourceName ?? (project.hasNarrationAudio ? "Generated narration" : "Not available"))
-                        if !project.isYouTubeURLProject { InspectorInformationRow(label: "Playback and export audio", value: "Original audio in the project video") }
+                        if !project.usesStandaloneYouTubeAudio { InspectorInformationRow(label: "Export audio", value: "Original audio in the project video") }
                 } header: { Text("Content sources").accessibilityAddTraits(.isHeader).accessibilityHeading(.h2) }
-                if project.isYouTubeURLProject {
+                if project.allowsOriginalAudioImport {
                     Section {
                         YouTubeAudioSourceControls(studio: model, project: project, showsSection: false).padding(.vertical, 6)
                     } header: { Text("Audio sources").accessibilityAddTraits(.isHeader).accessibilityHeading(.h2) }
+                }
+                if project.isYouTubeURLProject {
                     Section { HStack {
                         Button("YouTube Details & Captions…", systemImage: "captions.bubble") { youtubeDetails = true }
                         Button("Open in YouTube", systemImage: "arrow.up.right.square") { model.openYouTubeInBrowser(project) }
@@ -69,7 +71,9 @@ struct ProjectSourcesSettingsView: View {
                         }
                         HStack {
                             importButton("Import Existing Assets…", scope: .all)
-                            if project.isYouTubeURLProject { importButton("Import Original Audio…", scope: .originalAudio) }
+                            if project.isYouTubeURLProject {
+                                importButton("Import Original Audio…", scope: .originalAudio).disabled(!project.allowsOriginalAudioImport)
+                            }
                         }
                     }.disabled(model.busy)
                 } header: { Text("Import into this project").accessibilityAddTraits(.isHeader).accessibilityHeading(.h2) }

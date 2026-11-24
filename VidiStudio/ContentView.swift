@@ -220,6 +220,8 @@ private struct NewProjectView: View {
                                     Text(youtubePreview.title)
                                         .font(.headline)
                                         .textSelection(.enabled)
+                                    InspectorInformationRow(label: "YouTube channel", value: youtubePreview.video.channelTitle)
+                                    InspectorInformationRow(label: "Connected account", value: youtubePreview.account?.name ?? "Not connected")
                                     Text("Visibility: \(youtubePreview.video.visibility.capitalized)")
                                         .font(.caption)
                                         .foregroundStyle(.secondary)
@@ -735,6 +737,10 @@ private struct CloudVideosView: View {
             }
             .contextMenu(forSelectionType: String.self) { selection in
                 videoActions(for: selection.count == 1 ? videos.first(where: { selection.contains($0.id) }) : nil)
+            } primaryAction: { selection in
+                guard !selectingVideos, selection.count == 1,
+                      let video = videos.first(where: { selection.contains($0.id) }) else { return }
+                importVideo(video)
             }
             .disabled(!canBrowse)
 
@@ -843,7 +849,7 @@ private struct CloudVideosView: View {
             .disabled(!canBrowse || videos.isEmpty)
         if let target {
             Button("Open in Editor", systemImage: "square.and.arrow.down") { importVideo(target) }
-                .disabled(!canBrowse || projectID.isEmpty || bucket.isEmpty)
+                .disabled(!canImportVideo(target))
             if thumbnail(for: target) == nil, matchingPreview(for: target) == nil {
                 Button("Load Thumbnail", systemImage: "photo") { loadThumbnail(target) }.disabled(!canBrowse)
             }
@@ -965,8 +971,13 @@ private struct CloudVideosView: View {
         importVideo(file)
     }
 
+    private func canImportVideo(_ file: StorageFileChoice) -> Bool {
+        canBrowse && !bucket.isEmpty && !projectID.isEmpty
+            && (!selectingVideos || videoID == file.id)
+    }
+
     private func importVideo(_ file: StorageFileChoice) {
-        guard canBrowse, !bucket.isEmpty, !projectID.isEmpty,
+        guard canImportVideo(file),
               videos.contains(where: { $0.id == file.id && $0.generation == file.generation }) else { return }
         if let size = file.size.flatMap(Int64.init), size > LocalVideoFilePolicy.maximumCloudSizeBytes {
             let alert = NSAlert()
@@ -1555,7 +1566,21 @@ struct ProjectEditorWindow: View {
         }
         .task(id: studio.selectedID) {
             guard let project = studio.selected, project.isYouTubeURLProject, let id = project.youtubeURL.flatMap(StudioModel.youtubeVideoID) else { youtubeOpeningIssue = nil; return }
-            youtubeOpening = true; youtubeOpeningIssue = nil
+            youtubeOpeningIssue = nil
+            // Avoid an automatic second ownership check and write when opening a saved private project.
+            // Explicit refresh and AI analysis still revalidate the connected account.
+            if project.privateYouTubeChannel == nil, project.activeLocalYouTubePlaybackURL != nil {
+                youtubeOpening = false
+                return
+            }
+            if let channel = project.privateYouTubeChannel, project.youtubeMetadata != nil {
+                if YouTubeService.shared.privateConnection(channel, settings: studio.settings) == nil {
+                    youtubeOpeningIssue = YouTubeVideo.privateVideoMessage
+                }
+                youtubeOpening = false
+                return
+            }
+            youtubeOpening = true
             do {
                 let video = try await YouTubeService.shared.projectVideo(id, privateChannelID: project.privateYouTubeChannel, settings: studio.settings)
                 try video.requireAvailable(allowPrivate: project.privateYouTubeChannel != nil)
@@ -2591,7 +2616,7 @@ struct ProjectEditor: View {
         HStack(spacing: 10) {
             ScrollView(.horizontal, showsIndicators: false) {
                 HStack(spacing: 8) {
-                    if project.isYouTubeURLProject {
+                    if project.allowsOriginalAudioImport {
                         Button("Audio Sources…", systemImage: "waveform") { showingAudioSources = true }
                             .labelStyle(.iconOnly)
                             .accessibilityLabel("Audio Sources")
@@ -3064,10 +3089,16 @@ struct ProjectEditor: View {
         playback.syncNarration(project, settings: studio.settings)
         playback.narrationEnabled = ProjectPlaybackPreferences.narrationEnabled(folder: project.folder, projectID: project.id)
         followTranscript = ProjectPlaybackPreferences.followEnabled(folder: project.folder, projectID: project.id)
-        guard !project.isYouTubeURLProject,
-              !project.source.isEmpty,
-              let url = project.url(project.source) else { return }
-        playback.player.replaceCurrentItem(with: AVPlayerItem(url: url))
+        loadVideoPlayback()
+    }
+
+    private func loadVideoPlayback() {
+        let local = project.isYouTubeURLProject ? project.activeLocalYouTubePlaybackURL
+            : (project.source.isEmpty ? nil : project.url(project.source))
+        playback.webPlaybackFailed = false
+        playback.videoPlaybackUnavailable = project.requiresLocalYouTubePlayback && local == nil
+        playback.player.replaceCurrentItem(with: local.map { AVPlayerItem(url: $0) })
+        playback.syncNarration(project, settings: studio.settings)
     }
 
     private func handleBusyChange(_ busy: Bool) {
@@ -3385,8 +3416,20 @@ struct ProjectEditor: View {
         VStack(spacing: 0) {
             ZStack(alignment: studio.settings.captionPosition == "top" ? .top : .bottom) {
                 Group {
-                    if project.isYouTubeURLProject, let url = project.youtubeURL { YouTubePlayer(url: url, playback: playback, useOriginalAudio: project.audioSources?.playback == "imported") }
-                    else { NativeVideoPlayer(player: playback.player, playback: playback) }
+                    if project.isYouTubeURLProject && project.activeLocalYouTubePlaybackURL == nil {
+                        if project.requiresLocalYouTubePlayback {
+                            VStack(spacing: 10) {
+                                Text("Private YouTube video").font(.headline)
+                                YouTubePlaybackVideoControls(studio: studio, project: project, showSource: false)
+                            }
+                            .padding()
+                            .foregroundStyle(.white)
+                        } else if let url = project.youtubeURL {
+                            YouTubePlayer(url: url, playback: playback, useOriginalAudio: project.usesStandaloneYouTubeAudio && project.audioSources?.playback == "imported")
+                        }
+                    } else {
+                        NativeVideoPlayer(player: playback.player, playback: playback)
+                    }
                 }
                 TranscriptCaptionOverlay(
                     project: project,
@@ -4007,6 +4050,12 @@ struct ProjectEditor: View {
         case "import-summary": importScope = .summary
         case "import-descriptions": importScope = .descriptions
         case "import-original-audio": importScope = .originalAudio
+        case "remove-original-audio": studio.removeYouTubeOriginalAudio(project)
+        case "youtube-project-open-studio": studio.openProjectInYouTubeStudio(project)
+        case "use-youtube-player": studio.selectYouTubePlayer(project, embedded: true)
+        case "use-local-video-player": studio.selectYouTubePlayer(project, embedded: false)
+        case "choose-playback-video": studio.chooseYouTubePlaybackVideo(project)
+        case "remove-playback-video": studio.removeYouTubePlaybackVideo(project)
         case "import-ad-audio": importScope = .adAudio
         case "cloud-open", "cloud-upload", "cloud-remove", "cloud-rename": studio.cloudAction(action, project: project)
         case "rename-project": renameProject()
@@ -4119,6 +4168,7 @@ struct ProjectEditor: View {
         shortcutActions.canOpenSearchResult = canOpenSearchResult && search.selectedHit?.section == tab
         shortcutActions.searchResultTitle = search.selectedHit.flatMap { hit in project.savedLanguageResults.first { $0.id == hit.resultID } }?.state == "draft" ? "Review Draft…" : "Open Result"
         shortcutActions.hasUnsavedSummaryEdits = hasUnsavedSummaryEdits
+        shortcutActions.playerUnavailable = playback.videoPlaybackUnavailable || playback.webPlaybackFailed
         shortcutActions.canJumpToTime = project.duration.isFinite && project.duration > 0
         shortcutActions.videoIsPlaying = playback.playbackActive
         shortcutActions.videoPlaybackStarted = playback.videoPlaybackStarted
@@ -4139,7 +4189,9 @@ struct ProjectEditor: View {
         shortcutActions.viewingLanguage = project.languageCode
         shortcutActions.viewingLanguages = OutputLanguage.options.filter { project.availableViewingLanguages.contains($0.id) }
             .map { OutputLanguage(id: $0.id, title: project.viewingLanguageTitle($0.id)) }
-        shortcutActions.canImportOriginalAudio = project.isYouTubeURLProject
+        shortcutActions.canImportOriginalAudio = project.allowsOriginalAudioImport
+        shortcutActions.canChangePlaybackVideo = studio.canChangeYouTubePlaybackVideo(project)
+        shortcutActions.canChoosePlaybackVideo = studio.canChooseYouTubePlaybackVideo(project)
         shortcutActions.captionDisplayMode = studio.settings.captionDisplayMode
         shortcutActions.hasTranscriptText = !project.transcript.isEmpty
         shortcutActions.canToggleNarration = narrationControlAvailable
@@ -4219,8 +4271,19 @@ struct ProjectEditor: View {
         .onChange(of: studio.busy) { _, busy in handleBusyChange(busy) }
         .onChange(of: studio.screenText) { _, text in handleScreenText(text) }
         .onChange(of: playback.videoTitle) { _, title in updateYouTubeTitleIfNeeded(title) }
+        .onChange(of: project.activeLocalYouTubePlaybackURL) { _, local in
+            let position = playback.time
+            playback.exitVideoFullScreen()
+            playback.pausePlayback()
+            if local != nil { playback.webView = nil }
+            loadVideoPlayback()
+            playback.seek(position)
+        }
+        .onChange(of: project.requiresLocalYouTubePlayback) { _, required in
+            playback.videoPlaybackUnavailable = required && project.localYouTubePlaybackURL == nil
+        }
         .onChange(of: playback.duration) { _, duration in
-            if !studio.busy, duration > 0, abs(duration - project.duration) > 0.001 { studio.execute("update-metadata", extra: ["--duration", String(duration)]) }
+            if project.localYouTubePlaybackURL == nil, !studio.busy, duration > 0, abs(duration - project.duration) > 0.001 { studio.execute("update-metadata", extra: ["--duration", String(duration)]) }
         }
     }
 
@@ -4327,7 +4390,7 @@ struct ProjectEditor: View {
         [studio.hasApiKey, studio.isApiKeyInvalid, studio.canUseGeminiNarration, studio.isAIProcessingBlocked]
     }
 
-    private var editorWithShortcutUpdates: some View {
+    private var editorWithSearchUpdates: some View {
         editorWithSummaryUpdates
         .onChange(of: search.text) { _, _ in
             if !search.text.isEmpty { searchRevealedID = nil }
@@ -4340,6 +4403,10 @@ struct ProjectEditor: View {
         }
         .onChange(of: search.selectedHitID) { _, _ in refreshEditorShortcutActions() }
         .onChange(of: "\(project.id):\(project.languageCode):\(project.updatedAt)", initial: true) { _, _ in search.update(project) }
+    }
+
+    private var editorWithShortcutUpdates: some View {
+        editorWithSearchUpdates
         .onChange(of: previewHidden) { _, _ in refreshEditorShortcutActions() }
         .onChange(of: shortcutsBlocked) { _, _ in refreshEditorShortcutActions() }
         .onChange(of: showingJumpToTime) { _, _ in refreshEditorShortcutActions() }
@@ -4350,6 +4417,10 @@ struct ProjectEditor: View {
         .onChange(of: studio.isSynthesizingNarration) { _, _ in refreshEditorShortcutActions() }
         .onChange(of: studio.narratingSegmentID) { _, _ in refreshEditorShortcutActions() }
         .onChange(of: studio.narratingSegmentIndex) { _, _ in refreshEditorShortcutActions() }
+    }
+
+    private var editorWithPlaybackCommandUpdates: some View {
+        editorWithShortcutUpdates
         .onChange(of: project.updatedAt) { _, _ in
             // Any saved project change ends summary playback so the reader never
             // narrates text that is about to be replaced.
@@ -4361,6 +4432,8 @@ struct ProjectEditor: View {
             refreshEditorShortcutActions()
         }
         .onChange(of: playback.buffering) { _, _ in refreshEditorShortcutActions() }
+        .onChange(of: playback.videoPlaybackUnavailable) { _, _ in refreshEditorShortcutActions() }
+        .onChange(of: playback.webPlaybackFailed) { _, _ in refreshEditorShortcutActions() }
         .onChange(of: studio.settings.captionDisplayMode) { _, _ in refreshEditorShortcutActions() }
         .onChange(of: aiShortcutAvailability) { _, _ in refreshEditorShortcutActions() }
         .onChange(of: studio.narrationMenuSignature) { _, _ in refreshEditorShortcutActions() }
@@ -4376,7 +4449,7 @@ struct ProjectEditor: View {
     }
 
     var body: some View {
-        editorWithShortcutUpdates
+        editorWithPlaybackCommandUpdates
         .background(SearchResultAnnouncements(query: search.text,
             status: SearchResultStatus.editor(query: search.query, section: tab,
                 count: (search.groups[tab] ?? []).reduce(0) { $0 + $1.hits.count }))

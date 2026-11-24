@@ -10,9 +10,10 @@ struct YouTubeAudioExportRecovery {
 extension StudioModel {
     func chooseAudioForFailedExport(_ recovery: YouTubeAudioExportRecovery) {
         guard !busy else { return }
+        let current = projects.first(where: { $0.id == recovery.project.id }) ?? recovery.project
+        guard current.allowsOriginalAudioImport else { return }
         dismissError()
         guard let file = ImportFileKind.originalAudio.choose() else { return }
-        let current = projects.first(where: { $0.id == recovery.project.id }) ?? recovery.project
         importOriginalAudio(file, into: current) { imported in
             guard let imported else { return }
             var arguments = recovery.arguments
@@ -28,7 +29,7 @@ extension StudioModel {
     func importOriginalAudio(_ file: URL?, into project: StudioProject, playback: Bool? = nil,
                              transcription: Bool? = nil, replaceExisting: Bool = false,
                              completion: ((StudioProject?) -> Void)? = nil) {
-        guard !busy else { return }
+        guard !busy, project.allowsOriginalAudioImport else { completion?(nil); return }
         let output = FileManager.default.temporaryDirectory.appendingPathComponent("audio-inspection-\(UUID()).json")
         var arguments = ["--output", output.path]
         if let file { arguments += ["--input", file.path] }
@@ -87,7 +88,7 @@ struct YouTubeAudioSourceControls: View {
     private var sources: AudioSourceSettings { current.audioSources ?? AudioSourceSettings() }
 
     var body: some View {
-        if current.isYouTubeURLProject {
+        if current.allowsOriginalAudioImport {
             ProjectAudioSourcesSection(showsSection: showsSection) {
                 VStack(alignment: .leading, spacing: 8) {
                     Text(current.originalAudio.map { "Imported audio: \($0.sourceName)" } ?? "No original audio file imported")
@@ -131,8 +132,14 @@ struct YouTubeAudioSourceControls: View {
                             }
                         }
                         if current.originalAudio != nil {
-                            Button("Remove Selection") { studio.execute("remove-original-audio", project: current) }
+                            Button("Remove Original Audio…", systemImage: "trash") { studio.removeYouTubeOriginalAudio(current) }
                         }
+                    }
+                }
+                .contextMenu {
+                    if current.originalAudio != nil {
+                        Button("Remove Original Audio…", systemImage: "trash") { studio.removeYouTubeOriginalAudio(current) }
+                            .disabled(!studio.canChangeYouTubePlaybackVideo(current))
                     }
                 }
                 .disabled(studio.busy)
@@ -156,16 +163,19 @@ struct YouTubeAudioSourceControls: View {
 
 struct OriginalAudioImportFields: View {
     @Binding var selection: ImportAssetSelection
+    var canChoose = true
+    var blockedMessage = "Remove the local playback video to import original audio."
 
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
             HStack {
-                Text(selection.originalAudio?.lastPathComponent ?? "Extract from YouTube when exporting")
+                Text(selection.originalAudio?.lastPathComponent ?? (canChoose ? "Extract from YouTube when exporting" : blockedMessage))
                     .lineLimit(2).textSelection(.enabled)
                 Spacer()
                 Button("Choose Audio File…") {
                     if let file = ImportFileKind.originalAudio.choose() { selection.originalAudio = file }
                 }
+                .disabled(!canChoose)
                 if selection.originalAudio != nil {
                     Button("Remove Selection") { selection.originalAudio = nil }
                 }

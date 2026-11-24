@@ -267,7 +267,7 @@ def confirm_replacement(existing, replace):
         raise ValueError('This asset already exists. Confirm replacement and retry with --replace-existing.')
 
 
-def copy_asset(root, source, core, created, folder='imports', language_specific=True):
+def copy_asset(root, source, core, created, folder='imports', language_specific=True, progress=None):
     source = Path(source)
     import language_results, os
     if language_specific: folder = language_results.generation_asset_folder(folder, os.environ.get('VIDISTUDIO_OUTPUT_LANGUAGE', 'auto'))
@@ -276,7 +276,19 @@ def copy_asset(root, source, core, created, folder='imports', language_specific=
     target.parent.mkdir(parents=True, exist_ok=True)
     # Unique destination is never an existing imported file or the selected source.
     created.append(target)
-    shutil.copy2(source, target)
+    if progress is None:
+        shutil.copy2(source, target)
+    else:
+        with source.open('rb') as incoming, target.open('xb') as outgoing:
+            total = os.fstat(incoming.fileno()).st_size
+            copied = 0
+            progress(copied, total)
+            while chunk := incoming.read(4 * 1024 * 1024):
+                outgoing.write(chunk)
+                copied += len(chunk)
+                progress(copied, total)
+            if copied != total:
+                raise ValueError('The selected video changed while it was being copied.')
     return relative
 
 

@@ -117,7 +117,7 @@ final class PlaybackModel {
     var youtubeVolume: Float = 1
 
     func syncOriginalAudio(_ project: StudioProject) {
-        let selected = project.isYouTubeURLProject && project.audioSources?.playback == "imported"
+        let selected = project.usesStandaloneYouTubeAudio && project.audioSources?.playback == "imported"
         if usingOriginalAudio != selected {
             usingOriginalAudio = selected
             webVolumeDucked = false
@@ -291,6 +291,8 @@ final class PlaybackModel {
         piperPlayer = nil
     }
     var webView: WKWebView?
+    var webPlaybackFailed = false
+    var videoPlaybackUnavailable = false
     var isScrubbing = false
     private var observer: Any?
     @ObservationIgnored private var playbackRequestID = UUID()
@@ -442,10 +444,10 @@ final class PlaybackModel {
         if let observer { player.removeTimeObserver(observer); self.observer = nil }
         webView?.evaluateJavaScript("player?.pauseVideo()", completionHandler: nil)
     }
-    var canStartPlayback: Bool { webView == nil || ConnectivityService.shared.available(.youtube) }
+    var canStartPlayback: Bool { !videoPlaybackUnavailable && !webPlaybackFailed && (webView == nil || ConnectivityService.shared.available(.youtube)) }
     private func requirePlaybackConnection() -> Bool {
         guard canStartPlayback else {
-            speechError = ConnectivityService.shared.reason(.youtube)
+            speechError = (videoPlaybackUnavailable || webPlaybackFailed) ? "Choose a matching local playback video." : ConnectivityService.shared.reason(.youtube)
             return false
         }
         return true
@@ -576,9 +578,11 @@ struct YouTubePlayer: NSViewRepresentable {
         config.userContentController.add(context.coordinator, name: "playback")
         let view = VideoWebView(frame: .zero, configuration: config)
         playback.webView = view
+        playback.webPlaybackFailed = false
         playback.videoSurface = view
         let id = URLComponents(string: url)?.queryItems?.first(where: { $0.name == "v" })?.value ?? ""
         guard id.range(of: "^[A-Za-z0-9_-]{11}$", options: .regularExpression) != nil else { return view }
+        let start = playback.time.isFinite ? max(0, playback.time) : 0
         let html = """
         <!doctype html><html><head><meta name="viewport" content="width=device-width,initial-scale=1"><style>html,body,#player{width:100%;height:100%;margin:0;background:#000}</style></head><body><div id="player"></div><script src="https://www.youtube.com/iframe_api"></script><script>
         var narrationDucked=false, originalVolume=null, duckedVolume=null;
@@ -610,7 +614,7 @@ struct YouTubePlayer: NSViewRepresentable {
         // Keep YouTube's own captions/transcript state and keyboard controls
         // under YouTube's ownership. The SwiftUI transcript overlay sits above
         // this view without hit testing, so it does not replace or intercept them.
-        var player; function onYouTubeIframeAPIReady(){player=new YT.Player('player',{videoId:'\(id)',playerVars:{playsinline:1,disablekb:0,origin:'https://accessivideo.pages.dev'},events:{onReady:function(){if(originalAudioMode)player.mute();setInterval(function(){if(originalAudioMode)player.mute();window.webkit.messageHandlers.playback.postMessage({time:player.getCurrentTime(),duration:player.getDuration(),state:player.getPlayerState(),rate:player.getPlaybackRate(),volume:player.getVolume(),title:player.getVideoData().title || ''});},40);}}});}
+        var player, startAt=\(start); function onYouTubeIframeAPIReady(){player=new YT.Player('player',{videoId:'\(id)',playerVars:{playsinline:1,disablekb:0,origin:'https://accessivideo.pages.dev'},events:{onError:function(){window.webkit.messageHandlers.playback.postMessage({failed:true});},onReady:function(){if(startAt>0)player.cueVideoById({videoId:'\(id)',startSeconds:startAt});if(originalAudioMode)player.mute();setInterval(function(){if(originalAudioMode)player.mute();window.webkit.messageHandlers.playback.postMessage({time:player.getCurrentTime(),duration:player.getDuration(),state:player.getPlayerState(),rate:player.getPlaybackRate(),volume:player.getVolume(),title:player.getVideoData().title || ''});},40);}}});}
         </script></body></html>
         """
         view.loadHTMLString(html, baseURL: URL(string: "https://accessivideo.pages.dev"))
@@ -619,13 +623,20 @@ struct YouTubePlayer: NSViewRepresentable {
     func updateNSView(_ view: WKWebView, context: Context) {}
     static func dismantleNSView(_ view: WKWebView, coordinator: Coordinator) {
         view.configuration.userContentController.removeScriptMessageHandler(forName: "playback")
-        coordinator.playback.webView = nil
+        if coordinator.playback.webView === view { coordinator.playback.webView = nil }
     }
     final class Coordinator: NSObject, WKScriptMessageHandler {
         let playback: PlaybackModel
         init(_ playback: PlaybackModel) { self.playback = playback }
         func userContentController(_ userContentController: WKUserContentController, didReceive message: WKScriptMessage) {
-            guard let data = message.body as? [String: Any] else { return }
+            guard playback.webView?.configuration.userContentController === userContentController,
+                  let data = message.body as? [String: Any] else { return }
+            if data["failed"] as? Bool == true {
+                playback.webPlaybackFailed = true
+                playback.playing = false
+                playback.buffering = false
+                return
+            }
             if let time = data["time"] as? Double, time.isFinite, !playback.isScrubbing { playback.time = time }
             if let title = data["title"] as? String, !title.isEmpty { playback.videoTitle = title }
             let state = data["state"] as? Int

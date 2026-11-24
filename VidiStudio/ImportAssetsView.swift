@@ -221,9 +221,14 @@ struct ImportExistingAssetsView: View {
                 .font(.callout).foregroundStyle(.secondary)
                 .padding(.horizontal, 20).padding(.bottom, 10)
             Form {
+                if scope == .all && project.isYouTubeURLProject {
+                    Section("Local playback video") { playbackVideoRow }
+                }
                 if project.isYouTubeURLProject && (scope == .all || scope == .originalAudio) {
                     Section("Original audio") {
-                        OriginalAudioImportFields(selection: $selection)
+                        OriginalAudioImportFields(selection: $selection,
+                            canChoose: project.allowsOriginalAudioImport && selection.localPlaybackVideo == nil,
+                            blockedMessage: project.youtubePlaybackVideo != nil ? "Remove the local playback video to import original audio." : "Clear the local playback video selection to choose audio.")
                     }
                 }
                 if scope != .originalAudio && scope != .adAudio {
@@ -275,7 +280,7 @@ struct ImportExistingAssetsView: View {
                             Text(selection.adAudioMode.detail).font(.caption).foregroundStyle(.secondary)
                         }
                         if selection.adAudio != nil {
-                            Text(project.isYouTubeURLProject ? "Combine: described audio." : "Combine: selectable Original Audio and Audio Description tracks.")
+                            Text(selection.localPlaybackVideo == nil && project.usesStandaloneYouTubeAudio ? "Combine: described audio." : "Combine: selectable Original Audio and Audio Description tracks.")
                                 .font(.caption).foregroundStyle(.secondary)
                         }
                 }
@@ -381,6 +386,37 @@ struct ImportExistingAssetsView: View {
         }
     }
 
+    private var playbackVideoRow: some View {
+        HStack(spacing: 8) {
+            Text(selection.localPlaybackVideo?.lastPathComponent ?? project.youtubePlaybackVideo?.sourceName ??
+                (project.originalAudio != nil ? "Remove the original audio file to choose a video." :
+                    selection.originalAudio != nil ? "Clear the original audio selection to choose a video." : "No file selected"))
+                .foregroundStyle(.secondary).lineLimit(1).truncationMode(.middle)
+            Spacer()
+            playbackVideoChooser
+            if selection.localPlaybackVideo != nil {
+                clearPlaybackVideoSelection.labelStyle(.iconOnly).help("Clear Local Playback Video Selection")
+            }
+        }
+        .contextMenu {
+            playbackVideoChooser
+            if selection.localPlaybackVideo != nil { clearPlaybackVideoSelection }
+        }
+    }
+
+    private var playbackVideoChooser: some View {
+        Button("Choose Local Playback Video…", systemImage: "film") {
+            if let file = studio.pickLocalVideo() {
+                selection.localPlaybackVideo = file
+            }
+        }
+        .disabled(!studio.canChooseYouTubePlaybackVideo(project) || selection.originalAudio != nil)
+    }
+
+    private var clearPlaybackVideoSelection: some View {
+        Button("Clear Local Playback Video Selection", systemImage: "xmark.circle") { selection.localPlaybackVideo = nil }
+    }
+
     @ViewBuilder
     private func assetRow(_ kind: ImportFileKind, url: Binding<URL?>, timing: URL?) -> some View {
         LabeledContent(kind.title) {
@@ -415,6 +451,7 @@ struct ImportExistingAssetsView: View {
 
     private func startImport(combine: Bool) {
         localError = nil
+        if selection.originalAudio != nil && !project.allowsOriginalAudioImport { return }
         if let original = selection.originalAudio {
             studio.importOriginalAudio(original, into: project, playback: selection.originalAudioPlayback,
                                        transcription: selection.originalAudioTranscription) { updated in
@@ -503,9 +540,17 @@ struct ImportExistingAssetsView: View {
 
     private func performImport() {
         let combine = pendingCombine
+        let playbackVideoArguments: [String]?
+        if let video = selection.localPlaybackVideo {
+            guard let arguments = studio.confirmedYouTubePlaybackVideoArguments(video, project: project) else { return }
+            playbackVideoArguments = arguments
+        } else {
+            playbackVideoArguments = nil
+        }
         importStarted = true
         let temporaryFiles = captionFiles
-        studio.importAssets(selection, into: project, combine: combine, replaceExisting: !replacementNames.isEmpty) { result in
+        studio.importAssets(selection, into: project, combine: combine, replaceExisting: !replacementNames.isEmpty,
+                            playbackVideoArguments: playbackVideoArguments) { result in
             for file in temporaryFiles { try? FileManager.default.removeItem(at: file) }
             if let result { onFinished?(result) }
         }

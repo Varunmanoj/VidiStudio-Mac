@@ -3,6 +3,7 @@ import Foundation
 
 struct YouTubeProjectPreview {
     let video: YouTubeVideo
+    var account: YouTubeConnection?
     let thumbnail: NSImage
     var videoID: String { video.id }
     var canonicalURL: String { video.url }
@@ -27,16 +28,20 @@ enum YouTubeProjectPreviewFetcher {
             throw YouTubeProjectPreviewError.invalidURL
         }
         let video = try await YouTubeService.shared.videoForNewProject(videoID, settings: settings)
-        return await selectedVideo(video)
+        let service = YouTubeService.shared
+        let account = video.visibility == "private"
+            ? service.privateConnection(video.channelID, settings: settings)
+            : service.connections.first { $0.channelID == video.channelID }
+        return await selectedVideo(video, account: account)
     }
 
-    static func selectedVideo(_ video: YouTubeVideo) async -> YouTubeProjectPreview {
+    static func selectedVideo(_ video: YouTubeVideo, account: YouTubeConnection? = nil) async -> YouTubeProjectPreview {
         let placeholder = NSImage(systemSymbolName: "film", accessibilityDescription: "Video")!
-        guard let url = URL(string: video.thumbnailURL), url.scheme == "https",
+        guard let url = video.safeThumbnailURL,
               let (data, _) = try? await URLSession.shared.data(from: url),
               let thumbnail = NSImage(data: data) else {
-            return YouTubeProjectPreview(video: video, thumbnail: placeholder)
+            return YouTubeProjectPreview(video: video, account: account, thumbnail: placeholder)
         }
-        return YouTubeProjectPreview(video: video, thumbnail: thumbnail)
+        return YouTubeProjectPreview(video: video, account: account, thumbnail: thumbnail)
     }
 }

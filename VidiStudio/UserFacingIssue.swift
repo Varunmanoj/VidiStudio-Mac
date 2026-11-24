@@ -101,6 +101,19 @@ struct UserFacingIssue: Equatable {
         ].contains(technicalDetails) {
             return UserFacingIssue(title: "Video Is Too Large", message: technicalDetails)
         }
+        if command == "attach-youtube-playback", let message = technicalDetails,
+           message.hasPrefix("Playback video duration does not match.") ||
+            message == "Choose a readable video file with a video track." ||
+           message == "Remove the original audio file before importing a local playback video." ||
+            message == "Refresh YouTube Details before choosing a local playback video." {
+            return UserFacingIssue(title: "Local Playback Video Couldn’t Be Added", message: message)
+        }
+        if technicalDetails == "Remove the local playback video before importing original audio." {
+            return UserFacingIssue(title: "Original Audio Couldn’t Be Added", message: technicalDetails ?? "")
+        }
+        if let message = technicalDetails, message == YouTubeVideo.privateVideoMessage {
+            return UserFacingIssue(title: "YouTube Account Access Required", message: message)
+        }
         let detail = technicalDetails?.lowercased() ?? ""
         if detail.contains("storage.objects.get") && detail.contains("gcp-sa-aiplatform") {
             return UserFacingIssue(title: "Vertex AI Needs Video Access",

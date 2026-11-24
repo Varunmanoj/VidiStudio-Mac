@@ -6,11 +6,11 @@ from pathlib import Path
 
 MAC_FILES = ('ADOverviewView.swift', 'StudioHelp.swift', 'CreatedExportsView.swift', 'LanguageResults.swift', 'ContentView.swift', 'SettingsView.swift', 'ImportAssetsView.swift', 'ExportOptionsMenu.swift',
              'GeminiAPISettingsView.swift', 'SarvamVoiceSettingsView.swift', 'SystemVoiceCatalog.swift', 'PiperVoiceCatalog.swift', 'GeminiVoicePreview.swift', 'SarvamVoiceBrowser.swift', 'VoiceSampleSession.swift', 'AboutSettingsView.swift', 'KeyboardShortcuts.swift', 'ProjectBrowserPage.swift',
-             'ProjectSourcesSettingsView.swift', 'ProjectFilterSheet.swift', 'YouTubeViews.swift', 'YouTubeProjectPreview.swift', 'VidiStudioApp.swift')
+             'ProjectSourcesSettingsView.swift', 'ProjectFilterSheet.swift', 'YouTubeViews.swift', 'YouTubeProjectPreview.swift', 'YouTubeInspectorInformationView.swift', 'GeneratedContentDeletionView.swift', 'VidiStudioApp.swift')
 WIN_FILES = ('Views/SettingsDialog.Gemini.cs', 'Views/HelpWindow.xaml', 'Views/HelpWindow.xaml.cs', 'MainWindow.Presentation.cs', 'MainWindow.LanguageResults.cs', 'Views/ImportAssetsDialog.cs', 'MainWindow.Accessibility.cs', 'MainWindow.xaml', 'Views/CompactDialogLayout.cs', 'Views/WindowAppearance.cs',
              'Views/SettingsDialog.Compact.cs', 'Views/SettingsDialog.Layout.cs',
              'Views/SettingsDialog.ElevenLabs.cs', 'Views/SettingsDialog.SarvamBrowser.cs', 'Views/SettingsDialog.SpeechLayout.cs', 'MainWindow.DialogLayoutSmoke.cs', 'Views/SettingsDialog.cs', 'Views/SettingsDialog.Sarvam.cs', 'Views/PiperVoicesDialog.cs', 'Views/PiperDeleteVoicesDialog.cs', 'Services/VoiceSampleSession.cs', 'Views/SettingsDialog.Information.cs', 'MainWindow.Menus.cs',
-             'Views/NewProjectDialog.cs', 'Views/CloudVideosDialog.cs', 'Views/ProjectSourcesSettingsControl.cs', 'MainWindow.YouTube.cs', 'MainWindow.xaml.cs', 'App.xaml.cs')
+             'Views/NewProjectDialog.cs', 'Views/CloudVideosDialog.cs', 'Views/VideoBrowserSelection.cs', 'Views/ProjectSourcesSettingsControl.cs', 'MainWindow.YouTube.cs', 'MainWindow.xaml.cs', 'App.xaml.cs', 'Views/ExportDialog.cs')
 
 def sources(workspace):
     workspace = Path(workspace)
@@ -93,12 +93,45 @@ def validate(source):
     ):
         require(path, token, 'YouTube account, browser or caption control is missing')
     for path, token in (
+        ("Mac/ContentView.swift", 'label: "Connected account"'),
+        ("Windows/Views/NewProjectDialog.cs", '"Connected account: "'),
+        ("Mac/YouTubeInspectorInformationView.swift", 'Button("Choose Local Playback Video…"'),
+        ("Windows/MainWindow.xaml", 'x:Name="ChoosePrivatePlaybackVideo"'),
+        ("Mac/GeneratedContentDeletionView.swift", '"delete-local-playback-video"'),
+        ("Windows/MainWindow.LanguageResults.cs", '"delete-local-playback-video"'),
+        ("Mac/ExportOptionsMenu.swift", "!project.hasVideoExportSource ? [.audio, .text]"),
+        ("Windows/Views/ExportDialog.cs", "IsYouTube: true, HasVideoExportSource: false"),
+        ('Mac/KeyboardShortcuts.swift', 'Menu("Video Player", systemImage: "play.rectangle")'),
+        ('Mac/KeyboardShortcuts.swift', '.disabled(editor?.canRun("use-local-video-player") != true)'),
+        ('Windows/MainWindow.Menus.cs', 'group.IsEnabled = Model.Project is { } project && CanChangeYouTubePlayback(project);'),
+        ('Windows/MainWindow.Menus.cs', 'Submenu("Video Player", Command("use-youtube-player"), Command("use-local-video-player"), Separator(), Command("choose-playback-video"), Command("remove-playback-video"))'),
+        ('Mac/YouTubeInspectorInformationView.swift', 'Button("Remove Local Playback Video…", systemImage: "trash")'),
+        ('Windows/MainWindow.YouTube.cs', 'button.Content = MenuIcons.Create(id);'),
+        ('Mac/ImportAssetsView.swift', 'Section("Local playback video") { playbackVideoRow }'),
+        ('Windows/Views/ImportAssetsDialog.cs', 'panel.Children.Insert(0, Section("Local playback video", row));'),
+        ('Mac/ImportAssetsView.swift', 'canChoose: project.allowsOriginalAudioImport && selection.localPlaybackVideo == nil'),
+        ('Mac/ImportAssetsView.swift', '.disabled(!studio.canChooseYouTubePlaybackVideo(project) || selection.originalAudio != nil)'),
+        ('Windows/Views/ImportAssetsDialog.cs', 'CanChooseOriginalAudio => !hasSavedPlaybackVideo && localPlaybackVideo == null'),
+        ('Windows/Views/ImportAssetsDialog.cs', 'CanChoosePlaybackVideo => !hasSavedOriginalAudio && originalAudio == null'),
+    ):
+        require(path, token, 'YouTube account preview, playback, deletion and export controls must stay aligned')
+    for path, token in (
         ('Mac/ContentView.swift', 'VideoBrowserRowCheckbox(title: video.filename, id: video.id, selection: $videoID)'),
         ('Mac/YouTubeViews.swift', 'VideoBrowserRowCheckbox(title: video.title, id: video.id, selection: $selectedVideoID)'),
         ('Windows/Views/CloudVideosDialog.cs', 'videoSelection.ModeItem('),
         ('Windows/MainWindow.YouTube.cs', 'videoSelection.ModeItem('),
     ):
         require(path, token, 'both video browsers need the shared checkbox selection')
+    for path, token in (
+        ('Mac/ContentView.swift', 'guard !selectingVideos, selection.count == 1,'),
+        ('Mac/YouTubeViews.swift', 'guard !selectingVideos, selection.count == 1,'),
+        ('Windows/Views/CloudVideosDialog.cs', 'videoSelection.AddPrimaryAction(OpenSelectedVideoAsync)'),
+        ('Windows/MainWindow.YouTube.cs', 'videoSelection.AddPrimaryAction('),
+        ('Windows/Views/VideoBrowserSelection.cs', 'list.AddHandler(UIElement.DoubleTappedEvent'),
+        ('Windows/Views/VideoBrowserSelection.cs', 'if (Enabled || !list.IsEnabled) return;'),
+        ('Windows/Views/VideoBrowserSelection.cs', 'ReferenceEquals(list.SelectedItem, target)'),
+    ):
+        require(path, token, 'double-click must run the selected video action only outside Select mode')
     for path, token in (
         ('Mac/ContentView.swift', 'if let listingMessage { VideoBrowserLoadingIndicator(message: listingMessage) }'),
         ('Mac/YouTubeViews.swift', 'if loading { VideoBrowserLoadingIndicator(message: loadingMessage) }'),

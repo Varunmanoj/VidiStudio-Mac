@@ -126,7 +126,7 @@ enum StudioExportAction: Hashable {
         case .importedMixedVideo(let captions, let format):
             descriptor = ("Open Audio Description" + captions.exportTypeSuffix, format)
         case .importedDescribedAudio(let format):
-            descriptor = (project.isYouTubeURLProject ? "YouTube Studio Audio Description" : "Final Audio with Audio Description", format)
+            descriptor = (project.usesStandaloneYouTubeAudio ? "YouTube Studio Audio Description" : "Final Audio with Audio Description", format)
         case .closedCaptionVideo(let content, let format):
             descriptor = ("\(content == "combined" ? "AD Transcript" : "Transcript") Closed Caption Video", format)
         case .dualClosedCaptionVideo(let format):
@@ -371,25 +371,25 @@ struct ExportDialog: View {
         self.perform = perform
         let firstText = ["transcript", "summary", "descriptions", "combined"]
             .first(where: project.canExportText) ?? "transcript"
-        _category = State(initialValue: project.isYouTubeURLProject ? .audio : .video)
+        _category = State(initialValue: project.isYouTubeURLProject && !project.hasVideoExportSource ? .audio : .video)
         let narrationReady = project.hasCompleteExportNarration()
         let importedReady = project.importedAudioDescription != nil
         _adSource = State(initialValue: importedReady && !narrationReady ? .imported : .generated)
         _videoAudio = State(initialValue: narrationReady || importedReady ? .closedDescription : .original)
         _webAudio = State(initialValue: narrationReady ? .closedDescription : .original)
         _videoTranscript = State(initialValue: !narrationReady && project.canExportText("transcript") ? .transcriptClosed : .none)
-        _audioChoice = State(initialValue: project.isYouTubeURLProject ? .youtubeOriginal : narrationReady ? .described : .original)
+        _audioChoice = State(initialValue: project.usesStandaloneYouTubeAudio ? .youtubeOriginal : narrationReady ? .described : .original)
         _textContent = State(initialValue: firstText)
         _textFormat = State(initialValue: firstText == "summary" ? "md" : "srt")
         _openCaptionAction = State(initialValue: nil)
     }
 
     private var availableCategories: [ExportCategory] {
-        project.isYouTubeURLProject ? [.audio, .text] : ExportCategory.allCases
+        project.isYouTubeURLProject && !project.hasVideoExportSource ? [.audio, .text] : ExportCategory.allCases
     }
 
     private var audioChoices: [AudioExportChoice] {
-        project.isYouTubeURLProject ? [.youtubeOriginal, .narration, .youtubeDescribed] : [.original, .described, .narration]
+        project.usesStandaloneYouTubeAudio ? [.youtubeOriginal, .narration, .youtubeDescribed] : [.original, .described, .narration]
     }
 
     private var textFormats: [String] {
@@ -429,6 +429,7 @@ struct ExportDialog: View {
     }
 
     private var canSave: Bool {
+        guard availableCategories.contains(category) else { return false }
         if selectingTracks { return !busy && trackSelection.valid(media: category == .video ? "video" : "audio") }
         guard !busy, !exportLanguages.isEmpty, let selectedAction else { return false }
         return canPerform(selectedAction)
@@ -520,7 +521,7 @@ struct ExportDialog: View {
                                 selection: $audioChoice
                             )
                             if audioChoice == .described || audioChoice == .youtubeDescribed { adSourcePicker }
-                            if project.isYouTubeURLProject, let studio {
+                            if project.usesStandaloneYouTubeAudio, let studio {
                                 YouTubeAudioSourceControls(studio: studio, project: project, compact: true)
                             }
                         }
@@ -640,7 +641,7 @@ struct ExportDialog: View {
     }
 
     private func canUseVideoAudio(_ choice: VideoAudioChoice) -> Bool {
-        guard !project.isYouTubeURLProject, project.hasFile(project.source) else { return false }
+        guard project.hasVideoExportSource else { return false }
         if choice == .original { return true }
         return project.hasCompleteExportNarration() || project.importedAudioDescription != nil
     }
@@ -650,28 +651,26 @@ struct ExportDialog: View {
             .allSatisfy({ ConnectivityService.shared.available($0) }) else { return false }
         switch action {
         case .selectableVideo(let captions, _), .mixedVideo(let captions, _):
-            guard project.hasCompleteExportNarration(), !project.hasDescriptionTimingIssues else { return false }
+            guard project.hasVideoExportSource, project.hasCompleteExportNarration(), !project.hasDescriptionTimingIssues else { return false }
             return captions.requiredContents.allSatisfy(project.canExportText)
         case .importedSelectableVideo(let captions, _), .importedMixedVideo(let captions, _):
-            guard project.importedAudioDescription != nil, !project.hasDescriptionTimingIssues else { return false }
+            guard project.hasVideoExportSource, project.importedAudioDescription != nil, !project.hasDescriptionTimingIssues else { return false }
             return captions.requiredContents.allSatisfy(project.canExportText)
         case .importedDescribedAudio:
             return project.importedAudioDescription != nil && !project.hasDescriptionTimingIssues
         case .closedCaptionVideo(let content, _), .openCaptionVideo(let content, _):
-            return !project.isYouTubeURLProject && project.hasFile(project.source) && project.canExportText(content)
+            return project.hasVideoExportSource && project.canExportText(content)
         case .dualClosedCaptionVideo:
-            return !project.isYouTubeURLProject
-                && project.hasFile(project.source)
-                && project.canExportText("transcript")
+            return project.hasVideoExportSource && project.canExportText("transcript")
                 && project.canExportText("combined")
         case .originalAudio:
-            return !project.isYouTubeURLProject && project.hasFile(project.source) && project.hasAudio
+            return project.hasVideoExportSource && project.hasVideoExportAudio
         case .describedAudio:
             return project.hasCompleteExportNarration() && !project.hasDescriptionTimingIssues
         case .youtubeOriginalAudio:
-            return project.isYouTubeURLProject
+            return project.usesStandaloneYouTubeAudio
         case .youtubeDescribedAudio:
-            return project.isYouTubeURLProject && (project.hasCompleteExportNarration() || (project.duration > 0 && project.importedAudioDescription != nil))
+            return project.usesStandaloneYouTubeAudio && (project.hasCompleteExportNarration() || (project.duration > 0 && project.importedAudioDescription != nil))
         case .narrationAudio:
             return project.hasCompleteExportNarration()
         case .text(let content, _):

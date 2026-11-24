@@ -12,6 +12,7 @@ import vertex_ai
 import gemini_adapter
 import parity
 import youtube_metadata
+import youtube_playback
 import youtube_audio
 import audio_sources
 import import_assets
@@ -959,7 +960,8 @@ def reanalyze_transcript_segment(root, p, draft):
         if row['end'] <= start: left = max(left, row['end'])
         elif row['start'] >= end: right = min(right, row['start'])
     cfg = config()
-    imported_transcription = p.get('sourceType') == 'youtube' and audio_sources.preferences(p)['transcription'] == 'imported'
+    analysis_project = youtube_playback.analysis_settings(root, p, SimpleNamespace(**globals()))
+    imported_transcription = p.get('sourceType') == 'youtube' and audio_sources.preferences(analysis_project)['transcription'] == 'imported'
     key = 'youtube_transcript' if p.get('sourceType') == 'youtube' and not imported_transcription else 'transcript'
     # Dedicated audio transcription models cannot accept video ranges and editing prompts.
     model_key = 'youtube_transcript'
@@ -983,7 +985,7 @@ def reanalyze_transcript_segment(root, p, draft):
         'a conflict with AD; return accurate speech timing so conflicts can be reported safely. '
         'Include at least one spoken segment intersecting selectedRange; if there is no speech return an empty list.\n'
         + json.dumps(context, ensure_ascii=False))
-    client, model = client_and_model(model_key, p)
+    client, model = client_and_model(model_key, analysis_project)
     audio_cleanup = contextlib.ExitStack()
     try:
         if imported_transcription:
@@ -1054,7 +1056,8 @@ def reanalyze_transcript_segment(root, p, draft):
 def _ai_video_once(root, p, stage):
     cfg=config(); key={'transcribe':'transcript','generate-summary':'summary','generate-ad-cues':'audio_descriptions'}[stage]
     youtube=p.get('sourceType')=='youtube'
-    imported_transcription = youtube and audio_sources.preferences(p)['transcription'] == 'imported'
+    analysis_project = youtube_playback.analysis_settings(root, p, SimpleNamespace(**globals()))
+    imported_transcription = youtube and audio_sources.preferences(analysis_project)['transcription'] == 'imported'
     if stage=='transcribe' and youtube and not imported_transcription: key='youtube_transcript'
     stage_message,processing_section={
         'transcribe':('Creating the transcript','transcript'),
@@ -1062,7 +1065,7 @@ def _ai_video_once(root, p, stage):
         'generate-ad-cues':('Creating Audio Descriptions','descriptions'),
     }[stage]
     emit(stage_message,processingSection=processing_section)
-    client,model=client_and_model(key,p)
+    client,model=client_and_model(key,analysis_project)
     uploaded=None
     try:
         if stage == 'transcribe' and imported_transcription:
@@ -3098,6 +3101,26 @@ def dispatch_project(args, root, p):
     if args.command in ('cloud-upload','cloud-remove','cloud-rename'):
         return cloud_video.update(args, root, p, config(), SimpleNamespace(**globals()))
     core = SimpleNamespace(**globals())
+    local_exports = {'export-original-audio', 'export-described-audio', 'export-youtube-original-audio',
+                     'export-youtube-described-audio', 'combine-imported-audio'}
+    if args.command in youtube_playback.VIDEO_EXPORTS or args.command in local_exports:
+        view = youtube_playback.for_video_export(root, p, core)
+        if view is not p:
+            step = args
+            if args.command in ('export-youtube-original-audio', 'export-youtube-described-audio'):
+                step = SimpleNamespace(**vars(args))
+                if args.command == 'export-youtube-original-audio':
+                    step.command = 'export-original-audio'
+                elif args.ad_source == 'imported':
+                    step.command = 'combine-imported-audio'
+                    step.audio_only = True
+                else:
+                    step.command = 'export-described-audio'
+            dispatch_project(step, root, view)
+            for field in ('exports', 'exportMediaInfo', 'exportAudioSources', '_lastCreatedExport'):
+                if field in view and (field != '_lastCreatedExport' or p.get('_exportView')):
+                    p[field] = view[field]
+            return
     if args.command in audio_sources.COMMANDS:
         return audio_sources.execute(args, root, p, core)
     if args.command in import_assets.COMMANDS:
@@ -3230,7 +3253,7 @@ def delete_cloud_project_video(args):
 
 def main():
     parser=argparse.ArgumentParser(description=__doc__)
-    parser.add_argument('command',choices=['cloud-projects','cloud-delete-project-video','cloud-object-permissions','cloud-object-rename','cloud-object-delete','cloud-browse','cloud-preview','cloud-list','cloud-import','cloud-create','vertex-connect','vertex-adopt-google-signin','vertex-disconnect','vertex-check','cloud-upload','cloud-rename','cloud-remove','elevenlabs-settings','preview-sarvam-sample','check-sarvam-key','list-sarvam-models','normalize-speech','check-api-key','reanalyze-transcript-segment','undo-transcript','redo-transcript','reanalyze-segment','prepare-analysis-video','check-video-availability','cleanup-project','clear-generated','delete-generated','delete-segment-audio','list-models','list-voices','preview-tts','synthesize-speech','import-video','probe-video','generate-thumbnails','transcribe','generate-summary','generate-ad-cues','synthesize-tts','export-final-video','export-selectable-video','export-closed-audio-description-video','export-open-audio-description-video','export-closed-caption-video','export-dual-closed-caption-video','export-open-caption-video','export-original-audio','export-described-audio','export-youtube-described-audio','export-youtube-original-audio','download-youtube-audio','export-hls','save-cues','save-segments','save-summary','doctor','read-youtube-metadata','expire-youtube-cache',*parity.COMMANDS,*import_assets.COMMANDS,*audio_sources.COMMANDS,*language_results.COMMANDS])
+    parser.add_argument('command',choices=['cloud-projects','cloud-delete-project-video','cloud-object-permissions','cloud-object-rename','cloud-object-delete','cloud-browse','cloud-preview','cloud-list','cloud-import','cloud-create','vertex-connect','vertex-adopt-google-signin','vertex-disconnect','vertex-check','cloud-upload','cloud-rename','cloud-remove','elevenlabs-settings','preview-sarvam-sample','check-sarvam-key','list-sarvam-models','normalize-speech','check-api-key','reanalyze-transcript-segment','undo-transcript','redo-transcript','reanalyze-segment','prepare-analysis-video','check-video-availability','cleanup-project','clear-generated','delete-generated','delete-segment-audio','list-models','list-voices','preview-tts','synthesize-speech','import-video','probe-video','generate-thumbnails','transcribe','generate-summary','generate-ad-cues','synthesize-tts','export-final-video','export-selectable-video','export-closed-audio-description-video','export-open-audio-description-video','export-closed-caption-video','export-dual-closed-caption-video','export-open-caption-video','export-original-audio','export-described-audio','export-youtube-described-audio','export-youtube-original-audio','download-youtube-audio','export-hls','save-cues','save-segments','save-summary','doctor','read-youtube-metadata','expire-youtube-cache',*parity.COMMANDS,*import_assets.COMMANDS,*audio_sources.COMMANDS,*language_results.COMMANDS,*youtube_playback.COMMANDS])
     parser.add_argument('--project',type=Path); parser.add_argument('--video',type=Path); parser.add_argument('--library',type=Path); parser.add_argument('--input',type=Path)
     parser.add_argument('--media-format', choices=VIDEO_EXPORT_FORMATS + AUDIO_EXPORT_FORMATS)
     parser.add_argument('--content',choices=['transcript','summary','descriptions','combined'],default='descriptions'); parser.add_argument('--url'); parser.add_argument('--name'); parser.add_argument('--timestamp',type=float,default=0); parser.add_argument('--duration',type=float); parser.add_argument('--segment'); parser.add_argument('--segments', action='append'); parser.add_argument('--format',choices=['srt','vtt','txt','json','md'],default='srt'); parser.add_argument('--changed',action='store_true'); parser.add_argument('--start-stage',default='transcribe')
@@ -3387,6 +3410,10 @@ def main():
         language_results.validate_copy_languages(json.loads(args.input.read_text(encoding='utf-8')), translating=args.command == 'translate-results')
     with project_lock(root):
         p=migrate_project_schema(root,json.loads((root/'project.json').read_text()))
+        if args.command in youtube_playback.COMMANDS:
+            youtube_playback.execute(args, root, p, core)
+            emit('Playback video updated', project=str(root), progress=1)
+            return
         try:
             language_results.run(args, root, p, core, dispatch_project)
         except BaseException as exc:

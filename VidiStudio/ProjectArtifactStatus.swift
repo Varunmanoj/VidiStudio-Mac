@@ -76,17 +76,17 @@ private struct ProjectArtifactState {
                 ? "Audio descriptions generated, \(count) \(count == 1 ? "segment" : "segments")"
                 : "Audio descriptions not generated, 0 segments"
         case .finalVideo:
-            if project.isYouTubeURLProject {
-                count = 0
+            let videoExtensions = Set(["mkv", "mp4", "mov", "m4v"])
+            count = project.exports.filter { videoExtensions.contains(URL(fileURLWithPath: $0).pathExtension.lowercased()) }.count
+            if count > 0 {
+                availability = .generated
+                accessibilityLabel = "\(count) video \(count == 1 ? "export" : "exports") generated"
+            } else if project.isYouTubeURLProject && !project.hasVideoExportSource {
                 availability = .unavailable
-                accessibilityLabel = "Video export unavailable for YouTube projects"
+                accessibilityLabel = "Video export unavailable for this YouTube project"
             } else {
-                let videoExtensions = Set(["mkv", "mp4", "mov", "m4v"])
-                count = project.exports.filter { videoExtensions.contains(URL(fileURLWithPath: $0).pathExtension.lowercased()) }.count
-                availability = count > 0 ? .generated : .notGenerated
-                accessibilityLabel = count > 0
-                    ? "\(count) video \(count == 1 ? "export" : "exports") generated"
-                    : "Video export not generated"
+                availability = .notGenerated
+                accessibilityLabel = "Video export not generated"
             }
         case .narrationAudio:
             let audioExtensions = Set(["m4a", "mka", "aac", "mp3", "wav"])

@@ -9,6 +9,7 @@ from pathlib import Path
 import language_results as results
 import import_assets
 import audio_sources
+import youtube_playback
 
 
 def identity(plan):
@@ -39,6 +40,7 @@ def validate(root, project, plan, core):
     video = plan.get('media', 'video') == 'video'
     formats = core.VIDEO_EXPORT_FORMATS if video else ('m4a', 'mka')
     core.media_export_format(plan.get('format'), formats, 'mkv' if video else 'm4a')
+    project = youtube_playback.for_video_export(root, project, core)
     if video and (project.get('sourceType') == 'youtube' or not project.get('source')):
         raise ValueError('Selected video tracks require a local source video.')
     duration = float(project.get('duration') or 0)
@@ -148,29 +150,32 @@ def metadata(kind, index, row, default=False):
 def execute(root, project, plan, core, replace=False):
     video = plan.get('media', 'video') == 'video'
     format = plan.get('format', 'mkv' if video else 'm4a')
+    media = youtube_playback.for_video_export(root, project, core)
     view = copy.deepcopy(project)
     view['name'] = target_name(project, plan)
     view['_exportLanguages'] = plan['languages']
     relative, output, temporary = core.prepare_export_target(root, view, export_type(plan), format, replace)
-    duration = float(project['duration'])
+    duration = float(media['duration'])
     previous = results._export_language
     try:
         with contextlib.ExitStack() as stack:
             stack.callback(temporary.unlink, missing_ok=True)
             directory = Path(stack.enter_context(tempfile.TemporaryDirectory(prefix='vidistudio-tracks-')))
             needs_program = plan.get('original', True) or any(row['kind'] == 'descriptions' or row['payload'].get('importedAudioDescription', {}).get('mode') != 'fullMix' for row in plan.get('audio', []))
-            if project.get('sourceType') == 'youtube':
-                source = (stack.enter_context(audio_sources.soundtrack(root, project, core)) if needs_program else core.local(root, plan['audio'][0]['payload']['importedAudioDescription']['path']))
+            if media.get('sourceType') == 'youtube':
+                if video:
+                    raise ValueError('Selected video tracks require a local source video.')
+                source = (stack.enter_context(audio_sources.soundtrack(root, media, core)) if needs_program else core.local(root, plan['audio'][0]['payload']['importedAudioDescription']['path']))
             else:
-                source = core.local(root, project['source'])
-            has_original = bool(project.get('hasAudio') or project.get('sourceType') == 'youtube')
+                source = core.local(root, media['source'])
+            has_original = bool(media.get('hasAudio') or media.get('sourceType') == 'youtube')
             args = [core.tool('ffmpeg'), '-y', '-v', 'error', '-i', source]
             audio_rows = []
             if plan.get('original', True) and has_original and (plan.get('audioMode') != 'mixed' or not plan.get('audio')):
                 audio_rows.append((0, dict(language=core.original_audio_language(source), title='Original Audio')))
             for number, row in enumerate(plan.get('audio', [])):
                 track = directory / f'audio-{number}.m4a'
-                selected = dict(project, **row['payload'])
+                selected = dict(media, **row['payload'])
                 selected['hasAudio'] = has_original
                 if row['kind'] == 'adAudio':
                     inputs, filters = import_assets.imported_mix(root, selected, core)
@@ -183,7 +188,7 @@ def execute(root, project, plan, core, replace=False):
             caption_rows = []
             for number, row in enumerate(plan.get('captions', [])):
                 results._export_language = row['language']
-                selected = dict(project, **row['payload'])
+                selected = dict(media, **row['payload'])
                 mode = plan.get('captionMode', 'closed')
                 path = stack.enter_context(core.temporary_video_caption_file(selected, mode, 'combined' if row.get('descriptionsID') else 'transcript'))
                 if mode == 'closed':

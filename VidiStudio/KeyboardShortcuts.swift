@@ -102,7 +102,8 @@ final class EditorShortcutActions {
     func canRunRowCommand(_ action: String, kind: String, hasAudio: Bool, audioReady: Bool, isPreviewing: Bool = false) -> Bool {
         guard available, rowCommandVisible(action, kind: kind) else { return false }
         switch action {
-        case "segment-one-play", "segment-one-skip": return !youtubeProject || ConnectivityService.shared.available(.youtube)
+        case "segment-one-play", "segment-one-skip":
+            return !playerUnavailable && (!drivesYouTubePlayer || ConnectivityService.shared.available(.youtube))
         case "segment-one-reanalyze", "segment-one-rewrite": return hasValidApiKey
         case "segment-one-synthesize": return (!ttsUsesGemini || geminiNarrationReady) && (!ttsUsesSarvam || sarvamReady)
         case "segment-one-preview": return audioReady || isPreviewing
@@ -172,7 +173,14 @@ final class EditorShortcutActions {
         return hasNarrationAudio ? "Regenerate All AD Audio…" : "Generate All AD Audio"
     }
     var summaryReadable = false
+    var playerUnavailable = false
+    var drivesYouTubePlayer: Bool { offersYouTubePlayerChoice && resultProject?.activeLocalYouTubePlaybackURL == nil }
     var canImportOriginalAudio = false
+    var canChangePlaybackVideo = false
+    var canChoosePlaybackVideo = false
+    var offersYouTubePlayerChoice: Bool { resultProject?.offersYouTubePlayerChoice == true }
+    var canChooseYouTubePlayer: Bool { resultProject?.canChooseYouTubePlayer == true }
+    var isUsingLocalVideoPlayer: Bool { resultProject?.activeLocalYouTubePlaybackURL != nil }
     var summaryIsReading = false
     var summaryIsPaused = false
     /// Sentence and paragraph navigation availability, synced by the editor.
@@ -272,7 +280,12 @@ final class EditorShortcutActions {
         case "copy-to", "segment-edit-mode": return ["transcript", "summary", "descriptions", "ad-transcript"].contains(activeSection)
         case "delete-current": return ["transcript", "summary", "descriptions"].contains(activeSection)
         case "youtube-captions": return youtubeProject && activeSection == "transcript"
-        case "youtube-details", "youtube-refresh", "import-original-audio": return youtubeProject
+        case "youtube-details", "youtube-refresh", "youtube-project-open-studio": return youtubeProject
+        case "import-original-audio": return youtubeProject
+        case "remove-original-audio": return youtubeProject && resultProject?.originalAudio != nil
+        case "use-youtube-player", "use-local-video-player": return youtubeProject && offersYouTubePlayerChoice
+        case "choose-playback-video": return youtubeProject
+        case "remove-playback-video": return youtubeProject && resultProject?.youtubePlaybackVideo != nil
         default: return true
         }
     }
@@ -325,7 +338,9 @@ final class EditorShortcutActions {
         if action == "focus-search" { return searchAvailable && handler != nil }
         if action == "clear-search" { return searchAvailable && handler != nil && hasSearchText }
         guard available, handler != nil, isCommandVisible(action) else { return false }
-        if ["play", "back", "forward", "jump-to-time"].contains(action), youtubeProject, !ConnectivityService.shared.available(.youtube) { return false }
+        if ["play", "stop", "back", "forward", "jump-to-time", "fullscreen", "narration",
+            "caption-cycle", "caption-off", "caption-transcript", "caption-ad-transcript"].contains(action),
+           playerUnavailable || (drivesYouTubePlayer && !ConnectivityService.shared.available(.youtube)) { return false }
         if ["youtube-details", "youtube-refresh", "youtube-captions"].contains(action) { return youtubeHandler != nil }
         if action.hasPrefix("segment-one-") {
             guard segmentEditMode, selectedSegmentCount == 1, let kind = selectedSegmentKind else { return false }
@@ -345,6 +360,11 @@ final class EditorShortcutActions {
         case "delete-content": return !hasUnsavedSummaryEdits
         case "language-results", "rename-project", "trash-project", "import-assets", "import-transcript", "import-summary", "import-descriptions", "import-ad-audio": return true
         case "import-original-audio": return canImportOriginalAudio
+        case "remove-original-audio": return canChangePlaybackVideo
+        case "youtube-project-open-studio": return resultProject?.connectedYouTubeStudioURL != nil
+        case "choose-playback-video": return canChoosePlaybackVideo
+        case "remove-playback-video": return canChangePlaybackVideo
+        case "use-youtube-player", "use-local-video-player": return canChangePlaybackVideo && canChooseYouTubePlayer
         case "clear-segment-filter": return canFilterSegments && segmentFilterActive
         case "clear-segment-sort": return canFilterSegments && segmentSort != "start"
         case "filter-segments", "sort-segments", "sort-start", "sort-duration-asc", "sort-duration-desc", "sort-origin":
@@ -586,6 +606,7 @@ struct StudioCommands: Commands {
     }
     @Environment(\.openWindow) private var openWindow
     @Environment(\.openSettings) private var openSettings
+
     @ViewBuilder private func projectLanguageMenu() -> some View {
         Menu("Project Language") {
             ForEach(editor?.viewingLanguages ?? []) { language in
@@ -701,6 +722,29 @@ struct StudioCommands: Commands {
                 }
                 .keyboardShortcut("v", modifiers: [.command, .shift])
                 .disabled(editor?.canRun("preview") != true)
+                if editor?.youtubeProject == true {
+                    Menu("Video Player", systemImage: "play.rectangle") {
+                        Button("YouTube Player", systemImage: editor?.drivesYouTubePlayer == true ? "checkmark" : "play.rectangle") {
+                            editor?.run("use-youtube-player")
+                        }
+                        .accessibilityAddTraits(editor?.drivesYouTubePlayer == true ? .isSelected : [])
+                        .disabled(editor?.canRun("use-youtube-player") != true)
+                        Button("Local Video Player", systemImage: editor?.isUsingLocalVideoPlayer == true ? "checkmark" : "film") {
+                            editor?.run("use-local-video-player")
+                        }
+                        .accessibilityAddTraits(editor?.isUsingLocalVideoPlayer == true ? .isSelected : [])
+                        .disabled(editor?.canRun("use-local-video-player") != true)
+                        Divider()
+                        if editor?.isCommandVisible("choose-playback-video") == true {
+                            Button("Choose Local Playback Video…", systemImage: "film") { editor?.run("choose-playback-video") }
+                                .disabled(editor?.canRun("choose-playback-video") != true)
+                        }
+                        if editor?.isCommandVisible("remove-playback-video") == true {
+                            Button("Remove Local Playback Video…", systemImage: "trash") { editor?.run("remove-playback-video") }
+                                .disabled(editor?.canRun("remove-playback-video") != true)
+                        }
+                    }
+                }
                 Button(editor?.fullScreenTitle ?? "Full-Screen Video", systemImage: "arrow.up.left.and.arrow.down.right") {
                     editor?.run("fullscreen")
                 }
@@ -889,6 +933,7 @@ struct StudioCommands: Commands {
                         captionShortcutEntry("caption-transcript", mode: "transcript")
                         captionShortcutEntry("caption-ad-transcript", mode: "ad-transcript")
                     }
+                    .disabled(editor?.playerUnavailable == true)
                 }
                 if editor?.summaryActive == true && editor?.summaryEditing != true {
                     Divider()
@@ -1060,6 +1105,18 @@ struct StudioCommands: Commands {
                         Button("Import Original Audio…", systemImage: "waveform") { editor?.run("import-original-audio") }
                             .disabled(editor?.canRun("import-original-audio") != true)
                     }
+                    if editor?.isCommandVisible("remove-original-audio") == true {
+                        Button("Remove Original Audio…", systemImage: "trash") { editor?.run("remove-original-audio") }
+                            .disabled(editor?.canRun("remove-original-audio") != true)
+                    }
+                    if editor?.isCommandVisible("choose-playback-video") == true {
+                        Button("Choose Local Playback Video…", systemImage: "film") { editor?.run("choose-playback-video") }
+                            .disabled(editor?.canRun("choose-playback-video") != true)
+                    }
+                    if editor?.isCommandVisible("remove-playback-video") == true {
+                        Button("Remove Local Playback Video…", systemImage: "trash") { editor?.run("remove-playback-video") }
+                            .disabled(editor?.canRun("remove-playback-video") != true)
+                    }
                     if editor?.isCommandVisible("import-ad-audio") == true {
                         Button("Import AD Audio…", systemImage: "waveform") { editor?.run("import-ad-audio") }
                             .disabled(editor?.canRun("import-ad-audio") != true)
@@ -1108,6 +1165,9 @@ struct StudioCommands: Commands {
                 if youtubeBrowser != nil {
                     Button("Open in YouTube Studio", systemImage: "pencil") { youtubeBrowser?.run("youtube-open-studio") }
                         .disabled(youtubeBrowser?.canRun("youtube-open-studio") != true)
+                } else if editor?.youtubeProject == true {
+                    Button("Open in YouTube Studio", systemImage: "pencil") { editor?.run("youtube-project-open-studio") }
+                        .disabled(editor?.canRun("youtube-project-open-studio") != true)
                 }
                 if allProjects == nil {
                 Divider()

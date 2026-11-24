@@ -24,6 +24,22 @@ class DesktopUILayoutParityTests(unittest.TestCase):
         changed = dict(self.source); changed[path] = changed[path].replace(before, after)
         with self.assertRaisesRegex(ValueError, expected): contract.validate(changed)
 
+    def test_youtube_playback_controls(self):
+        for path, marker in (
+            ("Mac/GeneratedContentDeletionView.swift", '"delete-local-playback-video"'),
+            ("Windows/MainWindow.LanguageResults.cs", '"delete-local-playback-video"'),
+            ("Mac/ExportOptionsMenu.swift", "!project.hasVideoExportSource ? [.audio, .text]"),
+            ("Windows/Views/ExportDialog.cs", "IsYouTube: true, HasVideoExportSource: false"),
+            ('Mac/ImportAssetsView.swift', 'Section("Local playback video") { playbackVideoRow }'),
+            ('Windows/Views/ImportAssetsDialog.cs', 'panel.Children.Insert(0, Section("Local playback video", row));'),
+            ('Mac/YouTubeInspectorInformationView.swift', 'Button("Remove Local Playback Video…", systemImage: "trash")'),
+            ('Windows/MainWindow.Menus.cs', 'group.IsEnabled = Model.Project is { } project && CanChangeYouTubePlayback(project);'),
+            ('Mac/ImportAssetsView.swift', 'canChoose: project.allowsOriginalAudioImport && selection.localPlaybackVideo == nil'),
+            ('Windows/Views/ImportAssetsDialog.cs', 'CanChoosePlaybackVideo => !hasSavedOriginalAudio && originalAudio == null'),
+        ):
+            with self.subTest(path=path):
+                self.mutated(path, marker, '', 'YouTube account preview, playback, deletion and export controls')
+
     def test_inspector_language_stays_first_and_unique(self):
         self.mutated('Windows/MainWindow.LanguageResults.cs', 'panel.Children.Add(language);', '', 'must precede all actions')
         self.mutated('Mac/LanguageResults.swift', 'private var controls: some View {', 'private var controls: some View { /* Review language filter */', 'repeat language choices')
@@ -83,6 +99,16 @@ class DesktopUILayoutParityTests(unittest.TestCase):
                      'both video browsers need the shared checkbox selection')
         for path in ('Windows/Views/CloudVideosDialog.cs', 'Windows/MainWindow.YouTube.cs'):
             self.mutated(path, 'videoSelection.ModeItem(', '', 'both video browsers need the shared checkbox selection')
+
+    def test_double_click_respects_video_selection_mode(self):
+        for path, token in (
+            ('Mac/ContentView.swift', 'guard !selectingVideos, selection.count == 1,'),
+            ('Mac/YouTubeViews.swift', 'guard !selectingVideos, selection.count == 1,'),
+            ('Windows/Views/CloudVideosDialog.cs', 'videoSelection.AddPrimaryAction(OpenSelectedVideoAsync)'),
+            ('Windows/MainWindow.YouTube.cs', 'videoSelection.AddPrimaryAction('),
+            ('Windows/Views/VideoBrowserSelection.cs', 'if (Enabled || !list.IsEnabled) return;'),
+        ):
+            self.mutated(path, token, '', 'double-click must run the selected video action only outside Select mode')
 
     def test_loading_indicators_stay_in_the_video_results(self):
         self.mutated('Mac/ContentView.swift', 'if let listingMessage { VideoBrowserLoadingIndicator(message: listingMessage) }', '',

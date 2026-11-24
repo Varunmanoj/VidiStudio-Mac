@@ -459,6 +459,8 @@ def produce(args, root, p, core, dispatch):
 
 
 def deletion_preview(root, p, request, core):
+    import youtube_playback
+
     proposed = copy.deepcopy(p)
     delete(proposed, request)
     removed = referenced_paths(p) - referenced_paths(proposed)
@@ -475,7 +477,11 @@ def deletion_preview(root, p, request, core):
     for relative in removed:
         if not relative.startswith(('audio-description/', 'imports/', 'exports/', 'thumbnails/')) or (p.get('source') and core.local(root, relative) == core.local(root, p['source'])):
             raise ValueError('Cannot delete a saved asset outside the project content folders.')
-    files = [path for path in sorted(removed) if core.local(root, path).is_file()]
+    files = [path for path in removed if core.local(root, path).is_file()]
+    if 'youtubePlaybackVideo' in request.get('components', []):
+        paths = youtube_playback.managed_paths(p.get('youtubePlaybackVideo'))
+        files.extend(path for path in paths if youtube_playback.asset_path(root, path, core).is_file())
+    files.sort()
     proposed_records = {r['id']: r for r in proposed['languageResults']}
     removed_ids = {r['id'] for r in p['languageResults']} - set(proposed_records)
     affected_ids = {r['id'] for r in p['languageResults'] if r['id'] not in proposed_records or r != proposed_records[r['id']]}
@@ -490,8 +496,14 @@ def delete(p, request):
     for rid in ids:
         find(p, rid)
     components = set(request.get('components', []))
-    if not components.issubset({'transcript', 'summary', 'descriptions', 'adAudio', 'narration', 'history', 'exports', 'thumbnails'}):
+    if not components.issubset({'transcript', 'summary', 'descriptions', 'adAudio', 'narration', 'history', 'exports', 'thumbnails', 'youtubePlaybackVideo'}):
         raise ValueError('Choose valid content types to delete.')
+    if 'youtubePlaybackVideo' in components:
+        asset = p.get('youtubePlaybackVideo')
+        if (p.get('sourceType') != 'youtube' or not isinstance(asset, dict) or not asset.get('path')
+                or asset['path'] != request.get('playbackVideoPath')):
+            raise ValueError('The local playback video changed. Reopen Choose What to Delete and try again.')
+        p.pop('youtubePlaybackVideo')
     for r in p['languageResults']:
         if r['id'] in ids and r['kind'] in components:
             continue
@@ -668,6 +680,7 @@ def _run(args, root, p, core, dispatch):
             request = dict(resultIDs=[r['id'] for r in p['languageResults'] if r['language'] == p['selectedLanguage']], components=components,
                            exportPaths=[path for path in p.get('exports', []) if 'exports' in components and p.get('exportResults', {}).get(path, {}).get('language', 'auto') == p['selectedLanguage']])
         preview = deletion_preview(root, p, request, core)
+        playback_asset = p.get('youtubePlaybackVideo') if 'youtubePlaybackVideo' in request.get('components', []) else None
         proposed = copy.deepcopy(p)
         delete(proposed, request)
         for path in request.get('exportPaths', []):
@@ -689,9 +702,13 @@ def _run(args, root, p, core, dispatch):
         p.update(proposed)
         # Manifest first; cleanup subsequently removes only unreferenced files.
         core.save(root, p)
+        import youtube_playback
+        playback_paths = youtube_playback.managed_paths(playback_asset)
         for relative in preview['files']:
-            if relative not in referenced_paths(p):
+            if relative not in playback_paths and relative not in referenced_paths(p):
                 core.local(root, relative).unlink(missing_ok=True)
+        if playback_paths:
+            youtube_playback.remove_assets(root, playback_asset, core)
         if 'thumbnails' in request.get('components', []):
             p['thumbnails'] = []
     elif command == 'export-batch':

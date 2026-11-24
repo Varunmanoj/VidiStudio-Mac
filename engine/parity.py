@@ -74,6 +74,9 @@ def download_youtube_thumbnail(root, video_id):
 def prepare_video(root,p,e):
     """Refresh technical metadata and thumbnails without invoking an AI model."""
     if p.get('sourceType') == 'youtube':
+        if youtube_metadata.is_private(p):
+            e.emit('Private YouTube details are available in Video Information.', progress=1)
+            return
         url=youtube_url(p.get('youtubeURL',''));ident=url.split('=')[-1]
         e.emit('Refreshing YouTube video details',progress=.2)
         title=''

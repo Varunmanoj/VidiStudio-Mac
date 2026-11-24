@@ -110,3 +110,17 @@ The Actions and video context menus include a checked Select mode on both deskto
 New Project’s YouTube source opens My YouTube Videos as a picker attached to the form. Choose Video returns the URL and preview in the same form, preserving audio and caption settings. Escape cancels the picker and returns to New Project. The standalone browser uses Open in Editor.
 
 All Projects uses one Filter Projects button in the toolbar. The native sheet on Mac and owned dialog on Windows group Source, Language, AI Provider and Sort by as aligned fields. Filter applies the choices together. Cancel and Escape leave the gallery unchanged. The AI Provider picker lists All AI Providers and the categories with matching loaded projects. It pairs with the direct View submenu and dialog context menu. The native layout and search controls remain in the toolbar.
+
+Both video browsers use their existing opening action when a video row is double-clicked in List View or Table View. My YouTube Videos from New Project chooses the video for the form. The standalone YouTube browser and the Cloud Storage browser open the editor through their existing workflows. In Select mode, the checked video requires an explicit Choose Video or Open in Editor action. Existing buttons, menus and keyboard access use the same eligibility checks.
+
+## YouTube playback
+
+New Project shows YouTube channel and connected account on both desktops. All YouTube projects can attach a matching playback video from YouTube Information. Private projects also offer the chooser in the preview. The attachment supplies the gallery thumbnail and the native media player. Choose What to Delete includes the attachment as a project-wide checkbox. With a valid copy, Export offers Video and Web Playback. Without a copy, YouTube export shows Audio and Text.
+
+Both editor status areas use byte-based progress for the copy. Public and unlisted projects can switch players without changing the timeline or the video export source.
+
+Each project keeps one local playback copy. Choosing another file opens the native Replace Local Playback Video confirmation on both desktops. Cancel keeps the current copy and thumbnail. Confirming swaps both after the file passes validation and copying finishes.
+
+The inspector puts an accessible trash button beside the filename when a project has a copy. YouTube projects show a Local playback video section at the top of Import Existing Assets. Choose and Clear invoke the same staged actions in the context menu. Import commits the selection using the matching-file check, copy progress and replacement confirmation. Selecting either playback video or original audio disables the other chooser. State text identifies the saved file or staged selection to remove.
+
+A usable playback copy supplies the video’s soundtrack for audio and video exports, while video analysis still uses YouTube. Both platforms require removing a saved playback video before importing original audio, and removing original audio before importing a playback video. The preview, inspector, import dialog and menus share those guards. Older projects containing both files offer removal for either one. Both inspectors place Open in YouTube Studio next to Open in YouTube when a connected channel matches, and reflow the buttons when needed.

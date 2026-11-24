@@ -578,6 +578,28 @@ struct StudioProject: Codable, Identifiable {
         youtubePrivateChannelID ?? (youtubeMetadata?.visibility == "private" ? youtubeMetadata?.channelID ?? "" : nil)
     }
     var youtubeURL: String?
+    var youtubePlaybackVideo: YouTubePlaybackVideo?
+    var localYouTubePlaybackURL: URL? {
+        guard isYouTubeURLProject, let asset = youtubePlaybackVideo,
+              abs(asset.duration - duration) < 0.5, hasFile(asset.path) else { return nil }
+        return url(asset.path)
+    }
+    var offersYouTubePlayerChoice: Bool { isYouTubeURLProject && !requiresLocalYouTubePlayback }
+    var canChooseYouTubePlayer: Bool { offersYouTubePlayerChoice && localYouTubePlaybackURL != nil }
+    var activeLocalYouTubePlaybackURL: URL? {
+        canChooseYouTubePlayer && youtubePlaybackVideo?.useYouTubePlayer == true ? nil : localYouTubePlaybackURL
+    }
+    var usesStandaloneYouTubeAudio: Bool { isYouTubeURLProject && localYouTubePlaybackURL == nil }
+    var allowsOriginalAudioImport: Bool { isYouTubeURLProject && youtubePlaybackVideo == nil }
+    var hasVideoExportAudio: Bool {
+        isYouTubeURLProject ? localYouTubePlaybackURL != nil && youtubePlaybackVideo?.hasAudio != false : hasAudio
+    }
+    var hasVideoExportSource: Bool {
+        isYouTubeURLProject ? localYouTubePlaybackURL != nil : hasFile(source)
+    }
+    var requiresLocalYouTubePlayback: Bool {
+        isYouTubeURLProject && privateYouTubeChannel != nil
+    }
     var originalAudio: OriginalAudioAsset?
     var audioSources: AudioSourceSettings?
     var transcriptAudioSource: AudioSourceProvenance?
@@ -616,6 +638,7 @@ struct StudioProject: Codable, Identifiable {
     }
     var hasGeneratedContent: Bool {
         !savedLanguageResults.isEmpty || canReprocess || !thumbnails.isEmpty
+            || (isYouTubeURLProject && youtubePlaybackVideo != nil)
             || directoryHasContent("audio-description")
             || directoryHasContent("exports")
             || !(undoStack ?? []).isEmpty
@@ -930,6 +953,7 @@ struct OriginalAudioInspection: Decodable {
 struct ImportAssetSelection {
     var language: String?
     var originalAudio: URL?
+    var localPlaybackVideo: URL?
     var originalAudioPlayback = false
     var originalAudioTranscription = false
     var transcript: URL?
@@ -944,7 +968,7 @@ struct ImportAssetSelection {
     var adTranscriptTiming: URL?
 
     var hasAny: Bool {
-        originalAudio != nil || transcript != nil || summary != nil || adTranscript != nil || adAudio != nil
+        originalAudio != nil || localPlaybackVideo != nil || transcript != nil || summary != nil || adTranscript != nil || adAudio != nil
     }
     var hasTextNeedingTiming: Bool {
         [transcript, adTranscript].contains { $0?.pathExtension.lowercased() == "txt" }
@@ -2341,6 +2365,52 @@ final class StudioModel {
             && !settings.vertexBucket.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
     }
 
+    func canChangeYouTubePlaybackVideo(_ project: StudioProject) -> Bool {
+        guard !busy, project.isYouTubeURLProject, project.integrityPlaceholder != true else { return false }
+        let report = integrityReport(for: project)
+        return !report.manifestUnreadable && !report.folderMissing
+    }
+
+    func canChooseYouTubePlaybackVideo(_ project: StudioProject) -> Bool {
+        canChangeYouTubePlaybackVideo(project) && project.originalAudio == nil
+    }
+
+    func selectYouTubePlayer(_ project: StudioProject, embedded: Bool) {
+        guard canChangeYouTubePlaybackVideo(project), project.canChooseYouTubePlayer,
+              (project.youtubePlaybackVideo?.useYouTubePlayer == true) != embedded else { return }
+        execute("select-youtube-player", extra: ["--name", embedded ? "youtube" : "local"], project: project)
+    }
+
+    func chooseYouTubePlaybackVideo(_ project: StudioProject) {
+        guard canChooseYouTubePlaybackVideo(project), let url = pickLocalVideo(),
+              let arguments = confirmedYouTubePlaybackVideoArguments(url, project: project) else { return }
+        execute("attach-youtube-playback", extra: arguments, project: project)
+    }
+
+    func confirmedYouTubePlaybackVideoArguments(_ url: URL, project: StudioProject) -> [String]? {
+        guard canChooseYouTubePlaybackVideo(project) else { return nil }
+        var arguments = ["--video", url.path]
+        if let previous = project.youtubePlaybackVideo {
+            guard confirmDeletion(title: "Replace Local Playback Video?",
+                                  message: "Replace \(previous.sourceName) with \(url.lastPathComponent)?",
+                                  actionTitle: "Replace") else { return nil }
+            arguments.append("--replace-existing")
+        }
+        return arguments
+    }
+
+    func removeYouTubePlaybackVideo(_ project: StudioProject) {
+        guard canChangeYouTubePlaybackVideo(project), let asset = project.youtubePlaybackVideo,
+              confirmDeletion(title: "Remove Local Playback Video?", message: asset.sourceName, actionTitle: "Remove") else { return }
+        execute("remove-youtube-playback", project: project)
+    }
+
+    func removeYouTubeOriginalAudio(_ project: StudioProject) {
+        guard canChangeYouTubePlaybackVideo(project), let asset = project.originalAudio,
+              confirmDeletion(title: "Remove Original Audio?", message: asset.sourceName, actionTitle: "Remove") else { return }
+        execute("remove-original-audio", project: project)
+    }
+
     func pickLocalVideo() -> URL? {
         let panel = NSOpenPanel()
         panel.allowedContentTypes = [.movie, .video, .mpeg4Movie, .quickTimeMovie]
@@ -3094,12 +3164,14 @@ final class StudioModel {
             completion?(nil)
             return
         }
-        if ["export-final-video", "export-selectable-video", "export-closed-audio-description-video", "export-open-audio-description-video", "export-closed-caption-video", "export-dual-closed-caption-video", "export-open-caption-video", "export-hls"].contains(command), let target, target.isYouTubeURLProject {
+        if ["export-final-video", "export-selectable-video", "export-closed-audio-description-video", "export-open-audio-description-video", "export-closed-caption-video", "export-dual-closed-caption-video", "export-open-caption-video", "export-hls"].contains(command), let target, target.isYouTubeURLProject, !target.hasVideoExportSource {
             errorTitle = "Video Export Isn’t Available"
-            error = "This project uses a YouTube link, so VidiStudio does not have a local video to export. You can still export text and available narration audio."
+            error = "Choose a matching local playback video before exporting this project."
+            if let cleanupURL { try? FileManager.default.removeItem(at: cleanupURL) }
+            completion?(nil)
             return
         }
-        if ["export-original-audio", "export-described-audio"].contains(command), let target, target.isYouTubeURLProject {
+        if ["export-original-audio", "export-described-audio"].contains(command), let target, target.usesStandaloneYouTubeAudio {
             errorTitle = "Audio Export Isn’t Available"
             error = "This project uses a YouTube link, so its original soundtrack is not stored on this Mac. You can still export narration-only audio or text."
             return
@@ -3218,7 +3290,7 @@ final class StudioModel {
             videoPreparationActivity = VideoPreparationActivity(
                 projectID: target.id, message: "Checking video availability")
         }
-        contentTransferCommand = ["copy-results", "translate-results"].contains(command) ? command : nil
+        contentTransferCommand = ["copy-results", "translate-results", "attach-youtube-playback"].contains(command) ? command : nil
         contentTransferProgress = nil
         activeAIProcessing = nil
         processingSection = Self.initialProcessingSection(for: command)
@@ -3252,7 +3324,7 @@ final class StudioModel {
         var completedExportPaths: [String] = []
         var exportFailed = false
         var exportSummaryMessage: String?
-        let canRecoverYouTubeAudio = target?.isYouTubeURLProject == true &&
+        let canRecoverYouTubeAudio = target?.allowsOriginalAudioImport == true &&
             ["export-youtube-original-audio", "export-youtube-described-audio", "combine-imported-audio"].contains(command)
         var youtubeAudioUnavailable = false
         var deferredExportError: String?
@@ -3691,6 +3763,7 @@ final class StudioModel {
     var processingStageTitle: String {
         if contentTransferCommand == "translate-results" { return "Translating content" }
         if contentTransferCommand == "copy-results" { return "Copying content" }
+        if contentTransferCommand == "attach-youtube-playback" { return "Copying local playback video" }
         if let activity = videoPreparationActivity { return activity.message }
         switch processingSection {
         case "transcript": return "Generating transcript"
@@ -3795,10 +3868,11 @@ final class StudioModel {
         into project: StudioProject,
         combine: Bool,
         replaceExisting: Bool = false,
+        playbackVideoArguments: [String]? = nil,
         completion: ((StudioProject?) -> Void)? = nil
     ) {
         guard !busy else { return }
-        if let audio = selection.originalAudio {
+        if playbackVideoArguments == nil, let audio = selection.originalAudio {
             importOriginalAudio(audio, into: project, playback: selection.originalAudioPlayback,
                                 transcription: selection.originalAudioTranscription, replaceExisting: replaceExisting) { updated in
                 guard let updated else { completion?(nil); return }
@@ -3830,6 +3904,9 @@ final class StudioModel {
         if replaceExisting {
             steps = steps.map { (command: $0.command, arguments: $0.arguments + ["--replace-existing"]) }
         }
+        if let playbackVideoArguments {
+            steps.insert(("attach-youtube-playback", playbackVideoArguments), at: 0)
+        }
         importReports.removeAll()
         var current = project
         var remaining = steps
@@ -3841,7 +3918,7 @@ final class StudioModel {
             }
             execute(
                 "combine-imported-audio",
-                extra: (result.isYouTubeURLProject ? ["--audio-only", "--media-format", "wav"] : ["--audio-presentation", "selectable", "--captions", "none", "--media-format", "mov"])
+                extra: (result.usesStandaloneYouTubeAudio ? ["--audio-only", "--media-format", "wav"] : ["--audio-presentation", "selectable", "--captions", "none", "--media-format", "mov"])
                     + (replaceExisting ? ["--replace-existing"] : []),
                 project: result
             ) { combined in completion?(combined ?? result) }
@@ -3870,7 +3947,7 @@ final class StudioModel {
         guard !busy else { return }
         execute(
             "combine-imported-audio",
-            extra: (project.isYouTubeURLProject ? ["--audio-only", "--media-format", "wav"] : ["--audio-presentation", "selectable", "--captions", "none", "--media-format", "mov"])
+            extra: (project.usesStandaloneYouTubeAudio ? ["--audio-only", "--media-format", "wav"] : ["--audio-presentation", "selectable", "--captions", "none", "--media-format", "mov"])
                 + (replacingExisting ? ["--replace-existing"] : []),
             project: project,
             completion: completion

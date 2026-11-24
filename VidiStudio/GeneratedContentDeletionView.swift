@@ -79,7 +79,11 @@ struct GeneratedContentDeletionView: View {
         project.exports.filter { language == "all" || (project.exportResults?[$0]?.matches(language) ?? (language == "auto")) }
     }
     private var request: [String: Any] {
-        ["resultIDs": Array(selection), "components": Array(components), "exportPaths": Array(exportPaths)]
+        var request: [String: Any] = ["resultIDs": Array(selection), "components": Array(components), "exportPaths": Array(exportPaths)]
+        if components.contains("youtubePlaybackVideo"), let asset = project.youtubePlaybackVideo {
+            request["playbackVideoPath"] = asset.path
+        }
+        return request
     }
     var body: some View {
         VStack(alignment: .leading, spacing: 16) {
@@ -97,6 +101,16 @@ struct GeneratedContentDeletionView: View {
                     ForEach(["transcript", "summary", "descriptions", "adAudio", "narration", "history", "thumbnails"], id: \.self) { kind in
                         Toggle(deletionTitle(kind), isOn: componentMembership(kind))
 
+                    }
+                    if project.isYouTubeURLProject, let asset = project.youtubePlaybackVideo {
+                        Toggle(deletionTitle("youtubePlaybackVideo"), isOn: componentMembership("youtubePlaybackVideo"))
+                            .accessibilityIdentifier("delete-local-playback-video")
+                            .help(asset.sourceName)
+                            .contextMenu {
+                                Button(deletionTitle("youtubePlaybackVideo"), systemImage: components.contains("youtubePlaybackVideo") ? "checkmark.square" : "square") {
+                                    components.formSymmetricDifference(["youtubePlaybackVideo"])
+                                }
+                            }
                     }
                     Divider()
                     HStack {
@@ -129,7 +143,7 @@ struct GeneratedContentDeletionView: View {
                 Button("Delete Selected…", role: .destructive) {
                     studio.previewResultDeletion(request: request, project: project) { preview = $0; confirming = true }
                 }
-                    .disabled(studio.busy || ((selection.isEmpty || components.isEmpty) && exportPaths.isEmpty && !components.contains("thumbnails")))
+                    .disabled(studio.busy || ((selection.isEmpty || components.isEmpty) && exportPaths.isEmpty && components.isDisjoint(with: ["thumbnails", "youtubePlaybackVideo"])))
             }.fixedSize(horizontal: false, vertical: true).layoutPriority(1)
         }.padding(24)
         .frame(width: min(680, dialogSize.width), height: min(650, dialogSize.height))
@@ -162,6 +176,7 @@ struct GeneratedContentDeletionView: View {
         case "narration": "Description Audio Only (Keep Segments)"
         case "history": "Segment Undo History Only"
         case "thumbnails": "Thumbnails (Entire Project)"
+        case "youtubePlaybackVideo": "Local Playback Video"
         default: SavedLanguageResult.kindTitle(kind)
         }
     }

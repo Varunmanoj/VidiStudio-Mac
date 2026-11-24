@@ -33,7 +33,22 @@ struct YouTubeInspectorInformationView: View {
                     if !video.description.isEmpty { DisclosureGroup("Video description") { Text(video.description).textSelection(.enabled) } }
                     if !video.tags.isEmpty { DisclosureGroup("Tags") { Text(video.tags.joined(separator: ", ")).textSelection(.enabled) } }
                 } else { Text("YouTube details have not been saved for this project yet.") }
-                Button("Open in YouTube") { studio.openYouTubeInBrowser(project) }
+                YouTubePlaybackVideoControls(studio: studio, project: project)
+                if !project.allowsOriginalAudioImport {
+                    VStack(alignment: .leading, spacing: 8) {
+                        Button("Choose Audio File…", systemImage: "waveform") {}.disabled(true)
+                            .help("Remove the local playback video to import original audio.")
+                        if project.originalAudio != nil {
+                            Button("Remove Original Audio…", systemImage: "trash") { studio.removeYouTubeOriginalAudio(project) }
+                                .disabled(!studio.canChangeYouTubePlaybackVideo(project))
+                        }
+                    }
+                }
+                ViewThatFits(in: .horizontal) {
+                    HStack(spacing: 8) { youtubeLinks }.fixedSize(horizontal: true, vertical: false)
+                    VStack(alignment: .leading, spacing: 8) { youtubeLinks }
+                }
+                .contextMenu { youtubeLinks }
                 Button("Refresh YouTube Details") { startRefresh() }.disabled(refreshing || studio.busy)
                 if refreshing { HStack { ProgressView().controlSize(.small); Text("Fetching YouTube details…") } }
                 if let issue { Text(issue).foregroundStyle(.red) }
@@ -44,6 +59,13 @@ struct YouTubeInspectorInformationView: View {
         .onChange(of: project.youtubeMetadata) { _, _ in fetched = nil }
         .onDisappear { request?.cancel() }
     }
+    @ViewBuilder private var youtubeLinks: some View {
+        Button("Open in YouTube", systemImage: "arrow.up.right.square") { studio.openYouTubeInBrowser(project) }
+        if project.connectedYouTubeStudioURL != nil {
+            Button("Open in YouTube Studio", systemImage: "pencil") { studio.openProjectInYouTubeStudio(project) }
+        }
+    }
+
     private func row(_ label: String, _ value: String) -> some View {
         InspectorInformationRow(label: label, value: value.isEmpty ? "Unavailable" : value)
     }
@@ -67,5 +89,55 @@ struct YouTubeInspectorInformationView: View {
             guard studio.selectedID == project.id else { return }
             studio.saveYouTubeMetadata(value, project: project)
         } catch is CancellationError {} catch { issue = error.localizedDescription }
+    }
+}
+
+
+struct YouTubePlaybackVideo: Codable, Equatable {
+    let path: String
+    let thumbnail: String
+    let sourceName: String
+    let duration: Double
+    var useYouTubePlayer: Bool?
+    var hasAudio: Bool?
+}
+
+struct YouTubePlaybackVideoControls: View {
+    let studio: StudioModel
+    let project: StudioProject
+    var showSource = true
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            if showSource {
+                HStack(alignment: .center, spacing: 8) {
+                    InspectorInformationRow(label: "Local playback video", value: project.localYouTubePlaybackURL == nil
+                        ? (project.youtubePlaybackVideo == nil ? (project.originalAudio == nil ? "No file selected" : "Remove the original audio file to choose a video.") : "Playback file unavailable")
+                        : (project.youtubePlaybackVideo?.sourceName ?? "Local video"))
+                    if project.youtubePlaybackVideo != nil {
+                        removeButton.labelStyle(.iconOnly).help("Remove Local Playback Video…")
+                    }
+                }
+            }
+            chooseButton
+        }
+        .contextMenu {
+            chooseButton
+            if showSource && project.youtubePlaybackVideo != nil { removeButton }
+        }
+    }
+
+    private var chooseButton: some View {
+        Button("Choose Local Playback Video…", systemImage: "film") {
+            studio.chooseYouTubePlaybackVideo(project)
+        }
+        .disabled(!studio.canChooseYouTubePlaybackVideo(project))
+    }
+
+    private var removeButton: some View {
+        Button("Remove Local Playback Video…", systemImage: "trash") {
+            studio.removeYouTubePlaybackVideo(project)
+        }
+        .disabled(!studio.canChangeYouTubePlaybackVideo(project))
     }
 }

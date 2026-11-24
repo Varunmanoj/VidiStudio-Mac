@@ -13,6 +13,12 @@ struct YouTubeVideo: Codable, Identifiable, Hashable {
     var visibility: String
     var publishedAt: String
     var thumbnailURL: String
+    var safeThumbnailURL: URL? {
+        guard let url = URL(string: thumbnailURL), url.scheme == "https",
+              let host = url.host, host.hasSuffix(".ytimg.com"),
+              url.user == nil, url.password == nil else { return nil }
+        return url
+    }
     var captionsAvailable: Bool
     var tags: [String]
     var language: String?
