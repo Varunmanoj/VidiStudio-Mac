@@ -89,12 +89,14 @@ def update(args, root, project, cfg, core):
             raise ValueError('Choose a local video project.')
         if record:
             return
+        size = source.stat().st_size
+        if size > vertex_ai.MAX_CLOUD_VIDEO_SIZE_BYTES:
+            raise ValueError(vertex_ai.CLOUD_VIDEO_SIZE_MESSAGE)
         blob = bucket.blob(prefix + filename(source.name), chunk_size=8 * 1024 * 1024)
         blob.metadata = {'vidistudio-project': project['id']}
         preview = thumbnail(source, core.tool('ffmpeg'))
         if preview:
             blob.metadata = {**blob.metadata, 'vidistudio-thumbnail-jpeg': preview}
-        size = source.stat().st_size
         try:
             with source.open('rb') as stream:
                 blob.upload_from_file(UploadReader(stream,size,core.emit), size=size,
@@ -306,7 +308,7 @@ def download(cfg, name, directory, limit, emit, generation=None, source_project=
         if not is_video(blob):
             raise ValueError('Choose a supported Cloud Storage video.')
         if blob.size > limit:
-            raise ValueError('The selected video exceeds the supported import size.')
+            raise ValueError(vertex_ai.CLOUD_VIDEO_SIZE_MESSAGE)
         try:
             with iam_permission_test(cfg, bucket.name) as (resource, allowed):
                 if 'storage.objects.get' not in allowed(f'{resource}/objects/{name}', 'storage.objects.get'):

@@ -24,6 +24,16 @@ struct StudioProject {
         }
         for command in ["import-video", "prepare-video", "save-summary", "export-audio", "export-subtitles", "doctor", "synthesize-tts"] { precondition(needs(command).isEmpty, command) }
         for command in OnlineRequirements.geminiCommands { precondition(needs(command) == [.gemini], command) }
+        for command in ["analyze", "regenerate-all", "transcribe", "generate-summary", "generate-ad-cues",
+                        "reanalyze-segment", "rewrite-cue", "capture-frame", "translate-results"] {
+            precondition(OnlineRequirements.requiresAIConnection(command, usesGeminiNarration: false), command)
+        }
+        for command in ["import-video", "save-summary", "check-api-key", "synthesize-tts"] {
+            precondition(!OnlineRequirements.requiresAIConnection(command, usesGeminiNarration: false), command)
+        }
+        precondition(OnlineRequirements.requiresAIConnection("synthesize-tts", usesGeminiNarration: true))
+        precondition(AIConnection.allCases.filter { $0.supports(existingBucketVideo: true, narration: false) } == [.googleSignIn])
+        precondition(AIConnection.allCases.filter { $0.supports(existingBucketVideo: false, narration: true) } == [.developer, .googleSignIn])
         precondition(needs("translate-results") == [.gemini])
         precondition(needs("copy-results").isEmpty)
         settings.ttsMode = "gemini"; precondition(needs("synthesize-tts") == [.gemini])

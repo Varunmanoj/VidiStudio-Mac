@@ -3,6 +3,11 @@ import UniformTypeIdentifiers
 
 enum LocalVideoFilePolicy {
     static let maximumSizeBytes: Int64 = 2_000_000_000
+    static let maximumCloudSizeBytes: Int64 = 2 * 1_024 * 1_024 * 1_024 - 500 * 1_024
+
+    enum ImportChoice {
+        case local, cloud, smaller, cancel
+    }
 
     static func size(at url: URL) throws -> Int64 {
         let attributes = try FileManager.default.attributesOfItem(atPath: url.path)
@@ -24,6 +29,10 @@ enum LocalVideoFilePolicy {
 
     static func exceedsMaximumSize(_ url: URL) throws -> Bool {
         try size(at: url) > maximumSizeBytes
+    }
+
+    static func analysisSizeWarning(_ byteCount: Int64) -> String {
+        "This video is \(displaySize(byteCount)) and is too large for analysis. Choose a smaller video."
     }
 
     static func displaySize(_ byteCount: Int64) -> String {

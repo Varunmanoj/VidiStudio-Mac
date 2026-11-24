@@ -237,7 +237,7 @@ struct AllProjectsActions {
         case "delete-content": return project.hasGeneratedContent
         case "prepare-video": return !project.isYouTubeURLProject || ConnectivityService.shared.available(.youtube)
         case "analyze", "transcribe", "generate-summary", "generate-ad-cues":
-            return studio.hasApiKey && studio.apiKeyVerified != false && !studio.isAIProcessingBlocked
+            return studio.hasValidApiKey
                 && ConnectivityService.shared.available(.gemini) && (action != "generate-ad-cues" || project.canGenerateDescriptions)
         default: return false
         }

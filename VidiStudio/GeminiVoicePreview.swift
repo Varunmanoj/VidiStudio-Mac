@@ -23,7 +23,7 @@ import Combine
         let key = cacheKey(settings, text)
         if let file = cache[key] { guard VoiceSampleSession.shared.begin(sampleOwner) else { return }; playFile(file); return }
         guard ConnectivityService.shared.available(.gemini) else { error = ConnectivityService.shared.reason(.gemini); return }
-        guard settings.hasApiKey else { error = "Connect your AI provider in Settings → AI to preview this voice."; return }
+        guard settings.hasApiKey else { error = "Connect an AI provider in Settings > AI to preview this voice."; return }
         if settings.aiProvider == "vertex", settings.vertexAuth == "express" { error = "Use Google sign-in in Settings → AI for Gemini narration."; return }
         guard let engine = Bundle.main.resourceURL?.appendingPathComponent("Engine/vidistudio-engine") else {
             error = "A required part of VidiStudio is unavailable. Reinstall the application, then try again."
@@ -104,6 +104,15 @@ struct GeminiVoiceBrowser: View {
     @State private var preview = GeminiVoicePreview()
     @State private var sample = "Hello. This is a sample of audio description narration in VidiStudio."
     private let voices = ["Aoede", "Callirrhoe", "Charon", "Fenrir", "Kore", "Leda", "Orus", "Puck", "Zephyr"]
+    private var sampleCached: Bool { preview.hasCached(settings: studio.settings, text: sample) }
+    private var canPlaySample: Bool {
+        !VoiceSampleSession.shared.busy && !sample.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+            && sample.count <= 500 && (sampleCached || studio.canUseGeminiNarration)
+    }
+    private func playSample() {
+        guard canPlaySample, sampleCached || studio.authorizeAIConnection(for: "preview-tts", project: nil) else { return }
+        preview.play(settings: studio.settings, text: sample)
+    }
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
             Text("Voices").font(.headline).accessibilityAddTraits(.isHeader).accessibilityHeading(.h2)
@@ -114,11 +123,11 @@ struct GeminiVoiceBrowser: View {
             TextField("Sample text", text: $sample, axis: .vertical).lineLimit(2...4)
             HStack {
                 Button(preview.loading || preview.playing ? "Stop Sample" : "Play Sample", systemImage: preview.loading || preview.playing ? "stop.circle" : "play.circle") {
-                    if preview.loading || preview.playing { preview.stop() } else { preview.play(settings: studio.settings, text: sample) }
+                    if preview.loading || preview.playing { preview.stop() } else { playSample() }
                 }
-                    .disabled(!preview.loading && !preview.playing && (VoiceSampleSession.shared.busy || sample.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || sample.count > 500 || !studio.hasApiKey || (!ConnectivityService.shared.available(.gemini) && !preview.hasCached(settings: studio.settings, text: sample))))
+                    .disabled(!preview.loading && !preview.playing && !canPlaySample)
                     .contextMenu {
-                        Button("Play Sample") { preview.play(settings: studio.settings, text: sample) }.disabled(VoiceSampleSession.shared.busy || !studio.hasApiKey || sample.isEmpty || sample.count > 500)
+                        Button("Play Sample") { playSample() }.disabled(!canPlaySample)
                         Button("Stop Sample") { preview.stop() }.disabled(!preview.loading && !preview.playing)
                     }
                     .help(!studio.hasApiKey ? "Enter your Gemini API key in Settings → Gemini to preview this voice" : "Play sample of Gemini voice \(studio.settings.geminiVoice)")

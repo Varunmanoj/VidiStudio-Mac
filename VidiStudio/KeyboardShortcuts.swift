@@ -104,7 +104,7 @@ final class EditorShortcutActions {
         switch action {
         case "segment-one-play", "segment-one-skip": return !youtubeProject || ConnectivityService.shared.available(.youtube)
         case "segment-one-reanalyze", "segment-one-rewrite": return hasValidApiKey
-        case "segment-one-synthesize": return (!ttsUsesGemini || hasValidApiKey) && (!ttsUsesSarvam || sarvamReady)
+        case "segment-one-synthesize": return (!ttsUsesGemini || geminiNarrationReady) && (!ttsUsesSarvam || sarvamReady)
         case "segment-one-preview": return audioReady || isPreviewing
         case "segment-one-preview-stop": return isPreviewing
         case "segment-one-delete-audio": return hasAudio
@@ -148,6 +148,7 @@ final class EditorShortcutActions {
     var vertexEnabled = false
     var youtubeProject = false
     @ObservationIgnored var youtubeHandler: ((String) -> Void)?
+    var geminiNarrationReady = false
     var ttsUsesGemini = false
     var ttsUsesSarvam = false
     var sarvamReady = false
@@ -368,11 +369,11 @@ final class EditorShortcutActions {
         case "analyze", "transcribe", "generate-summary": return hasValidApiKey
         case "generate-ad-cues": return hasValidApiKey && canGenerateDescriptions
         case "synthesize-tts":
-            if ttsUsesGemini && !hasValidApiKey { return false }
+            if ttsUsesGemini && !geminiNarrationReady { return false }
             if ttsUsesSarvam && !sarvamReady { return false }
             return descriptionCount > 0
         case "synthesize-changed":
-            if ttsUsesGemini && !hasValidApiKey { return false }
+            if ttsUsesGemini && !geminiNarrationReady { return false }
             if ttsUsesSarvam && !sarvamReady { return false }
             return hasNarrationAudio && hasChangedNarration
         case "review-narration-issues", "review-narration-voices": return true

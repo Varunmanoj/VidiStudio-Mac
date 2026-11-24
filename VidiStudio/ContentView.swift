@@ -55,6 +55,7 @@ private struct NewProjectView: View {
         _cloudImport = State(initialValue: studio.newProjectSource == .cloud)
     }
     @State private var videoURL: URL?
+    @State private var videoRequiresCloud = false
     @State private var youtubeURL = ""
     @State private var youtubePreview: YouTubeProjectPreview?
     @State private var youtubeFetchError: String?
@@ -65,8 +66,8 @@ private struct NewProjectView: View {
     }
 
     private var canCreate: Bool {
-        if source == .cloud && (!studio.settings.vertexConnected || studio.settings.vertexBucket.isEmpty) { return false }
-        if source == .cloud && cloudImport { return false }
+        if source == .cloud && (!studio.canUploadCloudVideo || cloudImport) { return false }
+        if source == .videoFile && videoRequiresCloud { return false }
         return source == .youtube ? youtubePreview != nil && ConnectivityService.shared.available(.youtube) : videoURL != nil
     }
 
@@ -340,14 +341,20 @@ private struct NewProjectView: View {
     }
 
     private func chooseVideo() {
-        let panel = NSOpenPanel()
-        panel.allowedContentTypes = [.movie, .video, .mpeg4Movie, .quickTimeMovie]
-        panel.allowsMultipleSelection = false
-        panel.prompt = "Choose Video"
-        panel.message = "Choose the video file for this VidiStudio project."
-        if panel.runModal() == .OK, let selectedURL = panel.url,
-           studio.validateLocalVideoForCreation(selectedURL) {
-            videoURL = selectedURL
+        while let selected = studio.pickLocalVideo() {
+            switch studio.videoImportChoice(selected, asCloud: source == .cloud) {
+            case .smaller: continue
+            case .cancel: return
+            case .cloud:
+                cloudImport = false
+                source = .cloud
+                videoRequiresCloud = (try? LocalVideoFilePolicy.exceedsMaximumSize(selected)) ?? false
+                videoURL = selected
+            case .local:
+                videoRequiresCloud = false
+                videoURL = selected
+            }
+            return
         }
     }
 
@@ -360,7 +367,7 @@ private struct NewProjectView: View {
         switch source {
         case .cloud:
             guard let videoURL else { return }
-            studio.execute("cloud-create", extra: ["--video", videoURL.path, "--library", studio.settings.libraryPath], completion: finished)
+            _ = studio.importVideo(at: videoURL, asCloud: true, completion: finished)
         case .videoFile:
             guard let videoURL else { return }
             _ = studio.importVideo(at: videoURL, completion: finished)
@@ -802,6 +809,16 @@ private struct CloudVideosView: View {
     private func importVideo(_ file: StorageFileChoice) {
         guard canBrowse, !bucket.isEmpty, !projectID.isEmpty,
               videos.contains(where: { $0.id == file.id && $0.generation == file.generation }) else { return }
+        if let size = file.size.flatMap(Int64.init), size > LocalVideoFilePolicy.maximumCloudSizeBytes {
+            let alert = NSAlert()
+            alert.alertStyle = .warning
+            alert.messageText = "Video Is Too Large"
+            alert.informativeText = LocalVideoFilePolicy.analysisSizeWarning(size)
+            alert.addButton(withTitle: "Choose a Smaller Video")
+            alert.addButton(withTitle: "Cancel").keyEquivalent = "\u{1b}"
+            if alert.runModal() == .alertFirstButtonReturn { videoID = nil }
+            return
+        }
         importing = true
         studio.execute("cloud-import", extra: arguments(file) + ["--library", studio.settings.libraryPath]) { project in
             importing = false
@@ -919,7 +936,7 @@ struct ContentView: View {
             busy: studio.busy,
             integrity: studio.projectIntegrity,
             hasApiKey: studio.hasApiKey,
-            apiKeyVerified: studio.apiKeyVerified,
+            apiKeyVerified: studio.isApiKeyInvalid ? false : nil,
             aiProcessingBlocked: studio.isAIProcessingBlocked,
             apiKeyVerificationMessage: studio.apiKeyVerificationMessage,
             openGeminiSettings: {
@@ -2816,7 +2833,7 @@ struct ProjectEditor: View {
             readFrame: readFrameAction,
             canReanalyze: (!row.isDescription || project.canGenerateDescriptions) && !studio.busy && studio.hasValidApiKey,
             hasApiKey: studio.hasApiKey,
-            apiKeyVerified: studio.apiKeyVerified,
+            apiKeyVerified: studio.isApiKeyInvalid ? false : nil,
             reanalyze: { segment, hint in
                 studio.reanalyzeSegment(segment, hint: hint, isDescription: row.isDescription)
             }
@@ -4006,7 +4023,8 @@ struct ProjectEditor: View {
         shortcutActions.hasGeneratedSummary = GeneratedContentComponent.summary.hasContent(in: project)
         shortcutActions.youtubeProject = project.isYouTubeURLProject
         shortcutActions.hasApiKey = studio.hasApiKey
-        shortcutActions.apiKeyVerified = studio.apiKeyVerified
+        shortcutActions.apiKeyVerified = studio.isApiKeyInvalid ? false : nil
+        shortcutActions.geminiNarrationReady = studio.canUseGeminiNarration
         shortcutActions.aiProcessingBlocked = studio.isAIProcessingBlocked
         shortcutActions.ttsUsesGemini = (studio.settings.ttsMode == "gemini")
         shortcutActions.ttsUsesSarvam = ["sarvam","elevenlabs"].contains(studio.settings.ttsMode)
@@ -4141,6 +4159,10 @@ struct ProjectEditor: View {
         .onChange(of: summaryReader.sentences.count) { _, _ in refreshEditorShortcutActions() }
     }
 
+    private var aiShortcutAvailability: [Bool] {
+        [studio.hasApiKey, studio.isApiKeyInvalid, studio.canUseGeminiNarration, studio.isAIProcessingBlocked]
+    }
+
     private var editorWithShortcutUpdates: some View {
         editorWithSummaryUpdates
         .onChange(of: search.text) { _, _ in
@@ -4176,8 +4198,7 @@ struct ProjectEditor: View {
         }
         .onChange(of: playback.buffering) { _, _ in refreshEditorShortcutActions() }
         .onChange(of: studio.settings.captionDisplayMode) { _, _ in refreshEditorShortcutActions() }
-        .onChange(of: studio.hasApiKey) { _, _ in refreshEditorShortcutActions() }
-        .onChange(of: studio.apiKeyVerified) { _, _ in refreshEditorShortcutActions() }
+        .onChange(of: aiShortcutAvailability) { _, _ in refreshEditorShortcutActions() }
         .onChange(of: studio.narrationMenuSignature) { _, _ in refreshEditorShortcutActions() }
         .onChange(of: tab) { oldTab, _ in
             searchRevealedID = nil

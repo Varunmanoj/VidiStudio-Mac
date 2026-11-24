@@ -4194,3 +4194,15 @@ The native Mac preview checks also passed in Light and Dark. Restored the origin
 Built and installed the synchronized Mac build 387 with Safari, Share and Finder extensions. Verified the existing Apple Development team LLVWNNUV26, three installed extension registrations, and one VidiStudio app in Spotlight. The Windows tooltip change follows the editor action labels and scope already used on Mac. Mac icon, menu, UI and 83 parity tests passed.
 
 The packaged Mac engine passed 51 language-result tests.
+
+## 1.0.388 · AI connections and large videos · 2026-11-24
+
+AI generation checks the saved Gemini Developer, Vertex Google sign-in and Vertex Express connections. When a different compatible connection is needed, the app shows the connection and Cloud project before the user can switch. The New Project and direct-open size warning offers a smaller video or Cancel. A file that fits the Vertex Cloud Storage limit also offers upload when the account, project and bucket are set up, regardless of the selected AI provider.
+
+Built and installed signed 1.0.388 (build 388). Verified one app in Spotlight and LaunchServices. Safari, Share and Finder extensions retained Apple Development team LLVWNNUV26, build 388, and one registration each. The installed engine passed its media and TLS diagnostic. Disposable sparse files verified that both oversize cases fail before project creation. The source menu, icon and UI parity gates, Cloud Storage tests, and native Swift connection requirements passed. Native Mac dialog observation remained blocked by the locked automation session. No multi-gigabyte video was uploaded during verification.
+
+## 1.0.389 · Cloud browser video size check · 2026-11-24
+
+The final build keeps the Vertex AI analysis limit on Cloud Storage upload and import. The temporary change that allowed uploads above that limit was reverted. In Open Cloud Videos, the button, keyboard action and row menu use the same size warning before importing an oversized object. Choose a Smaller Video and Cancel both keep the browser open. The engine also rechecks the object metadata before opening the download stream.
+
+Installed signed build 389. The app and all three installed extensions retained Apple Development team LLVWNNUV26 and one registration each. Menu and layout checks and 125 focused tests passed. A 3.26 GB sparse file was rejected by the installed engine before project creation on both import routes. Native Mac dialog observation remained blocked by the locked automation session.

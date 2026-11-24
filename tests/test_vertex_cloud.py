@@ -184,6 +184,19 @@ class VertexCloudTests(unittest.TestCase):
             cloud_video.download({}, 'video.mp4', Path('.'), 1000, Mock(), generation='7')
         blob.open.assert_not_called()
 
+    def test_oversized_cloud_import_fails_before_opening_download_stream(self):
+        bucket = Mock()
+        blob = bucket.blob.return_value
+        blob.name, blob.generation, blob.size, blob.content_type = 'video.mp4', 7, 3_260_000_000, 'video/mp4'
+        with tempfile.TemporaryDirectory() as temporary, patch.object(
+            cloud_video, 'bucket_for', return_value=bucket
+        ), self.assertRaisesRegex(ValueError, 'too large for Cloud Storage analysis'):
+            directory = Path(temporary)
+            progress = Mock()
+            cloud_video.download({}, blob.name, directory, vertex_ai.MAX_CLOUD_VIDEO_SIZE_BYTES, progress, generation='7')
+        blob.open.assert_not_called()
+        progress.assert_called_once_with('Checking Cloud Storage access…')
+
     def test_download_checks_object_read_permission_before_opening_stream(self):
         bucket = Mock()
         bucket.name = 'source-bucket'

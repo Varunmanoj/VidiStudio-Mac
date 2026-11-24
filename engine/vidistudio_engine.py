@@ -358,9 +358,7 @@ def save(root, p):
 DUPLICATE_PROJECT_MESSAGE = ('This project already exists. Please continue with the existing project '
                              'or delete the existing project before continuing.')
 MAX_LOCAL_VIDEO_SIZE_BYTES = 2_000_000_000
-LOCAL_VIDEO_SIZE_MESSAGE = ('VidiStudio supports local video files up to 2 GB because larger files '
-                            'cannot be uploaded through the Gemini Files API. Choose a smaller video '
-                            'or create a YouTube project instead.')
+LOCAL_VIDEO_SIZE_MESSAGE = 'Video File projects support files up to 2 GB. Choose a smaller video or use Cloud Storage.'
 
 
 def library_projects(library):
@@ -385,13 +383,14 @@ def ensure_unique_local_video(library, filename):
             raise ValueError(DUPLICATE_PROJECT_MESSAGE)
 
 
-def ensure_supported_local_video(video):
+def ensure_supported_local_video(video, *, cloud=False):
     try:
         size = Path(video).stat().st_size
     except OSError as exc:
         raise ValueError('VidiStudio could not read the selected video file size.') from exc
-    if size > MAX_LOCAL_VIDEO_SIZE_BYTES:
-        raise ValueError(LOCAL_VIDEO_SIZE_MESSAGE)
+    limit = vertex_ai.MAX_CLOUD_VIDEO_SIZE_BYTES if cloud else MAX_LOCAL_VIDEO_SIZE_BYTES
+    if size > limit:
+        raise ValueError(vertex_ai.CLOUD_VIDEO_SIZE_MESSAGE if cloud else LOCAL_VIDEO_SIZE_MESSAGE)
     return size
 
 
@@ -1076,7 +1075,8 @@ def _ai_video_once(root, p, stage):
         else:
             if youtube: uri=p['youtubeURL'];mime=None
             else:
-                ensure_supported_local_video(local(root,p['source']))
+                if not isinstance(client, vertex_ai.VertexSession):
+                    ensure_supported_local_video(local(root,p['source']))
                 emit('Preparing the video for analysis')
                 uploaded=reusable_video(root,p,client);uri=uploaded.uri;mime=uploaded.mime_type
             pair=parity.media_prompt_pair(cfg,key)
@@ -3168,7 +3168,7 @@ def dispatch_project(args, root, p):
 
 def import_local_video(args, cloud_reference=None):
     if not args.video or not args.library: raise ValueError('Import requires --video and --library.')
-    ensure_supported_local_video(args.video)
+    ensure_supported_local_video(args.video, cloud=args.command in ('cloud-create', 'cloud-import'))
     if args.command != 'cloud-import':
         ensure_unique_local_video(args.library, args.video.name)
     info=probe(args.video)
@@ -3344,7 +3344,7 @@ def main():
         if not args.source_bucket or not args.name or not args.source_generation:
             raise ValueError('Choose a bucket video first.')
         image = cloud_video.preview(config(), args.source_bucket, args.name, args.source_generation,
-                                    MAX_LOCAL_VIDEO_SIZE_BYTES, SimpleNamespace(**globals()), args.source_project)
+                                    vertex_ai.MAX_CLOUD_VIDEO_SIZE_BYTES, SimpleNamespace(**globals()), args.source_project)
         emit('Thumbnail loaded' if image else 'Thumbnail unavailable',
              cloudPreview=dict(bucket=args.source_bucket, name=args.name, generation=args.source_generation, thumbnail=image))
         return
@@ -3359,7 +3359,7 @@ def main():
             if not source_bucket:
                 raise ValueError('Choose a source bucket before importing a Cloud Storage video.')
             source_cfg = dict(cfg, vertexBucket=source_bucket)
-            args.video, reference = cloud_video.download(source_cfg, args.name, Path(tmp), MAX_LOCAL_VIDEO_SIZE_BYTES, emit,
+            args.video, reference = cloud_video.download(source_cfg, args.name, Path(tmp), vertex_ai.MAX_CLOUD_VIDEO_SIZE_BYTES, emit,
                                                          generation=args.source_generation, source_project=args.source_project)
             import_local_video(args, reference)
         return

@@ -1761,9 +1761,25 @@ final class StudioModel {
     /// Non-nil after a quota, billing, or service-level Gemini failure. It
     /// disables every AI action until Retry AI succeeds or the key changes.
     var aiServiceIssue: AIServiceIssue?
-    var isAIProcessingBlocked: Bool { aiServiceIssue != nil }
+    var isAIProcessingBlocked: Bool { aiServiceIssue != nil && readyAIConnections.isEmpty }
     var apiKeyVerificationMessage: String? = nil
-    var hasApiKey: Bool { settings.hasApiKey }
+    var activeAIConnection: AIConnection { AIConnection(provider: settings.aiProvider, authentication: settings.vertexAuth) }
+    private var configuredAIConnections: [AIConnection] {
+        AIConnection.allCases.filter { connection in
+            switch connection {
+            case .developer: !settings.apiKey.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty && apiKeyVerified != false
+            case .googleSignIn: settings.vertexConnected
+            case .express: KeychainStore.vertex.containsValue()
+            }
+        }
+    }
+    private var readyAIConnections: [AIConnection] {
+        configuredAIConnections.filter { aiServiceIssue == nil || $0 != activeAIConnection }
+    }
+    var hasApiKey: Bool { !settings.apiKey.isEmpty || !configuredAIConnections.isEmpty }
+    var canUseGeminiNarration: Bool {
+        readyAIConnections.contains { $0.supports(existingBucketVideo: false, narration: true) } && ConnectivityService.shared.available(.gemini)
+    }
     var sarvamModels = SarvamCatalog.models.map { SarvamModelOption(id: $0, label: SarvamCatalog.modelLabel($0)) }
     var sarvamModelsRefreshing = false
     var sarvamModelStatus = ""
@@ -1806,9 +1822,9 @@ final class StudioModel {
     var narrationReady: Bool {
         if settings.ttsMode == "elevenlabs" { return !settings.elevenlabsApiKey.isEmpty && settings.elevenlabsKeyStatus != "invalid" && !(settings.elevenlabsSpeech?.voice.isEmpty ?? true) && ConnectivityService.shared.available(.elevenlabs) }
         if settings.ttsMode == "sarvam" { return settings.hasSarvamApiKey && settings.sarvamKeyStatus != "invalid" && ConnectivityService.shared.available(.sarvam) }
-        return settings.ttsMode != "gemini" || hasValidApiKey
+        return settings.ttsMode != "gemini" || canUseGeminiNarration
     }
-    var hasValidApiKey: Bool { hasApiKey && (settings.aiProvider == "vertex" || apiKeyVerified != false) && !isAIProcessingBlocked && ConnectivityService.shared.available(.gemini) }
+    var hasValidApiKey: Bool { !readyAIConnections.isEmpty && ConnectivityService.shared.available(.gemini) }
     func onlineReason(_ command: String, project: StudioProject? = nil, extra: [String] = []) -> String? {
         OnlineRequirements.services(command, project: project ?? selected, settings: settings, extra: extra)
             .compactMap { ConnectivityService.shared.reason($0) }.first
@@ -1819,7 +1835,7 @@ final class StudioModel {
         ConnectivityService.shared.check()
         return false
     }
-    var isApiKeyInvalid: Bool { settings.aiProvider != "vertex" && hasApiKey && apiKeyVerified == false }
+    var isApiKeyInvalid: Bool { configuredAIConnections.isEmpty && apiKeyVerified == false }
     var engineCheckStatus: EngineCheckStatus = .unchecked
     var selected: StudioProject? { projects.first { $0.id == selectedID } }
 
@@ -2307,52 +2323,90 @@ final class StudioModel {
             projectIntegrity = reports
         }
     }
-    func importVideo() {
-        guard !busy else { return }
+    var canUploadCloudVideo: Bool {
+        settings.vertexConnected && !settings.vertexProject.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+            && !settings.vertexBucket.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+    }
+
+    func pickLocalVideo() -> URL? {
         let panel = NSOpenPanel()
         panel.allowedContentTypes = [.movie, .video, .mpeg4Movie, .quickTimeMovie]
-        panel.prompt = "Import Video"
-        panel.message = "A copy will be saved in your local project library."
-        if panel.runModal() == .OK, let url = panel.url {
-            importVideo(at: url)
-        }
+        panel.allowsMultipleSelection = false
+        panel.prompt = "Choose Video"
+        return panel.runModal() == .OK ? panel.url : nil
     }
+
+    func importVideo() {
+        guard !busy, let url = pickLocalVideo() else { return }
+        importVideo(at: url)
+    }
+
     @discardableResult
-    func importVideo(at url: URL, completion: ((StudioProject?) -> Void)? = nil) -> Bool {
+    func importVideo(at url: URL, asCloud: Bool = false, completion: ((StudioProject?) -> Void)? = nil) -> Bool {
         guard !busy else { return false }
-        guard validateLocalVideoForCreation(url) else { return false }
-        if let existing = existingProject(forVideoAt: url) {
+        var candidate = url
+        var choice = videoImportChoice(candidate, asCloud: asCloud)
+        while choice == .smaller {
+            guard let next = pickLocalVideo() else { return false }
+            candidate = next
+            choice = videoImportChoice(candidate, asCloud: asCloud)
+        }
+        guard choice == .local || choice == .cloud else { return false }
+        if let existing = existingProject(forVideoAt: candidate) {
             showDuplicateProjectError(existing)
             return false
         }
+        guard choice != .cloud || canUploadCloudVideo else {
+            errorTitle = "Cloud Storage Unavailable"
+            error = "Sign in to Google and choose your Cloud project and bucket in Settings > AI."
+            return false
+        }
         execute(
-            "import-video",
-            extra: ["--video", url.path, "--library", settings.libraryPath],
+            choice == .cloud ? "cloud-create" : "import-video",
+            extra: ["--video", candidate.path, "--library", settings.libraryPath],
             project: nil,
             completion: completion
         )
         return true
     }
-    func validateLocalVideoForCreation(_ url: URL) -> Bool {
+
+    func videoImportChoice(_ url: URL, asCloud: Bool) -> LocalVideoFilePolicy.ImportChoice {
         guard LocalVideoFilePolicy.isSupportedVideo(url) else {
             errorTitle = "Unsupported Video File"
             error = "Choose a video that plays on this Mac, such as an MP4 or MOV file."
-            return false
+            return .cancel
         }
-        do {
-            let size = try LocalVideoFilePolicy.size(at: url)
-            guard size <= LocalVideoFilePolicy.maximumSizeBytes else {
-                errorTitle = "Video File Too Large"
-                error = "\(url.lastPathComponent) is \(LocalVideoFilePolicy.displaySize(size)). VidiStudio currently accepts video files up to 2 GB. Choose a smaller copy, or use a YouTube link when the video is available online."
-                return false
-            }
-            return true
-        } catch {
+        guard let size = try? LocalVideoFilePolicy.size(at: url) else {
             errorTitle = "Video File Unavailable"
-            self.error = "VidiStudio could not read the size of \(url.lastPathComponent). Choose an available local video file and try again."
-            return false
+            error = "VidiStudio couldn’t open this video. Choose an available video and try again."
+            return .cancel
+        }
+        if asCloud && size <= LocalVideoFilePolicy.maximumCloudSizeBytes { return .cloud }
+        if !asCloud && size <= LocalVideoFilePolicy.maximumSizeBytes { return .local }
+
+        let fitsCloud = size <= LocalVideoFilePolicy.maximumCloudSizeBytes
+        let offerUpload = fitsCloud && canUploadCloudVideo
+        let alert = NSAlert()
+        alert.alertStyle = .warning
+        alert.messageText = "Video Is Too Large"
+        let sizeLabel = LocalVideoFilePolicy.displaySize(size)
+        if !fitsCloud {
+            alert.informativeText = LocalVideoFilePolicy.analysisSizeWarning(size)
+        } else if offerUpload {
+            alert.informativeText = "This video is \(sizeLabel). Video File projects accept videos up to 2 GB. Choose a smaller video or upload this one to Cloud Storage."
+        } else {
+            alert.informativeText = "This video is \(sizeLabel). Video File projects accept videos up to 2 GB. Choose a smaller video and try again."
+        }
+        alert.addButton(withTitle: "Choose a Smaller Video")
+        if offerUpload { alert.addButton(withTitle: "Upload to Cloud Storage") }
+        alert.addButton(withTitle: "Cancel").keyEquivalent = "\u{1b}"
+        switch alert.runModal() {
+        case .alertFirstButtonReturn: return .smaller
+        case .alertSecondButtonReturn where offerUpload: return .cloud
+        default: return .cancel
         }
     }
+
     @discardableResult
     func importYouTube(at rawURL: String, name: String? = nil, completion: ((StudioProject?) -> Void)? = nil) -> Bool {
         guard !busy else { return false }
@@ -2803,7 +2857,7 @@ final class StudioModel {
         loadGeminiModels()
     }
     func deleteGeminiApiKey() {
-        guard hasApiKey, !busy else { return }
+        guard settings.hasApiKey, !busy else { return }
         settings.apiKey = ""
         KeychainStore.delete()
         aiServiceIssue = nil
@@ -2959,6 +3013,38 @@ final class StudioModel {
         return true
     }
 
+    @discardableResult
+    func authorizeAIConnection(for command: String, project: StudioProject?) -> Bool {
+        guard OnlineRequirements.requiresAIConnection(command, usesGeminiNarration: settings.ttsMode == "gemini") else { return true }
+        let requiresCloudAnalysis = (project?.referencesCloudVideo == true ||
+            (project?.cloudVideo?["size"].flatMap { Int64($0) } ?? 0) > LocalVideoFilePolicy.maximumSizeBytes)
+            && OnlineRequirements.videoAICommands.contains(command)
+        let narration = OnlineRequirements.narrationCommands.contains(command)
+        let ready = readyAIConnections.filter { $0.supports(existingBucketVideo: requiresCloudAnalysis, narration: narration) }
+        if ready.contains(activeAIConnection) { return true }
+        let fallback = activeAIConnection == .express && ready.contains(.googleSignIn) ? .googleSignIn : ready.first
+        guard let connection = fallback else {
+            let message = requiresCloudAnalysis ? "Connect Vertex AI with Google sign-in in Settings > AI to analyze this Cloud Storage video."
+                : narration ? "Connect Gemini Developer API or sign in to Google for Vertex AI in Settings > AI to generate Gemini narration."
+                : aiServiceIssue?.message ?? "Connect an AI provider in Settings > AI."
+            present(UserFacingIssue(title: "AI Connection Required", message: message), context: command)
+            return false
+        }
+
+        let alert = NSAlert()
+        alert.messageText = "Switch to \(connection.title)?"
+        let projectID = requiresCloudAnalysis ? project?.cloudVideo?["project"] ?? "" : settings.vertexProject
+        alert.informativeText = connection == .googleSignIn && !projectID.isEmpty
+            ? "VidiStudio will select this connection in Settings > AI and use Cloud project “\(projectID)”."
+            : "VidiStudio will select this connection in Settings > AI and continue."
+        alert.addButton(withTitle: "Switch and Continue")
+        alert.addButton(withTitle: "Cancel")
+        guard alert.runModal() == .alertFirstButtonReturn, !busy, readyAIConnections.contains(connection) else { return false }
+        settings.aiProvider = connection == .developer ? "developer" : "vertex"
+        if connection != .developer { settings.vertexAuth = connection == .express ? "express" : "signin" }
+        return true
+    }
+
     func execute(
         _ command: String,
         extra: [String] = [],
@@ -2998,21 +3084,18 @@ final class StudioModel {
             error = "This project uses a YouTube link, so its original soundtrack is not stored on this Mac. You can still export narration-only audio or text."
             return
         }
-        let vertexVideoTask = target?.isYouTubeURLProject == false && ["analyze", "regenerate-all", "analyze-video", "transcribe", "generate-summary", "generate-ad-cues",
-            "reanalyze-segment", "reanalyze-transcript-segment"].contains(command)
-        if target?.referencesCloudVideo == true, vertexVideoTask, settings.aiProvider != "vertex" {
-            errorTitle = "Vertex AI Required"
-            error = "Choose Vertex AI with Google sign-in in Settings > AI to analyze this Cloud Storage video."
+        guard authorizeAIConnection(for: command, project: target) else {
+            if let cleanupURL { try? FileManager.default.removeItem(at: cleanupURL) }
             completion?(nil)
             return
         }
-        let vertexSpeechTask = settings.ttsMode == "gemini" && ["synthesize-tts", "synthesize-speech", "preview-tts"].contains(command)
-        if settings.aiProvider == "vertex", settings.vertexAuth == "express", vertexSpeechTask || vertexVideoTask {
+        let vertexVideoTask = target?.isYouTubeURLProject == false && OnlineRequirements.videoAICommands.contains(command)
+        if settings.aiProvider == "vertex", settings.vertexAuth == "express", vertexVideoTask {
             let stage = command == "generate-summary" ? "summary" : ["generate-ad-cues", "reanalyze-segment"].contains(command) ? "audio_descriptions" : "youtube_transcript"
             let inlineModel = settings.vertexExpressModels[stage] ?? "gemini-3-flash-preview"
             let limit = inlineModel.hasPrefix("gemini-3") ? 256_000_000 : 15_000_000
             let size = target.flatMap { project in project.folder.flatMap { try? $0.appendingPathComponent(project.source).resourceValues(forKeys: [.fileSizeKey]).fileSize } } ?? 0
-            if vertexSpeechTask || target?.cloudVideo != nil || size > limit {
+            if target?.cloudVideo != nil || size > limit {
                 let projectID = vertexVideoTask && target?.referencesCloudVideo == true
                     ? target?.cloudVideo?["project"] ?? "" : settings.vertexProject
                 guard settings.vertexConnected, !projectID.isEmpty else {
@@ -3030,6 +3113,12 @@ final class StudioModel {
                 guard confirmDeletion(title: "Upload video to Cloud Storage?", message: settings.vertexBucket, actionTitle: "Upload") else { return }
                 execute("cloud-upload", project: target) { updated in
                     guard let updated, updated.cloudVideo != nil else { return }
+                    guard self.activeAIConnection == .googleSignIn else {
+                        self.errorTitle = "AI Connection Changed"
+                        self.error = "Run the analysis again with your selected connection."
+                        completion?(nil)
+                        return
+                    }
                     self.execute(command, extra: extra, project: updated, configurationURL: configurationURL, cleanupURL: cleanupURL, completion: completion)
                 }
                 return
@@ -3073,6 +3162,25 @@ final class StudioModel {
             present(issue, context: "Missing bundled processing component")
             completion?(nil)
             return
+        }
+        let requestAIConnection = activeAIConnection
+        var requestConfiguration = configurationURL
+        var requestCleanup = [cleanupURL].compactMap { $0 }
+        if requestConfiguration == nil, OnlineRequirements.requiresAIConnection(command, usesGeminiNarration: settings.ttsMode == "gemini") {
+            let directory = FileManager.default.temporaryDirectory.appendingPathComponent("vidistudio-ai-\(UUID().uuidString)")
+            do {
+                try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: false, attributes: [.posixPermissions: 0o700])
+                let config = directory.appendingPathComponent("config.json")
+                try JSONEncoder().encode(settings).write(to: config, options: .atomic)
+                requestConfiguration = config
+                requestCleanup.append(directory)
+            } catch {
+                try? FileManager.default.removeItem(at: directory)
+                for url in requestCleanup { try? FileManager.default.removeItem(at: url) }
+                present(.settingsSave, technicalDetails: error.localizedDescription, context: "Prepare AI request")
+                completion?(nil)
+                return
+            }
         }
         let deletionActivity = DeletionActivityRegistry.shared.begin(command: command, projectName: target?.name ?? "Project")
         busy = true
@@ -3136,7 +3244,7 @@ final class StudioModel {
         let task = Process(); task.executableURL = engine
         task.arguments = [command] + (target?.folder.map { ["--project", $0.path] } ?? []) + extra
         var environment = ProcessInfo.processInfo.environment.merging([
-            "VIDISTUDIO_CONFIG": (configurationURL ?? StudioSettings.url).path,
+            "VIDISTUDIO_CONFIG": (requestConfiguration ?? StudioSettings.url).path,
             "VIDISTUDIO_PIPER_VOICES": PiperStorage.voicesDirectory.path,
             "VIDISTUDIO_NETWORK_EVENTS": "1",
             "VIDISTUDIO_YOUTUBE_AVAILABLE": ConnectivityService.shared.available(.youtube) ? "1" : "0",
@@ -3157,7 +3265,7 @@ final class StudioModel {
         process = task
         do { try task.run() } catch {
             stderr.fileHandleForReading.readabilityHandler = nil
-            if let cleanupURL { try? FileManager.default.removeItem(at: cleanupURL) }
+            for url in requestCleanup { try? FileManager.default.removeItem(at: url) }
             let detail = error.localizedDescription
             let issue = UserFacingIssue.forEngine(command: command, technicalDetails: detail)
             if command == "doctor" { engineCheckStatus = .failed(issue.message) }
@@ -3361,7 +3469,9 @@ final class StudioModel {
                     if eventIsError { exportFailed = true }
                     if eventIsError && !connectionWatch.interrupted {
                         let detail = eventMessage ?? "The operation stopped without further details."
-                        if OnlineRequirements.services(command, project: target, settings: settings, extra: extra).contains(.gemini), let aiIssue = AIServiceIssue.detect(detail) {
+                        if activeAIConnection == requestAIConnection,
+                           OnlineRequirements.services(command, project: target, settings: settings, extra: extra).contains(.gemini),
+                           let aiIssue = AIServiceIssue.detect(detail) {
                             aiServiceIssue = aiIssue
                         }
                         let issue = UserFacingIssue.forEngine(command: command, technicalDetails: detail)
@@ -3373,7 +3483,7 @@ final class StudioModel {
                         }
                         if command == "doctor" { engineCheckStatus = .failed(issue.message) }
                         if (detail.localizedCaseInsensitiveContains("api key not valid") || detail.localizedCaseInsensitiveContains("api_key_invalid") || detail.localizedCaseInsensitiveContains("invalid api key"))
-                            && aiServiceIssue == nil {
+                            && requestAIConnection == .developer && apiKey == settings.apiKey.trimmingCharacters(in: .whitespacesAndNewlines) {
                             apiKeyVerified = false
                             apiKeyVerificationMessage = detail
                             availableGeminiModels = []
@@ -3389,28 +3499,30 @@ final class StudioModel {
             } catch {
                 exportFailed = true
                 if !isKeyCheck || checkedKey == settings.apiKey.trimmingCharacters(in: .whitespacesAndNewlines) {
-                let detail = error.localizedDescription
-                if OnlineRequirements.services(command, project: target, settings: settings, extra: extra).contains(.gemini), let aiIssue = AIServiceIssue.detect(detail) {
-                    aiServiceIssue = aiIssue
-                }
-                if (detail.localizedCaseInsensitiveContains("api key not valid") || detail.localizedCaseInsensitiveContains("api_key_invalid") || detail.localizedCaseInsensitiveContains("invalid api key"))
-                    && aiServiceIssue == nil {
-                    apiKeyVerified = false
-                    apiKeyVerificationMessage = detail
-                    availableGeminiModels = []
-                    geminiModelsLoaded = false
-                }
-                present(
-                    UserFacingIssue.forEngine(command: command, technicalDetails: detail),
-                    technicalDetails: detail,
-                    context: "Read \(command) result"
-                )
+                    let detail = error.localizedDescription
+                    if activeAIConnection == requestAIConnection,
+                       OnlineRequirements.services(command, project: target, settings: settings, extra: extra).contains(.gemini),
+                       let aiIssue = AIServiceIssue.detect(detail) {
+                        aiServiceIssue = aiIssue
+                    }
+                    if (detail.localizedCaseInsensitiveContains("api key not valid") || detail.localizedCaseInsensitiveContains("api_key_invalid") || detail.localizedCaseInsensitiveContains("invalid api key"))
+                        && requestAIConnection == .developer && apiKey == settings.apiKey.trimmingCharacters(in: .whitespacesAndNewlines) {
+                        apiKeyVerified = false
+                        apiKeyVerificationMessage = detail
+                        availableGeminiModels = []
+                        geminiModelsLoaded = false
+                    }
+                    present(
+                        UserFacingIssue.forEngine(command: command, technicalDetails: detail),
+                        technicalDetails: detail,
+                        context: "Read \(command) result"
+                    )
                 }
             }
             exportActivity?.canCancel = false
             task.waitUntilExit()
             stderr.fileHandleForReading.readabilityHandler = nil
-            if let cleanupURL { try? FileManager.default.removeItem(at: cleanupURL) }
+            for url in requestCleanup { try? FileManager.default.removeItem(at: url) }
             reload()
             if Self.isExportCommand(command), let folder = target?.folder {
                 var finalized: Set<String> = []

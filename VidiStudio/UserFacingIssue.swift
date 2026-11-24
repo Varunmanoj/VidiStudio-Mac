@@ -78,6 +78,9 @@ struct UserFacingIssue: Equatable {
            technicalDetails == "This project already exists. Please continue with the existing project or delete the existing project before continuing." {
             return duplicateProject(isYouTube: command == "import-youtube")
         }
+        if let technicalDetails, technicalDetails == "This video is too large for Cloud Storage analysis. Choose a smaller video." {
+            return UserFacingIssue(title: "Video Is Too Large", message: technicalDetails)
+        }
         if command == "cloud-import" || command == "cloud-preview" {
             let allowed = [
                 "Google Cloud denied permission to download this video. Check Google sign-in and your access to the object.",
@@ -86,13 +89,17 @@ struct UserFacingIssue: Equatable {
                 "The selected video is no longer available in Cloud Storage. Refresh the file list.",
                 "Downloaded video checksum did not match Cloud Storage. Retry the import.",
                 "Choose a supported Cloud Storage video.",
-                "The selected video exceeds the supported import size.",
                 "Choose a bucket in the selected Google Cloud project.",
                 "Use Google sign-in in Settings > AI to connect your account."
             ]
             let message = technicalDetails.flatMap { allowed.contains($0) ? $0 : nil }
                 ?? "Check Google sign-in, your access to the selected video, and your connection. Then try again."
             return UserFacingIssue(title: "Couldn’t Download the Cloud Video", message: message)
+        }
+        if let technicalDetails, [
+            "Video File projects support files up to 2 GB. Choose a smaller video or use Cloud Storage."
+        ].contains(technicalDetails) {
+            return UserFacingIssue(title: "Video Is Too Large", message: technicalDetails)
         }
         let detail = technicalDetails?.lowercased() ?? ""
         if detail.contains("storage.objects.get") && detail.contains("gcp-sa-aiplatform") {

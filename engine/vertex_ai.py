@@ -13,6 +13,9 @@ import network_activity
 
 MODEL_POLICY = json.loads(Path(__file__).with_name('ai-defaults.json').read_text(encoding='utf-8'))['vertexModelPolicy']
 EXPRESS_MODELS = MODEL_POLICY['expressModels']
+# Vertex documents this limit for a single video submitted from Cloud Storage.
+MAX_CLOUD_VIDEO_SIZE_BYTES = 2 * 1024**3 - 500 * 1024
+CLOUD_VIDEO_SIZE_MESSAGE = 'This video is too large for Cloud Storage analysis. Choose a smaller video.'
 PROJECT_MODEL_ROWS = {row['id']: row for group in MODEL_POLICY['projectModelGroups'] for row in group['rows']}
 SCOPE = 'https://www.googleapis.com/auth/cloud-platform'
 SERVICE = 'com.vidistudio.vertex-oauth'
@@ -192,6 +195,8 @@ def media(cfg, project, source):
         from cloud_video import bucket_for
         blob = bucket_for(lookup_config).blob(cloud['object'])
         blob.reload()
+        if isinstance(blob.size, int) and blob.size > MAX_CLOUD_VIDEO_SIZE_BYTES:
+            raise ValueError(CLOUD_VIDEO_SIZE_MESSAGE)
         if str(blob.generation) != cloud['generation']:
             raise ValueError('The cloud video has changed. Check the object in Cloud Console before analysis.')
         if not reference and (blob.metadata or {}).get('vidistudio-project') != project['id']:

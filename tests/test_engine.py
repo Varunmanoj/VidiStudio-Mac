@@ -161,6 +161,20 @@ class Validation(unittest.TestCase):
             with self.assertRaisesRegex(ValueError, 'up to 2 GB'):
                 engine.ensure_supported_local_video(video)
 
+    def test_cloud_video_size_limit_accepts_files_over_two_gigabytes(self):
+        with tempfile.TemporaryDirectory() as temp:
+            video = Path(temp) / 'large-video.mp4'
+            limit = engine.vertex_ai.MAX_CLOUD_VIDEO_SIZE_BYTES
+            self.assertGreater(limit, engine.MAX_LOCAL_VIDEO_SIZE_BYTES)
+            with video.open('wb') as stream:
+                stream.truncate(limit)
+                self.assertEqual(engine.ensure_supported_local_video(video, cloud=True), limit)
+                with self.assertRaisesRegex(ValueError, 'up to 2 GB'):
+                    engine.ensure_supported_local_video(video)
+                stream.truncate(limit + 1)
+                with self.assertRaisesRegex(ValueError, 'too large for Cloud Storage analysis'):
+                    engine.ensure_supported_local_video(video, cloud=True)
+
     def test_gemini_upload_rejects_oversized_file_before_network_request(self):
         with tempfile.TemporaryDirectory() as temp:
             video = Path(temp)/'large-video.mp4'
