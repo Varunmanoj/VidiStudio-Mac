@@ -638,7 +638,7 @@ struct StudioProject: Codable, Identifiable {
     }
     var hasGeneratedContent: Bool {
         !savedLanguageResults.isEmpty || canReprocess || !thumbnails.isEmpty
-            || (isYouTubeURLProject && youtubePlaybackVideo != nil)
+            || (isYouTubeURLProject && (originalAudio != nil || youtubePlaybackVideo != nil))
             || directoryHasContent("audio-description")
             || directoryHasContent("exports")
             || !(undoStack ?? []).isEmpty

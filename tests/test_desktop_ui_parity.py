@@ -28,6 +28,8 @@ class DesktopUILayoutParityTests(unittest.TestCase):
         for path, marker in (
             ("Mac/GeneratedContentDeletionView.swift", '"delete-local-playback-video"'),
             ("Windows/MainWindow.LanguageResults.cs", '"delete-local-playback-video"'),
+            ("Mac/GeneratedContentDeletionView.swift", '"delete-original-audio"'),
+            ("Windows/MainWindow.LanguageResults.cs", '"delete-original-audio"'),
             ("Mac/ExportOptionsMenu.swift", "!project.hasVideoExportSource ? [.audio, .text]"),
             ("Windows/Views/ExportDialog.cs", "IsYouTube: true, HasVideoExportSource: false"),
             ('Mac/ImportAssetsView.swift', 'Section("Local playback video") { playbackVideoRow }'),

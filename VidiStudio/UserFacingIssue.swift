@@ -111,6 +111,12 @@ struct UserFacingIssue: Equatable {
         if technicalDetails == "Remove the local playback video before importing original audio." {
             return UserFacingIssue(title: "Original Audio Couldn’t Be Added", message: technicalDetails ?? "")
         }
+        if let message = technicalDetails, [
+            "The original audio changed. Reopen Choose What to Delete and try again.",
+            "The local playback video changed. Reopen Choose What to Delete and try again."
+        ].contains(message) {
+            return UserFacingIssue(title: "Attachment Changed", message: message)
+        }
         if let message = technicalDetails, message == YouTubeVideo.privateVideoMessage {
             return UserFacingIssue(title: "YouTube Account Access Required", message: message)
         }

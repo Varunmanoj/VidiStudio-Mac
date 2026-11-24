@@ -169,6 +169,34 @@ class YouTubePlayback(unittest.TestCase):
         self.run_engine('inspect-original-audio', '--input', audio)
         self.assertEqual(self.read()['audioSources'], preferences)
 
+    def test_choose_what_to_delete_can_remove_original_audio_independently(self):
+        audio = self.directory / 'original.wav'
+        self.make_media('-i', self.original, '-vn', audio)
+        self.run_engine('import-original-audio', '--input', audio)
+        self.run_engine('set-audio-sources', '--playback-audio-source', 'imported', '--transcription-audio-source', 'imported')
+        initial = self.read()
+        path = initial['originalAudio']['path']
+        before = self.project / path
+        request = self.directory / 'delete.json'
+        preview = self.directory / 'preview.json'
+        selection = dict(components=['originalAudio'], resultIDs=[], exportPaths=[])
+        request.write_text(json.dumps(dict(selection, originalAudioPath='imports/replaced.wav')), encoding='utf-8')
+        self.run_engine('delete-results', '--input', request, error='The original audio changed.')
+        self.assertTrue(before.is_file())
+
+        request.write_text(json.dumps(dict(selection, originalAudioPath=path)), encoding='utf-8')
+        self.run_engine('preview-delete-results', '--input', request, '--output', preview)
+        self.assertEqual(json.loads(preview.read_text())['files'], [path])
+        self.assertTrue(before.is_file())
+        self.run_engine('delete-results', '--input', request)
+        final = self.read()
+        self.assertNotIn('originalAudio', final)
+        self.assertEqual(final['audioSources'], dict(export='youtube', playback='youtube', transcription='youtube'))
+        self.assertEqual(final['activeResultIDs'], initial['activeResultIDs'])
+        self.assertEqual(final['youtubeURL'], URL)
+        self.assertFalse(before.exists())
+        self.assertTrue(audio.is_file())
+
     def test_video_and_original_audio_require_explicit_removal_before_switching(self):
         audio = self.directory / 'original.wav'
         self.make_media('-i', self.original, '-vn', audio)

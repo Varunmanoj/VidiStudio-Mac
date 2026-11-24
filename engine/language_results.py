@@ -459,11 +459,17 @@ def produce(args, root, p, core, dispatch):
 
 
 def deletion_preview(root, p, request, core):
+    import audio_sources
     import youtube_playback
 
     proposed = copy.deepcopy(p)
     delete(proposed, request)
     removed = referenced_paths(p) - referenced_paths(proposed)
+    if 'originalAudio' in request.get('components', []):
+        audio = p['originalAudio']
+        if not audio_sources.managed_original_audio_path(audio):
+            # Legacy manifests can reference a file the project does not own.
+            removed.discard(audio['path'])
     for relative in request.get('exportPaths', []):
         if relative not in p.get('exports', []):
             raise ValueError('Choose an existing export.')
@@ -496,7 +502,7 @@ def delete(p, request):
     for rid in ids:
         find(p, rid)
     components = set(request.get('components', []))
-    if not components.issubset({'transcript', 'summary', 'descriptions', 'adAudio', 'narration', 'history', 'exports', 'thumbnails', 'youtubePlaybackVideo'}):
+    if not components.issubset({'transcript', 'summary', 'descriptions', 'adAudio', 'narration', 'history', 'exports', 'thumbnails', 'originalAudio', 'youtubePlaybackVideo'}):
         raise ValueError('Choose valid content types to delete.')
     if 'youtubePlaybackVideo' in components:
         asset = p.get('youtubePlaybackVideo')
@@ -504,6 +510,14 @@ def delete(p, request):
                 or asset['path'] != request.get('playbackVideoPath')):
             raise ValueError('The local playback video changed. Reopen Choose What to Delete and try again.')
         p.pop('youtubePlaybackVideo')
+    if 'originalAudio' in components:
+        import audio_sources
+
+        asset = p.get('originalAudio')
+        if (p.get('sourceType') != 'youtube' or not isinstance(asset, dict) or not asset.get('path')
+                or asset['path'] != request.get('originalAudioPath')):
+            raise ValueError('The original audio changed. Reopen Choose What to Delete and try again.')
+        audio_sources.detach_original_audio(p)
     for r in p['languageResults']:
         if r['id'] in ids and r['kind'] in components:
             continue
@@ -681,6 +695,7 @@ def _run(args, root, p, core, dispatch):
                            exportPaths=[path for path in p.get('exports', []) if 'exports' in components and p.get('exportResults', {}).get(path, {}).get('language', 'auto') == p['selectedLanguage']])
         preview = deletion_preview(root, p, request, core)
         playback_asset = p.get('youtubePlaybackVideo') if 'youtubePlaybackVideo' in request.get('components', []) else None
+        original_audio = p.get('originalAudio') if 'originalAudio' in request.get('components', []) else None
         proposed = copy.deepcopy(p)
         delete(proposed, request)
         for path in request.get('exportPaths', []):
@@ -702,11 +717,15 @@ def _run(args, root, p, core, dispatch):
         p.update(proposed)
         # Manifest first; cleanup subsequently removes only unreferenced files.
         core.save(root, p)
+        import audio_sources
         import youtube_playback
         playback_paths = youtube_playback.managed_paths(playback_asset)
+        original_audio_path = audio_sources.managed_original_audio_path(original_audio)
         for relative in preview['files']:
-            if relative not in playback_paths and relative not in referenced_paths(p):
+            if relative not in playback_paths and relative != original_audio_path and relative not in referenced_paths(p):
                 core.local(root, relative).unlink(missing_ok=True)
+        if original_audio_path in preview['files']:
+            audio_sources.remove_original_audio_file(root, p, original_audio, core)
         if playback_paths:
             youtube_playback.remove_assets(root, playback_asset, core)
         if 'thumbnails' in request.get('components', []):

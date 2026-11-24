@@ -240,6 +240,28 @@ def inspect(args, project, core):
                                           sha256=fingerprint(source))
 
 
+def detach_original_audio(project):
+    removed = project.pop('originalAudio', None)
+    project['audioSources'] = dict(DEFAULTS)
+    return removed
+
+
+def managed_original_audio_path(asset):
+    path = asset.get('path') if isinstance(asset, dict) else None
+    if isinstance(path, str) and re.fullmatch(r'imports/[a-f0-9]{32}\.[a-z0-9]+', path):
+        return path
+    return None
+
+
+def remove_original_audio_file(root, project, asset, core):
+    import language_results
+
+    path = managed_original_audio_path(asset)
+    if path and path not in language_results.referenced_paths(project) and path != project.get('source'):
+        with contextlib.suppress(OSError, ValueError):
+            (core.local(root, 'imports') / Path(path).name).unlink(missing_ok=True)
+
+
 def execute(args, root, project, core):
     if project.get('sourceType') != 'youtube':
         raise ValueError('Original audio selection is available for YouTube projects.')
@@ -282,8 +304,7 @@ def execute(args, root, project, core):
             if result['videoDuration'] is not None:
                 working['duration'] = result['videoDuration']
         if args.command == 'remove-original-audio':
-            removed = working.pop('originalAudio', None)
-            working['audioSources'] = dict(DEFAULTS)
+            removed = detach_original_audio(working)
         else:
             selected = preferences(working)
             for key, argument in [('export', 'soundtrack_source'), ('playback', 'playback_audio_source'),
@@ -303,11 +324,5 @@ def execute(args, root, project, core):
     project.clear()
     project.update(working)
     if args.command == 'remove-original-audio':
-        old_path = (removed or {}).get('path')
-        # Older projects may point at a user file or a shared result asset.
-        if isinstance(old_path, str) and re.fullmatch(r'imports/[a-f0-9]{32}\.[a-z0-9]+', old_path):
-            import language_results
-            if old_path not in language_results.referenced_paths(working):
-                with contextlib.suppress(OSError, ValueError):
-                    (core.local(root, 'imports') / Path(old_path).name).unlink(missing_ok=True)
+        remove_original_audio_file(root, working, removed, core)
     core.emit('Audio sources saved', project=str(root))

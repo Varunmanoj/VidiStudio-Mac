@@ -83,6 +83,9 @@ struct GeneratedContentDeletionView: View {
         if components.contains("youtubePlaybackVideo"), let asset = project.youtubePlaybackVideo {
             request["playbackVideoPath"] = asset.path
         }
+        if components.contains("originalAudio"), let asset = project.originalAudio {
+            request["originalAudioPath"] = asset.path
+        }
         return request
     }
     var body: some View {
@@ -102,15 +105,11 @@ struct GeneratedContentDeletionView: View {
                         Toggle(deletionTitle(kind), isOn: componentMembership(kind))
 
                     }
-                    if project.isYouTubeURLProject, let asset = project.youtubePlaybackVideo {
-                        Toggle(deletionTitle("youtubePlaybackVideo"), isOn: componentMembership("youtubePlaybackVideo"))
-                            .accessibilityIdentifier("delete-local-playback-video")
-                            .help(asset.sourceName)
-                            .contextMenu {
-                                Button(deletionTitle("youtubePlaybackVideo"), systemImage: components.contains("youtubePlaybackVideo") ? "checkmark.square" : "square") {
-                                    components.formSymmetricDifference(["youtubePlaybackVideo"])
-                                }
-                            }
+                    if project.isYouTubeURLProject {
+                        Divider()
+                        Text("Project attachments").font(.headline).accessibilityAddTraits(.isHeader).accessibilityHeading(.h2)
+                        attachmentToggle("originalAudio", identifier: "delete-original-audio", filename: project.originalAudio?.sourceName)
+                        attachmentToggle("youtubePlaybackVideo", identifier: "delete-local-playback-video", filename: project.youtubePlaybackVideo?.sourceName)
                     }
                     Divider()
                     HStack {
@@ -143,7 +142,7 @@ struct GeneratedContentDeletionView: View {
                 Button("Delete Selected…", role: .destructive) {
                     studio.previewResultDeletion(request: request, project: project) { preview = $0; confirming = true }
                 }
-                    .disabled(studio.busy || ((selection.isEmpty || components.isEmpty) && exportPaths.isEmpty && components.isDisjoint(with: ["thumbnails", "youtubePlaybackVideo"])))
+                    .disabled(studio.busy || ((selection.isEmpty || components.isEmpty) && exportPaths.isEmpty && components.isDisjoint(with: ["thumbnails", "originalAudio", "youtubePlaybackVideo"])))
             }.fixedSize(horizontal: false, vertical: true).layoutPriority(1)
         }.padding(24)
         .frame(width: min(680, dialogSize.width), height: min(650, dialogSize.height))
@@ -176,9 +175,22 @@ struct GeneratedContentDeletionView: View {
         case "narration": "Description Audio Only (Keep Segments)"
         case "history": "Segment Undo History Only"
         case "thumbnails": "Thumbnails (Entire Project)"
+        case "originalAudio": "Original Audio File"
         case "youtubePlaybackVideo": "Local Playback Video"
         default: SavedLanguageResult.kindTitle(kind)
         }
+    }
+    private func attachmentToggle(_ kind: String, identifier: String, filename: String?) -> some View {
+        Toggle(deletionTitle(kind), isOn: componentMembership(kind))
+            .accessibilityIdentifier(identifier)
+            .help(filename ?? "No saved attachment")
+            .disabled(filename == nil)
+            .contextMenu {
+                Button(deletionTitle(kind), systemImage: components.contains(kind) ? "checkmark.square" : "square") {
+                    components.formSymmetricDifference([kind])
+                }
+                .disabled(filename == nil)
+            }
     }
     private func componentMembership(_ kind: String) -> Binding<Bool> {
         Binding(get: { components.contains(kind) }, set: { enabled in
