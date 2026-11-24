@@ -5,7 +5,8 @@ and set VIDISTUDIO_MENU_CONTEXT=transcript. The fixture uses a generated transcr
 default sorting, preview and timeline visible and inspector open. Override the expected
 language title arrays for another library or project using VIDISTUDIO_MENU_LIBRARY_LANGUAGES
 and VIDISTUDIO_MENU_PROJECT_LANGUAGES (JSON). VIDISTUDIO_MENU_TRANSCRIPT_VERSIONS gives
-the expected displayed version numbers. Set VIDISTUDIO_TEST_MENU_LAUNCH=1 to also quit
+the expected displayed version numbers. Set VIDISTUDIO_MENU_LIBRARY_AI_PROVIDERS
+to the expected AI Provider choices after All AI Providers (JSON). Set VIDISTUDIO_TEST_MENU_LAUNCH=1 to also quit
 and relaunch the app. Section checks return to Transcript after visiting every tab.
 The installed app and
 an English menu bar, Accessibility and Screen Recording access are required.
@@ -25,7 +26,7 @@ GALLERY = {
              "?Open in YouTube", "Export…", "Delete Project…", "Choose What to Delete…",
              "Remove from List", "Settings…", "Open Project Settings…", "Close"],
     "Edit": ["Search Projects…", "Clear Search", "Rename Project…"],
-    "View": ["Filter Projects by Source", "Filter Projects by Language", "Sort Projects",
+    "View": ["Filter Projects…", "Filter Projects by Source", "Filter Projects by Language", "Filter Projects by AI Provider", "Sort Projects",
              "Reset Project Filters", "Project List View", "Project Grid View", "Enter Full Screen"],
     "Project": ["Cloud Storage", "Open Selected Project", "Analysis", "Show Project in Finder",
                 "?Open Project Configuration", "Rename Project…", "Move Project to Bin…"],
@@ -81,7 +82,8 @@ SECTION_MENUS = {
 
 
 # AppKit reserves a separate checkmark column for submenu toggles and version rows.
-TOGGLE_MENUS = {"View/Project Language", "View/Transcript Saved Results", "View/Filter Projects by Language"}
+TOGGLE_MENUS = {"View/Project Language", "View/Transcript Saved Results", "View/Filter Projects by Language",
+                "View/Filter Projects by AI Provider"}
 
 
 def normalized(text):
@@ -193,7 +195,7 @@ class InstalledMenuTests(unittest.TestCase):
         contract = GALLERY if gallery else TRANSCRIPT
         expected_bar = (["Apple", "VidiStudio", "File", "Edit", "View", "Project", "YouTube", "Window", "Help"] if gallery
                         else ["Apple", "VidiStudio", "File", "Edit", "View", "Playback", "Project", "Window", "Help"])
-        dynamic_paths = ["View/Filter Projects by Language"] if gallery else ["View/Project Language", "View/Transcript Saved Results"]
+        dynamic_paths = ["View/Filter Projects by Language", "View/Filter Projects by AI Provider"] if gallery else ["View/Project Language", "View/Transcript Saved Results"]
         for path in [*contract, *dynamic_paths, "Window"]:
             with self.subTest(context=context, menu=path):
                 optional_rows = contract.get(path, [])
@@ -227,6 +229,10 @@ class InstalledMenuTests(unittest.TestCase):
                     if path == "View/Filter Projects by Language":
                         self.assertEqual(titles[0], "All Languages")
                         expected_options = json.loads(os.getenv("VIDISTUDIO_MENU_LIBRARY_LANGUAGES", '["Auto", "English", "Hindi"]'))
+                        self.assertEqual(titles[1:], expected_options)
+                    elif path == "View/Filter Projects by AI Provider":
+                        self.assertEqual(titles[0], "All AI Providers")
+                        expected_options = json.loads(os.getenv("VIDISTUDIO_MENU_LIBRARY_AI_PROVIDERS", "[]"))
                         self.assertEqual(titles[1:], expected_options)
                     elif path == "View/Project Language":
                         expected_options = json.loads(os.getenv("VIDISTUDIO_MENU_PROJECT_LANGUAGES", '["Auto (Transcript, Summary, Descriptions)"]'))

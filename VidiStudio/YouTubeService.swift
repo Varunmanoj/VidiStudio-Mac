@@ -80,6 +80,19 @@ struct YouTubeFailure: LocalizedError {
     init(_ message: String, accessExpired: Bool = false, httpStatus: Int? = nil) { self.message = message; self.accessExpired = accessExpired; self.httpStatus = httpStatus }
     var errorDescription: String? { message }
 }
+
+enum YouTubeLinkIssue: LocalizedError {
+    case privateVideo
+    case unavailable
+
+    var errorDescription: String? {
+        switch self {
+        case .privateVideo: YouTubeVideo.privateVideoMessage
+        case .unavailable: "YouTube couldn’t find an accessible video at this link. Check the URL. For a private video, connect its owner in YouTube Accounts and use the same Google account for Vertex AI."
+        }
+    }
+}
+
 struct YouTubeReleaseConfiguration: Decodable {
     var apiKey = ""; var clientID = ""; var clientSecret = ""
     static func load() -> Self {
@@ -372,10 +385,46 @@ struct YouTubeReleaseConfiguration: Decodable {
         return result
     }
 
+    func videoForNewProject(_ id: String, settings: StudioSettings) async throws -> YouTubeVideo {
+        do {
+            let result = try await video(id)
+            if result.visibility == "private" {
+                guard privateConnection(result.channelID, settings: settings) != nil else { throw YouTubeLinkIssue.privateVideo }
+                return try await projectVideo(id, privateChannelID: result.channelID, settings: settings)
+            }
+            try result.requireAvailable()
+            return result
+        } catch let error as YouTubeFailure where error.httpStatus == 404 {
+            // Missing public metadata can also mean the link is private.
+        }
+
+        var accounts = connections.filter {
+            privateConnection($0.channelID, settings: settings)?.id == $0.id
+        }
+        if let selected, !accounts.contains(selected) { accounts.append(selected) }
+        for account in accounts {
+            let result: YouTubeVideo
+            do {
+                result = try await video(id, connectionID: account.id)
+            } catch let error as YouTubeFailure where error.httpStatus == 404 {
+                continue
+            }
+            if result.visibility == "private",
+               result.channelID != account.channelID || privateConnection(result.channelID, settings: settings)?.id != account.id {
+                throw YouTubeLinkIssue.privateVideo
+            }
+            try result.requireAvailable(allowPrivate: true)
+            return result
+        }
+        throw YouTubeLinkIssue.unavailable
+    }
+
     func video(_ id: String, connectionID: String? = nil) async throws -> YouTubeVideo {
         let token = try await connectionID.mapAsync { try await self.bearer($0) }
         let result = try await api("videos", ["part": "snippet,contentDetails,status,statistics", "id": id], bearer: token)
-        guard let item = (result["items"] as? [[String: Any]])?.first else { throw YouTubeFailure("This video is unavailable. It may be private, deleted, or inaccessible to this account.") }
+        guard let item = (result["items"] as? [[String: Any]])?.first(where: { ($0["id"] as? String) == id }) else {
+            throw YouTubeFailure("This video is unavailable. It may be private, deleted, or inaccessible to this account.", httpStatus: 404)
+        }
         return .parse(item)
     }
     func videos(playlist: String, page: String, connectionID: String) async throws -> ([YouTubeVideo], String) {

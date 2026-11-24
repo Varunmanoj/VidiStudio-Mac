@@ -6,7 +6,7 @@ from pathlib import Path
 
 MAC_FILES = ('ADOverviewView.swift', 'StudioHelp.swift', 'CreatedExportsView.swift', 'LanguageResults.swift', 'ContentView.swift', 'SettingsView.swift', 'ImportAssetsView.swift', 'ExportOptionsMenu.swift',
              'GeminiAPISettingsView.swift', 'SarvamVoiceSettingsView.swift', 'SystemVoiceCatalog.swift', 'PiperVoiceCatalog.swift', 'GeminiVoicePreview.swift', 'SarvamVoiceBrowser.swift', 'VoiceSampleSession.swift', 'AboutSettingsView.swift', 'KeyboardShortcuts.swift', 'ProjectBrowserPage.swift',
-             'ProjectSourcesSettingsView.swift', 'YouTubeViews.swift', 'YouTubeProjectPreview.swift', 'VidiStudioApp.swift')
+             'ProjectSourcesSettingsView.swift', 'ProjectFilterSheet.swift', 'YouTubeViews.swift', 'YouTubeProjectPreview.swift', 'VidiStudioApp.swift')
 WIN_FILES = ('Views/SettingsDialog.Gemini.cs', 'Views/HelpWindow.xaml', 'Views/HelpWindow.xaml.cs', 'MainWindow.Presentation.cs', 'MainWindow.LanguageResults.cs', 'Views/ImportAssetsDialog.cs', 'MainWindow.Accessibility.cs', 'MainWindow.xaml', 'Views/CompactDialogLayout.cs', 'Views/WindowAppearance.cs',
              'Views/SettingsDialog.Compact.cs', 'Views/SettingsDialog.Layout.cs',
              'Views/SettingsDialog.ElevenLabs.cs', 'Views/SettingsDialog.SarvamBrowser.cs', 'Views/SettingsDialog.SpeechLayout.cs', 'MainWindow.DialogLayoutSmoke.cs', 'Views/SettingsDialog.cs', 'Views/SettingsDialog.Sarvam.cs', 'Views/PiperVoicesDialog.cs', 'Views/PiperDeleteVoicesDialog.cs', 'Services/VoiceSampleSession.cs', 'Views/SettingsDialog.Information.cs', 'MainWindow.Menus.cs',
@@ -107,10 +107,10 @@ def validate(source):
     ):
         require(path, token, 'browser results need centered loading progress')
     for path, token in (
-        ('Mac/ContentView.swift', '.sheet(isPresented: $showingYouTubePicker)'),
+        ('Mac/ContentView.swift', '.sheet(isPresented: $showingYouTubePicker, onDismiss:'),
         ('Mac/ContentView.swift', 'youtubeURL = preview.canonicalURL'),
-        ('Windows/Views/NewProjectDialog.cs', 'await browse(window) is { } video'),
-        ('Windows/Views/NewProjectDialog.cs', 'youtubeUrl.Text = video.Url'),
+        ('Windows/Views/NewProjectDialog.cs', 'await browse(window) is { } result'),
+        ('Windows/Views/NewProjectDialog.cs', 'youtubeUrl.Text = result.Video.Url'),
         ('Windows/MainWindow.xaml.cs', 'BrowseYouTubeVideo = owner => ShowYouTubeBrowserAsync(owner)'),
     ):
         require(path, token, 'the YouTube picker must return its video to the open New Project form')
@@ -152,6 +152,22 @@ def validate(source):
         toolbar = source[path].split(start, 1)[1].split(end, 1)[0]
         if 'New Cloud Project' in toolbar:
             raise ValueError(path + ': the gallery toolbar must use one New Project action')
+    for path, tokens in (
+        ('Mac/ProjectBrowserPage.swift', ('Button("Filter Projects", systemImage:',
+                                           'actions.run("projects-filter-dialog")', 'aiProviderFilter: $aiProviderFilter',
+                                           'ProjectFilterSheet(source: sourceFilter', 'SavedAIProvider.projectFilterOptions(projects)',
+                                           'aiProviderOptions: aiProviderOptions')),
+        ('Mac/ProjectFilterSheet.swift', ('onFilter(source, language, provider, sort)', '.keyboardShortcut(.cancelAction)',
+                                         '.keyboardShortcut(.defaultAction)', '.contextMenu', 'Picker("Sort by", selection: $sort)',
+                                         'ForEach(aiProviderOptions')),
+        ('Windows/MainWindow.xaml', ('x:Name="GalleryFilterProjects"', 'Click="GalleryFilterProjects_Click"')),
+        ('Windows/MainWindow.Presentation.cs', ('ShowProjectFiltersAsync()', 'CompactDialogLayout.Card(fields, "Project filters")',
+                                                'result == ContentDialogResult.Primary', 'ApplyGalleryFilters(selectedSource.Id',
+                                                'Picker("Sort by", sortOptions, Model.ProjectSort)',
+                                                'providerOptions = Model.ProjectFilterAIProviders')),
+    ):
+        for token in tokens:
+            require(path, token, 'All Projects must stage filters in an accessible dialog')
     for path, token in (
         ('Windows/Views/NewProjectDialog.cs', 'Grid.SetRow(sourceCard, 1); layout.Children.Add(sourceCard);'),
         ('Windows/Views/NewProjectDialog.cs', 'Grid.SetRow(form, 2); layout.Children.Add(form);'),
@@ -171,6 +187,46 @@ def validate(source):
     ):
         for token in tokens:
             require(path, token, 'the Cloud browser must match the YouTube browser layout and thumbnail table')
+    for path in ('Mac/ContentView.swift', 'Mac/YouTubeViews.swift'):
+        view = source[path]
+        if not 0 <= view.find('TableColumn("Select")') < view.find('TableColumn("Thumbnail")'):
+            raise ValueError(path + ': video table selection must precede the thumbnail')
+        require(path, 'TableColumn("Actions")', 'video tables need per-row Actions')
+        if re.findall(r'TableColumn\("([^"]+)"', view)[-1] != 'Actions':
+            raise ValueError(path + ': Actions must be the last video table column')
+        if 'Label("Select Video"' in view:
+            raise ValueError(path + ': video row menus must use one Select option')
+    for path in ('Windows/MainWindow.YouTube.cs', 'Windows/Views/CloudVideosDialog.cs'):
+        require(path, 'videoSelection.AddRowActions(', 'video tables need per-row Actions')
+        if 'videoSelection.TargetItem(' in source[path]:
+            raise ValueError(path + ': video row menus must use one Select option')
+    for path, token in (
+        ('Windows/MainWindow.YouTube.cs', '"Captions", "Actions" };'),
+        ('Windows/Views/CloudVideosDialog.cs', "Grid.Column='5' Text='Actions'"),
+    ):
+        require(path, token, 'Actions must be the last video table column')
+    for path, tokens in (
+        ('Mac/ContentView.swift', ('Image(systemName: "xmark.circle.fill")', '.font(.body.weight(.semibold))',
+                                  '.foregroundStyle(errorColor)')),
+        ('Windows/Views/NewProjectDialog.cs', ('Glyph="&#xE711;"', 'TextWrapping="Wrap" FontSize="16"',
+                                               'SystemFillColorCriticalBrush', 'youtubeError.Visibility')),
+    ):
+        for token in tokens:
+            require(path, token, 'New Project YouTube errors need a red cross and larger wrapping text')
+    for path, token in (
+        ('Mac/ContentView.swift', 'InspectorAIProcessing(studio: studio'),
+        ('Mac/LanguageResults.swift', '"assign-result-ai-provider"'),
+        ('Windows/MainWindow.xaml', 'x:Name="InspectorAIProcessingRows"'),
+        ('Windows/MainWindow.LanguageResults.cs', '"assign-result-ai-provider"'),
+    ):
+        require(path, token, 'the inspector must show and assign saved AI providers')
+    for path, token in (
+        ('Mac/YouTubeViews.swift', 'openInEditor(target, choose: false)'),
+        ('Mac/YouTubeViews.swift', 'https://studio.youtube.com/video/'),
+        ('Windows/MainWindow.YouTube.cs', 'ChooseForNewProjectAsync(openInEditor: true)'),
+        ('Windows/MainWindow.YouTube.cs', 'https://studio.youtube.com/video/'),
+    ):
+        require(path, token, 'the My YouTube Videos row menu must expose both editor and YouTube Studio opening')
     for path, token in (
         ('Mac/VidiStudioApp.swift', '.disabled(!studio.canOpenCloudVideos)'),
         ('Windows/MainWindow.Menus.cs', 'if (id == "open-cloud-videos") return !cloudBrowserOpen;'),
@@ -193,14 +249,21 @@ def validate(source):
     require('Windows/Views/SettingsDialog.cs', 'new[] { 0, 1, 2, 3, 8, 4, 5, 6, 7 }',
             'Settings must place YouTube Accounts after AI without changing section IDs')
     for path, action in [
-        ('Mac/YouTubeProjectPreview.swift', 'YouTubeService.shared.video(videoID)'),
-        ('Windows/Views/NewProjectDialog.cs', 'YouTubeService.Shared.ProjectVideoAsync('),
+        ('Mac/YouTubeProjectPreview.swift', 'YouTubeService.shared.videoForNewProject(videoID, settings: settings)'),
+        ('Windows/Views/NewProjectDialog.cs', 'FetchYouTubeDetailsAsync(YouTubeService.Shared.VideoForNewProjectAsync)'),
         ('Mac/ProjectSourcesSettingsView.swift', 'Button("YouTube Details & Captions…"'),
         ('Windows/Views/ProjectSourcesSettingsControl.cs', '("YouTube Details & Captions…", "youtube-captions")'),
         ('Mac/YouTubeViews.swift', 'YouTubeService.shared.projectVideo('),
         ('Windows/MainWindow.YouTube.cs', 'YouTubeService.Shared.ProjectVideoAsync(id, project.PrivateYouTubeChannel, Model.Settings)'),
     ]:
         require(path, action, 'linked YouTube videos must retain metadata lookup and details')
+    for path, token in (
+        ('Mac/ContentView.swift', 'Visibility: \\(youtubePreview.video.visibility.capitalized)'),
+        ('Mac/ContentView.swift', 'YouTubeService.shared.privateConnection(video.channelID, settings: studio.settings) != nil'),
+        ('Windows/Views/NewProjectDialog.cs', '"Visibility: " + '),
+        ('Windows/Views/NewProjectDialog.cs', 'sourceReady &= YouTubeService.Shared.PrivateConnection(video.ChannelId, settings) != null;'),
+    ):
+        require(path, token, 'pasted YouTube links must show visibility and gate private project creation')
     for reader in ('Mac/StudioHelp.swift', 'Windows/Views/HelpWindow.xaml.cs'):
         require(reader, 'https://vidistudio.varunmanojkumar.in/docs"', 'Help must load the shared website guide')
         require(reader, 'Documentation requires internet.', 'Help must explain an unavailable connection')

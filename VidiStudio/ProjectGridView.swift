@@ -202,11 +202,14 @@ struct AllProjectsActions {
     let project: StudioProject?
     let sourceFilter: Binding<ProjectSourceFilter>
     let languageFilter: Binding<String>
+    var aiProviderFilter: Binding<String> = .constant("all")
     let search: Binding<String>
     let projectSort: Binding<ProjectListSort>
     let perform: (String, StudioProject) -> Void
     var languageOptions: [OutputLanguage] = []
+    var aiProviderOptions: [String] = ["all"]
     var focusSearch: (() -> Void)? = nil
+    var openFilterDialog: (() -> Void)? = nil
 
     var canShowDeleteProject: Bool { studio.canDeleteProjectVideo(project) }
 
@@ -218,10 +221,12 @@ struct AllProjectsActions {
     func canRun(_ action: String) -> Bool {
         if action == "focus-search" { return focusSearch != nil }
         if action == "clear-search" { return !search.wrappedValue.isEmpty }
+        if action == "projects-filter-dialog" { return openFilterDialog != nil }
         if action.hasPrefix("projects-source-") { return true }
         if action.hasPrefix("projects-sort-") { return true }
         if action == "projects-reset-filters" {
-            return sourceFilter.wrappedValue != .all || languageFilter.wrappedValue != "all" || !search.wrappedValue.isEmpty
+            return sourceFilter.wrappedValue != .all || languageFilter.wrappedValue != "all"
+                || aiProviderFilter.wrappedValue != "all" || !search.wrappedValue.isEmpty
         }
         guard !studio.busy, let project else { return false }
         if ["cloud-remove", "cloud-rename"].contains(action) { return allowsCloudMutation(action) }
@@ -249,6 +254,7 @@ struct AllProjectsActions {
         case "cloud-open", "cloud-upload", "cloud-remove", "cloud-rename": if let project { studio.cloudAction(action, project: project) }
         case "focus-search": focusSearch?()
         case "clear-search": search.wrappedValue = ""; focusSearch?()
+        case "projects-filter-dialog": openFilterDialog?()
         case "projects-sort-opened": projectSort.wrappedValue = .lastOpened
         case "projects-sort-name": projectSort.wrappedValue = .name
         case "projects-sort-duration": projectSort.wrappedValue = .duration
@@ -259,6 +265,7 @@ struct AllProjectsActions {
         case "projects-source-youtube": sourceFilter.wrappedValue = .youtube
         case "projects-reset-filters":
             search.wrappedValue = ""; sourceFilter.wrappedValue = .all; languageFilter.wrappedValue = "all"
+            aiProviderFilter.wrappedValue = "all"
         case "rename-project", "youtube-open-browser", "project-settings", "show-in-finder", "open-configuration":
             if let project { studio.requestProjectManagement(action, project: project) }
         case "remove-from-list": if let project { studio.removeProjectFromList(project) }

@@ -572,6 +572,18 @@ struct StudioCommands: Commands {
             }
         }.accessibilityIdentifier("projects-language-filter")
     }
+    @ViewBuilder private func libraryAIProviderMenu() -> some View {
+        if let allProjects {
+            Menu("Filter Projects by AI Provider", systemImage: "sparkles") {
+                ForEach(allProjects.aiProviderOptions, id: \.self) { option in
+                    Toggle(SavedAIProvider.projectFilterTitle(option), systemImage: SavedAIProvider.projectFilterIcon(option),
+                           isOn: Binding(get: { allProjects.aiProviderFilter.wrappedValue == option },
+                                         set: { if $0, allProjects.aiProviderOptions.contains(option) { allProjects.aiProviderFilter.wrappedValue = option } }))
+                }
+            }
+            .accessibilityIdentifier("projects-ai-provider-filter")
+        }
+    }
     @Environment(\.openWindow) private var openWindow
     @Environment(\.openSettings) private var openSettings
     @ViewBuilder private func projectLanguageMenu() -> some View {
@@ -655,6 +667,8 @@ struct StudioCommands: Commands {
         }
         CommandGroup(after: .sidebar) {
             if let allProjects {
+                Button("Filter Projects…", systemImage: "line.3.horizontal.decrease.circle") { allProjects.run("projects-filter-dialog") }
+                    .disabled(!allProjects.canRun("projects-filter-dialog"))
                 Menu("Filter Projects by Source", systemImage: "line.3.horizontal.decrease.circle") {
                     Button("All Projects", systemImage: allProjects.sourceFilter.wrappedValue == .all ? "checkmark" : "square.stack") { allProjects.run("projects-source-all") }
                     Button("Local Videos", systemImage: allProjects.sourceFilter.wrappedValue == .local ? "checkmark" : "film") { allProjects.run("projects-source-local") }
@@ -662,11 +676,12 @@ struct StudioCommands: Commands {
                     Button("Cloud Storage Videos", systemImage: allProjects.sourceFilter.wrappedValue == .cloud ? "checkmark" : "cloud") { allProjects.run("projects-source-cloud") }
                 }
                 libraryLanguageMenu()
+                libraryAIProviderMenu()
                 Menu("Sort Projects", systemImage: "arrow.up.arrow.down") {
-                    Button("Last Opened", systemImage: allProjects.projectSort.wrappedValue == .lastOpened ? "checkmark" : "clock") { allProjects.run("projects-sort-opened") }
-                    Button("Name (A–Z)", systemImage: allProjects.projectSort.wrappedValue == .name ? "checkmark" : "textformat.abc") { allProjects.run("projects-sort-name") }
-                    Button("Duration (Longest First)", systemImage: allProjects.projectSort.wrappedValue == .duration ? "checkmark" : "timer") { allProjects.run("projects-sort-duration") }
-                    Button("Type (Local, then YouTube)", systemImage: allProjects.projectSort.wrappedValue == .type ? "checkmark" : "film") { allProjects.run("projects-sort-type") }
+                    Button(ProjectListSort.lastOpened.title, systemImage: allProjects.projectSort.wrappedValue == .lastOpened ? "checkmark" : ProjectListSort.lastOpened.icon) { allProjects.run("projects-sort-opened") }
+                    Button(ProjectListSort.name.title, systemImage: allProjects.projectSort.wrappedValue == .name ? "checkmark" : ProjectListSort.name.icon) { allProjects.run("projects-sort-name") }
+                    Button(ProjectListSort.duration.title, systemImage: allProjects.projectSort.wrappedValue == .duration ? "checkmark" : ProjectListSort.duration.icon) { allProjects.run("projects-sort-duration") }
+                    Button(ProjectListSort.type.title, systemImage: allProjects.projectSort.wrappedValue == .type ? "checkmark" : ProjectListSort.type.icon) { allProjects.run("projects-sort-type") }
                 }
                 Button("Reset Project Filters", systemImage: "line.3.horizontal.decrease.circle") { allProjects.run("projects-reset-filters") }
                     .disabled(!allProjects.canRun("projects-reset-filters"))
@@ -1082,9 +1097,17 @@ struct StudioCommands: Commands {
                 Button("Table View", systemImage: youtubeBrowser?.layout == "table" ? "checkmark" : "tablecells") { youtubeBrowser?.run("youtube-table") }.disabled(youtubeBrowser == nil)
                 Divider()
                 Button(youtubeBrowser?.openTitle ?? "Open in Editor", systemImage: "pencil") { youtubeBrowser?.run("youtube-open-editor") }.keyboardShortcut(.return, modifiers: [.command]).disabled(youtubeBrowser?.canRun("youtube-open-editor") != true)
+                if youtubeBrowser?.openTitle == "Choose Video" {
+                    Button("Open in Editor", systemImage: "square.and.arrow.down") { youtubeBrowser?.run("youtube-open-direct") }
+                        .disabled(youtubeBrowser?.canRun("youtube-open-direct") != true)
+                }
                 }
                 if youtubeBrowser != nil || browser?.canRun("youtube-open-browser") == true {
                     Button("Open in YouTube", systemImage: "arrow.up.right.square") { if youtubeBrowser != nil { youtubeBrowser?.run("youtube-open-browser") } else { browser?.run("youtube-open-browser") } }.keyboardShortcut(.return, modifiers: [.command, .shift]).disabled(youtubeBrowser != nil ? youtubeBrowser?.canRun("youtube-open-browser") != true : browser?.canRun("youtube-open-browser") != true)
+                }
+                if youtubeBrowser != nil {
+                    Button("Open in YouTube Studio", systemImage: "pencil") { youtubeBrowser?.run("youtube-open-studio") }
+                        .disabled(youtubeBrowser?.canRun("youtube-open-studio") != true)
                 }
                 if allProjects == nil {
                 Divider()

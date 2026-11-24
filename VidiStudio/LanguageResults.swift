@@ -62,6 +62,12 @@ struct SavedLanguageResult: Codable, Identifiable {
     var replacesResultID: String?
     var sourceResultIDs: [String: String]?
     var sourceAsset: SavedSourceAsset?
+    var aiProcessing: [String: SavedAIProcessing]?
+    var showsNarrationProvider: Bool {
+        kind == "descriptions" && (aiProcessing?["narration"] != nil || (payload.cues ?? []).contains {
+            $0.audio != nil && ($0.resolvedAudioEngine ?? payload.narrationEngine) == "gemini"
+        })
+    }
     var title: String {
         let date = Date(timeIntervalSince1970: createdAt).formatted(date: .abbreviated, time: .shortened)
         return "Version \(version) · \(origin.capitalized) · \(date)"
@@ -98,6 +104,61 @@ struct SavedLanguageResult: Codable, Identifiable {
         case "descriptions": "Descriptions and Narration"
         default: "Imported AD Audio"
         }
+    }
+
+    var analysisProvider: SavedAIProvider? {
+        guard state == "saved", ["transcript", "summary", "descriptions"].contains(kind) else { return nil }
+        if let processing = aiProcessing?["text"] {
+            return SavedAIProvider(rawValue: processing.provider) ?? .unknown
+        }
+        let nonAIOrigins = ["manual", "imported", "imported_modified"]
+        if nonAIOrigins.contains(origin) { return nil }
+        if origin == "ai" || origin == "ai_modified" { return .unknown }
+        if kind == "summary" { return hasContent ? .unknown : nil }
+        let rows = kind == "transcript" ? payload.transcript ?? [] : payload.cues ?? []
+        return rows.contains { !nonAIOrigins.contains($0.origin ?? "") } ? .unknown : nil
+    }
+}
+
+enum SavedAIProvider: String, CaseIterable {
+    case geminiDeveloper = "gemini-developer", vertexAI = "vertex-ai", vertexExpress = "vertex-express"
+    case none, unknown
+
+    var title: String {
+        switch self {
+        case .geminiDeveloper: "Gemini Developer API"
+        case .vertexAI: "Vertex AI"
+        case .vertexExpress: "Vertex AI Express"
+        case .none: "No AI processing"
+        case .unknown: "Not recorded"
+        }
+    }
+
+    static func projectFilterOptions(_ projects: [StudioProject]) -> [String] {
+        let providers = Set(projects.flatMap(\.projectFilterAIProviders))
+        return ["all"] + allCases.filter(providers.contains).map(\.rawValue)
+    }
+
+    static func projectFilterTitle(_ option: String) -> String {
+        option == "all" ? "All AI Providers" : (Self(rawValue: option) ?? .unknown).title
+    }
+
+    static func projectFilterIcon(_ option: String) -> String {
+        switch option {
+        case "all": "line.3.horizontal.decrease.circle"
+        case "none": "minus.circle"
+        case "unknown": "questionmark.circle"
+        default: "sparkles"
+        }
+    }
+}
+
+struct SavedAIProcessing: Codable {
+    var provider: String
+    var source: String
+    var title: String {
+        let label = (SavedAIProvider(rawValue: provider) ?? .unknown).title
+        return source == "assigned" ? label + " (assigned)" : label
     }
 }
 
@@ -146,7 +207,8 @@ extension StudioProject {
             if content {
                 results.append(SavedLanguageResult(id: id + "-legacy-" + kind, kind: kind, language: "auto", version: 1,
                     createdAt: createdAt, updatedAt: updatedAt, origin: kind == "summary" ? summaryOrigin ?? "unknown" : "unknown", state: "saved",
-                    payload: SavedLanguagePayload(transcript: kind == "transcript" ? transcript : nil, summary: kind == "summary" ? summary : nil,
+                    payload: SavedLanguagePayload(narrationEngine: kind == "descriptions" ? narrationEngine : nil,
+                        transcript: kind == "transcript" ? transcript : nil, summary: kind == "summary" ? summary : nil,
                         cues: kind == "descriptions" ? cues : nil, importedAudioDescription: kind == "adAudio" ? importedAudioDescription : nil,
                         importedADTranscript: kind == "descriptions" ? importedADTranscript : nil)))
             }
@@ -186,6 +248,17 @@ extension StudioProject {
         }.map(\.language))).sorted()
     }
     func matchesLanguage(_ code: String) -> Bool { code == "all" || projectFilterLanguageCodes.contains(code) }
+
+    var projectFilterAIProviders: Set<SavedAIProvider> {
+        var providers = Set(savedLanguageResults.compactMap(\.analysisProvider))
+        providers.remove(.none)
+        if integrityPlaceholder == true { providers.insert(.unknown) }
+        return providers.isEmpty ? [.none] : providers
+    }
+
+    func matchesAIProvider(_ filter: String) -> Bool {
+        filter == "all" || projectFilterAIProviders.contains { $0.rawValue == filter }
+    }
 }
 
 struct OutputLanguagePicker: View {
@@ -202,6 +275,77 @@ struct OutputLanguagePicker: View {
             ForEach(options.filter { includesAuto || $0.id != "auto" }) { option in Text(option.title).tag(option.id) }
         }.pickerStyle(.menu)
             .accessibilityLabel(title)
+    }
+}
+
+struct InspectorAIProcessing: View {
+    @Bindable var studio: StudioModel
+    let project: StudioProject
+    let editorActions: EditorShortcutActions
+
+    private var kinds: [String] {
+        if editorActions.activeSection == "ad-overview" { return ["transcript", "summary", "descriptions"] }
+        return editorActions.savedResultKinds.filter { $0 != "adAudio" }
+    }
+
+    var body: some View {
+        InspectorSection("AI Processing") {
+            if studio.busy, let processing = studio.activeAIProcessing, processing.projectID == project.id,
+               let provider = SavedAIProvider(rawValue: processing.provider) {
+                InspectorInformationRow(label: "Processing with", value: provider.title)
+            }
+            ForEach(kinds, id: \.self) { kind in
+                let language = editorActions.activeSection == "ad-overview" ? project.overviewLanguageCode : project.languageCode
+                let result = project.languageResults(kind: kind, language: language).first {
+                    $0.id == project.activeLanguageResultID(kind, language: language)
+                }
+                let title = kind == "descriptions" ? "Audio Descriptions" : SavedLanguageResult.kindTitle(kind)
+                providerRow(title, result: result, task: "text")
+                if let result, result.showsNarrationProvider {
+                    providerRow("Narration", result: result, task: "narration")
+                }
+            }
+        }
+    }
+
+    private func canAssign(_ result: SavedLanguageResult, task: String) -> Bool {
+        !studio.busy && editorActions.available && !editorActions.hasUnsavedSummaryEdits &&
+            result.state == "saved" && result.aiProcessing?[task]?.source != "recorded"
+    }
+
+    @ViewBuilder private func providerRow(_ title: String, result: SavedLanguageResult?, task: String) -> some View {
+        let processing = result?.aiProcessing?[task]
+        let value = result == nil ? "No saved result" : processing?.title ?? SavedAIProvider.unknown.title
+        VStack(alignment: .leading, spacing: 4) {
+            InspectorInformationRow(label: title, value: value)
+            if let result, processing?.source != "recorded" {
+                Menu("Assign \(title) Provider", systemImage: "tag") {
+                    providerChoices(result, task: task)
+                }
+                .disabled(!canAssign(result, task: task))
+            }
+        }
+        .contextMenu {
+            if let result, processing?.source != "recorded" {
+                Menu("Assign \(title) Provider", systemImage: "tag") {
+                    providerChoices(result, task: task)
+                }
+                .disabled(!canAssign(result, task: task))
+            }
+        }
+    }
+
+    private func providerChoices(_ result: SavedLanguageResult, task: String) -> some View {
+        ForEach(SavedAIProvider.allCases, id: \.rawValue) { provider in
+            let selected = provider.rawValue == (result.aiProcessing?[task]?.provider ?? "unknown")
+            Button(provider.title, systemImage: selected ? "checkmark" : "tag") {
+                guard !selected, canAssign(result, task: task) else { return }
+                editorActions.languageAction?("assign-result-ai-provider", [
+                    "--result-id", result.id, "--ai-task", task, "--ai-provider", provider.rawValue
+                ])
+            }
+            .disabled(selected)
+        }
     }
 }
 

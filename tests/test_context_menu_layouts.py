@@ -21,7 +21,7 @@ class ContextMenuLayouts(unittest.TestCase):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
             names = ['VidiStudio Mac/VidiStudio/ProjectBrowserPage.swift', 'VidiStudio Mac/VidiStudio/ProjectGridView.swift', 'VidiStudio Mac/VidiStudio/EditorProjectBrowser.swift']
-            names += ['Vidi-Studio-Windows/Vidi Studio Windows/' + name for name in ['MainWindow.Commands.cs','MainWindow.ContextMenus.cs','MainWindow.YouTube.cs','MainWindow.xaml.cs']]
+            names += ['Vidi-Studio-Windows/Vidi Studio Windows/' + name for name in ['MainWindow.Commands.cs','MainWindow.ContextMenus.cs','MainWindow.YouTube.cs','MainWindow.xaml.cs','Views/CloudVideosDialog.cs']]
             for name in names:
                 target=root/name;target.parent.mkdir(parents=True,exist_ok=True);target.write_bytes((WORKSPACE/name).read_bytes())
             for filename, original, changed in [
@@ -30,6 +30,7 @@ class ContextMenuLayouts(unittest.TestCase):
                 ('MainWindow.Commands.cs', 'if (!CanRunProjectContextCommand(id, project, editorBrowser)) return;', 'if (false) return;'),
                 ('MainWindow.Commands.cs', 'Item("open-project-here", "Open in This Window");', 'Item("export");'),
                 ('MainWindow.YouTube.cs', 'ReferenceEquals(list.SelectedItem, target) && youtubeBrowserCanRun?.Invoke(id) == true', 'true'),
+                ('Views/CloudVideosDialog.cs', 'sourceForMenu == CaptureSource()', 'true'),
                 ('MainWindow.xaml.cs', 'copyToItem.Visibility = desktopEditorVisible && EditorCommandVisible("copy-to")', 'copyToItem.Visibility = true'),
                 ('MainWindow.ContextMenus.cs', 'Read Selected Text Only', 'Read everything')]:
                 file=root/'Vidi-Studio-Windows/Vidi Studio Windows'/filename;source=file.read_text();self.assertIn(original, source)

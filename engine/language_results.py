@@ -9,12 +9,14 @@ import json
 import os
 import time
 import uuid
+from contextlib import contextmanager
 from pathlib import Path
 
 import output_languages
 
 COMMANDS = ['select-overview-language', 'select-view-result', 'select-language', 'select-result', 'assign-result-language',
-            'copy-results', 'translate-results', 'review-result', 'delete-results', 'preview-delete-results', 'export-batch', 'select-section-language', 'sync-section-languages']
+            'copy-results', 'translate-results', 'review-result', 'delete-results', 'preview-delete-results', 'export-batch', 'select-section-language', 'sync-section-languages',
+            'assign-result-ai-provider']
 FIELDS = {
     'transcript': ['transcript', 'transcriptGenerated', 'transcriptUndoStack',
                    'transcriptRedoStack', 'transcriptAudioSource', 'youtubeCaptionSource'],
@@ -34,8 +36,54 @@ PRODUCERS = {'transcribe': ['transcript'], 'generate-summary': ['summary'],
 EDIT_KINDS = {'save-summary': 'summary', 'save-cues': 'descriptions', 'undo-cues': 'descriptions',
               'redo-cues': 'descriptions', 'undo-transcript': 'transcript', 'redo-transcript': 'transcript',
               'delete-segment-audio': 'descriptions'}
+AI_PROVIDER_LABELS = {
+    'gemini-developer': 'Gemini Developer API',
+    'vertex-ai': 'Vertex AI',
+    'vertex-express': 'Vertex AI Express',
+}
+AI_TEXT_KINDS = ('transcript', 'summary', 'descriptions')
+PARTIAL_RESULT_COMMANDS = ('reanalyze-transcript-segment', 'reanalyze-segment', 'rewrite-cue',
+                           'synthesize-tts', 'import-segment-narration')
 _transaction = None
 _export_language = 'auto'
+_ai_capture = None
+
+
+@contextmanager
+def capture_ai_provider():
+    global _ai_capture
+    previous = _ai_capture
+    _ai_capture = {}
+    try:
+        yield _ai_capture
+    finally:
+        _ai_capture = previous
+
+
+def note_ai_provider(provider):
+    if _ai_capture is None or _ai_capture.get('provider') == provider:
+        return False
+    _ai_capture.update(provider=provider, source='recorded')
+    return True
+
+
+def assign_ai_provider(p, result_id, task, provider):
+    result = find(p, result_id, saved_only=True)
+    if (result['kind'] not in AI_TEXT_KINDS or task not in ('text', 'narration')
+            or task == 'narration' and result['kind'] != 'descriptions'
+            or provider not in {*AI_PROVIDER_LABELS, 'none', 'unknown'}):
+        raise ValueError('Choose a valid AI provider and saved result.')
+    processing = result.get('aiProcessing') or {}
+    if processing.get(task, {}).get('source') == 'recorded':
+        raise ValueError('This result already has a recorded AI provider.')
+    if provider == 'unknown':
+        processing.pop(task, None)
+    else:
+        processing[task] = {'provider': provider, 'source': 'assigned'}
+    if processing:
+        result['aiProcessing'] = processing
+    else:
+        result.pop('aiProcessing', None)
 
 
 def language(code):
@@ -191,16 +239,21 @@ def copy_results(p, request, translator=None):
         if not data.get(PRIMARY[kind]):
             raise ValueError('The selected ' + kind + ' is empty.')
         sources.append((kind, r, data))
-    if translator is not None:
-        translator(sources, source, target)
+    with capture_ai_provider() as processing:
+        if translator is not None:
+            translator(sources, source, target)
     made = []
     for kind, r, data in sources:
         new = record(proposed, kind, target, data)
         new['sourceResultIDs'] = {**r.get('sourceResultIDs', {}), kind: r['id']}
         if translator is not None:
             new['origin'] = 'ai'
+            if processing:
+                new['aiProcessing'] = {'text': dict(processing)}
         elif 'sourceAsset' in r and kind not in segment_ids:
             new['sourceAsset'] = copy.deepcopy(r['sourceAsset'])
+        if translator is None and r.get('aiProcessing'):
+            new['aiProcessing'] = copy.deepcopy(r['aiProcessing'])
         proposed['languageResults'].append(new)
         proposed['activeResultIDs'].setdefault(target, {})[kind] = new['id']
         made.append(new['id'])
@@ -328,6 +381,8 @@ def checkpoint(root, working, write, force=False):
                 old = active(tx['base'], kind, tx['language'])
                 r['replacesResultID'] = old['id'] if old else None
                 r['sourceResultIDs'] = copy.deepcopy(tx['sources'])
+                if tx['command'] in PARTIAL_RESULT_COMMANDS and old and old.get('aiProcessing'):
+                    r['aiProcessing'] = copy.deepcopy(old['aiProcessing'])
                 if tx['command'].startswith('import-'):
                     asset_key = {'transcript': 'transcript', 'summary': 'summary', 'descriptions': 'combined' if (working.get('importedADTranscript') or {}).get('mode') == 'combined' else 'narration'}.get(kind)
                     if asset_key and (working.get('importedAssets') or {}).get(asset_key):
@@ -363,7 +418,8 @@ def produce(args, root, p, core, dispatch):
     local_args = copy.copy(args)
     local_args.replace_existing = True  # only the isolated working copy is changed
     try:
-        dispatch(local_args, root, working)
+        with capture_ai_provider() as processing:
+            dispatch(local_args, root, working)
         checkpoint(root, working, core.atomic_json, force=True)
         for kind, r in tx['drafts'].items():
             # Completed generation selects the new version in its own language
@@ -372,6 +428,13 @@ def produce(args, root, p, core, dispatch):
             completed_generation = args.command in ('transcribe', 'generate-summary', 'generate-ad-cues',
                                                      'reanalyze-transcript-segment', 'reanalyze-segment', 'rewrite-cue')
             completed_narration = args.command == 'synthesize-tts'
+            if kind in AI_TEXT_KINDS and not completed_narration and processing:
+                r.setdefault('aiProcessing', {})['text'] = dict(processing)
+            if completed_narration and processing:
+                previous_audio = {cue['id']: cue.get('audio') for cue in tx['original'][kind].get('cues', [])}
+                if any(cue.get('audio') and cue['audio'] != previous_audio.get(cue['id'])
+                       for cue in r['payload'].get('cues', [])):
+                    r.setdefault('aiProcessing', {})['narration'] = dict(processing)
             first_narration = args.command in ('synthesize-tts', 'import-segment-narration') and not any(cue.get('audio') for cue in tx['original']['descriptions'].get('cues', []))
             if completed_generation or completed_narration or first_narration or not any(x['id'] != r['id'] and x['kind'] == kind and x['language'] == r['language'] and x['state'] == 'saved' for x in p['languageResults']):
                 r['state'] = 'saved'
@@ -485,6 +548,10 @@ def _run(args, root, p, core, dispatch):
         copy_request = json.loads(args.input.read_text(encoding='utf-8'))
         validate_copy_languages(copy_request, translating=args.command == 'translate-results')
     migrate(p)
+    if args.command == 'assign-result-ai-provider':
+        assign_ai_provider(p, args.result_id, args.ai_task, args.ai_provider)
+        core.atomic_json(Path(root) / 'project.json', p)
+        return
     capture(p)
     organize_exports(root, p, core, recover_only=True)
     if core.local(root, "metadata/.language-assets.json").exists(): organize_assets(root, p, core)

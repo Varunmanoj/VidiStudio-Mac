@@ -1642,6 +1642,7 @@ final class StudioModel {
     var settingsSection = "Appearance"
     var busy = false
     var processingSection: String?
+    var activeAIProcessing: (projectID: String, provider: String)?
     var contentTransferCommand: String?
     var contentTransferProgress: Double?
     /// Ordered analysis stages for the run in progress (for example
@@ -3146,7 +3147,7 @@ final class StudioModel {
         if let target {
             if !extra.contains("--language") { extra += ["--language", target.operationLanguage(command)] }
             let explicitLanguage = extra.firstIndex(of: "--language").flatMap { extra.indices.contains($0 + 1) ? extra[$0 + 1] : nil }
-            if (explicitLanguage == nil || explicitLanguage == target.operationLanguage(command)) && !["select-language", "select-section-language", "sync-section-languages", "select-result", "assign-result-language", "review-result", "delete-results", "preview-delete-results", "export-batch"].contains(command) {
+            if (explicitLanguage == nil || explicitLanguage == target.operationLanguage(command)) && !["select-language", "select-section-language", "sync-section-languages", "select-result", "assign-result-language", "assign-result-ai-provider", "review-result", "delete-results", "preview-delete-results", "export-batch"].contains(command) {
                 for kind in ["transcript", "summary", "descriptions", "adAudio"] {
                     let rid = target.activeLanguageResultID(kind)
                     if !rid.isEmpty { extra += ["--selected-\(kind == "adAudio" ? "ad-audio" : kind)-id", rid] }
@@ -3219,6 +3220,7 @@ final class StudioModel {
         }
         contentTransferCommand = ["copy-results", "translate-results"].contains(command) ? command : nil
         contentTransferProgress = nil
+        activeAIProcessing = nil
         processingSection = Self.initialProcessingSection(for: command)
         processingPlan = Self.analysisSections(for: command, extra: extra)
         if command == "synthesize-tts", let target {
@@ -3323,6 +3325,9 @@ final class StudioModel {
             do {
                 for try await line in output.fileHandleForReading.bytes.lines {
                     guard let data = line.data(using: .utf8), let event = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else { continue }
+                    if let target, let provider = event["activeAIProcessingProvider"] as? String {
+                        activeAIProcessing = (target.id, provider)
+                    }
                     if ["vertex-connect", "vertex-disconnect", "vertex-check"].contains(command),
                        event["networkActive"] == nil, let status = event["message"] as? String {
                         vertexConnectionVerified = command == "vertex-check" && event["vertexModels"] is [[String: Any]] && event["error"] == nil
@@ -3561,6 +3566,7 @@ final class StudioModel {
                 }
             }
             let staleKeyCheck = isKeyCheck && checkedKey != settings.apiKey.trimmingCharacters(in: .whitespacesAndNewlines)
+            activeAIProcessing = nil
             let operationWasCancelled = cancellationRequested
             let exportWasCancelled = operationWasCancelled && exportActivity != nil
             busy = false

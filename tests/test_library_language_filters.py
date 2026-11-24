@@ -27,23 +27,56 @@ class LibraryLanguageFilters(unittest.TestCase):
         src=(MAC/'VidiStudio/LanguageResults.swift').read_text()
         output=declaration(src,'struct OutputLanguage:')
         saved=declaration(src,'struct SavedLanguageResult:')
+        providers=declaration(src,'enum SavedAIProvider:')+'\n'+declaration(src,'struct SavedAIProcessing:')
         codes=declaration(src,'var projectFilterLanguageCodes:')
         match=declaration(src,'func matchesLanguage(')
+        provider_choices=declaration(src,'var projectFilterAIProviders:')
+        provider_match=declaration(src,'func matchesAIProvider(')
         stubs='''import SwiftUI
-struct Row: Codable {var text:String}
+struct Row: Codable {var text:String; var origin:String?; var audio:String?; var resolvedAudioEngine:String?}
 struct ImportedAD: Codable {var segments:[Row]}
 struct Audio: Codable {var path:String}
 struct SavedSourceAsset: Codable {}
 struct SavedLanguagePayload: Codable {
  var transcript:[Row]?;var summary:String?;var cues:[Row]?;var importedADTranscript:ImportedAD?;var importedAudioDescription:Audio?
+ var narrationEngine:String?
 }
 '''
-        harness=stubs+output+'\n'+saved+'\nstruct StudioProject { var savedLanguageResults:[SavedLanguageResult]\n'+codes+'\n'+match+'\n}\n@main struct Main { static func main() {\nvar rows=[SavedLanguageResult]()\n'
+        harness=stubs+output+'\n'+providers+'\n'+saved+'\nstruct StudioProject { var savedLanguageResults:[SavedLanguageResult]; var integrityPlaceholder:Bool?\n'+codes+'\n'+match+'\n'+provider_choices+'\n'+provider_match+'\n}\n@main struct Main { static func main() {\nvar rows=[SavedLanguageResult]()\n'
         for language,kind,state,payload,expected in CASES:
             data=json.dumps(payload,ensure_ascii=False)
             harness+='do { let payload=try! JSONDecoder().decode(SavedLanguagePayload.self,from:Data('+json.dumps(data)+'.utf8)); let row=SavedLanguageResult(id:UUID().uuidString,kind:'+json.dumps(kind)+',language:'+json.dumps(language)+',version:1,createdAt:0,updatedAt:0,origin:"test",state:'+json.dumps(state)+',payload:payload);let project=StudioProject(savedLanguageResults:[row]);precondition(project.matchesLanguage('+json.dumps(language)+') == '+str(expected).lower()+');precondition(project.matchesLanguage("all")); rows.append(row) }\n'
         expected=sorted(set(case[0] for case in CASES if case[4]))
-        harness+='let project=StudioProject(savedLanguageResults:rows);let options=OutputLanguage.projectFilterOptions([project,project]);precondition(Set(options.map(\\.id)) == Set('+json.dumps(expected)+'));precondition(options.count == '+str(len(expected))+');precondition(OutputLanguage.projectFilterOptions([]).isEmpty);precondition(!project.matchesLanguage("ar"));precondition(StudioProject(savedLanguageResults:[]).matchesLanguage("all"));print("PASS: real Swift content policy, deduplication, empty library and unknown saved languages")\n} }'
+        harness+='let project=StudioProject(savedLanguageResults:rows);let options=OutputLanguage.projectFilterOptions([project,project]);precondition(Set(options.map(\\.id)) == Set('+json.dumps(expected)+'));precondition(options.count == '+str(len(expected))+');precondition(OutputLanguage.projectFilterOptions([]).isEmpty);precondition(!project.matchesLanguage("ar"));precondition(StudioProject(savedLanguageResults:[]).matchesLanguage("all"));\n'
+        harness+='''
+var gemini = rows[0]
+gemini.aiProcessing = ["text": SavedAIProcessing(provider:"gemini-developer", source:"recorded")]
+var vertex = rows[4]
+vertex.aiProcessing = ["text": SavedAIProcessing(provider:"vertex-ai", source:"assigned")]
+var expressDraft = gemini
+expressDraft.state = "draft"
+expressDraft.aiProcessing = ["text": SavedAIProcessing(provider:"vertex-express", source:"recorded")]
+var legacy = rows[0]
+legacy.origin = "ai"
+let mixed = StudioProject(savedLanguageResults:[gemini,vertex,expressDraft,legacy])
+for filter in ["all","gemini-developer","vertex-ai","unknown"] { precondition(mixed.matchesAIProvider(filter)) }
+for filter in ["vertex-express","none"] { precondition(!mixed.matchesAIProvider(filter)) }
+let unprocessed = StudioProject(savedLanguageResults:[])
+precondition(SavedAIProvider.projectFilterOptions([]) == ["all"])
+precondition(SavedAIProvider.projectFilterOptions([mixed,unprocessed,mixed]) ==
+    ["all","gemini-developer","vertex-ai","none","unknown"])
+precondition(SavedAIProvider.projectFilterOptions([unprocessed]) == ["all","none"])
+var manual = vertex
+manual.aiProcessing = ["narration": SavedAIProcessing(provider:"vertex-ai", source:"recorded")]
+manual.origin = "imported_modified"
+precondition(StudioProject(savedLanguageResults:[manual,expressDraft]).matchesAIProvider("none"))
+precondition(!StudioProject(savedLanguageResults:[manual]).matchesAIProvider("vertex-ai"))
+legacy.aiProcessing = ["text": SavedAIProcessing(provider:"none", source:"assigned")]
+precondition(StudioProject(savedLanguageResults:[legacy]).matchesAIProvider("none"))
+precondition(StudioProject(savedLanguageResults:[],integrityPlaceholder:true).matchesAIProvider("unknown"))
+print("PASS: Swift saved-language and AI provider matching, legacy status, and analysis-only attribution")
+} }
+'''
         self.compile_swift(harness)
 
     def compile_swift(self,harness):
@@ -57,14 +90,49 @@ struct SavedLanguagePayload: Codable {
     def test_windows_production_saved_content_and_choices(self):
         source=(WIN/'Vidi Studio Windows/Models/StudioProject.cs').read_text()
         codes=source[source.index('    [JsonIgnore] public IReadOnlyList<string> ProjectFilterLanguageCodes'):source.index('    public event PropertyChangedEventHandler?',source.index('ProjectFilterLanguageCodes'))]
+        provider_choices=declaration(source,'internal IReadOnlySet<string> ProjectFilterAIProviders')
+        provider_match=next(line for line in source.splitlines() if 'internal bool MatchesAIProvider(' in line)
         harness='''using System;using System.Linq;using System.Collections.Generic;using System.Text.Json;using System.Text.Json.Serialization;
 using Vidi_Studio_Windows.Models;
 namespace Vidi_Studio_Windows.Models {public class StudioProject {public List<LanguageResult> SavedResults {get;set;}=new();
-'''+codes+'\n} }\nclass MainProgram {static void Main() {var rows=new List<LanguageResult>();\n'
+public bool IntegrityPlaceholder {get;set;}
+'''+codes+'\n'+provider_choices+'\n'+provider_match+'\n} }\nclass MainProgram {static void Main() {var rows=new List<LanguageResult>();\n'
         for language,kind,state,payload,expected in CASES:
             harness+='{var row=new LanguageResult {Language='+json.dumps(language)+',Kind='+json.dumps(kind)+',State='+json.dumps(state)+',Payload=JsonDocument.Parse('+json.dumps(json.dumps(payload))+').RootElement};var project=new StudioProject {SavedResults=new(){row}};if(project.MatchesLanguage('+json.dumps(language)+') != '+str(expected).lower()+')throw new Exception("Wrong saved-content match");rows.Add(row);}\n'
         expected=sorted(set(case[0] for case in CASES if case[4]))
-        harness+='var all=new StudioProject {SavedResults=rows};var options=OutputLanguage.ProjectFilterOptions(new[]{all,all});if(!options.Select(o=>o.Id).OrderBy(id=>id,StringComparer.Ordinal).SequenceEqual(new[]{'+','.join(json.dumps(c) for c in expected)+'}))throw new Exception("Wrong options");if(OutputLanguage.ProjectFilterOptions(Array.Empty<StudioProject>()).Count!=0 || !new StudioProject().MatchesLanguage("all") || all.MatchesLanguage("ar"))throw new Exception("Empty/unknown match");Console.WriteLine("PASS: real C# content policy, deduplication, empty library and unknown saved languages");} }'
+        harness+='var all=new StudioProject {SavedResults=rows};var options=OutputLanguage.ProjectFilterOptions(new[]{all,all});if(!options.Select(o=>o.Id).OrderBy(id=>id,StringComparer.Ordinal).SequenceEqual(new[]{'+','.join(json.dumps(c) for c in expected)+'}))throw new Exception("Wrong options");if(OutputLanguage.ProjectFilterOptions(Array.Empty<StudioProject>()).Count!=0 || !new StudioProject().MatchesLanguage("all") || all.MatchesLanguage("ar"))throw new Exception("Empty/unknown match");\n'
+        harness+='''
+var gemini = rows[0];
+gemini.AIProcessing = new() {["text"]=new(){Provider="gemini-developer",Source="recorded"}};
+var vertex = rows[4];
+vertex.AIProcessing = new() {["text"]=new(){Provider="vertex-ai",Source="assigned"}};
+var express = rows[8];
+express.AIProcessing = new() {["text"]=new(){Provider="vertex-express",Source="recorded"}};
+var legacy = rows[11];
+legacy.Origin = "ai";
+var mixed = new StudioProject {SavedResults=new(){gemini,vertex,express,legacy}};
+foreach (var filter in new[]{"all","gemini-developer","vertex-ai","unknown"})
+    if (!mixed.MatchesAIProvider(filter)) throw new Exception("Missing provider " + filter);
+foreach (var filter in new[]{"vertex-express","none"})
+    if (mixed.MatchesAIProvider(filter)) throw new Exception("Incorrect provider " + filter);
+var unprocessed = new StudioProject();
+if (!SavedAIProcessing.ProjectFilterOptions(Array.Empty<StudioProject>()).SequenceEqual(new[]{"all"}) ||
+    !SavedAIProcessing.ProjectFilterOptions(new[]{mixed,unprocessed,mixed}).SequenceEqual(
+        new[]{"all","gemini-developer","vertex-ai","none","unknown"}) ||
+    !SavedAIProcessing.ProjectFilterOptions(new[]{unprocessed}).SequenceEqual(new[]{"all","none"}))
+    throw new Exception("Provider choices must follow the loaded projects");
+vertex.AIProcessing = new() {["narration"]=new(){Provider="vertex-ai",Source="recorded"}};
+vertex.Origin = "manual";
+if (!new StudioProject{SavedResults=new(){vertex,express}}.MatchesAIProvider("none"))
+    throw new Exception("Narration and pending drafts are outside analysis");
+legacy.AIProcessing = new() {["text"]=new(){Provider="none",Source="assigned"}};
+if (!new StudioProject{SavedResults=new(){legacy}}.MatchesAIProvider("none"))
+    throw new Exception("An assigned No AI processing result still matched legacy analysis");
+if (!new StudioProject{IntegrityPlaceholder=true}.MatchesAIProvider("unknown"))
+    throw new Exception("Unavailable attribution must be unknown");
+Console.WriteLine("PASS: C# saved-language and AI provider matching, legacy status, and analysis-only attribution");
+} }
+'''
         with tempfile.TemporaryDirectory() as folder:
             path=Path(folder);(path/'Program.cs').write_text(harness)
             (path/'LanguageResult.cs').write_text((WIN/'Vidi Studio Windows/Models/LanguageResult.cs').read_text())
@@ -76,7 +144,7 @@ namespace Vidi_Studio_Windows.Models {public class StudioProject {public List<La
         page=(MAC/'VidiStudio/ProjectBrowserPage.swift').read_text()
         menu=(MAC/'VidiStudio/KeyboardShortcuts.swift').read_text()
         self.assertIn('OutputLanguage.projectFilterOptions(projects)',page)
-        self.assertIn('options: languageOptions',page)
+        self.assertIn('sort: projectSort, languageOptions: languageOptions',page)
         self.assertIn('}, languageOptions: languageOptions',page)
         self.assertIn('ForEach(allProjects.languageOptions)',menu)
         self.assertIn('!options.contains(where: { $0.id == languageFilter })',page)

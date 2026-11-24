@@ -32,6 +32,52 @@ class LanguageResultsTests(unittest.TestCase):
         return SimpleNamespace(command=command, replace_existing=False, source_transcript_id=None,
                                source_summary_id=None, **kwargs)
 
+    def test_assign_ai_provider_changes_only_selected_legacy_result_metadata(self):
+        legacy_id = lr.active(self.p, 'transcript')['id']
+        before = copy.deepcopy(self.p)
+        lr.run(self.args('assign-result-ai-provider', result_id=legacy_id, ai_task='text', ai_provider='vertex-ai'),
+               self.root, self.p, self.core, lambda *_: self.fail('Assignment must not run AI.'))
+        recorded = json.loads((self.root / 'project.json').read_text())
+        info = lr.find(recorded, legacy_id).pop('aiProcessing')
+        self.assertEqual(info, {'text': {'provider': 'vertex-ai', 'source': 'assigned'}})
+        self.assertEqual(recorded, before)
+        lr.assign_ai_provider(self.p, legacy_id, 'text', 'unknown')
+        self.assertEqual(self.p, before)
+
+    def test_provider_is_saved_with_new_text_version_and_cannot_replace_recorded_provenance(self):
+        previous = copy.deepcopy(lr.active(self.p, 'summary'))
+        def generate(args, root, working):
+            lr.note_ai_provider('gemini-developer')
+            working['summary'] = 'Summary from Gemini Developer API'
+        lr.produce(self.args('generate-summary'), self.root, self.p, self.core, generate)
+        result = lr.active(self.p, 'summary')
+        self.assertEqual(result['aiProcessing']['text'], {'provider': 'gemini-developer', 'source': 'recorded'})
+        self.assertEqual(lr.find(self.p, previous['id']), previous)
+        with self.assertRaisesRegex(ValueError, 'already has a recorded AI provider'):
+            lr.assign_ai_provider(self.p, result['id'], 'text', 'vertex-ai')
+        copy_request = dict(sourceLanguage='auto', targetLanguage='hi', kinds=['summary'])
+        lr.copy_results(self.p, copy_request)
+        self.assertEqual(lr.active(self.p, 'summary', 'hi')['aiProcessing'], result['aiProcessing'])
+        def translate(sources, source, target):
+            lr.note_ai_provider('vertex-express')
+            sources[0][2]['summary'] = 'Translated summary'
+        lr.copy_results(self.p, copy_request, translate)
+        self.assertEqual(lr.active(self.p, 'summary', 'hi')['aiProcessing']['text']['provider'], 'vertex-express')
+
+    def test_narration_records_own_provider_without_relabeling_description_text(self):
+        previous = lr.active(self.p, 'descriptions')
+        lr.assign_ai_provider(self.p, previous['id'], 'text', 'gemini-developer')
+        def narrate(args, root, working):
+            lr.note_ai_provider('vertex-ai')
+            working['cues'][0]['audio'] = 'audio-description/new.wav'
+        lr.produce(self.args('synthesize-tts'), self.root, self.p, self.core, narrate)
+        result = lr.active(self.p, 'descriptions')
+        self.assertEqual(result['aiProcessing'], {
+            'text': {'provider': 'gemini-developer', 'source': 'assigned'},
+            'narration': {'provider': 'vertex-ai', 'source': 'recorded'},
+        })
+        self.assertNotIn('narration', previous['aiProcessing'])
+
     def test_copy_all_creates_independent_versions_and_preserves_source(self):
         before = copy.deepcopy(self.p)
         ids = lr.copy_results(self.p, dict(sourceLanguage='auto', targetLanguage='hi', kinds=['transcript', 'summary', 'descriptions']))

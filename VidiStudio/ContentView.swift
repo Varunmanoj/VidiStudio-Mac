@@ -39,6 +39,7 @@ private enum NewProjectAssetMode: String, CaseIterable, Identifiable {
 private struct NewProjectView: View {
     @Environment(\.dismiss) private var dismiss
     @Environment(\.openWindow) private var openWindow
+    @Environment(\.colorScheme) private var colorScheme
     @Bindable var studio: StudioModel
     @State private var source = NewProjectSource.videoFile
     @State private var assetMode = NewProjectAssetMode.create
@@ -49,6 +50,7 @@ private struct NewProjectView: View {
     @State private var showingCloudBrowser = false
     @State private var showingYouTubePicker = false
     @State private var importedCloudProject: StudioProject?
+    @State private var openedYouTubeProject: StudioProject?
 
     init(studio: StudioModel) {
         self.studio = studio
@@ -70,7 +72,9 @@ private struct NewProjectView: View {
     private var canCreate: Bool {
         if source == .cloud && (!studio.canUploadCloudVideo || cloudImport) { return false }
         if source == .videoFile && videoRequiresCloud { return false }
-        return source == .youtube ? youtubePreview != nil && ConnectivityService.shared.available(.youtube) : videoURL != nil
+        if source != .youtube { return videoURL != nil }
+        guard let video = youtubePreview?.video, ConnectivityService.shared.available(.youtube) else { return false }
+        return video.visibility != "private" || YouTubeService.shared.privateConnection(video.channelID, settings: studio.settings) != nil
     }
 
     private var preferredHeight: CGFloat {
@@ -172,8 +176,8 @@ private struct NewProjectView: View {
                                 Task { await fetchYouTubeDetails() }
                             }
                             .disabled(trimmedYouTubeURL.isEmpty || fetchingYouTube)
-                            .help("Fetch the video's project name and thumbnail for review.")
-                            .accessibilityHint("Fetch the video's project name and thumbnail for review.")
+                            .help("Check the video's availability and visibility.")
+                            .accessibilityHint("Check the video's availability and visibility.")
                             .requiresInternet(.youtube)
                         }
                         if fetchingYouTube {
@@ -182,10 +186,23 @@ private struct NewProjectView: View {
                                 .controlSize(.small)
                         }
                         if let youtubeFetchError {
-                            Label(youtubeFetchError, systemImage: "exclamationmark.triangle.fill")
-                                .font(.caption)
-                                .foregroundStyle(.red)
-                                .accessibilityLabel("Could not fetch video details. \(youtubeFetchError)")
+                            let errorColor = colorScheme == .dark
+                                ? Color(red: 1, green: 0.48, blue: 0.48)
+                                : Color(red: 0.66, green: 0.10, blue: 0.12)
+                            HStack(alignment: .top, spacing: 10) {
+                                Image(systemName: "xmark.circle.fill")
+                                    .font(.system(size: 17))
+                                    .accessibilityHidden(true)
+                                Text(youtubeFetchError)
+                                    .font(.body.weight(.semibold))
+                                    .fixedSize(horizontal: false, vertical: true)
+                            }
+                            .foregroundStyle(errorColor)
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                            .padding(10)
+                            .background(errorColor.opacity(0.08), in: RoundedRectangle(cornerRadius: 8))
+                            .accessibilityElement(children: .ignore)
+                            .accessibilityLabel("Could not fetch video details. \(youtubeFetchError)")
                         }
                         if let youtubePreview {
                             HStack(alignment: .top, spacing: 12) {
@@ -203,6 +220,9 @@ private struct NewProjectView: View {
                                     Text(youtubePreview.title)
                                         .font(.headline)
                                         .textSelection(.enabled)
+                                    Text("Visibility: \(youtubePreview.video.visibility.capitalized)")
+                                        .font(.caption)
+                                        .foregroundStyle(.secondary)
                                     Text(youtubePreview.canonicalURL)
                                         .font(.caption)
                                         .foregroundStyle(.secondary)
@@ -310,11 +330,17 @@ private struct NewProjectView: View {
         } message: {
             Text(studio.error ?? "")
         }
-        .sheet(isPresented: $showingYouTubePicker) {
+        .sheet(isPresented: $showingYouTubePicker, onDismiss: {
+            guard let project = openedYouTubeProject else { return }
+            openedYouTubeProject = nil
+            completeCreation(project, combine: false)
+        }) {
             YouTubeBrowserView(studio: studio, onChooseVideo: { preview in
                 youtubePreview = preview
                 youtubeURL = preview.canonicalURL
                 youtubeFetchError = nil
+            }, onOpenProject: { project in
+                openedYouTubeProject = project
             })
         }
         .sheet(isPresented: $showingCloudBrowser, onDismiss: {
@@ -440,24 +466,25 @@ private struct NewProjectView: View {
     private func fetchYouTubeDetails() async {
         let requestedURL = trimmedYouTubeURL
         guard studio.validateYouTubeForCreation(requestedURL) else { return }
-        let selected = youtubePreview?.video
         youtubePreview = nil
         youtubeFetchError = nil
         fetchingYouTube = true
         defer { fetchingYouTube = false }
         do {
-            let preview: YouTubeProjectPreview
-            if let selected, selected.visibility == "private", StudioModel.youtubeVideoID(from: requestedURL) == selected.id {
-                let current = try await YouTubeService.shared.projectVideo(selected.id, privateChannelID: selected.channelID, settings: studio.settings)
-                preview = await YouTubeProjectPreviewFetcher.selectedVideo(current)
-            } else {
-                preview = try await YouTubeProjectPreviewFetcher.fetch(requestedURL)
-            }
+            let preview = try await YouTubeProjectPreviewFetcher.fetch(requestedURL, settings: studio.settings)
             guard requestedURL == trimmedYouTubeURL else { return }
+            let owner = YouTubeService.shared.privateConnection(preview.video.channelID, settings: studio.settings)
+            try preview.video.requireAvailable(allowPrivate: owner != nil)
             youtubePreview = preview
+            AccessibilityNotification.Announcement("Visibility: \(preview.video.visibility.capitalized)").post()
         } catch {
             guard requestedURL == trimmedYouTubeURL else { return }
-            youtubeFetchError = UserFacingIssue.youtubePreview.message
+            let message = (error as? YouTubeLinkIssue)?.localizedDescription
+                ?? (error as? YouTubeFailure)?.localizedDescription
+                ?? (error as? YouTubeProjectPreviewError)?.localizedDescription
+                ?? UserFacingIssue.youtubePreview.message
+            youtubeFetchError = message
+            AccessibilityNotification.Announcement(message).post()
             UserFacingIssueReporter.record(error.localizedDescription, context: "Load YouTube video details")
         }
     }
@@ -670,15 +697,27 @@ private struct CloudVideosView: View {
             Group {
                 if fileView == "Table" {
                     Table(videos, selection: $videoID) {
+                        TableColumnForEach(selectingVideos ? [0] : [], id: \.self) { _ in
+                            TableColumn("Select") { video in
+                                VideoBrowserRowCheckbox(title: video.filename, id: video.id, selection: $videoID)
+                            }.width(55)
+                        }
                         TableColumn("Thumbnail") { videoThumbnail($0, width: 80, height: 45) }.width(90)
                         TableColumn("Title") { videoTitle($0) }.width(min: 160, ideal: 220)
                         TableColumn("Object path", value: \.name).width(min: 150, ideal: 240)
                         TableColumn("Size", value: \.formattedSize).width(min: 60, ideal: 90)
                         TableColumn("Modified") { Text($0.updated ?? "—") }
+                        TableColumn("Actions") { video in
+                            Menu("Actions", systemImage: "ellipsis.circle") { videoActions(for: video) }
+                                .accessibilityLabel("Actions for " + video.filename)
+                        }.width(106)
                     }
                 } else {
                     List(videos, selection: $videoID) { video in
                         HStack(spacing: 12) {
+                            if selectingVideos {
+                                VideoBrowserRowCheckbox(title: video.filename, id: video.id, selection: $videoID)
+                            }
                             videoThumbnail(video, width: 100, height: 60)
                             VStack(alignment: .leading, spacing: 4) {
                                 videoTitle(video)
@@ -803,15 +842,6 @@ private struct CloudVideosView: View {
         Toggle(isOn: $selectingVideos) { Label("Select", systemImage: "checklist") }
             .disabled(!canBrowse || videos.isEmpty)
         if let target {
-            if selectingVideos {
-                Toggle(isOn: Binding(
-                    get: { videoID == target.id },
-                    set: { checked in
-                        if checked { videoID = target.id }
-                        else if videoID == target.id { videoID = nil }
-                    }
-                )) { Label("Select Video", systemImage: "checkmark.square") }
-            }
             Button("Open in Editor", systemImage: "square.and.arrow.down") { importVideo(target) }
                 .disabled(!canBrowse || projectID.isEmpty || bucket.isEmpty)
             if thumbnail(for: target) == nil, matchingPreview(for: target) == nil {
@@ -849,7 +879,8 @@ private struct CloudVideosView: View {
     }
 
     private func loadThumbnail(_ file: StorageFileChoice) {
-        guard canBrowse, self.file?.id == file.id, self.file?.generation == file.generation else { return }
+        guard canBrowse, videos.contains(where: { $0.id == file.id && $0.generation == file.generation }) else { return }
+        videoID = file.id
         studio.execute("cloud-preview", extra: arguments(file))
     }
 
@@ -862,12 +893,7 @@ private struct CloudVideosView: View {
     }
 
     private func videoTitle(_ video: StorageFileChoice) -> some View {
-        HStack(spacing: 6) {
-            if selectingVideos {
-                VideoBrowserRowCheckbox(title: video.filename, id: video.id, selection: $videoID)
-            }
-            Text(video.filename).font(.headline).lineLimit(1)
-        }
+        Text(video.filename).font(.headline).lineLimit(1)
     }
 
     @ViewBuilder private func videoThumbnail(_ video: StorageFileChoice, width: CGFloat, height: CGFloat) -> some View {
@@ -1645,6 +1671,7 @@ struct ProcessingInspector: View {
                 HStack(alignment: .top, spacing: 8) {
                     VStack(alignment: .leading, spacing: 10) {
                         LanguageResultControls(studio: studio, project: project, editorActions: editorActions)
+                        InspectorAIProcessing(studio: studio, project: project, editorActions: editorActions)
                         ProjectVideoInformationView(project: project)
                         if project.cloudVideo != nil || (!project.isYouTubeURLProject && studio.settings.vertexConnected) {
                             InspectorSection("Cloud Storage") {

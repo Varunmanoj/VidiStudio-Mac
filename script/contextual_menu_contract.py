@@ -32,6 +32,22 @@ def check_contextual_menus(mac, windows):
                   '"analyze" or "youtube-browser" => false,']:
         if token not in windows: raise ValueError('Windows YouTube browser scope missing: ' + token)
 
+    mac_filters = ('libraryLanguageMenu()', 'libraryAIProviderMenu()',
+                   'Menu("Sort Projects"')
+    win_filters = ('LibraryLanguageMenu(),', 'LibraryAIProviderMenu(),', 'Submenu("Sort Projects"')
+    for platform, source, filters in [('Mac', mac, mac_filters), ('Windows', windows, win_filters)]:
+        positions = [source.find(token, source.find('Menu("Filter Projects by Source"')
+                    if platform == 'Mac' else source.find('Submenu("Filter Projects by Source"')) for token in filters]
+        if positions[0] < 0 or not positions[0] < positions[1] < positions[2]:
+            raise ValueError(platform + ': AI provider submenu must follow the gallery language submenu')
+    for token in ('if (desktopEditorVisible) return;', 'item.IsChecked = item.Tag as string == Model.AIProviderFilter;',
+                  'ApplyGalleryFilters("all", "all", "all");',
+                  'Command("projects-filter-dialog", libraryOnly: true)',
+                  'case "projects-filter-dialog": await ShowProjectFiltersAsync();'):
+        if token not in windows: raise ValueError('Windows AI provider filter guard missing: ' + token)
+    if 'allProjects.run("projects-filter-dialog")' not in mac:
+        raise ValueError('The Mac View menu must open the project filter dialog')
+
     for token in ['allProjects.projectSort.wrappedValue == .lastOpened',
                   'allProjects.projectSort.wrappedValue == .name',
                   'allProjects.projectSort.wrappedValue == .duration',

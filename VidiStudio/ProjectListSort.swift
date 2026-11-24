@@ -3,6 +3,24 @@ import Foundation
 enum ProjectListSort: String, CaseIterable {
     case lastOpened, name, duration, type
 
+    var title: String {
+        switch self {
+        case .lastOpened: "Last Opened"
+        case .name: "Name (A–Z)"
+        case .duration: "Duration (Longest First)"
+        case .type: "Type (Local, then YouTube)"
+        }
+    }
+
+    var icon: String {
+        switch self {
+        case .lastOpened: "clock"
+        case .name: "textformat.abc"
+        case .duration: "timer"
+        case .type: "film"
+        }
+    }
+
     func sorted(_ projects: [StudioProject], lastOpened: [String: Double]) -> [StudioProject] {
         projects.sorted { lhs, rhs in
             switch self {

@@ -589,9 +589,15 @@ def gemini_client(project=None):
             raise ValueError(youtube_metadata.PRIVATE_MESSAGE)
         youtube_metadata.guard(project, lambda video, channel: vertex_ai.require_private_youtube_owner(cfg, video, channel))
     if cfg.get('aiProvider') == 'vertex':
-        return vertex_ai.client(cfg, project)
-    if not cfg.get('apiKey'): raise ValueError('Add a Gemini API key in Settings first.')
-    return network_activity.ClientProxy(genai.Client(api_key=cfg['apiKey'], http_options={'timeout': 300000, 'api_version':cfg.get('apiVersion','v1beta')}))
+        provider = 'vertex-express' if vertex_ai.express(cfg) else 'vertex-ai'
+        client = vertex_ai.client(cfg, project)
+    else:
+        if not cfg.get('apiKey'): raise ValueError('Add a Gemini API key in Settings first.')
+        provider = 'gemini-developer'
+        client = network_activity.ClientProxy(genai.Client(api_key=cfg['apiKey'], http_options={'timeout': 300000, 'api_version':cfg.get('apiVersion','v1beta')}))
+    if language_results.note_ai_provider(provider):
+        emit('Using ' + language_results.AI_PROVIDER_LABELS[provider], activeAIProcessingProvider=provider)
+    return client
 
 
 def validate_youtube_for_gemini(url):
@@ -3241,6 +3247,8 @@ def main():
     parser.add_argument('--sarvam-model'); parser.add_argument('--sarvam-voice'); parser.add_argument('--sarvam-language')
     parser.add_argument('--language')
     parser.add_argument('--result-id')
+    parser.add_argument('--ai-task', choices=('text', 'narration'))
+    parser.add_argument('--ai-provider', choices=[*language_results.AI_PROVIDER_LABELS, 'none', 'unknown'])
     parser.add_argument('--section', choices=['transcript', 'summary', 'descriptions', 'adAudio'])
     parser.add_argument('--follow-project', action='store_true')
     parser.add_argument('--source-transcript-id')

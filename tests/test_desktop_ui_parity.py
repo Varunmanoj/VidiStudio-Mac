@@ -119,8 +119,18 @@ class DesktopUILayoutParityTests(unittest.TestCase):
         ):
             with self.subTest(path=path):
                 self.mutated(path, token, '', 'YouTube account, browser or caption control is missing')
-        self.mutated('Mac/YouTubeProjectPreview.swift', 'YouTubeService.shared.video(videoID)', 'missing', 'must retain metadata lookup')
-        self.mutated('Windows/Views/NewProjectDialog.cs', 'YouTubeService.Shared.ProjectVideoAsync(', 'missing(', 'must retain metadata lookup')
+        self.mutated('Mac/YouTubeProjectPreview.swift', 'YouTubeService.shared.videoForNewProject(', 'missing(', 'must retain metadata lookup')
+        self.mutated('Windows/Views/NewProjectDialog.cs', 'FetchYouTubeDetailsAsync(YouTubeService.Shared.VideoForNewProjectAsync)', 'missing', 'must retain metadata lookup')
+
+    def test_youtube_link_preview_requires_visibility_and_private_owner_guard(self):
+        for path, token in (
+            ('Mac/ContentView.swift', 'Visibility: \\(youtubePreview.video.visibility.capitalized)'),
+            ('Mac/ContentView.swift', 'YouTubeService.shared.privateConnection(video.channelID, settings: studio.settings) != nil'),
+            ('Windows/Views/NewProjectDialog.cs', '"Visibility: " + '),
+            ('Windows/Views/NewProjectDialog.cs', 'sourceReady &= YouTubeService.Shared.PrivateConnection(video.ChannelId, settings) != null;'),
+        ):
+            with self.subTest(path=path, token=token):
+                self.mutated(path, token, '', 'pasted YouTube links must show visibility and gate private project creation')
 
     def test_cloud_and_youtube_settings_use_separate_sign_in_actions(self):
         workspace = Path(os.environ.get('VIDISTUDIO_DESKTOP_WORKSPACE', ROOT.parent))
@@ -146,12 +156,35 @@ class DesktopUILayoutParityTests(unittest.TestCase):
     def test_youtube_picker_returns_to_new_project(self):
         self.mutated('Mac/ContentView.swift', 'youtubeURL = preview.canonicalURL', '',
                      'the YouTube picker must return its video to the open New Project form')
-        self.mutated('Windows/Views/NewProjectDialog.cs', 'youtubeUrl.Text = video.Url', '',
+        self.mutated('Windows/Views/NewProjectDialog.cs', 'youtubeUrl.Text = result.Video.Url', '',
                      'the YouTube picker must return its video to the open New Project form')
+
+    def test_video_tables_have_leading_selection_and_row_actions(self):
+        self.mutated('Mac/YouTubeViews.swift', 'TableColumn("Select")', 'TableColumn("Wrong")',
+                     'selection must precede the thumbnail')
+        self.mutated('Windows/Views/CloudVideosDialog.cs', 'videoSelection.AddRowActions(', 'missing(',
+                     'video tables need per-row Actions')
+        self.mutated('Mac/ContentView.swift', 'TableColumn("Actions")', 'TableColumn("Wrong")',
+                     'video tables need per-row Actions')
+        self.mutated('Windows/MainWindow.YouTube.cs', '"Captions", "Actions" };', '"Actions", "Captions" };',
+                     'Actions must be the last video table column')
+
+    def test_new_project_youtube_error_presentation(self):
+        self.mutated('Mac/ContentView.swift', 'Image(systemName: "xmark.circle.fill")',
+                     'Image(systemName: "exclamationmark.triangle.fill")',
+                     'New Project YouTube errors need a red cross')
+        self.mutated('Windows/Views/NewProjectDialog.cs', 'SystemFillColorCriticalBrush', 'TextFillColorSecondaryBrush',
+                     'New Project YouTube errors need a red cross')
 
     def test_new_project_preserves_title_inset_in_taller_modes(self):
         self.mutated('Mac/ContentView.swift', 'maxHeight: preferredHeight, alignment: .topLeading',
                      'maxHeight: preferredHeight', 'New Project must keep its title inset')
+
+    def test_gallery_filter_dialog(self):
+        self.mutated('Mac/ProjectBrowserPage.swift', 'aiProviderFilter: $aiProviderFilter', '',
+                     'All Projects must stage filters in an accessible dialog')
+        self.mutated('Windows/MainWindow.xaml', 'x:Name="GalleryFilterProjects"', '',
+                     'All Projects must stage filters in an accessible dialog')
 
     def test_cloud_sources_are_visible_but_disabled_before_sign_in(self):
         for path, token in (

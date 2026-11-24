@@ -13,13 +13,19 @@ import Foundation
  func requestProjectManagement(_ action:String,project:StudioProject) {}
  func removeProjectFromList(_ project:StudioProject) {}
  var busy=false; var hasApiKey=true; var apiKeyVerified: Bool?=true; var isAIProcessingBlocked=false
+ var hasValidApiKey:Bool { hasApiKey && apiKeyVerified != false && !isAIProcessingBlocked }
+ var settings = (vertexConnected: false, developerMode: false)
+ func cloudPermissions(for project:StudioProject?) -> (rename:Bool, delete:Bool)? { nil }
+ func canDeleteProjectVideo(_ project:StudioProject?) -> Bool { project?.cloudVideo == nil }
+ func cloudAction(_ action:String, project:StudioProject) {}
 }
 struct OutputLanguage {}
-enum ProjectSourceFilter { case all, local, youtube }
+enum ProjectSourceFilter { case all, local, youtube, cloud }
 enum ProjectListSort { case lastOpened, name, duration, type }
 struct StudioProject {
  var id: String; var folder: URL?=URL(fileURLWithPath:"/tmp/project"); var integrityPlaceholder: Bool?=false
  var hasGeneratedContent=true; var isYouTubeURLProject=false; var canGenerateDescriptions=true
+ var cloudVideo: String? = nil
 }
 @MainActor final class ConnectivityService {
  enum Service { case youtube, gemini }; static let shared=ConnectivityService(); var online=true
@@ -29,10 +35,10 @@ struct StudioProject {
 checks='''
 @main struct Checks {
  @MainActor static func main() {
-  let model=StudioModel(); var source=ProjectSourceFilter.all; var language="all"; var search=""; var calls:[String]=[]; var sort=ProjectListSort.lastOpened
+  let model=StudioModel(); var source=ProjectSourceFilter.all; var language="all"; var provider="all"; var search=""; var calls:[String]=[]; var sort=ProjectListSort.lastOpened
   let selected=StudioProject(id:"selected-project")
   func actions(_ project:StudioProject?) -> AllProjectsActions {
-   AllProjectsActions(studio:model, project:project, sourceFilter:Binding(get:{source},set:{source=$0}),languageFilter:Binding(get:{language},set:{language=$0}),search:Binding(get:{search},set:{search=$0}),projectSort:Binding(get:{sort},set:{sort=$0}),perform:{action,project in calls.append(action+":"+project.id)})
+   AllProjectsActions(studio:model, project:project, sourceFilter:Binding(get:{source},set:{source=$0}),languageFilter:Binding(get:{language},set:{language=$0}),aiProviderFilter:Binding(get:{provider},set:{provider=$0}),search:Binding(get:{search},set:{search=$0}),projectSort:Binding(get:{sort},set:{sort=$0}),perform:{action,project in calls.append(action+":"+project.id)})
   }
   let none=actions(nil)
   for id in ["export","delete-content","delete-project","open-selected-project","analyze"] { precondition(!none.canRun(id)); none.run(id) }
@@ -58,7 +64,9 @@ checks='''
   precondition(!a.canRun("projects-reset-filters"));a.run("projects-source-youtube");precondition(source == .youtube)
   search="sample";language="en";precondition(a.canRun("projects-reset-filters"));a.run("projects-reset-filters")
   precondition(source == .all && language == "all" && search.isEmpty);precondition(calls.count==count)
-  a.run("projects-sort-duration"); a.run("projects-reset-filters"); precondition(sort == .duration)
+  provider="vertex-ai"; precondition(a.canRun("projects-reset-filters"))
+  a.run("projects-sort-duration"); a.run("projects-reset-filters")
+  precondition(sort == .duration && provider == "all" && !a.canRun("projects-reset-filters"))
   print("PASS: actual AllProjectsActions dispatch, missing selection, busy, damaged project, API/connectivity guards, source/language/search bindings and reset")
  }
 }

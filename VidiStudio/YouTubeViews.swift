@@ -13,8 +13,8 @@ import SwiftUI
     func canRun(_ id: String) -> Bool {
         switch id {
         case "youtube-accounts", "youtube-list", "youtube-table": return true
-        case "youtube-open-editor": return selectedCanOpen && ready
-        case "youtube-open-browser": return selected
+        case "youtube-open-editor", "youtube-open-direct": return selectedCanOpen && ready
+        case "youtube-open-browser", "youtube-open-studio": return selected
         case "youtube-load-videos": return ready && moreVideos
         case "youtube-load-playlists": return ready && morePlaylists
         default: return ready
@@ -116,6 +116,7 @@ struct VideoBrowserLoadingIndicator: View {
 @MainActor struct YouTubeBrowserView: View {
     @Bindable var studio: StudioModel
     var onChooseVideo: ((YouTubeProjectPreview) -> Void)? = nil
+    var onOpenProject: ((StudioProject) -> Void)? = nil
     @Environment(\.dismiss) private var dismiss
     private var chooseMode: Bool { onChooseVideo != nil }
     private var openTitle: String { chooseMode ? "Choose Video" : "Open in Editor" }
@@ -214,7 +215,7 @@ struct VideoBrowserLoadingIndicator: View {
                             Text(video.captionsAvailable ? "Captions available" : "Caption availability not reported").font(.caption)
                         }
                         Spacer()
-                        Button(openTitle, systemImage: openIcon) { openInEditor(video) }.disabled(studio.busy || loading || !canOpen(video))
+                        Button(openTitle, systemImage: openIcon) { openInEditor(video, choose: chooseMode) }.disabled(!canRunOpeningAction(video))
                         Button("Open in YouTube", systemImage: "arrow.up.right.square") { openInBrowser(video) }
                     }.tag(video.id)
                     .contextMenu { videoActions(for: video) }
@@ -230,6 +231,7 @@ struct VideoBrowserLoadingIndicator: View {
                     }
                     Button(openTitle, systemImage: openIcon) { actions.run("youtube-open-editor") }.disabled(!actions.canRun("youtube-open-editor"))
                     Button("Open in YouTube", systemImage: "arrow.up.right.square") { actions.run("youtube-open-browser") }.disabled(!actions.canRun("youtube-open-browser"))
+                    Button("Open in YouTube Studio", systemImage: "pencil") { actions.run("youtube-open-studio") }.disabled(!actions.canRun("youtube-open-studio"))
                 }
                 if !chooseMode {
                     Toggle("Choose YouTube captions after opening", isOn: $chooseCaptions)
@@ -264,8 +266,10 @@ struct VideoBrowserLoadingIndicator: View {
                 case "youtube-refresh-list": reload()
                 case "youtube-load-videos": loadVideos(reset: false)
                 case "youtube-load-playlists": loadPlaylists()
-                case "youtube-open-editor": if let video = filtered.first(where: { $0.id == selectedVideoID }) { openInEditor(video) }
+                case "youtube-open-editor": if let video = filtered.first(where: { $0.id == selectedVideoID }) { openInEditor(video, choose: chooseMode) }
+                case "youtube-open-direct": if let video = filtered.first(where: { $0.id == selectedVideoID }) { openInEditor(video, choose: false) }
                 case "youtube-open-browser": if let video = filtered.first(where: { $0.id == selectedVideoID }) { openInBrowser(video) }
+                case "youtube-open-studio": if let video = filtered.first(where: { $0.id == selectedVideoID }) { openInYouTubeStudio(video) }
                 default: break
                 }
             }
@@ -288,27 +292,31 @@ struct VideoBrowserLoadingIndicator: View {
     }
     private var youtubeTable: some View {
         Table(filtered, selection: $selectedVideoID) {
+            TableColumnForEach(selectingVideos ? [0] : [], id: \.self) { _ in
+                TableColumn("Select") { video in
+                    VideoBrowserRowCheckbox(title: video.title, id: video.id, selection: $selectedVideoID)
+                }.width(55)
+            }
             TableColumn("Thumbnail") { video in
                 AsyncImage(url: URL(string: video.thumbnailURL)) { image in image.resizable().scaledToFit() }
                     placeholder: { Image(systemName: "film").foregroundStyle(.secondary) }
                     .frame(width: 80, height: 45).accessibilityHidden(true)
             }.width(90)
-            TableColumn("Title") { video in
-                HStack {
-                    if selectingVideos {
-                        VideoBrowserRowCheckbox(title: video.title, id: video.id, selection: $selectedVideoID)
-                    }
-                    Text(video.title)
-                }
-            }.width(min: 180, ideal: 260)
+            TableColumn("Title", value: \.title).width(min: 180, ideal: 260)
             TableColumn("Channel", value: \.channelTitle).width(min: 100, ideal: 150)
             TableColumn("Visibility") { Text($0.visibility.capitalized) }.width(85)
             TableColumn("Duration") { Text($0.durationLabel).monospacedDigit().accessibilityLabel("Duration: \($0.spokenDuration)") }.width(120)
             TableColumn("Published") { Text($0.publishedLabel) }.width(min: 100, ideal: 140)
-            TableColumn("Views") { Text($0.viewCount ?? "Unavailable") }.width(85)
-            TableColumn("Likes") { Text($0.likeCount ?? "Unavailable") }.width(85)
-            TableColumn("Comments") { Text($0.commentCount ?? "Unavailable") }.width(90)
-            TableColumn("Captions") { Text($0.captionsAvailable ? "Available" : "Not reported") }.width(105)
+            Group {
+                TableColumn("Views") { (video: YouTubeVideo) in Text(video.viewCount ?? "Unavailable") }.width(85)
+                TableColumn("Likes") { (video: YouTubeVideo) in Text(video.likeCount ?? "Unavailable") }.width(85)
+                TableColumn("Comments") { (video: YouTubeVideo) in Text(video.commentCount ?? "Unavailable") }.width(90)
+                TableColumn("Captions") { (video: YouTubeVideo) in Text(video.captionsAvailable ? "Available" : "Not reported") }.width(105)
+            }
+            TableColumn("Actions") { video in
+                Menu("Actions", systemImage: "ellipsis.circle") { videoActions(for: video) }
+                    .accessibilityLabel("Actions for " + video.title)
+            }.width(106)
         }.accessibilityLabel("YouTube videos table")
         .contextMenu(forSelectionType: String.self) { selection in
             videoActions(for: filtered.first { selection.contains($0.id) })
@@ -319,19 +327,14 @@ struct VideoBrowserLoadingIndicator: View {
         Toggle(isOn: $selectingVideos) { Label("Select", systemImage: "checklist") }
             .disabled(loading || filtered.isEmpty)
         if let target {
-            if selectingVideos {
-                Toggle(isOn: Binding(
-                    get: { selectedVideoID == target.id },
-                    set: { checked in
-                        if checked { selectedVideoID = target.id }
-                        else if selectedVideoID == target.id { selectedVideoID = nil }
-                    }
-                )) { Label("Select Video", systemImage: "checkmark.square") }
-                    .disabled(loading)
+            if chooseMode {
+                Button("Choose Video", systemImage: "checkmark.circle") { openInEditor(target, choose: true) }
+                    .disabled(!canRunOpeningAction(target))
             }
-            Button(openTitle, systemImage: openIcon) { openInEditor(target) }
-                .disabled(studio.busy || loading || !canOpen(target))
+            Button("Open in Editor", systemImage: "square.and.arrow.down") { openInEditor(target, choose: false) }
+                .disabled(!canRunOpeningAction(target))
             Button("Open in YouTube", systemImage: "arrow.up.right.square") { openInBrowser(target) }
+            Button("Open in YouTube Studio", systemImage: "pencil") { openInYouTubeStudio(target) }
         }
     }
 
@@ -348,14 +351,26 @@ struct VideoBrowserLoadingIndicator: View {
         selectedVideoID = video.id
         if let url = URL(string: video.url) { NSWorkspace.shared.open(url) }
     }
+    private func openInYouTubeStudio(_ video: YouTubeVideo) {
+        guard filtered.contains(where: { $0.id == video.id }),
+              let id = StudioModel.youtubeVideoID(from: video.url),
+              let url = URL(string: "https://studio.youtube.com/video/\(id)/edit") else { return }
+        selectedVideoID = video.id
+        NSWorkspace.shared.open(url)
+    }
     private func canOpen(_ video: YouTubeVideo) -> Bool {
         let owner = service.privateConnection(video.channelID, settings: studio.settings)
         let ownsPrivate = owner != nil && owner?.id == service.selected?.id
         return (try? video.requireAvailable(allowPrivate: ownsPrivate)) != nil
     }
 
-    private func openInEditor(_ video: YouTubeVideo) {
-        guard !studio.busy, !loading, canOpen(video), let connection = service.selected else { return }
+    private func canRunOpeningAction(_ video: YouTubeVideo) -> Bool {
+        !studio.busy && !loading && service.selected != nil && canOpen(video)
+    }
+
+    private func openInEditor(_ video: YouTubeVideo, choose: Bool) {
+        guard canRunOpeningAction(video), filtered.contains(where: { $0.id == video.id }),
+              let connection = service.selected else { return }
         selectedVideoID = video.id
         let stamp = generation
         loadingKind = "opening"
@@ -368,7 +383,7 @@ struct VideoBrowserLoadingIndicator: View {
                 current.openedFromPlaylist = playlists.first { $0.id == playlist }
                 guard !Task.isCancelled, generation == stamp, service.selectedID == connection.id else { return }
                 try current.requireAvailable(allowPrivate: canOpen(current))
-                if let onChooseVideo {
+                if choose, let onChooseVideo {
                     let preview = await YouTubeProjectPreviewFetcher.selectedVideo(current)
                     guard !Task.isCancelled, generation == stamp, service.selectedID == connection.id else { return }
                     onChooseVideo(preview)
@@ -377,6 +392,11 @@ struct VideoBrowserLoadingIndicator: View {
                 }
                 studio.openYouTubeVideo(current) { project in
                     guard let project else { return }
+                    if let onOpenProject {
+                        onOpenProject(project)
+                        dismiss()
+                        return
+                    }
                     openWindow(id: "project-editor", value: project.id)
                     if chooseCaptions { studio.youtubeDetailAction = "youtube-captions"; openWindow(id: "youtube-details") }
                 }

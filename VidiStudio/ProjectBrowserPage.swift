@@ -52,6 +52,8 @@ struct ProjectBrowserPage: View {
     @Binding var search: String
     @FocusState private var searchFocused: Bool
     @State private var languageFilter = "all"
+    @State private var aiProviderFilter = "all"
+    @State private var showingProjectFilters = false
     @State private var projectSort = ProjectListSort.lastOpened
     @AppStorage("projectLastOpened") private var projectOpenHistory = Data()
     @Binding var sourceFilter: ProjectSourceFilter
@@ -77,15 +79,17 @@ struct ProjectBrowserPage: View {
     let clear: (StudioProject) -> Void
 
     private var languageOptions: [OutputLanguage] { OutputLanguage.projectFilterOptions(projects) }
+    private var aiProviderOptions: [String] { SavedAIProvider.projectFilterOptions(projects) }
 
     private var filteredProjects: [StudioProject] {
         projectSort.sorted(projects.filter {
-            (search.isEmpty || $0.name.localizedStandardContains(search)) && sourceFilter.matches($0) && $0.matchesLanguage(languageFilter)
+            (search.isEmpty || $0.name.localizedStandardContains(search)) && sourceFilter.matches($0)
+                && $0.matchesLanguage(languageFilter) && $0.matchesAIProvider(aiProviderFilter)
         }, lastOpened: ProjectOpenHistory.read(projectOpenHistory))
     }
 
     private var isFiltering: Bool {
-        !search.isEmpty || sourceFilter != .all || languageFilter != "all"
+        !search.isEmpty || sourceFilter != .all || languageFilter != "all" || aiProviderFilter != "all"
     }
 
     private var selectedProject: StudioProject? {
@@ -94,6 +98,25 @@ struct ProjectBrowserPage: View {
 
     private var selectedProjectFolder: URL? {
         selectedProject?.folder
+    }
+
+    private var actions: AllProjectsActions {
+        AllProjectsActions(
+            studio: studio, project: selectedProject, sourceFilter: $sourceFilter,
+            languageFilter: $languageFilter, aiProviderFilter: $aiProviderFilter, search: $search,
+            projectSort: $projectSort, perform: { action, project in
+                switch action {
+                case "open-selected-project": openEditor(project)
+                case "open-gallery-window": openNewWindow(project)
+                case "export": export(project)
+                case "delete-content": clear(project)
+                case "delete-project": delete(project)
+                default: process(project, action)
+                }
+            }, languageOptions: languageOptions, aiProviderOptions: aiProviderOptions,
+            focusSearch: { searchFocused = true },
+            openFilterDialog: showingProjectFilters ? nil : { showingProjectFilters = true }
+        )
     }
 
     var body: some View {
@@ -172,15 +195,11 @@ struct ProjectBrowserPage: View {
                     Label(isFiltering ? "No Matching Projects" : "No Projects", systemImage: "film.stack")
                 } description: {
                     Text(isFiltering
-                          ? "Try a different project name or source filter."
+                          ? "Try a different project name or change the filters."
                           : "Create a project from a video file on this Mac or a YouTube video.")
                 } actions: {
                     if isFiltering {
-                        Button(sourceFilter == .all ? "Clear Search" : "Clear Search & Filters") {
-                            search = ""
-                            sourceFilter = .all
-                            languageFilter = "all"
-                        }
+                        Button("Reset Project Filters") { actions.run("projects-reset-filters") }
                     }
                 }
             } else if grid {
@@ -281,22 +300,12 @@ struct ProjectBrowserPage: View {
             showProjects: nil, showInspector: nil, grid: $grid,
             hasProject: selectedProject != nil, listModel: studio
         ))
-        .focusedSceneValue(\.allProjects, AllProjectsActions(
-            studio: studio, project: selectedProject, sourceFilter: $sourceFilter,
-            languageFilter: $languageFilter, search: $search,
-            projectSort: $projectSort, perform: { action, project in
-                switch action {
-                case "open-selected-project": openEditor(project)
-                case "open-gallery-window": openNewWindow(project)
-                case "export": export(project)
-                case "delete-content": clear(project)
-                case "delete-project": delete(project)
-                default: process(project, action)
-                }
-            }, languageOptions: languageOptions, focusSearch: { searchFocused = true }
-        ))
+        .focusedSceneValue(\.allProjects, actions)
         .onChange(of: languageOptions, initial: true) { _, options in
             if languageFilter != "all" && !options.contains(where: { $0.id == languageFilter }) { languageFilter = "all" }
+        }
+        .onChange(of: aiProviderOptions, initial: true) { _, options in
+            if !options.contains(aiProviderFilter) { aiProviderFilter = "all" }
         }
         .onChange(of: filteredProjects.map(\.id)) { _, visibleIDs in
             if let selection, !visibleIDs.contains(selection) { self.selection = nil }
@@ -308,18 +317,12 @@ struct ProjectBrowserPage: View {
         .searchFocused($searchFocused)
         .toolbar {
             ToolbarItemGroup(placement: .primaryAction) {
-                OutputLanguagePicker(title: "Project language filter", selection: $languageFilter, includesAll: true, options: languageOptions)
-                Picker("Project source", selection: $sourceFilter) {
-                    ForEach(ProjectSourceFilter.allCases) { filter in
-                        Label(filter.title, systemImage: filter.iconName)
-                            .accessibilityLabel(filter.accessibilityLabel)
-                            .tag(filter)
-                    }
+                Button("Filter Projects", systemImage: "line.3.horizontal.decrease.circle") {
+                    actions.run("projects-filter-dialog")
                 }
-                .pickerStyle(.segmented)
-                .accessibilityLabel("Filter projects by source")
-                .accessibilityHint("Show all projects, only local video file projects, or only YouTube video projects")
-                .help("Filter projects by source")
+                .labelStyle(.titleAndIcon)
+                .help("Choose project filters and sort order")
+                .disabled(!actions.canRun("projects-filter-dialog"))
 
                 Picker("Project layout", selection: $grid) {
                     Label("List View", systemImage: "list.bullet").tag(false)
@@ -334,6 +337,16 @@ struct ProjectBrowserPage: View {
                     .buttonStyle(.glassProminent)
                     .disabled(busy)
                     .help("Create a new project")
+            }
+        }
+        .sheet(isPresented: $showingProjectFilters) {
+            ProjectFilterSheet(source: sourceFilter, language: languageFilter, provider: aiProviderFilter,
+                               sort: projectSort, languageOptions: languageOptions,
+                               aiProviderOptions: aiProviderOptions) { source, language, provider, sort in
+                sourceFilter = source
+                languageFilter = languageOptions.contains { $0.id == language } ? language : "all"
+                aiProviderFilter = aiProviderOptions.contains(provider) ? provider : "all"
+                projectSort = sort
             }
         }
         .safeAreaInset(edge: .bottom) {
