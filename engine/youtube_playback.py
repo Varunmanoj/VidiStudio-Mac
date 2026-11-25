@@ -40,6 +40,11 @@ def remove_assets(root, asset, core):
             pass
 
 
+def duration_accepted(asset, expected):
+    return (asset.get('timingAcceptedFor') == expected
+            or abs(asset['duration'] - expected) < 0.5)
+
+
 def local_asset(root, project, core):
     if project.get('sourceType') != 'youtube':
         return None
@@ -49,7 +54,7 @@ def local_asset(root, project, core):
     duration, expected = asset.get('duration'), project.get('duration')
     if not all(isinstance(d, (int, float)) and math.isfinite(d) and d > 0 for d in (duration, expected)):
         return None
-    return asset if abs(duration - expected) < 0.5 and core.local(root, asset['path']).is_file() else None
+    return asset if duration_accepted(asset, expected) and core.local(root, asset['path']).is_file() else None
 
 
 def analysis_settings(root, project, core):
@@ -69,8 +74,13 @@ def for_video_export(root, project, core):
         duration = float(info['format']['duration'])
         reported = video.get('duration')
         video_duration = float(reported) if reported not in (None, 'N/A') else duration
-        if not all(math.isfinite(d) and d > 0 and abs(d - project['duration']) < 0.5
-                   for d in (duration, video_duration)):
+        expected = project['duration']
+        if not all(math.isfinite(d) and d > 0 for d in (duration, video_duration)):
+            raise ValueError(DURATION_ERROR)
+        if asset.get('timingAcceptedFor') == expected:
+            if abs(duration - asset['duration']) > 0.001 or abs(video_duration - asset['videoTrackDuration']) > 0.001:
+                raise ValueError(DURATION_ERROR)
+        elif any(abs(d - expected) >= 0.5 for d in (duration, video_duration)):
             raise ValueError(DURATION_ERROR)
     except (ValueError, OSError, KeyError, TypeError, StopIteration) as exc:
         raise ValueError('Choose a matching local playback video before exporting this project.') from exc
@@ -97,11 +107,11 @@ def execute(args, root, project, core):
                 raise ValueError('Remove the original audio file before importing a local playback video.')
             video = args.video
             if video is None:
-                raise ValueError(INVALID_VIDEO)
+                raise import_assets.ImportIssue('Video Couldn’t Be Imported', INVALID_VIDEO)
             import_assets.confirm_replacement(old, args.replace_existing)
             try:
                 if not video.is_file():
-                    raise ValueError(INVALID_VIDEO)
+                    raise import_assets.ImportIssue('Video Couldn’t Be Imported', INVALID_VIDEO)
                 info = core.probe(video)
                 track = next(s for s in info.get('streams', []) if s.get('codec_type') == 'video'
                              and not s.get('disposition', {}).get('attached_pic'))
@@ -109,16 +119,25 @@ def execute(args, root, project, core):
                 track_duration = track.get('duration')
                 video_duration = float(track_duration) if track_duration not in (None, 'N/A') else duration
             except (ValueError, OSError, KeyError, TypeError, StopIteration) as exc:
-                raise ValueError(INVALID_VIDEO) from exc
+                raise import_assets.ImportIssue('Video Couldn’t Be Imported', INVALID_VIDEO) from exc
             expected = project.get('duration')
             if not isinstance(expected, (float, int)) or not math.isfinite(expected) or expected <= 0:
                 raise ValueError('Refresh YouTube Details before choosing a local playback video.')
             if not all(math.isfinite(value) and value > 0 for value in (duration, video_duration)):
-                raise ValueError(INVALID_VIDEO)
+                raise import_assets.ImportIssue('Video Couldn’t Be Imported', INVALID_VIDEO)
             # YouTube normally reports whole seconds. Allow only its rounding precision.
             measured = max((duration, video_duration), key=lambda value: abs(value - expected))
-            if abs(measured - expected) >= 0.5:
-                raise ValueError(f'{DURATION_ERROR} YouTube is {expected:.2f} seconds and the local file is {measured:.2f} seconds.')
+            mismatch = abs(measured - expected) >= 0.5
+            if mismatch:
+                diagnostic = (f'{DURATION_ERROR}\n\n'
+                              f'YouTube duration: {import_assets.duration_label(expected)}\n'
+                              f'Local video duration: {import_assets.duration_label(measured)}')
+                import_assets.confirm_warning(
+                    args, 'playback-duration', 'Playback Video Duration Does Not Match',
+                    diagnostic + '\n\nThe local video keeps its own length. Check that it lines up with the project.',
+                    diagnostic=diagnostic, context=[project['id'], str(video), video.stat().st_mtime_ns,
+                                                     expected, duration, video_duration])
+
             last_update = 0.0
 
             def copy_progress(copied, total):
@@ -141,11 +160,13 @@ def execute(args, root, project, core):
                 core.run([core.tool('ffmpeg'), '-y', '-v', 'error', '-ss', str(min(video_duration / 4, 5)),
                           '-i', core.local(root, path), '-map', '0:V:0', '-frames:v', '1', '-vf', 'scale=480:-2', frame])
             except (ValueError, OSError) as exc:
-                raise ValueError(INVALID_VIDEO) from exc
+                raise import_assets.ImportIssue('Video Couldn’t Be Imported', INVALID_VIDEO) from exc
             if not frame.is_file() or frame.stat().st_size == 0:
-                raise ValueError(INVALID_VIDEO)
+                raise import_assets.ImportIssue('Video Couldn’t Be Imported', INVALID_VIDEO)
             updated['youtubePlaybackVideo'] = dict(path=path, thumbnail=thumbnail, sourceName=video.name, duration=duration,
                                                    hasAudio=any(stream.get('codec_type') == 'audio' for stream in info['streams']))
+            if mismatch:
+                updated['youtubePlaybackVideo'].update(timingAcceptedFor=expected, videoTrackDuration=video_duration)
             if isinstance(old, dict) and old.get('useYouTubePlayer') is True:
                 updated['youtubePlaybackVideo']['useYouTubePlayer'] = True
         updated['updatedAt'] = time.time()

@@ -44,11 +44,7 @@ struct YouTubeInspectorInformationView: View {
                         }
                     }
                 }
-                ViewThatFits(in: .horizontal) {
-                    HStack(spacing: 8) { youtubeLinks }.fixedSize(horizontal: true, vertical: false)
-                    VStack(alignment: .leading, spacing: 8) { youtubeLinks }
-                }
-                .contextMenu { youtubeLinks }
+                YouTubeProjectLinkButtons(studio: studio, project: project)
                 Button("Refresh YouTube Details") { startRefresh() }.disabled(refreshing || studio.busy)
                 if refreshing { HStack { ProgressView().controlSize(.small); Text("Fetching YouTube details…") } }
                 if let issue { Text(issue).foregroundStyle(.red) }
@@ -59,13 +55,6 @@ struct YouTubeInspectorInformationView: View {
         .onChange(of: project.youtubeMetadata) { _, _ in fetched = nil }
         .onDisappear { request?.cancel() }
     }
-    @ViewBuilder private var youtubeLinks: some View {
-        Button("Open in YouTube", systemImage: "arrow.up.right.square") { studio.openYouTubeInBrowser(project) }
-        if project.connectedYouTubeStudioURL != nil {
-            Button("Open in YouTube Studio", systemImage: "pencil") { studio.openProjectInYouTubeStudio(project) }
-        }
-    }
-
     private func row(_ label: String, _ value: String) -> some View {
         InspectorInformationRow(label: label, value: value.isEmpty ? "Unavailable" : value)
     }
@@ -100,16 +89,39 @@ struct YouTubePlaybackVideo: Codable, Equatable {
     let duration: Double
     var useYouTubePlayer: Bool?
     var hasAudio: Bool?
+    var timingAcceptedFor: Double?
+}
+
+struct YouTubeProjectLinkButtons: View {
+    let studio: StudioModel
+    let project: StudioProject
+
+    var body: some View {
+        ViewThatFits(in: .horizontal) {
+            HStack(spacing: 8) { links }.fixedSize(horizontal: true, vertical: false)
+            VStack(alignment: .leading, spacing: 8) { links }
+        }
+        .contextMenu { links }
+    }
+
+    @ViewBuilder private var links: some View {
+        Button("Open in YouTube", systemImage: "arrow.up.right.square") { studio.openYouTubeInBrowser(project) }
+        if project.connectedYouTubeStudioURL != nil {
+            Button("Open in YouTube Studio", systemImage: "pencil") { studio.openProjectInYouTubeStudio(project) }
+        }
+    }
 }
 
 struct YouTubePlaybackVideoControls: View {
     let studio: StudioModel
     let project: StudioProject
     var showSource = true
+    var inProjectSettings = false
+    private var imported: Bool { inProjectSettings && project.localYouTubePlaybackURL != nil }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
-            if showSource {
+            if showSource && (!inProjectSettings || project.youtubePlaybackVideo != nil || project.originalAudio != nil) {
                 HStack(alignment: .center, spacing: 8) {
                     InspectorInformationRow(label: "Local playback video", value: project.localYouTubePlaybackURL == nil
                         ? (project.youtubePlaybackVideo == nil ? (project.originalAudio == nil ? "No file selected" : "Remove the original audio file to choose a video.") : "Playback file unavailable")
@@ -128,9 +140,15 @@ struct YouTubePlaybackVideoControls: View {
     }
 
     private var chooseButton: some View {
-        Button("Choose Local Playback Video…", systemImage: "film") {
+        Button {
             studio.chooseYouTubePlaybackVideo(project)
+        } label: {
+            HStack(spacing: 6) {
+                Label(inProjectSettings && project.youtubePlaybackVideo != nil ? "Replace Local Playback Video…" : "Choose Local Playback Video…", systemImage: "film")
+                if imported { Image(systemName: "checkmark").foregroundStyle(.green).accessibilityHidden(true) }
+            }
         }
+        .accessibilityValue(imported ? "Imported" : "")
         .disabled(!studio.canChooseYouTubePlaybackVideo(project))
     }
 

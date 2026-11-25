@@ -544,10 +544,10 @@ extension StudioModel {
         NSWorkspace.shared.open(url)
     }
 
-    func openYouTubeVideo(_ video: YouTubeVideo, name: String? = nil, completion: @escaping (StudioProject?) -> Void) {
+    func openYouTubeVideo(_ video: YouTubeVideo, name: String? = nil, reuseExisting: Bool = true, completion: @escaping (StudioProject?) -> Void) {
         do {
             try video.requireAvailable(allowPrivate: YouTubeService.shared.privateConnection(video.channelID, settings: settings) != nil)
-            if let existing = existingProject(forYouTubeURL: video.url) { selectedID = existing.id; completion(existing); return }
+            if reuseExisting, let existing = existingProject(forYouTubeURL: video.url) { selectedID = existing.id; completion(existing); return }
             let metadata = try temporaryYouTubeFile(try JSONEncoder().encode(video), extension: "json")
             let nameArgument = name.map { ["--name", $0] } ?? []
             execute("import-youtube", extra: ["--url", video.url, "--library", settings.libraryPath, "--youtube-metadata", metadata.path] + nameArgument,

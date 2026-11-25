@@ -318,8 +318,18 @@ Both video browsers use their existing opening action when a video row is double
 
 Project > Import includes Choose Local Playback Video… for YouTube projects and Remove Local Playback Video… when a copy is attached. The preview and inspector use the same guarded actions. The Local Playback Video checkbox in Choose What to Delete has a matching context toggle.
 
-View > Video Player sits beside Show or Hide Preview in every YouTube editor. YouTube Player and Local Video Player show the selected source. Switching is enabled for public and unlisted projects that have a usable copy. The same submenu offers Choose Local Playback Video and shows Remove Local Playback Video with a trash icon when a copy is attached. Project > Import keeps both commands. In Import Existing Assets the playback row has a context menu to choose a file or clear the staged selection.
+View > Video Player sits beside Show or Hide Preview in every YouTube editor. YouTube Player and Local Video Player show the selected source. Switching is enabled for public and unlisted projects that have a usable copy. The same submenu offers Choose Local Playback Video and shows Remove Local Playback Video with a trash icon when a copy is attached. Project > Import keeps both commands. In Import Existing Assets the playback row has a context menu to choose a file or clear the staged selection. Settings > Projects > Import into this project offers the same playback commands in the row’s context menu. It shows Replace Local Playback Video when a copy is attached and Remove Local Playback Video only when there is a saved copy.
 
-Video transport and transcript overlay commands disable when the editor has no working video source. Import Original Audio is disabled when a YouTube project has a saved playback attachment. Choose Local Playback Video is disabled when a standalone original audio file is saved. Project > Import includes the confirmed Remove Original Audio command when a saved soundtrack exists. The editor YouTube menu shows Open in YouTube Studio, enabled when the video’s channel ID matches a connected YouTube account. The inspector presents the same action only for a match.
+Video transport and transcript overlay commands disable when the editor has no working video source. Import Original Audio is disabled when a YouTube project has a saved playback attachment. Choose Local Playback Video is disabled when a standalone original audio file is saved. Project > Import includes the confirmed Remove Original Audio command when a saved soundtrack exists. The editor YouTube menu shows Open in YouTube Studio, enabled when the video’s channel ID matches a connected YouTube account. The inspector and Settings > Projects > YouTube video present the same action in their link row and its context menu only for a match.
 
 The Original Audio File and Local Playback Video boxes in Choose What to Delete each have a context toggle that shares the checkbox state and availability. Both become part of the existing deletion review when selected.
+
+Settings > Projects > Imported assets offers Choose What to Delete in the action’s context menu. It opens the existing scoped content review and confirmation. The action is disabled while the project is busy, unavailable or has unsaved summary edits.
+
+### Import warnings
+
+The warning’s scoped context menu mirrors Okay (cancel icon) and, when available, Import Anyway (import icon). Neither action is a global command. Both follow the same result as the dialog controls. Windows also mirrors applicable Review Timing or Choose Another File actions in its context menu, and macOS mirrors Choose Another File when present. No new global accelerators.
+
+## Gemini narration voices
+
+The inline Gemini browser in Settings > Narration exposes scoped menu actions for search, clearing search, library search, language, style, sort, reset, select, and play or stop. Row selection has checked state and each sample action names its voice for assistive technology.

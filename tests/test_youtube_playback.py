@@ -116,8 +116,20 @@ class YouTubePlayback(unittest.TestCase):
         self.make_media('-i', self.original, '-t', '3', '-c', 'copy', path)
         self.run_engine('attach-youtube-playback', '--video', self.original)
         saved = self.manifest.read_bytes()
-        self.run_engine('attach-youtube-playback', '--video', path, '--replace-existing', error='Playback video duration does not match.')
+        failure = self.run_engine('attach-youtube-playback', '--video', path, '--replace-existing',
+                                  error='Playback video duration does not match.')
+        self.assertIn('YouTube duration: 4 seconds', failure.stdout)
+        self.assertIn('Local video duration: 3 seconds', failure.stdout)
         self.assertEqual(self.manifest.read_bytes(), saved)
+        decision = json.loads(failure.stdout.splitlines()[-1])['importIssue']
+        self.assertRegex(decision['token'], r'^[0-9a-f]{64}$')
+        self.run_engine('attach-youtube-playback', '--video', path, '--replace-existing',
+                        '--accept-import-warning', decision['token'])
+        project = self.read()
+        asset = project['youtubePlaybackVideo']
+        self.assertEqual((project['duration'], asset['timingAcceptedFor']), (4, 4))
+        self.assertEqual((self.project / asset['path']).read_bytes(), path.read_bytes())
+        self.run_engine('export-open-audio-description-video', '--media-format', 'mp4')
         self.run_engine('remove-youtube-playback')
         project = self.read()
         project['sourceType'] = 'local'

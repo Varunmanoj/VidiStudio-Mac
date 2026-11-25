@@ -9,6 +9,9 @@ struct ProjectSourcesSettingsView: View {
     @State private var languageActions = EditorShortcutActions()
     private var languageAvailable: Bool { !model.busy && openProjects.languageSettingsAvailable(for: reference.id) }
     private var pendingSummary: Bool { openProjects.languageEditors(for: reference.id).contains { $0.hasUnsavedSummaryEdits } }
+    private func canDeleteContent(_ project: StudioProject) -> Bool {
+        !model.busy && project.integrityPlaceholder != true && languageAvailable
+    }
     @Environment(\.openWindow) private var openWindow
     @State private var model = StudioModel(persistSelection: false)
     @State private var importScope: ImportScope?
@@ -21,6 +24,7 @@ struct ProjectSourcesSettingsView: View {
         Group {
             if let project {
                 let info = ProjectVideoInformation(project: project)
+                let importedKinds = Set(project.savedLanguageResults.filter { $0.importedSourceName != nil }.map(\.kind))
                 Section {
                     LanguageResultControls(studio: model, project: project, editorActions: languageActions, showsSection: false, showsCopyControls: false,
                         kindsOverride: ["transcript", "summary", "descriptions", "adAudio"], editModeToggle: {
@@ -54,29 +58,37 @@ struct ProjectSourcesSettingsView: View {
                     } header: { Text("Audio sources").accessibilityAddTraits(.isHeader).accessibilityHeading(.h2) }
                 }
                 if project.isYouTubeURLProject {
-                    Section { HStack {
-                        Button("YouTube Details & Captions…", systemImage: "captions.bubble") { youtubeDetails = true }
-                        Button("Open in YouTube", systemImage: "arrow.up.right.square") { model.openYouTubeInBrowser(project) }
-                    }.disabled(model.busy) } header: { Text("YouTube video").accessibilityAddTraits(.isHeader).accessibilityHeading(.h2) }
+                    Section {
+                        VStack(alignment: .leading, spacing: 8) {
+                            Button("YouTube Details & Captions…", systemImage: "captions.bubble") { youtubeDetails = true }
+                            YouTubeProjectLinkButtons(studio: model, project: project)
+                        }.disabled(model.busy)
+                    } header: { Text("YouTube video").accessibilityAddTraits(.isHeader).accessibilityHeading(.h2) }
                 }
                 Section {
                     VStack(alignment: .leading, spacing: 8) {
                         HStack {
-                            importButton("Import Transcript…", scope: .transcript)
-                            importButton("Import Summary…", scope: .summary)
+                            importButton("Import Transcript…", scope: .transcript, imported: importedKinds.contains("transcript"))
+                            importButton("Import Summary…", scope: .summary, imported: importedKinds.contains("summary"))
                         }
                         HStack {
-                            importButton("Import Descriptions…", scope: .descriptions)
-                            importButton("Import AD Audio…", scope: .adAudio)
+                            importButton("Import Descriptions…", scope: .descriptions, imported: importedKinds.contains("descriptions"))
+                            importButton("Import AD Audio…", scope: .adAudio, imported: importedKinds.contains("adAudio"))
                         }
                         HStack {
                             importButton("Import Existing Assets…", scope: .all)
                             if project.isYouTubeURLProject {
-                                importButton("Import Original Audio…", scope: .originalAudio).disabled(!project.allowsOriginalAudioImport)
+                                importButton("Import Original Audio…", scope: .originalAudio, imported: project.originalAudio != nil)
+                                    .disabled(!project.allowsOriginalAudioImport)
                             }
+                        }
+                        if project.isYouTubeURLProject {
+                            YouTubePlaybackVideoControls(studio: model, project: project, inProjectSettings: true)
+                                .disabled(openProjects.languageEditors(for: project.id).contains { !$0.canChangePlaybackVideo })
                         }
                     }.disabled(model.busy)
                 } header: { Text("Import into this project").accessibilityAddTraits(.isHeader).accessibilityHeading(.h2) }
+                importedAssets(project)
                 Section {
                 HStack {
                     Button("Export…", systemImage: "square.and.arrow.up") { exporting = true }
@@ -98,10 +110,16 @@ struct ProjectSourcesSettingsView: View {
         .onReceive(NotificationCenter.default.publisher(for: .vidiStudioLanguageDidChange)) { note in
             if note.userInfo?["projectID"] as? String == reference.id { load(); configureLanguages() }
         }
+        .onReceive(NotificationCenter.default.publisher(for: .vidiStudioImportedContentDidChange)) { note in
+            if note.object as? StudioModel !== model, note.userInfo?["projectID"] as? String == reference.id, !model.busy { load() }
+        }
         .onChange(of: appSettings) { _, value in model.applyExternalSettings(value) }
         .onReceive(NotificationCenter.default.publisher(for: NSWindow.didBecomeKeyNotification)) { _ in if !model.busy { load() } }
         .sheet(item: $importScope) { scope in
             if let project { ImportExistingAssetsView(studio: model, project: project, scope: scope) }
+        }
+        .sheet(item: $model.languageDeletionProject) { project in
+            GeneratedContentDeletionView(studio: model, project: project)
         }
         .sheet(isPresented: $exporting) {
             if let project { ExportDialog(project: project, busy: model.busy, studio: model) { action, replace in
@@ -121,8 +139,47 @@ struct ProjectSourcesSettingsView: View {
             Button("OK", role: .cancel) { model.dismissError() }
         } message: { Text(model.error ?? "") }
     }
-    private func importButton(_ title: String, scope: ImportScope) -> some View {
-        Button(title, systemImage: "square.and.arrow.down") { importScope = scope }
+    private func importButton(_ title: String, scope: ImportScope, imported: Bool = false) -> some View {
+        Button {
+            importScope = scope
+        } label: {
+            HStack(spacing: 6) {
+                Label(title, systemImage: "square.and.arrow.down")
+                if imported { Image(systemName: "checkmark").foregroundStyle(.green).accessibilityHidden(true) }
+            }
+        }
+        .accessibilityValue(imported ? "Imported" : "")
+    }
+    private func importedAssets(_ project: StudioProject) -> some View {
+        let results = project.savedLanguageResults
+        let imported = results.filter { $0.importedSourceName != nil }
+        let narration = Set(results.flatMap { ($0.payload.cues ?? []).compactMap {
+            $0.audio != nil && $0.audioOrigin == "imported" ? $0.audioSourceName : nil
+        } }).sorted()
+        return Section {
+            if let audio = project.originalAudio { InspectorInformationRow(label: "Original audio", value: audio.sourceName) }
+            if let video = project.youtubePlaybackVideo { InspectorInformationRow(label: "Local playback video", value: video.sourceName) }
+            ForEach(imported) { result in
+                if let filename = result.importedSourceName {
+                    let review = result.state == "draft" ? " · Review needed" : ""
+                    InspectorInformationRow(label: "\(result.kindTitle) · \(OutputLanguage.title(result.language)) · Version \(result.version)\(review)", value: filename)
+                }
+            }
+            ForEach(narration, id: \.self) { filename in
+                InspectorInformationRow(label: "Narration audio", value: filename)
+            }
+            if imported.isEmpty && narration.isEmpty && project.originalAudio == nil && project.youtubePlaybackVideo == nil {
+                Text("No imported assets").foregroundStyle(.secondary)
+            }
+            deleteContentButton(project).contextMenu { deleteContentButton(project) }
+        } header: { Text("Imported assets").accessibilityAddTraits(.isHeader).accessibilityHeading(.h2) }
+    }
+    private func deleteContentButton(_ project: StudioProject) -> some View {
+        Button("Choose What to Delete…", systemImage: "eraser", role: .destructive) {
+            guard canDeleteContent(project) else { return }
+            model.confirmDeleteGeneratedContent(project, components: [])
+        }
+        .disabled(!canDeleteContent(project))
     }
     private func load() {
         model.applyExternalSettings(appSettings)

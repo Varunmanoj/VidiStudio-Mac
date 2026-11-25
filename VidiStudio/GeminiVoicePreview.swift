@@ -2,6 +2,286 @@ import SwiftUI
 import AVFoundation
 import Combine
 
+struct GeminiNarrationVoice: Equatable, Identifiable, Decodable, Sendable {
+    let id: String
+    let name: String
+    var language = ""
+    var description = ""
+
+    static let prebuilt: [Self] = {
+        struct Defaults: Decodable { let geminiPrebuiltVoices: [String: String] }
+        guard let url = Bundle.main.resourceURL?.appendingPathComponent("Engine/_internal/ai-defaults.json"),
+              let data = try? Data(contentsOf: url),
+              let defaults = try? JSONDecoder().decode(Defaults.self, from: data) else {
+            return [Self(id: "Kore", name: "Kore")]
+        }
+        return defaults.geminiPrebuiltVoices.map { Self(id: $0.key, name: $0.key, description: $0.value) }
+    }()
+
+    var languageLabel: String {
+        if language.isEmpty { return Self.prebuilt.contains { $0.id == id } ? "Multilingual" : "Library voice" }
+        return Locale.current.localizedString(forIdentifier: language) ?? language
+    }
+    var searchableText: String { [name, languageLabel, language, description].joined(separator: " ") }
+}
+
+extension StudioSettings {
+    var geminiNarrationVoice: GeminiNarrationVoice {
+        get {
+            let legacy = geminiVoice.trimmingCharacters(in: .whitespacesAndNewlines)
+            let developer = legacy.isEmpty ? "Kore" : legacy
+            if aiProvider == "vertex" {
+                let fallback = GeminiNarrationVoice.prebuilt.contains { $0.id == developer } ? developer : "Kore"
+                let id = vertexGeminiVoice ?? fallback
+                return GeminiNarrationVoice(id: id, name: vertexGeminiVoiceName ?? id)
+            }
+            return GeminiNarrationVoice(id: developer, name: geminiVoiceName ?? developer)
+        }
+        set {
+            let name = GeminiNarrationVoice.prebuilt.contains { $0.id == newValue.id } ? nil : newValue.name
+            if aiProvider == "vertex" {
+                vertexGeminiVoice = newValue.id
+                vertexGeminiVoiceName = name
+            } else {
+                if vertexGeminiVoice == nil {
+                    let previous = geminiNarrationVoice.id
+                    vertexGeminiVoice = GeminiNarrationVoice.prebuilt.contains { $0.id == previous } ? previous : "Kore"
+                }
+                geminiVoice = newValue.id
+                geminiVoiceName = name
+            }
+        }
+    }
+}
+
+private struct GeminiNarrationCatalog: View {
+    @Bindable var studio: StudioModel
+    let sampleText: String
+    @FocusState private var searchFocused: Bool
+    @State private var search = ""
+    @State private var language = ""
+    @State private var style = ""
+    @State private var sort = "language"
+    @State private var extraVoices: [GeminiNarrationVoice] = []
+    @State private var searched = ""
+    @State private var status = ""
+    @State private var lookup: Task<Void, Never>?
+    @State private var preview = GeminiVoicePreview()
+    @State private var sampleID: String?
+
+    private var query: String { search.trimmingCharacters(in: .whitespacesAndNewlines) }
+    private var canSearchLibrary: Bool { !query.isEmpty && lookup == nil && studio.canUseSelectedGeminiNarration }
+    private var results: [GeminiNarrationVoice] {
+        let selected = studio.settings.geminiNarrationVoice
+        let found = GeminiNarrationVoice.prebuilt + extraVoices
+        return found.contains(where: { $0.id == selected.id }) ? found : found + [selected]
+    }
+    private var languageOptions: [(String, String)] {
+        let languages = Dictionary(grouping: results, by: \.language)
+        return [("", "All languages")] + languages.compactMap { code, voices in
+            voices.first.map { (code.isEmpty ? "multilingual" : code, $0.languageLabel) }
+        }.sorted { $0.1.localizedStandardCompare($1.1) == .orderedAscending }
+    }
+    private var styleOptions: [(String, String)] {
+        [("", "All styles")] + Set(GeminiNarrationVoice.prebuilt.map(\.description).filter { !$0.isEmpty })
+            .sorted().map { ($0, $0) }
+    }
+    private var visibleVoices: [GeminiNarrationVoice] {
+        results.filter { voice in
+            let eligible = language.isEmpty || language == (voice.language.isEmpty ? "multilingual" : voice.language)
+            return eligible && (style.isEmpty || voice.description == style) && (query.isEmpty || voice.searchableText.localizedCaseInsensitiveContains(query)
+                || (query == searched && extraVoices.contains(where: { $0.id == voice.id })))
+        }.sorted { left, right in
+            if sort == "language", left.languageLabel != right.languageLabel {
+                return left.languageLabel.localizedStandardCompare(right.languageLabel) == .orderedAscending
+            }
+            return left.name.localizedStandardCompare(right.name) == (sort == "descending" ? .orderedDescending : .orderedAscending)
+        }
+    }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            SpeechChoice(title: "Language and region", id: "gemini-voice-language", value: $language, options: languageOptions)
+            HStack(spacing: 8) {
+                Image(systemName: "magnifyingglass").foregroundStyle(.secondary).accessibilityHidden(true)
+                TextField("Search voices", text: $search, prompt: Text("Search by voice, style or language"))
+                    .focused($searchFocused).onSubmit { searchLibrary() }
+                    .contextMenu {
+                        Button("Search voices", systemImage: "magnifyingglass") { searchFocused = true }
+                        Button("Clear voice search", systemImage: "xmark.circle") { search = "" }.disabled(search.isEmpty)
+                    }
+                if !search.isEmpty {
+                    Button("Clear voice search", systemImage: "xmark.circle.fill") { search = "" }
+                        .buttonStyle(.plain).labelStyle(.iconOnly)
+                        .contextMenu { Button("Clear voice search", systemImage: "xmark.circle") { search = "" } }
+                }
+            }
+            .padding(.horizontal, 10).frame(height: 30)
+            .background(.quaternary, in: RoundedRectangle(cornerRadius: 8))
+            SpeechChoice(title: "Style", id: "gemini-voice-style", value: $style, options: styleOptions)
+            SpeechChoice(title: "Sort by", id: "gemini-voice-sort", value: $sort, options: [
+                ("name", "Voice name (A–Z)"), ("descending", "Voice name (Z–A)"), ("language", "Language (A–Z)")
+            ])
+            HStack {
+                Button("Search Voice Library", systemImage: "magnifyingglass") { searchLibrary() }
+                    .disabled(!canSearchLibrary)
+                    .contextMenu {
+                        Button("Search Voice Library", systemImage: "magnifyingglass") { searchLibrary() }.disabled(!canSearchLibrary)
+                    }
+                if lookup != nil { ProgressView().controlSize(.small).accessibilityLabel("Searching voice library") }
+                if !status.isEmpty { Text(status).font(.caption) }
+            }
+            Text("Selected: " + studio.settings.geminiNarrationVoice.name).font(.callout)
+            ScrollView {
+                LazyVStack(alignment: .leading, spacing: 10) {
+                    if visibleVoices.isEmpty { Text("No matching voices").foregroundStyle(.secondary) }
+                    if sort == "language" {
+                        let groups = Dictionary(grouping: visibleVoices, by: \.languageLabel)
+                        ForEach(groups.keys.sorted { $0.localizedStandardCompare($1) == .orderedAscending }, id: \.self) { label in
+                            Text(label).font(.headline).accessibilityAddTraits(.isHeader)
+                            voiceRows(groups[label] ?? [])
+                        }
+                    } else {
+                        voiceRows(visibleVoices)
+                    }
+                }.padding(4)
+            }.frame(minHeight: 180, idealHeight: 280, maxHeight: 320)
+            .accessibilityIdentifier("gemini-voice-results")
+            if let error = preview.error { Text(error).foregroundStyle(.red) }
+            Button("Reset Voice Filters", systemImage: "arrow.counterclockwise") { resetFilters() }
+                .contextMenu { Button("Reset Voice Filters", systemImage: "arrow.counterclockwise") { resetFilters() } }
+        }
+        .onChange(of: sampleText) { _, _ in preview.stop() }
+        .onReceive(Timer.publish(every: 0.3, on: .main, in: .common).autoconnect()) { _ in preview.updatePlayback() }
+        .onDisappear { lookup?.cancel(); preview.cleanUp() }
+    }
+
+    private func voiceRows(_ voices: [GeminiNarrationVoice]) -> some View {
+        ForEach(voices) { voice in
+            voiceRow(voice)
+            Divider()
+        }
+    }
+
+    private func voiceRow(_ voice: GeminiNarrationVoice) -> some View {
+        let selected = voice.id == studio.settings.geminiNarrationVoice.id
+        let styleLabel = GeminiNarrationVoice.prebuilt.contains { $0.id == voice.id } ? voice.description : ""
+        let details = [voice.languageLabel, styleLabel].filter { !$0.isEmpty }.joined(separator: ", ")
+        let active = voice.id == sampleID && (preview.loading || preview.playing)
+        let canPlay = !VoiceSampleSession.shared.busy && studio.canUseSelectedGeminiNarration
+            && !sampleText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty && sampleText.count <= 500
+        return HStack {
+            Button {
+                studio.settings.geminiNarrationVoice = voice
+            } label: {
+                HStack {
+                    Image(systemName: selected ? "checkmark.circle.fill" : "circle")
+                    VStack(alignment: .leading) {
+                        Text(voice.name)
+                        Text(details).font(.caption).foregroundStyle(.secondary)
+                    }
+                }
+            }
+            .buttonStyle(.plain)
+            .accessibilityLabel("Select \(voice.name), \(details)")
+            .accessibilityAddTraits(selected ? .isSelected : [])
+            Spacer()
+            if active && preview.loading { ProgressView().controlSize(.small).accessibilityLabel("Preparing sample of " + voice.name) }
+            Button(active ? "Stop Sample" : "Play Sample", systemImage: active ? "stop.circle" : "play.circle") {
+                if active { preview.stop() } else if canPlay { play(voice) }
+            }
+            .labelStyle(.iconOnly).disabled(!active && !canPlay)
+            .accessibilityLabel((active ? "Stop sample of " : "Play sample of ") + voice.name)
+        }
+        .contextMenu {
+            Toggle(isOn: Binding(get: { selected }, set: { if $0 { studio.settings.geminiNarrationVoice = voice } })) {
+                Label("Select " + voice.name, systemImage: "person.wave.2")
+            }
+            Button("Play Sample", systemImage: "play.circle") { if canPlay { play(voice) } }.disabled(!canPlay)
+            Button("Stop Sample", systemImage: "stop.circle") { preview.stop() }.disabled(!active)
+        }
+    }
+
+    private func play(_ voice: GeminiNarrationVoice) {
+        var settings = studio.settings
+        settings.geminiNarrationVoice = voice
+        sampleID = voice.id
+        preview.play(settings: settings, text: sampleText)
+    }
+
+    private func resetFilters() {
+        lookup?.cancel()
+        lookup = nil
+        search = ""
+        language = ""
+        style = ""
+        sort = "language"
+        extraVoices = []
+        searched = ""
+        status = ""
+    }
+
+    private func searchLibrary() {
+        guard canSearchLibrary else { return }
+        let query = query
+        let settings = studio.settings
+        status = ""
+        lookup = Task {
+            defer { if !Task.isCancelled { lookup = nil } }
+            do {
+                let response = try await GeminiVoiceLibrary.search(query, settings: settings)
+                guard !Task.isCancelled else { return }
+                extraVoices = response.voices
+                searched = query
+                if !languageOptions.contains(where: { $0.0 == language }) { language = "" }
+                status = response.hasMore ? "More matches available. Refine your search." : "\(response.voices.count) library matches"
+            } catch {
+                if !Task.isCancelled { status = "Could not search the voice library." }
+            }
+        }
+    }
+}
+
+private enum GeminiVoiceLibrary {
+    struct Response: Decodable, Sendable {
+        let voices: [GeminiNarrationVoice]
+        let hasMore: Bool
+    }
+
+    static func search(_ query: String, settings: StudioSettings) async throws -> Response {
+        guard let engine = Bundle.main.resourceURL?.appendingPathComponent("Engine/vidistudio-engine") else {
+            throw CocoaError(.fileNoSuchFile)
+        }
+        var config = try JSONSerialization.jsonObject(with: JSONEncoder().encode(settings)) as? [String: Any] ?? [:]
+        config.removeValue(forKey: "apiKey")
+        config.removeValue(forKey: "sarvamApiKey")
+        let data = try JSONSerialization.data(withJSONObject: config)
+        let apiKey = settings.apiKey.trimmingCharacters(in: .whitespacesAndNewlines)
+        return try await Task.detached {
+            let directory = FileManager.default.temporaryDirectory.appendingPathComponent("vidistudio-voice-library-" + UUID().uuidString)
+            try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true, attributes: [.posixPermissions: 0o700])
+            defer { try? FileManager.default.removeItem(at: directory) }
+            let file = directory.appendingPathComponent("config.json")
+            try data.write(to: file, options: .atomic)
+            let task = Process(), output = Pipe()
+            task.executableURL = engine
+            task.arguments = ["list-voices", "--voice-search=" + query]
+            task.environment = ProcessInfo.processInfo.environment.merging([
+                "VIDISTUDIO_CONFIG": file.path, "VIDISTUDIO_API_KEY": apiKey
+            ]) { _, value in value }
+            task.standardOutput = output
+            task.standardError = FileHandle.nullDevice
+            try task.run()
+            let bytes = output.fileHandleForReading.readDataToEndOfFile()
+            task.waitUntilExit()
+            for line in bytes.split(separator: 10) {
+                if let catalog = try? JSONDecoder().decode(Response.self, from: Data(line)) { return catalog }
+            }
+            throw CocoaError(.fileReadCorruptFile)
+        }.value
+    }
+}
+
 @MainActor @Observable final class GeminiVoicePreview {
     var loading = false
     var playing = false
@@ -14,7 +294,7 @@ import Combine
     private var directories: [URL] = []
     private func cacheKey(_ settings: StudioSettings, _ text: String) -> String {
         // Session-only key; never logged or persisted.
-        [settings.aiProvider, settings.vertexAuth, settings.vertexProject, settings.vertexModels["tts_audio"] ?? "", settings.apiVersion, settings.models["tts_audio"] ?? "", settings.geminiVoice, settings.prompts["tts_audio"]?["user_prompt"] ?? "", text].joined(separator: "\u{0}")
+        [settings.aiProvider, settings.vertexAuth, settings.vertexProject, settings.vertexModels["tts_audio"] ?? "", settings.apiVersion, settings.models["tts_audio"] ?? "", settings.geminiNarrationVoice.id, settings.prompts["tts_audio"]?["user_prompt"] ?? "", text].joined(separator: "\u{0}")
     }
     func hasCached(settings: StudioSettings, text: String) -> Bool { cache[cacheKey(settings, text)].map { FileManager.default.fileExists(atPath: $0.path) } ?? false }
     func play(settings: StudioSettings, text: String) {
@@ -103,7 +383,6 @@ struct GeminiVoiceBrowser: View {
     @Bindable var studio: StudioModel
     @State private var preview = GeminiVoicePreview()
     @State private var sample = "Hello. This is a sample of audio description narration in VidiStudio."
-    private let voices = ["Aoede", "Callirrhoe", "Charon", "Fenrir", "Kore", "Leda", "Orus", "Puck", "Zephyr"]
     private var sampleCached: Bool { preview.hasCached(settings: studio.settings, text: sample) }
     private var canPlaySample: Bool {
         !VoiceSampleSession.shared.busy && !sample.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
@@ -116,9 +395,13 @@ struct GeminiVoiceBrowser: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
             Text("Voices").font(.headline).accessibilityAddTraits(.isHeader).accessibilityHeading(.h2)
-            Picker("Gemini voice", selection: $studio.settings.geminiVoice) {
-                ForEach(voices, id: \.self) { Text($0).tag($0) }
-                if !voices.contains(studio.settings.geminiVoice) { Text(studio.settings.geminiVoice).tag(studio.settings.geminiVoice) }
+            LabeledContent("AI connection", value: studio.activeAIConnection.title)
+            if studio.activeAIConnection == .express {
+                Text("Gemini narration requires a different AI connection.").font(.caption).foregroundStyle(.secondary)
+            }
+            if studio.activeAIConnection != .express {
+                GeminiNarrationCatalog(studio: studio, sampleText: sample)
+                    .id(studio.activeAIConnection)
             }
             TextField("Sample text", text: $sample, axis: .vertical).lineLimit(2...4)
             HStack {
@@ -130,25 +413,15 @@ struct GeminiVoiceBrowser: View {
                         Button("Play Sample") { playSample() }.disabled(!canPlaySample)
                         Button("Stop Sample") { preview.stop() }.disabled(!preview.loading && !preview.playing)
                     }
-                    .help(!studio.hasApiKey ? "Enter your Gemini API key in Settings → Gemini to preview this voice" : "Play sample of Gemini voice \(studio.settings.geminiVoice)")
+                    .help("Play sample of Gemini voice \(studio.settings.geminiNarrationVoice.name)")
                     .requiresInternet(preview.loading || preview.playing || preview.hasCached(settings: studio.settings, text: sample) ? nil : .gemini)
-                    .accessibilityLabel((preview.loading ? "Stop sample of " : preview.playing ? "Stop sample of " : "Play sample of ") + "Gemini voice " + studio.settings.geminiVoice)
+                    .accessibilityLabel((preview.loading || preview.playing ? "Stop sample of " : "Play sample of ") + "Gemini voice " + studio.settings.geminiNarrationVoice.name)
                 if preview.loading { ProgressView().controlSize(.small).accessibilityLabel("Generating voice sample") }
             }
-            if !studio.hasApiKey {
-                HStack(spacing: 8) {
-                    Image(systemName: "key.slash.fill")
-                        .foregroundStyle(.orange)
-                    Text("Add a Gemini API key to preview voices.")
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-                }
-            }
-            Text("Uses your Gemini key, model, and voice. Gemini usage charges may apply.")
-                .font(.caption).foregroundStyle(.secondary)
             if let error = preview.error { Text(error).foregroundStyle(.red).accessibilityLabel("Voice preview error: \(error)") }
         }
-        .onChange(of: studio.settings.geminiVoice) { _, _ in preview.stop() }
+        .onChange(of: studio.settings.geminiNarrationVoice) { _, _ in preview.stop() }
+        .onChange(of: studio.activeAIConnection) { _, _ in preview.stop() }
         .onChange(of: sample) { _, _ in preview.stop() }
         .onReceive(Timer.publish(every: 0.3, on: .main, in: .common).autoconnect()) { _ in preview.updatePlayback() }
         .onChange(of: preview.error) { _, error in
@@ -156,4 +429,5 @@ struct GeminiVoiceBrowser: View {
         }
         .onDisappear { preview.cleanUp() }
     }
+
 }

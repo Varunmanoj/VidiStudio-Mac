@@ -13,6 +13,7 @@ from contextlib import contextmanager
 from pathlib import Path
 
 import output_languages
+import import_assets
 
 COMMANDS = ['select-overview-language', 'select-view-result', 'select-language', 'select-result', 'assign-result-language',
             'copy-results', 'translate-results', 'review-result', 'delete-results', 'preview-delete-results', 'export-batch', 'select-section-language', 'sync-section-languages',
@@ -417,6 +418,7 @@ def produce(args, root, p, core, dispatch):
     working['_resultTransaction'] = tx['token']
     local_args = copy.copy(args)
     local_args.replace_existing = True  # only the isolated working copy is changed
+    import_declined = False
     try:
         with capture_ai_provider() as processing:
             dispatch(local_args, root, working)
@@ -444,6 +446,9 @@ def produce(args, root, p, core, dispatch):
         for key in ('hasProcessed', 'geminiVideo', 'importReports', 'lastImportReport'):
             if key in working:
                 p[key] = copy.deepcopy(working[key])
+    except import_assets.ImportIssue:
+        import_declined = True
+        raise
     except BaseException:
         checkpoint(root, working, core.atomic_json)
         raise
@@ -453,8 +458,9 @@ def produce(args, root, p, core, dispatch):
         else:
             os.environ['VIDISTUDIO_OUTPUT_LANGUAGE'] = previous_language
         _transaction = previous
-        project(p)
-        core.save(root, p)
+        if not import_declined:
+            project(p)
+            core.save(root, p)
     return {k: r['id'] for k, r in tx['drafts'].items()}
 
 

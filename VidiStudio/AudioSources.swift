@@ -41,16 +41,13 @@ extension StudioModel {
             }
             var accepted = false
             if inspection.status != "matched" {
-                let alert = NSAlert()
-                alert.messageText = inspection.status == "unverified" ? "Duration could not be verified" : "Audio duration does not match"
-                alert.informativeText = inspection.sourceName + "\n\n" + inspection.warning
-                alert.alertStyle = .warning
-                alert.addButton(withTitle: "Cancel")
-                alert.addButton(withTitle: "Choose Another File")
-                alert.addButton(withTitle: "Import Anyway")
-                switch alert.runModal() {
-                case .alertThirdButtonReturn: accepted = true
-                case .alertSecondButtonReturn:
+                switch ImportDecision.show(
+                    title: inspection.status == "unverified" ? "Duration Could Not Be Verified" : "Audio Duration Does Not Match",
+                    message: inspection.sourceName + "\n\n" + inspection.warning,
+                    alternative: "Choose Another File"
+                ) {
+                case .proceed: accepted = true
+                case .alternative:
                     if let chosen = ImportFileKind.originalAudio.choose() {
                         self.importOriginalAudio(chosen, into: project, playback: playback, transcription: transcription,
                                                  replaceExisting: replaceExisting, completion: completion)
@@ -60,12 +57,9 @@ extension StudioModel {
                 }
             }
             if file != nil, project.originalAudio != nil, !replaceExisting {
-                let alert = NSAlert()
-                alert.messageText = "Replace imported original audio?"
-                alert.informativeText = "Replace \(project.originalAudio?.sourceName ?? "the existing file") with \(inspection.sourceName)?"
-                alert.addButton(withTitle: "Cancel")
-                alert.addButton(withTitle: "Replace")
-                guard alert.runModal() == .alertSecondButtonReturn else { completion?(nil); return }
+                guard ImportDecision.show(title: "Replace Imported Original Audio?",
+                    message: "Replace \(project.originalAudio?.sourceName ?? "the existing file") with \(inspection.sourceName)?") == .proceed
+                else { completion?(nil); return }
             }
             var extra: [String] = []
             extra += ["--expected-audio-sha256", inspection.sha256, "--expected-video-duration", String(inspection.videoDuration ?? 0)]

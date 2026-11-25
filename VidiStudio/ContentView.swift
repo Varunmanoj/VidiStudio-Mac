@@ -432,7 +432,7 @@ private struct NewProjectView: View {
             _ = studio.importVideo(at: videoURL, completion: finished)
         case .youtube:
             guard let youtubePreview else { return }
-            studio.openYouTubeVideo(youtubePreview.video, completion: finished)
+            studio.openYouTubeVideo(youtubePreview.video, reuseExisting: false, completion: finished)
         }
     }
 
@@ -1014,6 +1014,8 @@ private struct CloudVideosView: View {
 struct ContentView: View {
     @Bindable var studio: StudioModel
     let openProjects: OpenProjectRegistry
+    let appDelegate: VidiStudioAppDelegate
+    let openSharedEditor: (String) -> Void
     @Environment(\.openWindow) private var openWindow
     @Environment(\.openSettings) private var openSettings
     @State private var search = ""
@@ -1026,14 +1028,19 @@ struct ContentView: View {
     @AppStorage("projectBrowserGrid") private var projectGrid = false
     @AppStorage("projectGridItemSize") private var projectGridItemSize = 180.0
 
-    private func openEditor(_ project: StudioProject) {
+    private func prepareEditor(_ project: StudioProject) -> Bool {
         if let channel = project.privateYouTubeChannel, YouTubeService.shared.privateConnection(channel, settings: studio.settings) == nil {
             studio.errorTitle = "Private Video Cannot Be Opened"
             studio.error = YouTubeVideo.privateVideoMessage
-            return
+            return false
         }
         ProjectOpenHistory.record(project)
         studio.selectedID = project.id
+        return true
+    }
+
+    private func openEditor(_ project: StudioProject) {
+        guard prepareEditor(project) else { return }
         // The project ID is the WindowGroup value and therefore its window identity.
         // Reopening the same value activates that editor instead of creating a duplicate.
         openWindow(id: "project-editor", value: project.id)
@@ -1057,7 +1064,7 @@ struct ContentView: View {
         }
 
         studio.dismissError()
-        NSApp.activate(ignoringOtherApps: true)
+        let restoreMinimization = AppWindowLifetime.libraryMinimizationRestorer()
         switch source {
         case .videoFile(let fileURL):
             let existing = studio.existingProject(forVideoAt: fileURL)
@@ -1065,6 +1072,7 @@ struct ContentView: View {
             openProjects.beginSharedVideoOpening(message: message, accessibilityID: "shared-file-opening")
             AccessibilityNotification.Announcement(message).post()
             if let existing {
+                openProjects.restoreLibraryAfterSharedOpen = restoreMinimization
                 finishSharedVideoOpening(existing)
             } else if !studio.importVideo(at: fileURL, completion: finishSharedVideoOpening) {
                 openProjects.sharedVideoOpening = nil
@@ -1076,6 +1084,7 @@ struct ContentView: View {
             AccessibilityNotification.Announcement(message).post()
             Task { @MainActor in
                 if let existing = studio.existingProject(forYouTubeURL: rawURL) {
+                    openProjects.restoreLibraryAfterSharedOpen = restoreMinimization
                     finishSharedVideoOpening(existing)
                 } else {
                     await ConnectivityService.shared.waitForInitialCheck(.youtube)
@@ -1088,12 +1097,17 @@ struct ContentView: View {
     }
 
     private func finishSharedVideoOpening(_ project: StudioProject?) {
-        guard let project else { openProjects.sharedVideoOpening = nil; return }
-        openProjects.sharedVideoOpening = .openingEditor(project.id)
-        openEditor(project)
-        if studio.error != nil {
+        guard let project, prepareEditor(project) else {
+            openProjects.restoreLibraryAfterSharedOpen = nil
             openProjects.sharedVideoOpening = nil
-        } else if openProjects.projects.contains(where: { $0.id == project.id }) {
+            return
+        }
+        if openProjects.restoreLibraryAfterSharedOpen == nil {
+            openProjects.restoreLibraryAfterSharedOpen = AppWindowLifetime.libraryMinimizationRestorer()
+        }
+        openProjects.sharedVideoOpening = .openingEditor(project.id)
+        openSharedEditor(project.id)
+        if openProjects.projects.contains(where: { $0.id == project.id }) {
             openProjects.sharedEditorDidOpen(project.id)
         }
     }
@@ -1178,6 +1192,9 @@ struct ContentView: View {
         .onReceive(NotificationCenter.default.publisher(for: .vidiStudioCloudAccountDidChange)) { notification in
             if notification.object as? StudioModel !== studio { studio.invalidateCloudPermissions() }
         }
+        .onReceive(NotificationCenter.default.publisher(for: .vidiStudioImportedContentDidChange)) { notification in
+            if notification.object as? StudioModel !== studio, !studio.busy { studio.reload() }
+        }
         .alert(studio.errorTitle, isPresented: Binding(get: { studio.error != nil }, set: { if !$0 { studio.dismissError() } })) {
             if let recovery = studio.youtubeAudioExportRecovery {
                 Button("Choose Audio File…") { studio.chooseAudioForFailedExport(recovery) }
@@ -1212,8 +1229,14 @@ struct ContentView: View {
             default: break
             }
         }
-        .handlesExternalEvents(preferring: ["*"], allowing: ["*"])
-        .onOpenURL(perform: handleSharedURL)
+        .onReceive(NotificationCenter.default.publisher(for: VidiStudioAppDelegate.receivedSharedURLs, object: appDelegate)) { _ in
+            appDelegate.takeSharedURLs().forEach(handleSharedURL)
+        }
+        .onAppear {
+            let open = openWindow
+            appDelegate.openLibraryOnDemand = { open(id: "studio") }
+            appDelegate.takeSharedURLs().forEach(handleSharedURL)
+        }
         .task {
             studio.refreshProjectIntegrity()
             while !Task.isCancelled {
@@ -1425,7 +1448,9 @@ struct ProjectEditorWindow: View {
             }
         }
         .smoothPresentation()
-        .background(MainWindowLifetime(onClose: { openWindow(id: "studio") }).frame(width: 0, height: 0))
+        .background(MainWindowLifetime(onClose: {
+            AppWindowLifetime.returnToLibrary { openWindow(id: "studio") }
+        }).frame(width: 0, height: 0))
         .background(WindowFitter().frame(width: 0, height: 0))
         .focusedSceneValue(\.projectBrowser, ProjectBrowserActions(
             showProjects: projectBrowserVisibility,
@@ -4271,6 +4296,11 @@ struct ProjectEditor: View {
         .onChange(of: studio.busy) { _, busy in handleBusyChange(busy) }
         .onChange(of: studio.screenText) { _, text in handleScreenText(text) }
         .onChange(of: playback.videoTitle) { _, title in updateYouTubeTitleIfNeeded(title) }
+        .onReceive(NotificationCenter.default.publisher(for: .vidiStudioImportedContentDidChange)) { notification in
+            guard notification.object as? StudioModel !== studio,
+                  notification.userInfo?["projectID"] as? String == project.id, !studio.busy else { return }
+            studio.reload()
+        }
         .onChange(of: project.activeLocalYouTubePlaybackURL) { _, local in
             let position = playback.time
             playback.exitVideoFullScreen()

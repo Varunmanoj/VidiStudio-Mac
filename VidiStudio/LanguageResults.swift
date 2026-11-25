@@ -27,6 +27,7 @@ struct SavedLanguagePayload: Codable {
     var narrationVoice: String?
     var transcript: [Segment]?
     var summary: String?
+    var summaryOriginSource: String?
     var cues: [Segment]?
     var importedAudioDescription: ImportedAudioDescription?
     var importedADTranscript: ImportedADTranscript?
@@ -89,6 +90,21 @@ struct SavedLanguageResult: Codable, Identifiable {
         }
     }
     var kindTitle: String { Self.kindTitle(kind) }
+    var importedSourceName: String? {
+        let filename: String?
+        switch kind {
+        case "adAudio":
+            filename = payload.importedAudioDescription?.sourceName
+        case "descriptions":
+            filename = sourceAsset?.sourceName ?? payload.importedADTranscript?.sourceName
+        case "summary":
+            filename = sourceAsset?.sourceName ?? (["imported", "imported_modified"].contains(origin) ? payload.summaryOriginSource : nil)
+        default:
+            filename = payload.transcript?.first(where: { $0.origin == "imported" })?.originSource ?? sourceAsset?.sourceName
+        }
+        guard let filename, !filename.isEmpty else { return nil }
+        return filename.hasPrefix("vidistudio-youtube-") ? "YouTube captions (SRT)" : filename
+    }
     static func savedResultsTitle(_ kind: String) -> String {
         switch kind {
         case "transcript": "Transcript Saved Results"
@@ -205,12 +221,14 @@ extension StudioProject {
         for kind in ["transcript", "summary", "descriptions", "adAudio"] {
             let content = kind == "transcript" ? !transcript.isEmpty : kind == "summary" ? !summary.isEmpty : kind == "descriptions" ? (!cues.isEmpty || importedADTranscript?.segments.isEmpty == false) : importedAudioDescription != nil
             if content {
+                let assetKind = kind == "descriptions" ? (importedADTranscript?.mode == "combined" ? "combined" : "narration") : kind
                 results.append(SavedLanguageResult(id: id + "-legacy-" + kind, kind: kind, language: "auto", version: 1,
                     createdAt: createdAt, updatedAt: updatedAt, origin: kind == "summary" ? summaryOrigin ?? "unknown" : "unknown", state: "saved",
                     payload: SavedLanguagePayload(narrationEngine: kind == "descriptions" ? narrationEngine : nil,
                         transcript: kind == "transcript" ? transcript : nil, summary: kind == "summary" ? summary : nil,
+                        summaryOriginSource: kind == "summary" ? summaryOriginSource : nil,
                         cues: kind == "descriptions" ? cues : nil, importedAudioDescription: kind == "adAudio" ? importedAudioDescription : nil,
-                        importedADTranscript: kind == "descriptions" ? importedADTranscript : nil)))
+                        importedADTranscript: kind == "descriptions" ? importedADTranscript : nil), sourceAsset: importedAssets?[assetKind]))
             }
         }
         return results

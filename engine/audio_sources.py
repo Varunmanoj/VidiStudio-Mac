@@ -62,14 +62,14 @@ def needs_confirmation(asset, duration):
 
 
 def warning(result):
+    message = f"Audio duration: {import_assets.duration_label(result['audioDuration'])}\n"
     if result['videoDuration'] is None:
-        message = 'Duration could not be verified against the YouTube video.'
+        message += 'Duration could not be verified against the YouTube video.'
     else:
-        message = (f"Audio duration: {result['audioDuration']:.3f}s. "
-                   f"Video duration: {result['videoDuration']:.3f}s. "
-                   f"Difference: {result['difference']:.3f}s.")
-    return message + (' Audio starts at zero. Excess audio is omitted and shorter audio ends in silence; '
-                      'audio is never stretched. Review audio timing and choose Import Anyway to continue.')
+        message += (f"Video duration: {import_assets.duration_label(result['videoDuration'])}\n"
+                    f"Difference: {import_assets.duration_label(result['difference'])}")
+    return message + ('\n\nAudio starts at zero. Excess audio is omitted and shorter audio ends in silence. '
+                      'Audio is never stretched. Review audio timing and choose Import Anyway to continue.')
 
 
 def original_path(root, project, core, check_hash=True):

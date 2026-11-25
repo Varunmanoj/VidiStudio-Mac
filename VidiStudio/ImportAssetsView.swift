@@ -149,7 +149,7 @@ enum ImportScope: String, Identifiable {
         case .all: return "Bring a transcript, summary, AD transcript, or AD audio into the project."
         case .transcript: return "Choose an SRT, VTT, or TXT transcript. TXT timing is reviewed before saving."
         case .summary: return "Choose a Markdown or TXT summary. A transcript is not required."
-        case .descriptions: return "Choose an AD transcript. AD-only text becomes editable descriptions and requires an existing transcript."
+        case .descriptions: return "Choose an AD transcript. AD-only text becomes editable descriptions."
         case .originalAudio: return "Choose the original soundtrack for this YouTube video."
         case .adAudio: return "Choose AD narration or a complete described soundtrack."
         }
@@ -175,8 +175,6 @@ struct ImportExistingAssetsView: View {
     @State private var importStarted = false
     @State private var timingRequest: ImportTimingRequest?
     @State private var pendingCombine = false
-    @State private var confirmReplacements = false
-    @State private var timingWarning: TimingWarningRequest?
     @State private var localError: String?
 
     init(
@@ -258,10 +256,6 @@ struct ImportExistingAssetsView: View {
                             .pickerStyle(.radioGroup)
                             .help("Choose whether this AD transcript creates editable descriptions or one combined caption track.")
                             Text(selection.adTranscriptMode.detail).font(.caption).foregroundStyle(.secondary)
-                            if selection.adTranscriptMode == .narration && project.transcript.isEmpty && selection.transcript == nil {
-                                Label("A transcript is required before AD-only descriptions can be imported.", systemImage: "exclamationmark.triangle.fill")
-                                    .font(.caption).foregroundStyle(.orange)
-                            }
                         }
                     }
                 }
@@ -344,36 +338,8 @@ struct ImportExistingAssetsView: View {
                 timingRequest = nil
             }
         }
-        .confirmationDialog("Replace existing assets?", isPresented: $confirmReplacements, titleVisibility: .visible) {
-            Button("Replace and Import", role: .destructive) { performImport() }
-            Button("Cancel", role: .cancel) {}
-        } message: {
-            Text("This will replace: \(replacementNames.joined(separator: ", ")). The previous files remain in the project until cleanup.")
-        }
-        .alert("Timing Warnings", isPresented: Binding(
-            get: { timingWarning != nil },
-            set: { if !$0 { timingWarning = nil } }
-        )) {
-            if selection.transcriptCaptionProvenance == nil {
-                Button("Import Anyway", role: .destructive) {
-                    timingWarning = nil
-                    performImport()
-                }
-                .help("Proceed with the import. Flagged rows are reported and can be retimed afterward.")
-            }
-            Button("Review Timing…") {
-                if let warning = timingWarning {
-                    timingRequest = ImportTimingRequest(url: warning.fileURL, kind: warning.kind, mode: warning.mode)
-                }
-                timingWarning = nil
-            }
-            .help("Open the timing editor for all rows before importing")
-            Button("Cancel", role: .cancel) { timingWarning = nil }
-        } message: {
-            Text((timingWarning?.messages ?? []).joined(separator: "\n\n") + (selection.transcriptCaptionProvenance == nil ? "\n\nYou can import anyway and edit transcript timings afterward." : "\n\nReview this caption track’s timing before importing. Your existing transcript is unchanged."))
-        }
         .alert("Import Couldn’t Be Completed", isPresented: Binding(get: { studio.error != nil }, set: { if !$0 { studio.dismissError() } })) {
-            Button("OK", role: .cancel) { studio.dismissError() }
+            Button("Okay", role: .cancel) { studio.dismissError() }
         } message: { Text(studio.error ?? "") }
         .onChange(of: selection.transcript) { _, url in
             selection.transcriptTiming = nil
@@ -461,81 +427,8 @@ struct ImportExistingAssetsView: View {
             }
             return
         }
-        if let url = selection.transcript, url.pathExtension.lowercased() == "txt", selection.transcriptTiming == nil {
-            requestTiming(kind: .transcript, url: url)
-            localError = "Review the TXT timing before importing."
-            return
-        }
-        if let url = selection.adTranscript, url.pathExtension.lowercased() == "txt", selection.adTranscriptTiming == nil {
-            requestTiming(kind: .adTranscript, url: url)
-            localError = "Review the TXT timing before importing."
-            return
-        }
-        var entries: [(URL, ImportFileKind, ImportedADTranscriptMode, [String])] = []
-        if let url = selection.transcript, selection.transcriptTiming == nil {
-            let warnings = timingWarnings(for: url, kind: .transcript, mode: .narration)
-            if !warnings.isEmpty { entries.append((url, .transcript, .narration, warnings)) }
-        }
-        if let url = selection.adTranscript, selection.adTranscriptTiming == nil {
-            let warnings = timingWarnings(for: url, kind: .adTranscript, mode: selection.adTranscriptMode)
-            if !warnings.isEmpty { entries.append((url, .adTranscript, selection.adTranscriptMode, warnings)) }
-        }
-        if let first = entries.first {
-            pendingCombine = combine
-            timingWarning = TimingWarningRequest(
-                fileURL: first.0, kind: first.1, mode: first.2,
-                messages: entries.flatMap(\.3))
-            return
-        }
         pendingCombine = combine
         performImport()
-    }
-
-    /// Preflight validation for every text type. SRT/VTT keep their times and
-    /// are checked here; TXT must pass through the timing editor first.
-    private func timingWarnings(for url: URL, kind: ImportFileKind, mode: ImportedADTranscriptMode) -> [String] {
-        let rows = importedTimingRows(from: url)
-        guard !rows.isEmpty else { return ["No timed rows were found in this file."] }
-        let duration = project.duration
-        var messages: [String] = []
-        var previousEnd: Double?
-        for (index, row) in rows.enumerated() {
-            let label = kind == .transcript ? "Transcript row \(index + 1)" : "AD row \(index + 1)"
-            guard let start = row.start, let end = row.end else {
-                messages.append("\(label) has no start or end time.")
-                continue
-            }
-            if end <= start {
-                messages.append("\(label) ends before it starts (\(importClock(start))).")
-            } else if end > duration + 0.001 {
-                messages.append("\(label) ends at \(importClock(end)), after the video ends at \(importClock(duration)). It will be omitted.")
-            } else if start >= duration {
-                messages.append("\(label) starts after the video ends and will be omitted.")
-            }
-            if let previousEnd, start < previousEnd - 0.001 {
-                messages.append("\(label) overlaps another row in this file (\(importClock(start))–\(importClock(end))).")
-            }
-            if kind == .adTranscript {
-                for transcript in project.transcript where start < transcript.end && end > transcript.start {
-                    messages.append("\(label) overlaps transcript \(importClock(transcript.start))–\(importClock(transcript.end)) and will be flagged for retiming.")
-                    break
-                }
-                for cue in project.cues where start < cue.end && end > cue.start {
-                    messages.append("\(label) overlaps existing description \(importClock(cue.start))–\(importClock(cue.end)) and will be flagged for retiming.")
-                    break
-                }
-            }
-            previousEnd = max(previousEnd ?? 0, end)
-            if messages.count >= 8 { break }
-        }
-        if messages.count > 8 { messages = Array(messages.prefix(8)) + ["And more timing issues…"] }
-        var seen = Set<String>()
-        return messages.filter { seen.insert($0).inserted }
-    }
-
-    private var timingIsReady: Bool {
-        (selection.transcript?.pathExtension.lowercased() != "txt" || selection.transcriptTiming != nil)
-            && (selection.adTranscript?.pathExtension.lowercased() != "txt" || selection.adTranscriptTiming != nil)
     }
 
     private func performImport() {
@@ -558,13 +451,7 @@ struct ImportExistingAssetsView: View {
     }
 }
 
-struct TimingWarningRequest: Identifiable {
-    let id = UUID()
-    var fileURL: URL
-    var kind: ImportFileKind
-    var mode: ImportedADTranscriptMode
-    var messages: [String]
-}
+
 
 struct ImportTimingRequest: Identifiable {
     let id = UUID()

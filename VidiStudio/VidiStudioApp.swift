@@ -1,12 +1,46 @@
 import SwiftUI
 import AppKit
+import Carbon
+import OSLog
 
 @MainActor
 final class VidiStudioAppDelegate: NSObject, NSApplicationDelegate {
+    private let handoffLog = Logger(subsystem: "com.vidistudio.desktop", category: "project-handoff")
+    static let receivedSharedURLs = Notification.Name("VidiStudioReceivedSharedURLs")
     private let menus = AppMenuController()
     private var textShortcutMonitor: Any?
+    private var pendingSharedURLs: [URL] = []
+    var openLibraryOnDemand: (() -> Void)?
+
+    func application(_ application: NSApplication, open urls: [URL]) {
+        enqueueSharedURLs(urls)
+    }
+
+    @objc private func receiveURL(_ event: NSAppleEventDescriptor, withReplyEvent reply: NSAppleEventDescriptor) {
+        guard let value = event.paramDescriptor(forKeyword: AEKeyword(keyDirectObject))?.stringValue,
+              let url = URL(string: value) else { return }
+        enqueueSharedURLs([url])
+    }
+
+    private func enqueueSharedURLs(_ urls: [URL]) {
+        // Route through the app instead of asking SwiftUI to promote the library scene.
+        handoffLog.info("URL handoff. Library registered: \(AppWindowLifetime.hasLibraryWindow); minimized: \(AppWindowLifetime.isLibraryMiniaturized)")
+        pendingSharedURLs.append(contentsOf: urls)
+        if !AppWindowLifetime.hasLibraryWindow { openLibraryOnDemand?() }
+        NotificationCenter.default.post(name: Self.receivedSharedURLs, object: self)
+    }
+
+    func takeSharedURLs() -> [URL] {
+        let urls = pendingSharedURLs
+        pendingSharedURLs.removeAll()
+        return urls
+    }
 
     func applicationWillFinishLaunching(_ notification: Notification) {
+        // Dispatch an incoming project URL without Cocoa's default reopen behavior,
+        // which can deminiaturize All Projects before forwarding to the app delegate.
+        NSAppleEventManager.shared().setEventHandler(self, andSelector: #selector(receiveURL(_:withReplyEvent:)),
+                                                     forEventClass: AEEventClass(kInternetEventClass), andEventID: AEEventID(kAEGetURL))
         NativeMenuIcons.shortcutSymbols = Dictionary(
             (StudioShortcut.editor + StudioShortcut.youtube).map { ($0.title, $0.icon) },
             uniquingKeysWith: { first, _ in first })
@@ -57,7 +91,9 @@ struct VidiStudioApp: App {
     }
     var body: some Scene {
         Window("VidiStudio", id: "studio") {
-            ContentView(studio: studio, openProjects: openProjects)
+            ContentView(studio: studio, openProjects: openProjects, appDelegate: appDelegate, openSharedEditor: { id in
+                openWindow(id: "project-editor", value: id)
+            })
                 .background(MainWindowLifetime(isLibrary: true).frame(width: 0, height: 0))
                 .writingToolsBehavior(.disabled)
                 .writingToolsAffordanceVisibility(.hidden)
@@ -69,7 +105,6 @@ struct VidiStudioApp: App {
                     NotificationCenter.default.post(name: .vidiStudioCloudAccountDidChange, object: studio)
                 }
         }
-        .handlesExternalEvents(matching: ["*"])
         .defaultSize(width: 1200, height: 780)
         .windowToolbarStyle(.automatic)
         .commands {
@@ -108,7 +143,11 @@ struct VidiStudioApp: App {
                     .background(MainWindowLifetime().frame(width: 0, height: 0))
             }
         }
-        .defaultSize(width: 1200, height: 780)
+        .defaultWindowPlacement { _, context in
+            // Fill the usable display without entering a separate full-screen Space.
+            let frame = context.defaultDisplay.visibleRect
+            return WindowPlacement(x: frame.minX, y: frame.minY, width: frame.width, height: frame.height)
+        }
         .windowToolbarStyle(.automatic)
         Window("My YouTube Videos", id: "youtube-browser") {
             YouTubeBrowserView(studio: studio)

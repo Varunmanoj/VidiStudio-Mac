@@ -24,6 +24,26 @@ class DesktopUILayoutParityTests(unittest.TestCase):
         changed = dict(self.source); changed[path] = changed[path].replace(before, after)
         with self.assertRaisesRegex(ValueError, expected): contract.validate(changed)
 
+    def test_summary_voice_follows_the_narration_provider(self):
+        path = 'Windows/Views/SettingsDialog.cs'
+        call = 'BuildAdditionalSpeechControls(panel);'
+        self.mutated(path, call, '', 'Narration provider settings must precede Summary voice')
+        changed = dict(self.source)
+        changed[path] = changed[path].replace(call, '').replace(
+            'var voiceGroup = AddNarrationGroup(panel, "Voices");',
+            call + '\n        var voiceGroup = AddNarrationGroup(panel, "Voices");')
+        with self.assertRaisesRegex(ValueError, 'Narration provider settings must precede Summary voice'):
+            contract.validate(changed)
+
+    def test_import_decision_cannot_lose_safe_default_or_scoped_menu(self):
+        for path, token in (
+            ('Mac/ImportDecision.swift', 'window.defaultButtonCell = okay.cell'),
+            ('Mac/ImportDecision.swift', 'button.menu = menu'),
+            ('Windows/MainWindow.ImportDecision.cs', 'DefaultButton = ContentDialogButton.Close'),
+            ('Windows/MainWindow.ImportDecision.cs', 'dialog.ContextFlyout = actions'),
+        ):
+            self.mutated(path, token, 'REMOVED', 'import decisions must preserve safe defaults')
+
     def test_youtube_playback_controls(self):
         for path, marker in (
             ("Mac/GeneratedContentDeletionView.swift", '"delete-local-playback-video"'),
@@ -41,6 +61,22 @@ class DesktopUILayoutParityTests(unittest.TestCase):
         ):
             with self.subTest(path=path):
                 self.mutated(path, marker, '', 'YouTube account preview, playback, deletion and export controls')
+
+    def test_project_settings_shares_youtube_and_deletion_controls(self):
+        for path, marker in (
+            ('Mac/ProjectSourcesSettingsView.swift', 'YouTubePlaybackVideoControls(studio: model, project: project, inProjectSettings: true)'),
+            ('Mac/ProjectSourcesSettingsView.swift', 'YouTubeProjectLinkButtons(studio: model, project: project)'),
+            ('Mac/ProjectSourcesSettingsView.swift', 'deleteContentButton(project).contextMenu { deleteContentButton(project) }'),
+            ('Windows/Views/ProjectSourcesSettingsControl.cs', 'item.Click += async (_, _) => await RunAction("delete-content");'),
+            ('Windows/Views/ProjectSourcesSettingsControl.cs', 'MainWindow.BuildYouTubeProjectLinks(project)'),
+            ('Windows/Views/ProjectSourcesSettingsControl.cs', 'editor.BuildYouTubePlaybackControls(project, RunAction, inProjectSettings: true)'),
+            ('Mac/ProjectSourcesSettingsView.swift', '.accessibilityValue(imported ? "Imported" : "")'),
+            ('Windows/Views/ProjectSourcesSettingsControl.cs', 'AutomationProperties.SetHelpText(button, "Imported");'),
+            ('Mac/YouTubeInspectorInformationView.swift', 'if showSource && (!inProjectSettings || project.youtubePlaybackVideo != nil || project.originalAudio != nil)'),
+            ('Windows/MainWindow.YouTube.cs', 'var fileRow = !inProjectSettings || attachment != null || project.OriginalAudio != null'),
+        ):
+            with self.subTest(path=path):
+                self.mutated(path, marker, '', 'Project Settings must preserve shared actions and imported assets')
 
     def test_inspector_language_stays_first_and_unique(self):
         self.mutated('Windows/MainWindow.LanguageResults.cs', 'panel.Children.Add(language);', '', 'must precede all actions')
@@ -89,10 +125,26 @@ class DesktopUILayoutParityTests(unittest.TestCase):
 
     def test_external_projects_keep_all_projects_available(self):
         self.mutated('Mac/VidiStudioApp.swift', 'MainWindowLifetime(isLibrary: true)', 'MainWindowLifetime()', 'library window')
-        self.mutated('Mac/ContentView.swift', 'MainWindowLifetime(onClose: { openWindow(id: "studio") })', 'MainWindowLifetime()', 'editor close must return')
+        self.mutated('Mac/VidiStudioApp.swift', 'func application(_ application: NSApplication, open urls: [URL])', '', 'must not promote the minimized library')
+        self.mutated('Mac/VidiStudioApp.swift', 'andEventID: AEEventID(kAEGetURL)', '', 'must bypass the default reopen')
+        self.mutated('Mac/ContentView.swift', 'appDelegate.takeSharedURLs().forEach(handleSharedURL)', '', 'forward queued and live external activations')
+        self.mutated('Mac/ContentView.swift', 'AppWindowLifetime.returnToLibrary { openWindow(id: "studio") }', 'openWindow(id: "studio")', 'editor close must return')
         self.mutated('Windows/App.xaml.cs', 'var target = ProjectLibrary();', 'var target = window;', 'external activation must start')
         self.mutated('Windows/MainWindow.xaml.cs', 'App.OpenOrActivateEditor(folder)', 'ShowEditor()', 'separate editor')
         self.mutated('Windows/MainWindow.Menus.cs', 'if (wasEditor && windowClosed) App.ShowProjectLibrary();', '', 'editor close must return')
+
+    def test_editor_maximize_does_not_change_library_window_state(self):
+        for path, marker, expected in (
+            ('Mac/VidiStudioApp.swift', 'context.defaultDisplay.visibleRect', 'editor must open maximized'),
+            ('Windows/MainWindow.xaml.cs', 'presenter.Maximize();', 'editor must open maximized'),
+            ('Mac/SettingsWindowChrome.swift', 'guard !libraryWindow.isMiniaturized else { return }', 'keep minimized All Projects'),
+            ('Windows/App.xaml.cs', 'library.BringToForeground(restoreMinimized: false);', 'keep minimized All Projects'),
+            ('Windows/MainWindow.xaml.cs', 'if (IsIconic(hWnd))', 'preserve maximized windows'),
+            ('Windows/MainWindow.Presentation.cs', 'PrivateYouTubeChannel: null, ActiveLocalYouTubePlaybackPath: null', 'saved private projects must not require remote YouTube access'),
+            ('Windows/MainWindow.xaml.cs', 'PrivateYouTubeAccessException => "Private YouTube Access Required"', 'private-video recovery'),
+        ):
+            with self.subTest(path=path, marker=marker):
+                self.mutated(path, marker, '', expected)
 
     def test_both_video_browsers_keep_checkbox_selection(self):
         self.mutated('Mac/ContentView.swift', 'VideoBrowserRowCheckbox(title: video.filename, id: video.id, selection: $videoID)', '',

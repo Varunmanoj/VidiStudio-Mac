@@ -42,6 +42,13 @@ class AudioSources(unittest.TestCase):
         for duration in (None, 0, float('nan'), float('inf')):
             self.assertEqual(sources.timing(2, duration)['status'], 'unverified')
 
+    def test_import_warning_formats_durations_with_milliseconds(self):
+        warning = sources.warning(sources.timing(3723.456, 3722))
+        self.assertIn('Audio duration: 1 hour, 2 minutes, 3 seconds, 456 milliseconds', warning)
+        self.assertIn('Video duration: 1 hour, 2 minutes, 2 seconds', warning)
+        self.assertIn('Difference: 1 second, 456 milliseconds', warning)
+        self.assertIn('Audio duration: 2 seconds', sources.warning(sources.timing(2, None)))
+
     def test_inspection_does_not_mutate_project_or_import(self):
         before = (self.root / 'project.json').read_bytes()
         self.execute('inspect-original-audio', output=self.root/'inspection.json')
@@ -91,7 +98,7 @@ class AudioSources(unittest.TestCase):
     def test_metadata_lookup_does_not_use_audio_length_as_video_length(self):
         self.project['duration'] = 0
         with patch.object(sources.youtube_audio, 'video_duration', return_value=5):
-            with self.assertRaisesRegex(ValueError, 'Video duration: 5.000'):
+            with self.assertRaisesRegex(ValueError, 'Video duration: 5 seconds'):
                 self.execute()
         self.assertEqual(self.project['duration'], 0)
 

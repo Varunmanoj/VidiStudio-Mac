@@ -32,7 +32,7 @@ struct ADOverviewView: View {
     }
     private var selectedVoice: String {
         if studio.settings.ttsMode == "sarvam" { return studio.settings.currentNarrationVoice }
-        if studio.settings.ttsMode == "gemini" { return studio.settings.geminiVoice }
+        if studio.settings.ttsMode == "gemini" { return studio.settings.geminiNarrationVoice.name }
         if studio.settings.ttsMode == "piper" {
             return NarrationVoiceFormatting.voiceDisplayName(studio.settings.piperVoiceSignature)
         }

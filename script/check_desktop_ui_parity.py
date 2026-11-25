@@ -4,10 +4,10 @@ import argparse
 import re
 from pathlib import Path
 
-MAC_FILES = ('ADOverviewView.swift', 'StudioHelp.swift', 'CreatedExportsView.swift', 'LanguageResults.swift', 'ContentView.swift', 'SettingsView.swift', 'ImportAssetsView.swift', 'ExportOptionsMenu.swift',
+MAC_FILES = ('ADOverviewView.swift', 'StudioHelp.swift', 'CreatedExportsView.swift', 'LanguageResults.swift', 'ContentView.swift', 'SettingsView.swift', 'ImportAssetsView.swift', 'ImportDecision.swift', 'ExportOptionsMenu.swift',
              'GeminiAPISettingsView.swift', 'SarvamVoiceSettingsView.swift', 'SystemVoiceCatalog.swift', 'PiperVoiceCatalog.swift', 'GeminiVoicePreview.swift', 'SarvamVoiceBrowser.swift', 'VoiceSampleSession.swift', 'AboutSettingsView.swift', 'KeyboardShortcuts.swift', 'ProjectBrowserPage.swift',
-             'ProjectSourcesSettingsView.swift', 'ProjectFilterSheet.swift', 'YouTubeViews.swift', 'YouTubeProjectPreview.swift', 'YouTubeInspectorInformationView.swift', 'GeneratedContentDeletionView.swift', 'VidiStudioApp.swift')
-WIN_FILES = ('Views/SettingsDialog.Gemini.cs', 'Views/HelpWindow.xaml', 'Views/HelpWindow.xaml.cs', 'MainWindow.Presentation.cs', 'MainWindow.LanguageResults.cs', 'Views/ImportAssetsDialog.cs', 'MainWindow.Accessibility.cs', 'MainWindow.xaml', 'Views/CompactDialogLayout.cs', 'Views/WindowAppearance.cs',
+             'ProjectSourcesSettingsView.swift', 'ProjectFilterSheet.swift', 'YouTubeViews.swift', 'YouTubeProjectPreview.swift', 'YouTubeInspectorInformationView.swift', 'GeneratedContentDeletionView.swift', 'VidiStudioApp.swift', 'SettingsWindowChrome.swift')
+WIN_FILES = ('Views/SettingsDialog.Gemini.cs', 'Views/SettingsDialog.GeminiVoices.cs', 'Views/HelpWindow.xaml', 'Views/HelpWindow.xaml.cs', 'MainWindow.Presentation.cs', 'MainWindow.LanguageResults.cs', 'Views/ImportAssetsDialog.cs', 'MainWindow.ImportDecision.cs', 'MainWindow.Accessibility.cs', 'MainWindow.xaml', 'Views/CompactDialogLayout.cs', 'Views/WindowAppearance.cs',
              'Views/SettingsDialog.Compact.cs', 'Views/SettingsDialog.Layout.cs',
              'Views/SettingsDialog.ElevenLabs.cs', 'Views/SettingsDialog.SarvamBrowser.cs', 'Views/SettingsDialog.SpeechLayout.cs', 'MainWindow.DialogLayoutSmoke.cs', 'Views/SettingsDialog.cs', 'Views/SettingsDialog.Sarvam.cs', 'Views/PiperVoicesDialog.cs', 'Views/PiperDeleteVoicesDialog.cs', 'Services/VoiceSampleSession.cs', 'Views/SettingsDialog.Information.cs', 'MainWindow.Menus.cs',
              'Views/NewProjectDialog.cs', 'Views/CloudVideosDialog.cs', 'Views/VideoBrowserSelection.cs', 'Views/ProjectSourcesSettingsControl.cs', 'MainWindow.YouTube.cs', 'MainWindow.xaml.cs', 'App.xaml.cs', 'Views/ExportDialog.cs')
@@ -79,10 +79,22 @@ def validate(source):
                       'ProjectModelGroups' if path.startswith('Windows/') else 'projectModelGroups'):
             require(path, token, 'Vertex pickers must use the shared capability rules and identify empty choices')
     require('Mac/VidiStudioApp.swift', 'MainWindowLifetime(isLibrary: true)', 'All Projects must register as the library window')
-    require('Mac/ContentView.swift', 'MainWindowLifetime(onClose: { openWindow(id: "studio") })', 'editor close must return to All Projects')
+    require('Mac/VidiStudioApp.swift', 'func application(_ application: NSApplication, open urls: [URL])', 'external activation must not promote the minimized library scene')
+    require('Mac/VidiStudioApp.swift', 'andEventID: AEEventID(kAEGetURL)', 'project URLs must bypass the default reopen of minimized All Projects')
+    require('Mac/ContentView.swift', 'appDelegate.takeSharedURLs().forEach(handleSharedURL)', 'the library must forward queued and live external activations')
+    require('Mac/ContentView.swift', 'AppWindowLifetime.returnToLibrary { openWindow(id: "studio") }', 'editor close must return to All Projects')
     require('Windows/App.xaml.cs', 'var target = ProjectLibrary();', 'external activation must start in All Projects')
     require('Windows/MainWindow.xaml.cs', 'App.OpenOrActivateEditor(folder)', 'external activation must open a separate editor')
     require('Windows/MainWindow.Menus.cs', 'if (wasEditor && windowClosed) App.ShowProjectLibrary();', 'editor close must return to All Projects')
+    editor_scene = source['Mac/VidiStudioApp.swift'].split('id: "project-editor"', 1)[1].split('Window("My YouTube Videos"', 1)[0]
+    if '.defaultWindowPlacement' not in editor_scene or 'context.defaultDisplay.visibleRect' not in editor_scene:
+        raise ValueError('Mac editor must open maximized within the usable display')
+    require('Windows/MainWindow.xaml.cs', 'presenter.Maximize();', 'Windows editor must open maximized')
+    require('Mac/SettingsWindowChrome.swift', 'guard !libraryWindow.isMiniaturized else { return }', 'keep minimized All Projects minimized')
+    require('Windows/App.xaml.cs', 'library.BringToForeground(restoreMinimized: false);', 'keep minimized All Projects minimized')
+    require('Windows/MainWindow.xaml.cs', 'if (IsIconic(hWnd))', 'foreground activation must preserve maximized windows')
+    require('Windows/MainWindow.Presentation.cs', 'PrivateYouTubeChannel: null, ActiveLocalYouTubePlaybackPath: null', 'opening saved private projects must not require remote YouTube access')
+    require('Windows/MainWindow.xaml.cs', 'PrivateYouTubeAccessException => "Private YouTube Access Required"', 'remote private-video recovery must name the account problem')
     for path, token in (
         ('Mac/SettingsView.swift', 'YouTubeAccountsView()'),
         ('Windows/Views/SettingsDialog.cs', 'new YouTubeAccountsPanel(this)'),
@@ -95,7 +107,7 @@ def validate(source):
     for path, token in (
         ("Mac/ContentView.swift", 'label: "Connected account"'),
         ("Windows/Views/NewProjectDialog.cs", '"Connected account: "'),
-        ("Mac/YouTubeInspectorInformationView.swift", 'Button("Choose Local Playback Video…"'),
+        ("Mac/YouTubeInspectorInformationView.swift", '"Replace Local Playback Video…" : "Choose Local Playback Video…"'),
         ("Windows/MainWindow.xaml", 'x:Name="ChoosePrivatePlaybackVideo"'),
         ("Mac/GeneratedContentDeletionView.swift", '"delete-local-playback-video"'),
         ("Windows/MainWindow.LanguageResults.cs", '"delete-local-playback-video"'),
@@ -289,11 +301,27 @@ def validate(source):
         ('Mac/YouTubeProjectPreview.swift', 'YouTubeService.shared.videoForNewProject(videoID, settings: settings)'),
         ('Windows/Views/NewProjectDialog.cs', 'FetchYouTubeDetailsAsync(YouTubeService.Shared.VideoForNewProjectAsync)'),
         ('Mac/ProjectSourcesSettingsView.swift', 'Button("YouTube Details & Captions…"'),
-        ('Windows/Views/ProjectSourcesSettingsControl.cs', '("YouTube Details & Captions…", "youtube-captions")'),
+        ('Windows/Views/ProjectSourcesSettingsControl.cs', 'Action("YouTube Details & Captions…", "youtube-captions")'),
         ('Mac/YouTubeViews.swift', 'YouTubeService.shared.projectVideo('),
         ('Windows/MainWindow.YouTube.cs', 'YouTubeService.Shared.ProjectVideoAsync(id, project.PrivateYouTubeChannel, Model.Settings)'),
     ]:
         require(path, action, 'linked YouTube videos must retain metadata lookup and details')
+    for path, action in (
+        ('Mac/ProjectSourcesSettingsView.swift', 'YouTubePlaybackVideoControls(studio: model, project: project, inProjectSettings: true)'),
+        ('Mac/ProjectSourcesSettingsView.swift', 'YouTubeProjectLinkButtons(studio: model, project: project)'),
+        ('Mac/ProjectSourcesSettingsView.swift', 'Text("Imported assets").accessibilityAddTraits(.isHeader)'),
+        ('Mac/ProjectSourcesSettingsView.swift', 'deleteContentButton(project).contextMenu { deleteContentButton(project) }'),
+        ('Windows/Views/ProjectSourcesSettingsControl.cs', 'Header = "Imported assets"'),
+        ('Windows/Views/ProjectSourcesSettingsControl.cs', 'item.Click += async (_, _) => await RunAction("delete-content");'),
+        ('Windows/Views/ProjectSourcesSettingsControl.cs', 'MainWindow.BuildYouTubeProjectLinks(project)'),
+        ('Windows/Views/ProjectSourcesSettingsControl.cs', 'editor.BuildYouTubePlaybackControls(project, RunAction, inProjectSettings: true)'),
+        ('Mac/YouTubeInspectorInformationView.swift', 'if showSource && (!inProjectSettings || project.youtubePlaybackVideo != nil || project.originalAudio != nil)'),
+        ('Windows/MainWindow.YouTube.cs', 'var fileRow = !inProjectSettings || attachment != null || project.OriginalAudio != null'),
+        ('Mac/ProjectSourcesSettingsView.swift', '.accessibilityValue(imported ? "Imported" : "")'),
+        ('Windows/Views/ProjectSourcesSettingsControl.cs', 'AutomationProperties.SetHelpText(button, "Imported");'),
+        ('Windows/MainWindow.YouTube.cs', 'var item = new MenuFlyoutItem { Text = title, Icon = MenuIcons.Create(id), IsEnabled = enabled };'),
+    ):
+        require(path, action, 'Project Settings must preserve shared actions and imported assets')
     for path, token in (
         ('Mac/ContentView.swift', 'Visibility: \\(youtubePreview.video.visibility.capitalized)'),
         ('Mac/ContentView.swift', 'YouTubeService.shared.privateConnection(video.channelID, settings: studio.settings) != nil'),
@@ -358,6 +386,14 @@ def validate(source):
         require(path, token, 'Created Exports must follow project language')
         if 'Export language filter' in source[path]: raise ValueError('Created Exports must not repeat language selection')
     require('Windows/MainWindow.Accessibility.cs', 'Shared inspector language must be accessible, bounded and above every action.', 'retain native inspector geometry checks')
+    for path, tokens in (
+        ('Mac/ImportDecision.swift', ('addButton(withTitle: "Okay")', 'canContinue ? alert.addButton(withTitle: "Import Anyway")',
+                                     'window.defaultButtonCell = okay.cell', 'button.menu = menu', 'buttons[sender.tag].performClick(nil)')),
+        ('Windows/MainWindow.ImportDecision.cs', ('CloseButtonText = "Okay"', 'PrimaryButtonText = canContinue ? "Import Anyway"',
+                                                 'DefaultButton = ContentDialogButton.Close', 'dialog.ContextFlyout = actions',
+                                                 'Icon = new SymbolIcon(icon)', 'choice = result; dialog.Hide();'))):
+        for token in tokens:
+            require(path, token, 'import decisions must preserve safe defaults, scoped icon commands, and guarded continuation')
     for path in ('SettingsView.swift', 'ImportAssetsView.swift', 'ExportOptionsMenu.swift'):
         require('Mac/' + path, '.formStyle(.grouped)', 'retain native compact grouped forms')
         require('Mac/' + path, 'Section', 'retain section grouping')
@@ -377,6 +413,20 @@ def validate(source):
         require('Windows/' + path, 'VoiceSampleSession.Begin(sampleOwner)', 'catalog samples share the playback guard')
         require('Windows/' + path, 'VoiceSampleSession.End(sampleOwner)', 'catalog samples release the playback guard')
     require('Windows/Views/SettingsDialog.cs', 'nativePreparingRing.IsActive = sampleState == SampleState.Generating', 'native/Gemini sample preparation must be visible')
+    for path in ('Mac/GeminiVoicePreview.swift', 'Windows/Views/SettingsDialog.GeminiVoices.cs'):
+        for token in ('Search voices', 'Search Voice Library', 'gemini-voice-language',
+                      'gemini-voice-style', 'gemini-voice-sort', 'Reset Voice Filters', 'Stop Sample'):
+            require(path, token, 'Gemini voice browser controls and context actions must match')
+    require('Windows/Views/SettingsDialog.GeminiVoices.cs', 'parent.Children.Add(geminiVoiceControls)', 'embed the browser in the Narration settings card')
+    require('Mac/GeminiVoicePreview.swift', 'GeminiNarrationCatalog(studio: studio, sampleText: sample)', 'embed the browser in the Narration settings card')
+    for path, provider, summary in (
+        ('Mac/SettingsView.swift', 'GeminiVoiceBrowser(studio: studio)', 'SummaryVoiceSettingsView(settings: $studio.settings)'),
+        ('Windows/Views/SettingsDialog.cs', 'panel.Children.Add(sampleSection);', 'BuildAdditionalSpeechControls(panel);'),
+    ):
+        for token in (provider, summary):
+            require(path, token, 'Narration provider settings must precede Summary voice')
+        if source[path].index(provider) >= source[path].index(summary):
+            raise ValueError(path + ': Narration provider settings must precede Summary voice')
     require('Windows/Views/SettingsDialog.Sarvam.cs', 'sarvamPreparingRing.IsActive = sarvamSamplePreparing', 'Sarvam sample preparation must be visible')
     require('Windows/Views/SettingsDialog.Sarvam.cs', '!VoiceSampleSession.Busy', 'Sarvam and Summary sample actions share the session guard')
     require('Windows/Views/WindowAppearance.cs', 'CompactDialogLayout.PrepareDialog(dialog);', 'all companion forms must use shared presentation')

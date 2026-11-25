@@ -4320,3 +4320,67 @@ Installed and launched the signed Mac 1.0.409 app at `/Applications/VidiStudio.a
 Choose What to Delete now groups Original Audio File and Local Playback Video under Project attachments for YouTube projects. Each can be selected independently when saved, regardless of the language filter. Both use the existing review and confirmation. Removing original audio resets the source preferences and deletes the unreferenced project-owned copy. Removing local playback video also removes its thumbnail.
 
 Installed and launched signed Mac 1.0.410 at `/Applications/VidiStudio.app`. Spotlight and LaunchServices show one app. Safari, Share and Finder match build 410 and Apple Development team LLVWNNUV26 with one registration each. The 177 source tests and seven installed-engine tests passed, including stale-request rejection, attachment-only deletion and source file preservation. Native visual inspection was blocked by the Mac desktop lock. See `build/youtube-attachment-deletion-410-*.log`.
+
+## 1.0.412 · Project editor window state and native acceptance · 2026-11-25
+
+New editors fill the display’s usable area without entering full screen. Opening and closing editors keeps All Projects separate and preserves its position, size and normal, maximized or minimized state. Native URL routing receives project links before the system’s default reopen restores a minimized window. The private-project opening workflow on Mac is unchanged. The Windows private-project correction is recorded separately.
+
+The checked-in `script/test_editor_window_state.sh` exercised the installed app using a saved local fixture. Normal and maximized All Projects retained their geometry on open and close. The minimized case initially exposed a native reopen before the URL callback. The final package passed all three cases, including the maximized, non-full-screen editor and minimized library across the real URL handoff. Shared browser URL and Safari Share provider fixtures passed. Live Safari Share UI was not exercised.
+
+Installed and launched signed version 1.0.412, build 412, at `/Applications/VidiStudio.app`. Spotlight and LaunchServices found one app. Its Safari, Share and Finder extensions match build 412 and Apple Development team LLVWNNUV26, with one registration each. Seven packaged engine tests and the desktop menu/icon/layout checks passed. Xcode’s own MCP tools were not exposed in this session, so build and installed-window evidence came from the repository script and native Accessibility. Use a new or restarted client session if Xcode MCP is needed. See `build/editor-window-412-*.log`.
+
+## 1.0.414 · YouTube project controls in Settings · 2026-11-25
+
+Settings > Projects exposes the local playback chooser and saved filename under Import into this project. When a copy exists, the chooser becomes Replace Local Playback Video and a named trash button is available beside the filename. The Settings context menu shares those actions and their existing confirmations. Original audio continues to block choosing a video. The YouTube video section shows Open in YouTube Studio beside Open in YouTube when a connected account matches the channel. The editor and Settings use the same channel check and browser actions.
+
+The signed Release install and launch passed for /Applications/VidiStudio.app. The app and registered Safari, Share, and Finder extensions report 1.0.414/build 414 under team LLVWNNUV26. Spotlight and LaunchServices each list only the installed copy. In the installed app, Command-Shift-Comma opened the scoped Projects settings. The chooser opened the native picker and Cancel returned to Settings. Native accessibility inspection found the chooser and matching-channel Studio link and their icon-bearing context actions. The attached-copy Settings controls were checked by the Windows playback smoke fixture. All paired menu/icon/UI checks and 99 focused tests passed per desktop, and seven packaged Mac playback engine tests passed. Live browser playback and VoiceOver speech were outside the runtime check. The guide was verified locally.
+
+## 1.0.415 · Imported assets in Project Settings · 2026-11-25
+
+Settings > Projects lists original audio, the local playback copy, saved imported text and AD audio versions, and imported segment narration filenames. Choose What to Delete opens the existing language, result and attachment review from the visible project. The eraser context item shares the same action. The list refreshes after imports and deletions.
+
+The signed macOS Release app and Safari, Share, and Finder extensions report 1.0.415/build 415 under team LLVWNNUV26. Signed installation and launch passed. PlugInKit, Spotlight and LaunchServices verified the single installed app and its registered extensions. The installed Projects settings exposed Imported assets and its empty state, the eraser context command opened the existing deletion review with the two YouTube attachment choices, and Cancel returned to Settings. The verified picker and connected-channel Studio actions were still present. No user assets were modified. Seven packaged playback tests passed. Both desktops passed menu icons, menu and UI parity checks and 99 focused tests each.
+
+## 1.0.417 · Import status in Project Settings · 2026-11-25
+
+The import actions show a green checkmark and an accessible Imported status when the project has a completed import of that type. A usable local playback video shows the same checkmark. The empty playback filename row is hidden in Settings, and an attached copy shows its filename, replacement and removal controls. The imported-assets inventory shows completed replacements immediately and labels versions awaiting review. Earlier Windows smoke runs revealed that filtering the inventory to saved results omitted imported drafts. The corrected inventory includes both states and refreshes when those drafts are reviewed or deleted.
+
+The signed Mac Release app and Safari, Share, and Finder extensions report 1.0.417/build 417 under team LLVWNNUV26. PlugInKit, Spotlight and LaunchServices verified one installed copy. Visual inspection of the prior Mac build confirmed the green Summary checkmark in dark appearance and the chooser without an empty row. The final installed build announced Imported and displayed a second synthetic summary with its filename and Review needed status. The synthetic project was removed from All Projects and its temporary files were cleaned up. The packaged engine verified import provenance, deletion review, and preservation of the external source on a disposable fixture. All menu icon, menu and UI parity checks and 99 focused tests per checkout passed.
+
+Seven playback tests passed against the final installed Mac engine. Windows 1.0.417.0 passed the packaged imported-assets and playback smoke test and seven packaged playback tests.
+
+## 1.0.418 · Readable media import durations · 2026-11-25
+
+Local playback video rejection labels the YouTube and local runtimes on separate lines. Original audio warnings label the audio and video runtimes and the absolute difference. The same duration units appear in AD audio import reports. Existing validation thresholds and confirmation actions are preserved.
+
+The signed Mac Release app and its registered Safari, Share, and Finder extensions report 1.0.418/build 418 under team LLVWNNUV26. Spotlight reports one installed app. The installed engine rejected a disposable mismatched clip with YouTube duration 1 hour, 2 minutes, 3 seconds, 456 milliseconds and local duration 2 seconds, 440 milliseconds. Swift checks verified the playback error forwarding and the audio confirmation text using inspection data from the installed engine. Native Mac dialog inspection timed out. Seven packaged playback tests, 50 targeted import tests, and 99 menu and UI contract tests passed.
+
+LaunchServices confirmed the single installed Mac copy. Windows ARM64 1.0.418.0 passed the packaged mismatch and original audio formatting smoke checks.
+
+## 1.0.419 · Import warnings and explicit continuation · 2026-11-25
+
+Recoverable import checks offer Okay (stop) and Import Anyway (accept the stated outcome) on both desktops. This covers mismatched YouTube playback copies, original and AD tracks, narration that needs trimming, partial caption and timed-text imports, estimated TXT timing, descriptions without a dialogue transcript, and explicit creation of a duplicate source project. Unreadable input or no usable content stays a hard stop. Files already imported separately in a batch remain saved. A warning does not write a new result or change the project manifest. The engine revalidates scoped consent on retry. Attached playback keeps its actual duration without changing the YouTube timeline.
+
+Installed and launched signed Mac Release 1.0.419/build 419 at `/Applications/VidiStudio.app` with stable Apple Development team LLVWNNUV26 and matching registered Safari, Share and Finder extensions. Spotlight and LaunchServices found one app. The native AppKit test of the production alert checked light and dark appearance, visible actions and icons, button outcomes, mapped context commands, Return and Escape. It does not substitute for testing physical menu tracking or VoiceOver in the installed editor. 31 installed-engine tests, 80 focused source engine tests, and 100 paired menu/layout tests passed. The older Mac import UI suite still has an unrelated baseline assertion expecting the previous one-line AI readiness method; focused changed import UI contracts passed. Apple's configured Xcode MCP was not exposed in this session and requires a new client session. See `build/import-decisions-419-*.log`.
+
+The shared guide was updated locally and passed TypeScript, build, desktop and compact search/navigation, and the stable Exports anchor. Website production and public desktop packages were not updated.
+
+Windows 11 ARM64 installed the same 1.0.419.0 update with one Start entry. The frozen engine doctor, 11 packaged import/playback tests, JumpOnly and DialogsOnly passed, including the Windows dialog context command. Task-owned staging and rollback layouts were removed. Native Windows x64 and screen-reader speech were not exercised.
+
+## 1.0.421 · Inline Gemini narration voices · 2026-11-25
+
+Settings > Narration now places the Gemini catalog in the same Voices group as the system voices. It shows the active AI connection, language and region, search, prebuilt style, sorting, the selected voice, and per-row sample controls. Gemini Developer API and signed-in Vertex AI share 30 prebuilt voices and remember separate narrator choices. Each connection searches its own Extended Voice Library. Gemini 3.8 TTS requests use the chosen library voice ID. Express shows its unavailable status.
+
+Mac Release 1.0.421/build 421 was installed and launched. The app and its Safari, Share and Finder extensions retained Apple Development team LLVWNNUV26 and match the installed build. PlugInKit verified the three registered extensions. Spotlight and LaunchServices found one app. The installed engine archive contains the final library voice request code. All 130 focused source tests and 61 tests with the installed engine passed.
+
+Native accessibility inspection in the installed Mac Settings showed the inline provider label, language and style filters, search, sort, selected narrator and named sample controls in dark appearance. Local search found Sulafat by style. Live signed-in Vertex search returned additional voice results. Reverse sort and Reset Voice Filters worked and retained Kore. Live audio synthesis and VoiceOver speech were outside this runtime check. The SDK tests verified both request routes and the on-wire library voice ID using simulated responses.
+
+The local website build, searches, navigation and both Help feeds passed. Publication is pending.
+
+## 1.0.422 · Narration settings order · 2026-11-25
+
+Both desktops place the active narration provider’s voice and sample controls above the separate on-device Summary voice. The Mac order was already correct. The Windows layout now follows it. Updated the shared design, parity checks, and guide. The local website build, desktop and compact guide search and navigation, both desktop feeds, and the stable Exports anchor passed. Website publication is pending.
+
+Installed and launched Mac Release 1.0.422/build 422 at `/Applications/VidiStudio.app`. The app and registered Safari, Share and Finder extensions retained Apple Development team LLVWNNUV26 and report the matching version and build. Spotlight and LaunchServices each found one app. Seven packaged-engine playback tests and 101 paired menu and layout tests passed.
+
+The Windows 11 ARM64 1.0.422.0 installed smoke verified the new section order in light ordinary and dark compact Settings, with one package registration and Start entry.

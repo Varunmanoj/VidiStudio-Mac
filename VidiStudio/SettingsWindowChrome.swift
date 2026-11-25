@@ -7,7 +7,23 @@ enum AppWindowLifetime {
     private static weak var settingsWindow: NSWindow?
     private static weak var libraryWindow: NSWindow?
     static var hasLibraryWindow: Bool { libraryWindow != nil }
+    static var isLibraryMiniaturized: Bool { libraryWindow?.isMiniaturized == true }
     private static var closeObserver: NSObjectProtocol?
+
+    static func returnToLibrary(openIfMissing: () -> Void) {
+        guard let libraryWindow else { openIfMissing(); return }
+        // Raising an existing normal or zoomed window must not restore a minimized one.
+        guard !libraryWindow.isMiniaturized else { return }
+        libraryWindow.makeKeyAndOrderFront(nil)
+    }
+
+    static func libraryMinimizationRestorer() -> (() -> Void)? {
+        guard let window = libraryWindow, window.isMiniaturized else { return nil }
+        return { [weak window] in
+            guard let window, window === libraryWindow, !window.isMiniaturized else { return }
+            window.miniaturize(nil)
+        }
+    }
 
     static func registerMainWindow(_ window: NSWindow, isLibrary: Bool = false) {
         observeClosing()

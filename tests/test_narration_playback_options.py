@@ -49,11 +49,15 @@ class NarrationPlaybackOptions(unittest.TestCase):
         self.assertIn('field.IsEnabled = SettingsStore.GetString(draft["ttsMode"]) is not ("gemini" or "sarvam" or "elevenlabs");', source)
         self.assertIn('SettingsStore.NormalizeNarrationPlayback(draft);', source)
 
-    def test_windows_gemini_voices_show_only_voice_names_and_hide_local_sliders(self):
+    def test_windows_gemini_browser_uses_bundled_voices_and_hides_local_sliders(self):
         gemini = (ROOT/'Vidi-Studio-Windows/Vidi Studio Windows/Views/SettingsDialog.Gemini.cs').read_text()
         dialog = (ROOT/'Vidi-Studio-Windows/Vidi Studio Windows/Views/SettingsDialog.cs').read_text()
-        self.assertIn('"Aoede", "Callirrhoe", "Charon", "Fenrir", "Kore", "Leda", "Orus", "Puck", "Zephyr"', gemini)
-        self.assertIn('Names.Select(name => new Voice(name, name, "", "")).ToArray()', gemini)
+        self.assertIn('geminiPrebuiltVoices', gemini)
+        for folder in ('VidiStudio Mac', 'Vidi-Studio-Windows'):
+            catalog = json.loads((ROOT/folder/'engine/ai-defaults.json').read_text())['geminiPrebuiltVoices']
+            self.assertEqual(len(catalog), 30)
+            self.assertEqual(catalog['Kore'], 'Firm')
+            self.assertEqual(catalog['Achernar'], 'Soft')
         self.assertNotIn('LoadGeminiVoicesAsync', dialog)
         self.assertNotIn('Header = "Filter voices"', dialog)
         self.assertIn('localSpeechControls.Visibility = provider is "gemini" or "sarvam" or "elevenlabs" ? Visibility.Collapsed : Visibility.Visible;', dialog)

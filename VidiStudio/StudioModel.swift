@@ -581,7 +581,9 @@ struct StudioProject: Codable, Identifiable {
     var youtubePlaybackVideo: YouTubePlaybackVideo?
     var localYouTubePlaybackURL: URL? {
         guard isYouTubeURLProject, let asset = youtubePlaybackVideo,
-              abs(asset.duration - duration) < 0.5, hasFile(asset.path) else { return nil }
+              duration.isFinite, duration > 0, asset.duration.isFinite, asset.duration > 0,
+              (asset.timingAcceptedFor == duration || abs(asset.duration - duration) < 0.5),
+              hasFile(asset.path) else { return nil }
         return url(asset.path)
     }
     var offersYouTubePlayerChoice: Bool { isYouTubeURLProject && !requiresLocalYouTubePlayback }
@@ -613,6 +615,7 @@ struct StudioProject: Codable, Identifiable {
     /// portable between macOS and Windows.
     var importedAudioDescription: ImportedAudioDescription?
     var importedADTranscript: ImportedADTranscript?
+    var importedAssets: [String: SavedSourceAsset]?
     var summaryOrigin: String?
     var summaryOriginSource: String?
     var lastImportReport: ImportReport?
@@ -943,10 +946,12 @@ struct OriginalAudioInspection: Decodable {
     var sha256: String
 
     var warning: String {
-        let timing = videoDuration.map {
-            String(format: "Audio: %.3f seconds. Video: %.3f seconds. Difference: %.3f seconds.", audioDuration, $0, difference ?? 0)
+        let audio = "Audio duration: \(NarrationTimeFormat.spokenDuration(audioDuration))"
+        let timing = videoDuration.map { duration in
+            "Video duration: \(NarrationTimeFormat.spokenDuration(duration))\n" +
+            "Difference: \(NarrationTimeFormat.spokenDuration(difference ?? abs(audioDuration - duration)))"
         } ?? "Duration could not be verified against the YouTube video."
-        return timing + " Audio starts at zero. Excess audio is omitted and shorter audio ends in silence. Audio is never stretched."
+        return audio + "\n" + timing + "\n\nAudio starts at zero. Excess audio is omitted and shorter audio ends in silence. Audio is never stretched."
     }
 }
 
@@ -1265,6 +1270,9 @@ struct StudioSettings: Codable, Equatable {
     var sarvamCredentialRevision = 0
     var summarySpeech: LocalSummarySpeech? = nil
     var geminiVoice = "Kore"
+    var geminiVoiceName: String? = nil
+    var vertexGeminiVoice: String? = nil
+    var vertexGeminiVoiceName: String? = nil
     var ffmpegPath = ""
     var ffprobePath = ""
     var libraryPath = StudioSettings.defaultLibraryURL.path
@@ -1274,7 +1282,8 @@ struct StudioSettings: Codable, Equatable {
         if ttsMode == "elevenlabs" { return (elevenlabsSpeech ?? ElevenLabsSpeechSettings()).signature }
         if ttsMode == "sarvam" { return sarvamSpeech.signature }
         if ttsMode == "gemini" {
-            return "gemini|\(geminiVoice)|\(models["tts_audio"] ?? "")"
+            let model = aiProvider == "vertex" ? vertexModels["tts_audio"] : models["tts_audio"]
+            return "gemini|\(geminiNarrationVoice.id)|\(model ?? "")"
         }
         if ttsMode == "piper" {
             return piperSpeechSignature
@@ -1313,8 +1322,7 @@ struct StudioSettings: Codable, Equatable {
         if ttsMode == "elevenlabs" { return (elevenlabsSpeech?.voiceName.isEmpty == false ? elevenlabsSpeech?.voiceName : elevenlabsSpeech?.voice) ?? "" }
         if ttsMode == "sarvam" { return sarvamSpeech.selected.voice.isEmpty ? "Default voice" : sarvamSpeech.selected.voice }
         if ttsMode == "gemini" {
-            let trimmed = geminiVoice.trimmingCharacters(in: .whitespacesAndNewlines)
-            return trimmed.isEmpty ? "Kore" : trimmed
+            return geminiNarrationVoice.name
         }
         if ttsMode == "piper" { return piperVoiceSignature }
         let selected = systemVoice.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -1396,6 +1404,7 @@ extension Notification.Name {
     static let vidiStudioProjectFollowDidChange = Notification.Name("VidiStudioProjectFollowDidChange")
     static let vidiStudioLanguageWillChange = Notification.Name("VidiStudioLanguageWillChange")
     static let vidiStudioLanguageDidChange = Notification.Name("VidiStudioLanguageDidChange")
+    static let vidiStudioImportedContentDidChange = Notification.Name("VidiStudioImportedContentDidChange")
     static let vidiStudioNarrationAudioWillDelete = Notification.Name("VidiStudioNarrationAudioWillDelete")
 }
 
@@ -1567,16 +1576,23 @@ final class OpenProjectRegistry {
     }
     private var sharedVideoPanel: SharedVideoProgressPanel?
     private var sharedVideoStarted = ContinuousClock.now
+    var restoreLibraryAfterSharedOpen: (() -> Void)?
 
     func beginSharedVideoOpening(message: String, accessibilityID: String) {
         sharedVideoStarted = .now
         sharedVideoOpening = .preparing
-        sharedVideoPanel = SharedVideoProgressPanel(message: message, accessibilityID: accessibilityID)
-        sharedVideoPanel?.showOverCurrentWindow()
+        if !AppWindowLifetime.isLibraryMiniaturized {
+            sharedVideoPanel = SharedVideoProgressPanel(message: message, accessibilityID: accessibilityID)
+            sharedVideoPanel?.showOverCurrentWindow()
+        }
     }
 
     func sharedEditorDidOpen(_ id: String) {
         guard sharedVideoOpening == .openingEditor(id) else { return }
+        if let restore = restoreLibraryAfterSharedOpen {
+            restoreLibraryAfterSharedOpen = nil
+            DispatchQueue.main.async(execute: restore)
+        }
         let started = sharedVideoStarted
         Task { @MainActor in
             // Keep a fast reopen perceptible without postponing the editor.
@@ -1810,6 +1826,11 @@ final class StudioModel {
     var hasApiKey: Bool { !settings.apiKey.isEmpty || !configuredAIConnections.isEmpty }
     var canUseGeminiNarration: Bool {
         readyAIConnections.contains { $0.supports(existingBucketVideo: false, narration: true) } && ConnectivityService.shared.available(.gemini)
+    }
+    var canUseSelectedGeminiNarration: Bool {
+        activeAIConnection != .express && readyAIConnections.contains(activeAIConnection)
+            && (activeAIConnection != .googleSignIn || !settings.vertexProject.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+            && ConnectivityService.shared.available(.gemini)
     }
     var sarvamModels = SarvamCatalog.models.map { SarvamModelOption(id: $0, label: SarvamCatalog.modelLabel($0)) }
     var sarvamModelsRefreshing = false
@@ -2391,9 +2412,8 @@ final class StudioModel {
         guard canChooseYouTubePlaybackVideo(project) else { return nil }
         var arguments = ["--video", url.path]
         if let previous = project.youtubePlaybackVideo {
-            guard confirmDeletion(title: "Replace Local Playback Video?",
-                                  message: "Replace \(previous.sourceName) with \(url.lastPathComponent)?",
-                                  actionTitle: "Replace") else { return nil }
+            guard ImportDecision.show(title: "Replace Local Playback Video?",
+                                      message: "Replace \(previous.sourceName) with \(url.lastPathComponent)?") == .proceed else { return nil }
             arguments.append("--replace-existing")
         }
         return arguments
@@ -2435,10 +2455,6 @@ final class StudioModel {
             choice = videoImportChoice(candidate, asCloud: asCloud)
         }
         guard choice == .local || choice == .cloud else { return false }
-        if let existing = existingProject(forVideoAt: candidate) {
-            showDuplicateProjectError(existing)
-            return false
-        }
         guard choice != .cloud || canUploadCloudVideo else {
             errorTitle = "Cloud Storage Unavailable"
             error = "Sign in to Google and choose your Cloud project and bucket in Settings > AI."
@@ -2505,10 +2521,6 @@ final class StudioModel {
     }
     func validateYouTubeForCreation(_ rawURL: String) -> Bool {
         guard requireInternet("import-youtube") else { return false }
-        if let existing = existingProject(forYouTubeURL: rawURL) {
-            showDuplicateProjectError(existing)
-            return false
-        }
         return true
     }
     func existingProject(forVideoAt url: URL) -> StudioProject? {
@@ -2528,12 +2540,6 @@ final class StudioModel {
             return existingURL.trimmingCharacters(in: .whitespacesAndNewlines)
                 == rawURL.trimmingCharacters(in: .whitespacesAndNewlines)
         }
-    }
-    private func showDuplicateProjectError(_ project: StudioProject) {
-        selectedID = project.id
-        let issue = UserFacingIssue.duplicateProject(isYouTube: project.isYouTubeURLProject, projectName: project.name)
-        errorTitle = issue.title
-        error = issue.message
     }
     static func youtubeVideoID(from rawURL: String) -> String? {
         VidiStudioShareLink.youtubeVideoID(from: rawURL)
@@ -3328,6 +3334,7 @@ final class StudioModel {
             ["export-youtube-original-audio", "export-youtube-described-audio", "combine-imported-audio"].contains(command)
         var youtubeAudioUnavailable = false
         var deferredExportError: String?
+        var importIssue: ImportIssueNotice?
         var completedProjectPath: String?
         progress = 0
         message = UserFacingProgress.message(for: command)
@@ -3572,7 +3579,11 @@ final class StudioModel {
                             aiServiceIssue = aiIssue
                         }
                         let issue = UserFacingIssue.forEngine(command: command, technicalDetails: detail)
-                        if canRecoverYouTubeAudio {
+                        if let payload = event["importIssue"] as? [String: Any],
+                           let data = try? JSONSerialization.data(withJSONObject: payload),
+                           let notice = try? JSONDecoder().decode(ImportIssueNotice.self, from: data) {
+                            importIssue = notice
+                        } else if canRecoverYouTubeAudio {
                             youtubeAudioUnavailable = youtubeAudioUnavailable || event["recovery"] as? String == "choose-original-audio"
                             deferredExportError = detail
                         } else {
@@ -3619,7 +3630,9 @@ final class StudioModel {
             exportActivity?.canCancel = false
             task.waitUntilExit()
             stderr.fileHandleForReading.readabilityHandler = nil
-            for url in requestCleanup { try? FileManager.default.removeItem(at: url) }
+            for url in requestCleanup where importIssue == nil || url != cleanupURL {
+                try? FileManager.default.removeItem(at: url)
+            }
             reload()
             if Self.isExportCommand(command), let folder = target?.folder {
                 var finalized: Set<String> = []
@@ -3659,6 +3672,21 @@ final class StudioModel {
             if connectionWatch.interrupted && !staleKeyCheck {
                 present(UserFacingIssue(title: "Connection Interrupted", message: "The connection did not recover within 30 seconds. Connect to the internet and try again. Completed results remain saved."), context: command)
             }
+            if let notice = importIssue {
+                if !operationWasCancelled && !connectionWatch.interrupted {
+                    let token = notice.token.flatMap { extra.contains($0) ? nil : $0 }
+                    if ImportDecision.show(title: notice.title, message: notice.message, canContinue: token != nil) == .proceed,
+                       let token {
+                        execute(command, extra: extra + ["--accept-import-warning", token], project: target,
+                                configurationURL: configurationURL, cleanupURL: cleanupURL, completion: completion)
+                        return
+                    }
+                    message = token == nil ? notice.title : "Import cancelled."
+                }
+                if let cleanupURL { try? FileManager.default.removeItem(at: cleanupURL) }
+                completion?(nil)
+                return
+            }
             if operationWasCancelled {
                 message = exportWasCancelled ? "Export cancelled." : "Operation cancelled."
             } else if task.terminationStatus != 0 && youtubeAudioUnavailable, let target {
@@ -3675,6 +3703,11 @@ final class StudioModel {
                 if let exportSummaryMessage { message = exportSummaryMessage }
                 if Self.isAICommand(command) { aiServiceIssue = nil }
                 self.errorTitle = StudioModel.defaultErrorTitle
+                if !operationWasCancelled, let target,
+                   command.hasPrefix("import-") || ["attach-youtube-playback", "remove-youtube-playback", "remove-original-audio", "review-result", "delete-results"].contains(command) {
+                    NotificationCenter.default.post(name: .vidiStudioImportedContentDidChange, object: self,
+                                                    userInfo: ["projectID": target.id])
+                }
             } else if isKeyCheck && !staleKeyCheck && !keyCheckGotVerdict {
                 apiKeyCheckFailureMessage = self.error ?? "The API key check could not finish. Try again when Gemini is available."
             }

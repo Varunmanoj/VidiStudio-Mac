@@ -297,11 +297,21 @@ class ImportCommandTests(unittest.TestCase):
         self.assertTrue((value['transcript'][0].get('start') == 1.0))
         self.assertEqual(value['transcriptGenerated'], True)
 
-    def test_import_ad_narration_requires_a_transcript(self):
+    def accept_warning(self, args, operation, message):
+        with self.assertRaisesRegex(assets.ImportIssue, message) as caught:
+            operation(args)
+        self.assertIsNotNone(caught.exception.token)
+        args.accept_import_warning = [caught.exception.token]
+
+    def test_import_ad_narration_without_transcript_requires_consent(self):
         source = write(self.root / 'ad.srt', '1\n00:00:01,000 --> 00:00:02,000\nDescribed\n')
         value = project()
-        with self.assertRaisesRegex(ValueError, 'transcript before importing AD-only'):
-            assets.import_text(self.args('import-ad-transcript', input=source), self.root, value, self.core, [])
+        args = self.args('import-ad-transcript', input=source)
+        def run(options):
+            return assets.import_text(options, self.root, value, self.core, [])
+        self.accept_warning(args, run, 'no transcript')
+        self.assertEqual(value['cues'], [])
+        self.assertEqual(run(args)['rowsImported'], 1)
 
     def test_import_ad_narration_populates_cues_and_imported_transcript(self):
         source = write(self.root / 'ad.srt', '1\n00:00:01,000 --> 00:00:02,000\nDescribed\n')
@@ -317,8 +327,12 @@ class ImportCommandTests(unittest.TestCase):
         source = write(self.root / 'combined.vtt',
                        'WEBVTT\n\n00:00:01.000 --> 00:00:03.000\nDialogue\n\n00:00:04.000 --> 00:00:30.000\nToo long\n')
         value = project(transcript=[transcript(1, 3)])
-        report = assets.import_text(self.args('import-ad-transcript', input=source, ad_transcript_mode='combined'),
-                                    self.root, value, self.core, [])
+        args = self.args('import-ad-transcript', input=source, ad_transcript_mode='combined')
+        def run(options):
+            return assets.import_text(options, self.root, value, self.core, [])
+        self.accept_warning(args, run, 'will be omitted')
+        self.assertNotIn('importedADTranscript', value)
+        report = run(args)
         self.assertEqual(report['rowsImported'], 1)
         self.assertEqual(report['rowsOmittedAfterVideo'], 1)
         self.assertEqual(value['cues'], [])
@@ -329,15 +343,21 @@ class ImportCommandTests(unittest.TestCase):
         source = write(self.root / 'bad.srt', '1\n00:00:01,000 --> 00:00:40,000\nOutside\n')
         original = [transcript(0, 1, 'Keep me', origin='imported')]
         value = project(transcript=original)
-        report = assets.import_text(self.args(input=source, replace_existing=True), self.root, value, self.core, [])
+        with self.assertRaisesRegex(assets.ImportIssue, 'No usable timed rows') as caught:
+            assets.import_text(self.args(input=source, replace_existing=True), self.root, value, self.core, [])
+        self.assertIsNone(caught.exception.token)
         self.assertEqual(value['transcript'], original)
-        self.assertEqual(report['rowsImported'], 0)
-        self.assertEqual(report['rowsOmittedAfterVideo'], 1)
+        self.assertNotIn('lastImportReport', value)
 
     def test_imported_transcript_marks_conflicting_description_for_retiming(self):
         source = write(self.root / 'talk.srt', '1\n00:00:01,000 --> 00:00:05,000\nNew dialogue\n')
         value = project(cues=[cue(4, 6, 'Existing AD')])
-        report = assets.import_text(self.args(input=source), self.root, value, self.core, [])
+        args = self.args(input=source)
+        def run(options):
+            return assets.import_text(options, self.root, value, self.core, [])
+        self.accept_warning(args, run, 'Description timing will need review')
+        self.assertFalse(value['transcript'])
+        report = run(args)
         self.assertEqual(value['transcript'][0]['text'], 'New dialogue')
         self.assertEqual(value['descriptionTimingAudit']['count'], 1)
         self.assertEqual(report['rowsFlagged'], 1)
@@ -353,11 +373,16 @@ class ImportCommandTests(unittest.TestCase):
         assets.import_text(self.args(input=source, timing_input=timing), self.root, value, self.core, [])
         self.assertEqual((value['transcript'][0]['start'], value['transcript'][0]['end']), (4, 6))
 
-    def test_txt_import_requires_reviewed_timing_json(self):
+    def test_txt_import_allows_explicitly_estimated_or_manually_reviewed_timing(self):
         source = write(self.root / 'lines.txt', 'Line one\nLine two\n')
         value = project()
-        with self.assertRaisesRegex(ValueError, 'requires reviewed start and end times'):
-            assets.import_text(self.args(input=source), self.root, value, self.core, [])
+        args = self.args(input=source)
+        def run(options):
+            return assets.import_text(options, self.root, value, self.core, [])
+        self.accept_warning(args, run, 'spaced evenly')
+        self.assertFalse(value['transcript'])
+        self.assertEqual(run(args)['rowsImported'], 2)
+        self.assertEqual([(r['start'], r['end']) for r in value['transcript']], [(0, 10), (10, 20)])
         timing = self.root / 'timing.json'
         timing.write_text(json.dumps({'reviewed': True, 'rows': [
             {'sourceLine': 1, 'text': 'Line one', 'start': 0, 'end': 2},
@@ -405,7 +430,12 @@ class ImportCommandTests(unittest.TestCase):
         source.write_bytes(b'RIFF')
         self.core.durations['ad.wav'] = 25.0
         value = project()
-        assets.execute(self.args('import-ad-audio', input=source), self.root, value, self.core)
+        args = self.args('import-ad-audio', input=source)
+        def run(options):
+            assets.execute(options, self.root, value, self.core)
+        self.accept_warning(args, run, 'Only the video-length portion is used')
+        self.assertNotIn('importedAudioDescription', value)
+        run(args)
         report = self.core.emitted[-1]['importReport']
         self.assertEqual(value['importedAudioDescription']['mode'], 'narration')
         self.assertEqual(value['importedAudioDescription']['duration'], 25.0)

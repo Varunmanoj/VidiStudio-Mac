@@ -8,6 +8,7 @@ from urllib.parse import urlparse,parse_qs
 from urllib.request import urlopen as _urlopen
 import network_activity
 import gemini_adapter
+import import_assets
 import language_results
 import output_languages
 import ssl
@@ -218,7 +219,13 @@ def execute(args,root,p,e):
     if command=='import-youtube':
         if not args.url or not args.library: raise ValueError('YouTube import requires --url and --library.')
         url=youtube_url(args.url);ident=url.split('=')[-1];name=args.name or 'YouTube video'
-        ensure_unique_youtube_video(args.library, url)
+        try:
+            ensure_unique_youtube_video(args.library, url)
+        except ValueError as exc:
+            import_assets.confirm_warning(
+                args, 'duplicate-youtube', 'Project Already Exists',
+                'A project for this YouTube video already exists. Import Anyway creates a separate project. The existing one is unchanged.',
+                diagnostic=str(exc), context=[str(args.library), url])
         verify_owner = lambda video, channel: vertex_ai.require_private_youtube_owner(e.config(), video, channel)
         details = youtube_metadata.read(args.youtube_metadata, ident, verify_owner) if getattr(args, 'youtube_metadata', None) else None
         if details:

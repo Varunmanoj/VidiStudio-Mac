@@ -7,8 +7,10 @@ the caller's project lock and delete superseded audio only after that commit.
 from __future__ import annotations
 
 import copy
+import hashlib
 import json
 import math
+import os
 import re
 import shutil
 import uuid
@@ -22,6 +24,30 @@ COMMANDS = [
 ORIGINS = ('ai', 'ai_modified', 'imported', 'imported_modified', 'manual', 'unknown')
 AUDIO_EXTENSIONS = {'.wav', '.mp3', '.m4a', '.aac', '.flac'}
 ENCODER_PADDING_TOLERANCE = 0.05
+
+
+class ImportIssue(ValueError):
+    """A user-facing import validation result, never a generic exception override."""
+
+    def __init__(self, title, message, *, token=None, diagnostic=None):
+        super().__init__(diagnostic or message)
+        self.title, self.user_message, self.token = title, message, token
+
+
+def error_metadata(error, sanitize):
+    if not isinstance(error, ImportIssue):
+        return {}
+    return {'importIssue': {'title': error.title, 'message': sanitize(ValueError(error.user_message)), 'token': error.token}}
+
+
+def confirm_warning(args, code, title, message, *, context='', diagnostic=None):
+    # Tie consent to this command and the actual warning, not to every
+    # validation failure on the request. A second warning requires its own choice.
+    token = hashlib.sha256(
+        json.dumps([args.command, code, message, context], sort_keys=True).encode()
+    ).hexdigest()
+    if token not in (getattr(args, 'accept_import_warning', None) or ()):
+        raise ImportIssue(title, message, token=token, diagnostic=diagnostic)
 
 
 def duration_of(project):
@@ -58,16 +84,28 @@ def clock(value):
     return f'{ms // 3600000:02}:{ms // 60000 % 60:02}:{ms // 1000 % 60:02}.{ms % 1000:03}'
 
 
+def duration_label(seconds):
+    """Format a measured duration for import warnings at millisecond precision."""
+    remaining = math.floor(seconds * 1000 + 0.5)
+    parts = []
+    for size, unit in ((86400000, 'day'), (3600000, 'hour'), (60000, 'minute'),
+                       (1000, 'second'), (1, 'millisecond')):
+        count, remaining = divmod(remaining, size)
+        if count:
+            parts.append(f"{count} {unit}{'s' if count != 1 else ''}")
+    return ', '.join(parts) or '0 seconds'
+
+
 def read_text(path, extensions):
     path = Path(path)
     if path.suffix.lower() not in extensions:
         raise ValueError('Unsupported file type. Choose ' + ', '.join(sorted(extensions)) + '.')
     if path.stat().st_size > 20 * 1024 * 1024:
-        raise ValueError('Text imports must be smaller than 20 MB.')
+        raise ImportIssue('Text Couldn’t Be Imported', 'Text imports must be smaller than 20 MB.')
     try:
         return path.read_text(encoding='utf-8-sig').replace('\r\n', '\n').replace('\r', '\n')
     except UnicodeDecodeError as exc:
-        raise ValueError('The file is not UTF-8 text. Save it as UTF-8 and try again.') from exc
+        raise ImportIssue('Text Couldn’t Be Imported', 'The file is not UTF-8 text. Save it as UTF-8 and try again.') from exc
 
 
 def parse_text(path):
@@ -295,7 +333,7 @@ def copy_asset(root, source, core, created, folder='imports', language_specific=
 def inspect_audio(path, core):
     path = Path(path)
     if path.suffix.lower() not in AUDIO_EXTENSIONS:
-        raise ValueError('Choose a WAV, MP3, M4A, AAC, or FLAC audio file.')
+        raise ImportIssue('Audio Couldn’t Be Imported', 'Choose a WAV, MP3, M4A, AAC, or FLAC audio file.')
     try:
         info = core.probe(path)
         streams = [stream for stream in info.get('streams', []) if stream.get('codec_type') == 'audio']
@@ -310,7 +348,8 @@ def inspect_audio(path, core):
                   '-map', '0:a:0', '-vn', '-f', 'null', '-'])
         return duration
     except (ValueError, OSError) as exc:
-        raise ValueError('The selected file does not contain readable, decodable audio. ' + str(exc)) from exc
+        raise ImportIssue('Audio Couldn’t Be Imported', 'The selected file does not contain readable, decodable audio.',
+                          diagnostic='The selected file does not contain readable, decodable audio. ' + str(exc)) from exc
 
 
 def narration_sources(project):
@@ -347,8 +386,6 @@ def narration_sources(project):
 
 def import_text(args, root, project, core, created):
     kind = 'transcript' if args.command == 'import-transcript' else args.ad_transcript_mode
-    if kind == 'narration' and not project.get('transcript'):
-        raise ValueError('Import or generate a transcript before importing AD-only description segments. It is required for overlap validation.')
     field = 'transcript' if kind == 'transcript' else 'cues' if kind == 'narration' else 'importedADTranscript'
     rows = parse_text(args.input)
     if args.timing_input:
@@ -358,22 +395,46 @@ def import_text(args, root, project, core, created):
             raise ValueError('Reviewed timing must contain a rows list.')
         if isinstance(payload, dict) and payload.get('aiGenerated') and not payload.get('reviewed'):
             raise ValueError('Review the AI timing before saving it.')
-    elif Path(args.input).suffix.lower() == '.txt':
-        raise ValueError('TXT import requires reviewed start and end times for every line (--timing-input). Use inspect-import to open the timing editor.')
-    accepted, omitted = validate_rows(rows, duration_of(project), kind)
-    if getattr(args, 'caption_provenance', None) and (not accepted or omitted):
-        raise ValueError('The YouTube caption track contains invalid or overlapping timing. Existing transcript has been kept. Download another track or review the subtitle file before importing.')
+    duration = duration_of(project)
+    warnings = []
+    estimated = not args.timing_input and Path(args.input).suffix.lower() == '.txt'
+    if estimated:
+        if not rows or duration is None:
+            raise ImportIssue('Text Couldn’t Be Imported', 'Plain text needs at least one line and a known video duration, or reviewed start and end times.')
+        rows = distribute_evenly(rows, duration)
+        warnings.append('This file has no timestamps. Lines will be spaced evenly across the video.')
+    accepted, omitted = validate_rows(rows, duration, kind)
+    if not accepted:
+        raise ImportIssue('Text Couldn’t Be Imported', 'No usable timed rows were found. Review the timing or choose another file.')
+    caption_source = None
+    if kind == 'transcript' and getattr(args, 'caption_provenance', None):
+        raw = json.loads(Path(args.caption_provenance).read_text(encoding='utf-8'))
+        caption_source = {key: raw[key] for key in ('videoID', 'trackID', 'language', 'name', 'trackKind') if key in raw}
+        if caption_source.get('videoID') != project.get('youtubeURL', '').split('=')[-1]:
+            raise ImportIssue('Captions Couldn’t Be Imported', 'Captions belong to a different video.')
+    if kind == 'narration':
+        if not project.get('transcript'):
+            warnings.append('There is no transcript. Overlap with dialogue cannot be checked.')
+        audit = audit_timing(dict(project, cues=accepted))
+        if audit['segments']:
+            warnings.append(f"{len(audit['segments'])} description row(s) overlap dialogue or another description and will be flagged for retiming.")
+    elif kind == 'transcript' and audit_timing(dict(project, transcript=accepted))['segments']:
+        warnings.append('Description timing will need review against the new transcript.')
+    notices = list(warnings)
+    if duration is None:
+        notices.append('Video duration is unknown. Timing cannot be verified against the video.')
+    if omitted:
+        notices.append(f'{len(omitted)} invalid or overlapping row(s) will be omitted. {len(accepted)} usable row(s) will be imported.')
+        notices.extend(f"Line {row['sourceLine']}: {row['reason']}" for row in omitted[:3])
+    if notices:
+        confirm_warning(args, 'text-timing', 'Timing Warnings', '\n\n'.join(notices),
+                        context=[str(args.input), [(r['text'], r['start'], r['end']) for r in accepted], omitted])
     if accepted:
         confirm_replacement(project.get(field), args.replace_existing)
         source = copy_asset(root, args.input, core, created)
         for row in accepted:
             row.update(origin='imported', originSource=Path(args.input).name)
-        caption_source = None
-        if kind == 'transcript' and getattr(args, 'caption_provenance', None):
-            raw = json.loads(Path(args.caption_provenance).read_text(encoding='utf-8'))
-            caption_source = {key: raw[key] for key in ('videoID', 'trackID', 'language', 'name', 'trackKind') if key in raw}
-            if caption_source.get('videoID') != project.get('youtubeURL', '').split('=')[-1]:
-                raise ValueError('Captions belong to a different video.')
+        if caption_source is not None:
             label = 'YouTube captions · ' + str(caption_source.get('language', 'Unknown')) + (' · Automatic' if caption_source.get('trackKind') == 'ASR' else '')
             for row in accepted: row['originSource'] = label
             caption_source['fetchedAt'] = __import__('time').time()
@@ -400,7 +461,7 @@ def import_text(args, root, project, core, created):
                     format=Path(args.input).suffix[1:].lower(), sourceName=Path(args.input).name, path=source)
         project.setdefault('importedAssets', {})[kind] = dict(path=source, sourceName=Path(args.input).name)
         invalidate_exports(project)
-    return report_for(project, kind, args.input, accepted, omitted)
+    return report_for(project, kind, args.input, accepted, omitted, warnings)
 
 
 def import_segment_audio(args, root, project, core, created, superseded):
@@ -415,10 +476,24 @@ def import_segment_audio(args, root, project, core, created, superseded):
     actual = inspect_audio(args.input, core)
     available = end - start
     if actual > available + ENCODER_PADDING_TOLERANCE:
-        raise ValueError(f'Imported audio duration: {actual:.3f}s. Available segment duration: {available:.3f}s '
-                         f'({clock(start)}–{clock(end)}). Shorten the audio or adjust the segment timing, then try again.')
+        confirm_warning(args, 'segment-audio-duration', 'Narration Is Longer Than the Segment',
+                        f'Imported audio duration: {actual:.3f}s. Available segment duration: {available:.3f}s '
+                        f'({clock(start)}–{clock(end)}). The imported copy will be trimmed to the segment.',
+                        context=[cue['id'], str(args.input), args.input.stat().st_mtime_ns])
     previous = cue.get('audio')
-    relative = copy_asset(root, args.input, core, created, 'audio-description')
+    if actual > available + ENCODER_PADDING_TOLERANCE:
+        import language_results
+        group = language_results.generation_asset_folder('audio-description', os.environ.get('VIDISTUDIO_OUTPUT_LANGUAGE', 'auto'))
+        folder = core.local(root, group)
+        folder.mkdir(parents=True, exist_ok=True)
+        path = folder / f'{uuid.uuid4().hex}.wav'
+        created.append(path)
+        core.run([core.tool('ffmpeg'), '-y', '-v', 'error', '-i', args.input,
+                  '-map', '0:a:0', '-t', f'{available:.6f}', '-c:a', 'pcm_s16le', path])
+        actual = inspect_audio(path, core)
+        relative = path.relative_to(root).as_posix()
+    else:
+        relative = copy_asset(root, args.input, core, created, 'audio-description')
     cue.update(audio=relative, audioDuration=actual, audioStart=start, audioEnd=end,
                audioText=cue['text'], audioOrigin='imported', audioSourceName=Path(args.input).name)
     for key in ('audioError', 'audioSettings', 'audioEngine', 'audioVoice'):
@@ -537,6 +612,8 @@ def add_arguments(parser):
     parser.add_argument('--audio-mode', choices=['narration', 'fullMix'], default='narration')
     parser.add_argument('--audio-presentation', choices=['selectable', 'open'], default='selectable')
     parser.add_argument('--audio-only', action='store_true')
+    parser.add_argument('--accept-import-warning', action='append', default=[],
+                        help='Accept a specific import warning token returned by the engine.')
     parser.add_argument('--timing-input', type=Path, help='Reviewed TXT rows with start/end times, as JSON.')
 
 
@@ -568,7 +645,7 @@ def execute(args, root, project, core):
         elif args.command == 'import-summary':
             text = read_text(args.input, {'.md', '.markdown', '.txt'})
             if not text.strip():
-                raise ValueError('The summary file is empty. The existing summary has not been changed.')
+                raise ImportIssue('Summary Couldn’t Be Imported', 'The summary file is empty. The existing summary has not been changed.')
             confirm_replacement(str(working.get('summary', '')).strip(), args.replace_existing)
             path = copy_asset(root, args.input, core, created)
             save_summary(working, text, 'imported', args.input.name)
@@ -578,13 +655,18 @@ def execute(args, root, project, core):
         elif args.command == 'import-ad-audio':
             confirm_replacement(working.get('importedAudioDescription'), args.replace_existing)
             actual = inspect_audio(args.input, core)
+            duration, warnings = duration_of(working), []
+            if duration is None:
+                warnings.append('Video duration is unknown. Audio timing cannot be verified.')
+            elif abs(actual - duration) > ENCODER_PADDING_TOLERANCE:
+                warnings.append(f'Imported audio is {duration_label(actual)}. Video is {duration_label(duration)}. '
+                                + ('Only the video-length portion is used.' if actual > duration else 'The remaining time is padded with silence.'))
+            if warnings:
+                confirm_warning(args, 'ad-audio-duration', 'Audio Timing Warning', warnings[0],
+                                context=[str(args.input), args.input.stat().st_mtime_ns])
             path = copy_asset(root, args.input, core, created)
             working['importedAudioDescription'] = dict(path=path, mode=args.audio_mode, duration=actual, sourceName=args.input.name)
             invalidate_exports(working)
-            duration, warnings = duration_of(working), []
-            if duration and abs(actual - duration) > ENCODER_PADDING_TOLERANCE:
-                warnings.append(f'Imported audio is {actual:.3f}s; video is {duration:.3f}s. '
-                                + ('Only the video-length portion is used.' if actual > duration else 'The remaining time is padded with silence.'))
             report = report_for(working, 'adAudio', args.input, [dict(path=path)], warnings=warnings)
         elif args.command == 'import-segment-narration':
             report = import_segment_audio(args, root, working, core, created, superseded)
