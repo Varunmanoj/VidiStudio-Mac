@@ -31,6 +31,7 @@ enum OnlineRequirements {
     static let geminiCommands: Set<String> = ["translate-results", "transcribe", "generate-summary", "generate-ad-cues", "analyze", "regenerate-all", "reanalyze-segment", "reanalyze-transcript-segment", "rewrite-cue", "capture-frame", "check-api-key", "list-models", "list-voices", "validate-config", "align-imported-text", "prepare-analysis-video", "check-video-availability"]
     static let videoAICommands: Set<String> = ["analyze", "regenerate-all", "analyze-video", "transcribe", "generate-summary",
         "generate-ad-cues", "reanalyze-segment", "reanalyze-transcript-segment"]
+    static let privateYouTubeAnalysisCommands = videoAICommands.union(["capture-frame", "prepare-analysis-video", "check-video-availability"])
     static let narrationCommands: Set<String> = ["synthesize-tts", "synthesize-speech", "preview-tts", "synthesize-changed"]
     static func requiresAIConnection(_ command: String, usesGeminiNarration: Bool) -> Bool {
         if narrationCommands.contains(command) { return usesGeminiNarration }

@@ -94,7 +94,7 @@ def validate(source):
     require('Windows/App.xaml.cs', 'library.BringToForeground(restoreMinimized: false);', 'keep minimized All Projects minimized')
     require('Windows/MainWindow.xaml.cs', 'if (IsIconic(hWnd))', 'foreground activation must preserve maximized windows')
     require('Windows/MainWindow.Presentation.cs', 'PrivateYouTubeChannel: null, ActiveLocalYouTubePlaybackPath: null', 'opening saved private projects must not require remote YouTube access')
-    require('Windows/MainWindow.xaml.cs', 'PrivateYouTubeAccessException => "Private YouTube Access Required"', 'remote private-video recovery must name the account problem')
+    require('Windows/MainWindow.xaml.cs', 'PrivateYouTubeAccessException => "Video Unavailable"', 'private-video recovery must show an unsupported-video notice')
     for path, token in (
         ('Mac/SettingsView.swift', 'YouTubeAccountsView()'),
         ('Windows/Views/SettingsDialog.cs', 'new YouTubeAccountsPanel(this)'),

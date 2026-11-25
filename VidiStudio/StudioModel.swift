@@ -351,17 +351,22 @@ struct AIServiceIssue: Equatable, Identifiable {
     var message: String
     var detail: String?
 
-    static func detect(_ rawDetail: String) -> AIServiceIssue? {
+    static func detect(_ rawDetail: String, connection: AIConnection = .developer, failureKind: String? = nil) -> AIServiceIssue? {
+        if failureKind == "private-youtube-video" { return nil }
         let detail = rawDetail.lowercased()
+        if detail.contains("storage.objects.get") && detail.contains("gcp-sa-aiplatform") { return nil }
         if detail.contains("api key not valid") || detail.contains("api_key_invalid")
             || detail.contains("invalid api key") { return nil }
         if detail.contains("quota") || detail.contains("resource_exhausted") || detail.contains("429")
             || detail.contains("billing") || detail.contains("credit") || detail.contains("spend")
             || detail.contains("rate limit") {
+            let guidance = connection == .developer
+                ? "Add billing or credits in Google AI Studio, or wait for the limit to reset, then choose Retry AI."
+                : "Check billing and quota for your Vertex AI connection, then choose Retry AI."
             return AIServiceIssue(
                 kind: .quota,
                 title: "Gemini Usage Limit Reached",
-                message: "Your Gemini key has no remaining quota or credits for AI processing. AI actions are paused. Add billing or credits in Google AI Studio, or wait for the limit to reset, then choose Retry AI.",
+                message: "AI processing reached a usage limit. \(guidance)",
                 detail: rawDetail)
         }
         if detail.contains("503") || detail.contains("service unavailable") || detail.contains("overloaded")
@@ -373,10 +378,11 @@ struct AIServiceIssue: Equatable, Identifiable {
                 detail: rawDetail)
         }
         if detail.contains("permission_denied") || detail.contains("permission denied") {
+            let vertexIssue = UserFacingIssue.vertexAccess(technicalDetails: rawDetail, connection: connection)
             return AIServiceIssue(
                 kind: .access,
-                title: "Gemini AI Access Needs Attention",
-                message: "Gemini refused an AI processing request. Check the key's project permissions and AI Studio access, then retry. AI actions are paused until then.",
+                title: vertexIssue?.title ?? "Gemini AI Access Needs Attention",
+                message: vertexIssue?.message ?? "Check your Gemini key’s project permissions and AI Studio access, then retry.",
                 detail: rawDetail)
         }
         return nil
@@ -1877,12 +1883,9 @@ final class StudioModel {
         return settings.ttsMode != "gemini" || canUseGeminiNarration
     }
     var hasValidApiKey: Bool {
-        if let channel = selected?.privateYouTubeChannel {
-            guard YouTubeService.shared.privateConnection(channel, settings: settings) != nil,
-                  readyAIConnections.contains(.googleSignIn) else { return false }
-        }
         return !readyAIConnections.isEmpty && ConnectivityService.shared.available(.gemini)
     }
+    var canAnalyzeSelectedVideo: Bool { selected?.requiresLocalYouTubePlayback != true && hasValidApiKey }
     func onlineReason(_ command: String, project: StudioProject? = nil, extra: [String] = []) -> String? {
         OnlineRequirements.services(command, project: project ?? selected, settings: settings, extra: extra)
             .compactMap { ConnectivityService.shared.reason($0) }.first
@@ -2945,6 +2948,10 @@ final class StudioModel {
     func checkGeminiApiKey() {
         loadGeminiModels()
     }
+    func retryAIConnection() {
+        if activeAIConnection == .developer { checkGeminiApiKey() }
+        else { execute("vertex-check") }
+    }
     func deleteGeminiApiKey() {
         guard settings.hasApiKey, !busy else { return }
         settings.apiKey = ""
@@ -3104,19 +3111,17 @@ final class StudioModel {
 
     @discardableResult
     func authorizeAIConnection(for command: String, project: StudioProject?) -> Bool {
+        if project?.requiresLocalYouTubePlayback == true, OnlineRequirements.privateYouTubeAnalysisCommands.contains(command) {
+            present(UserFacingIssue(title: "AI Analysis Unavailable", message: YouTubeVideo.privateAnalysisMessage), context: command)
+            return false
+        }
         guard OnlineRequirements.requiresAIConnection(command, usesGeminiNarration: settings.ttsMode == "gemini") else { return true }
         let requiresCloudAnalysis = (project?.referencesCloudVideo == true ||
             (project?.cloudVideo?["size"].flatMap { Int64($0) } ?? 0) > LocalVideoFilePolicy.maximumSizeBytes)
             && OnlineRequirements.videoAICommands.contains(command)
         let narration = OnlineRequirements.narrationCommands.contains(command)
-        if let channel = project?.privateYouTubeChannel,
-           YouTubeService.shared.privateConnection(channel, settings: settings) == nil {
-            present(UserFacingIssue(title: "Google Sign-in Required",
-                                    message: YouTubeVideo.privateVideoMessage), context: command)
-            return false
-        }
         let ready = readyAIConnections.filter {
-            $0.supports(existingBucketVideo: requiresCloudAnalysis || project?.privateYouTubeChannel != nil, narration: narration)
+            $0.supports(existingBucketVideo: requiresCloudAnalysis, narration: narration)
         }
         if ready.contains(activeAIConnection) { return true }
         let fallback = activeAIConnection == .express && ready.contains(.googleSignIn) ? .googleSignIn : ready.first
@@ -3261,7 +3266,9 @@ final class StudioModel {
             completion?(nil)
             return
         }
-        let requestAIConnection = activeAIConnection
+        let requestAIConnection = command == "check-api-key" ? AIConnection.developer : activeAIConnection
+        let usesAIConnection = command == "vertex-check" || OnlineRequirements.services(
+            command, project: target, settings: settings, extra: extra).contains(.gemini)
         var requestConfiguration = configurationURL
         var requestCleanup = [cleanupURL].compactMap { $0 }
         if requestConfiguration == nil, OnlineRequirements.requiresAIConnection(command, usesGeminiNarration: settings.ttsMode == "gemini") {
@@ -3349,7 +3356,12 @@ final class StudioModel {
             "VIDISTUDIO_NETWORK_EVENTS": "1",
             "VIDISTUDIO_YOUTUBE_AVAILABLE": ConnectivityService.shared.available(.youtube) ? "1" : "0",
         ]) { _, new in new }
-        environment["VIDISTUDIO_CLOUD_SUBJECT"] = YouTubeService.shared.cloudSubject
+        environment.removeValue(forKey: "VIDISTUDIO_YOUTUBE_OWNER_SUBJECT")
+        if let index = extra.firstIndex(of: "--youtube-metadata"), extra.indices.contains(index + 1),
+           let data = try? Data(contentsOf: URL(fileURLWithPath: extra[index + 1])),
+           let video = try? JSONDecoder().decode(YouTubeVideo.self, from: data), video.visibility == "private" {
+            environment["VIDISTUDIO_YOUTUBE_OWNER_SUBJECT"] = YouTubeService.shared.privateConnection(video.channelID, settings: settings)?.subject
+        }
         environment.removeValue(forKey: "VIDISTUDIO_VERTEX_KEY")
         if settings.aiProvider == "vertex", settings.vertexAuth == "express", let key = KeychainStore.vertex.read() {
             environment["VIDISTUDIO_VERTEX_KEY"] = key
@@ -3411,6 +3423,7 @@ final class StudioModel {
                        event["networkActive"] == nil, let status = event["message"] as? String {
                         vertexConnectionVerified = command == "vertex-check" && event["vertexModels"] is [[String: Any]] && event["error"] == nil
                         vertexConnectionMessage = vertexConnectionVerified ? "" : status
+                        if vertexConnectionVerified, activeAIConnection == requestAIConnection { aiServiceIssue = nil }
                     }
                     if let buckets = event["cloudBuckets"] as? [String] { cloudBuckets = buckets }
                     if let rows = event["cloudProjects"], let data = try? JSONSerialization.data(withJSONObject: rows),
@@ -3573,12 +3586,15 @@ final class StudioModel {
                     if eventIsError { exportFailed = true }
                     if eventIsError && !connectionWatch.interrupted {
                         let detail = eventMessage ?? "The operation stopped without further details."
-                        if activeAIConnection == requestAIConnection,
-                           OnlineRequirements.services(command, project: target, settings: settings, extra: extra).contains(.gemini),
-                           let aiIssue = AIServiceIssue.detect(detail) {
+                        let failureKind = event["aiFailureKind"] as? String
+                        if usesAIConnection, activeAIConnection == requestAIConnection,
+                           let aiIssue = AIServiceIssue.detect(detail, connection: requestAIConnection, failureKind: failureKind) {
                             aiServiceIssue = aiIssue
                         }
-                        let issue = UserFacingIssue.forEngine(command: command, technicalDetails: detail)
+                        let issue = UserFacingIssue.forEngine(command: command, technicalDetails: detail,
+                                                              connection: usesAIConnection ? requestAIConnection : nil,
+                                                              failureKind: failureKind)
+                        if command == "vertex-check" { vertexConnectionMessage = issue.message }
                         if let payload = event["importIssue"] as? [String: Any],
                            let data = try? JSONSerialization.data(withJSONObject: payload),
                            let notice = try? JSONDecoder().decode(ImportIssueNotice.self, from: data) {
@@ -3608,9 +3624,8 @@ final class StudioModel {
                 exportFailed = true
                 if !isKeyCheck || checkedKey == settings.apiKey.trimmingCharacters(in: .whitespacesAndNewlines) {
                     let detail = error.localizedDescription
-                    if activeAIConnection == requestAIConnection,
-                       OnlineRequirements.services(command, project: target, settings: settings, extra: extra).contains(.gemini),
-                       let aiIssue = AIServiceIssue.detect(detail) {
+                    if usesAIConnection, activeAIConnection == requestAIConnection,
+                       let aiIssue = AIServiceIssue.detect(detail, connection: requestAIConnection) {
                         aiServiceIssue = aiIssue
                     }
                     if (detail.localizedCaseInsensitiveContains("api key not valid") || detail.localizedCaseInsensitiveContains("api_key_invalid") || detail.localizedCaseInsensitiveContains("invalid api key"))
@@ -3621,7 +3636,8 @@ final class StudioModel {
                         geminiModelsLoaded = false
                     }
                     present(
-                        UserFacingIssue.forEngine(command: command, technicalDetails: detail),
+                        UserFacingIssue.forEngine(command: command, technicalDetails: detail,
+                                                  connection: usesAIConnection ? requestAIConnection : nil),
                         technicalDetails: detail,
                         context: "Read \(command) result"
                     )

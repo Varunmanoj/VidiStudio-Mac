@@ -93,6 +93,7 @@ struct ProjectSourcesSettingsView: View {
                 HStack {
                     Button("Export…", systemImage: "square.and.arrow.up") { exporting = true }
                     Button("Open in Editor", systemImage: "pencil") { openWindow(id: "project-editor", value: project.id) }
+                        .disabled(project.requiresLocalYouTubePlayback)
                 }.disabled(model.busy)
                 HStack {
                     Button("Open Project Folder", systemImage: "folder") { if let folder = project.folder { NSWorkspace.shared.open(folder) } }

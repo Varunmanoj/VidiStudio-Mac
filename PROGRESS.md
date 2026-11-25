@@ -4384,3 +4384,47 @@ Both desktops place the active narration provider’s voice and sample controls 
 Installed and launched Mac Release 1.0.422/build 422 at `/Applications/VidiStudio.app`. The app and registered Safari, Share and Finder extensions retained Apple Development team LLVWNNUV26 and report the matching version and build. Spotlight and LaunchServices each found one app. Seven packaged-engine playback tests and 101 paired menu and layout tests passed.
 
 The Windows 11 ARM64 1.0.422.0 installed smoke verified the new section order in light ordinary and dark compact Settings, with one package registration and Start entry.
+
+## 2026-11-25 · Vertex AI permissions and private YouTube diagnosis
+
+The installed Mac 1.0.422 project recorded `403 PERMISSION_DENIED` from Vertex AI after the app's YouTube ownership check. Its attached local video serves playback and export. Generate Transcript submits the YouTube URL, and the alert uses generic Gemini API key guidance even with Vertex Google sign-in selected.
+
+Google Cloud project `vidistudio` has active billing and the required APIs enabled. The signed-in account already has project Owner access, and the Vertex AI service agent's inherited role includes `storage.objects.get`. With the same Google account, live Vertex requests for text, a public YouTube clip, and a synthetic video in the configured private bucket succeeded. The tested private YouTube URL returned 403 on Gemini 3.8 Flash and 3.5 Flash-Lite with `v1beta1`, and on Gemini 3.8 Flash with `v1`. The temporary synthetic object was removed. No IAM, API key, YouTube visibility or desktop app changes were made. The private link is still rejected.
+
+The shared website guide now documents OAuth, project permissions, bucket roles and the original-file workaround. TypeScript, production build, local search and navigation at 1440 and 390 pixels, the stable Exports anchor, and both generated desktop guide feeds passed. Publication is pending.
+
+## 1.0.423 · Vertex AI error guidance · 2026-11-25
+
+When the signed-in Vertex request contains an owner-verified private YouTube URL and Vertex rejects the media with its generic 403, the editor explains how to use the original file or a private Cloud Storage copy. Private YouTube and identified bucket object denials leave AI available for other projects. Connection-wide access guidance distinguishes Gemini Developer API, Vertex Google sign-in and Vertex Express. Retry AI checks the selected connection.
+
+Installed and launched signed Mac Release 1.0.423/build 423. The app and its Share, Safari and Finder extensions retained Apple Development team LLVWNNUV26, matched the installed version and build, and passed PlugInKit registration verification. Spotlight and LaunchServices found one installed app. Generate Transcript on the reported private video reproduced the live Vertex rejection and exposed the new title and recovery text through native accessibility. After dismissing the alert, Generate Transcript was still enabled and the connection-wide Retry AI banner was absent.
+
+The Mac and Windows source suites each passed 32 Vertex and 101 menu/layout tests. The paired Swift and C# error harness passed, including private versus project permission errors, Express key guidance, bucket access, and Developer Mode redaction. Eleven installed Mac engine playback and import tests passed. The legacy extracted import-model harness also fails on the baseline checkout because it omits current model declarations. The configured Apple Xcode MCP tools were absent from the session and require a fresh client session. The repository build and launch script verified the installed app.
+
+The shared guide passed TypeScript, production build, local Chromium search and navigation at desktop and compact widths, and both generated desktop Help feeds. Publication is pending.
+
+## 2026-11-25 · Direct private YouTube access follow-up
+
+Google documents owner-authorized YouTube input as a preview. With the same Google Cloud project, account and Gemini 3.8 Flash model, a live Interactions API request for the reported private URL returned HTTP 403 and a public YouTube control returned HTTP 200. The response gave no narrower denial reason. This reproduces the earlier GenerateContent result through the second documented API. No local attachment was uploaded, and no upload workflow, IAM, visibility or installed app changes were made in this follow-up.
+
+## 1.0.424 · Private YouTube opening and analysis · 2026-11-25
+
+Private YouTube projects disable transcript, summary, descriptions, range re-analysis and frame text through the shared command and engine guards. The guard runs before any provider switch. Text-only tools, narration, imports and playback remain available. Open private videos only through My YouTube Videos or Fetch Details with the same confirmation. The connected YouTube channel verifies ownership independently of the AI provider. No cloud upload was added.
+
+Installed signed Mac 1.0.424/build 424 and verified matching Share, Safari and Finder registrations. In the installed Mac New Project sheet, a live owner-authorized Fetch Details showed the warning. Cancel kept the editor closed, while Open Anyway reused the existing project. The toolbar and native Analysis menu exposed disabled Generate Transcript entries. Direct opening from All Projects was rejected. The live My YouTube Videos route was not exercised on Mac. Windows 11 ARM64 passed installed JumpOnly and YouTubeLayoutOnly smoke tests with synthetic video/account fixtures, including the blocked direct opener and disabled analysis with both providers. The source engine suite passed 40 tests and paired parity passed 101 tests.
+
+## 1.0.425 · Concise private YouTube warnings · 2026-11-25
+
+Blocked openings now display “Private YouTube videos are not supported.” The approved opening confirmation describes only the analysis limitation and retains Cancel and Open Anyway. Account instructions were removed from private-video errors, general inaccessible-link messages, and the earlier Vertex media error. The opening rules and provider guard remain in effect.
+
+Installed and launched signed Mac 1.0.425/build 425. The app and its registered Share, Safari and Finder extensions retained Apple Development team LLVWNNUV26 and match the app version and build. Spotlight and LaunchServices found the single installed app. On the installed Mac, the All Projects direct-open alert exposed the exact unsupported-video wording and OK through accessibility. Paired Swift/C# error presentation, 55 Mac source tests, eight installed engine tests, 40 focused Windows source tests and 101 paired menu and layout tests passed. Installed Windows 11 ARM64 also passed JumpOnly and YouTubeLayoutOnly using fixtures.
+
+The desktop guide passed its production build, TypeScript, local search and navigation at desktop and compact widths, the Exports anchor, and both generated Help feeds. Publication is pending.
+
+## 1.0.426 · Reopen saved private YouTube projects · 2026-11-25
+
+All Projects can reopen a saved private YouTube project after the same Cancel/Open Anyway confirmation used by My YouTube Videos and Fetch Details. The saved project opens without a new YouTube lookup. The editor still offers local playback and saved-result editing, and video analysis remains disabled with every provider.
+
+Built, installed and launched Mac 1.0.426/build 426. Spotlight and LaunchServices found only `/Applications/VidiStudio.app`. The installed app and registered Safari, Share and Finder extensions share version 1.0.426/build 426 and the Apple Development team LLVWNNUV26. In the installed app, using the Open Project accessibility action on the existing “Cyber security course” project showed the warning and focused Cancel. Cancel kept All Projects open. Open Anyway opened the Transcript editor with Generate Transcript disabled and Choose Local Playback Video available. The project had no local playback file selected. Eight packaged-engine tests, paired error presentation checks, menu icon and parity checks, and 101 menu and layout tests passed.
+
+The updated Help guide passed TypeScript, its production build, local navigation and search at desktop and compact widths, the Exports anchor and both generated desktop feeds. Publication is pending.

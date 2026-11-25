@@ -11,7 +11,7 @@ class YouTubeMetadataTests(unittest.TestCase):
         return dict(videoID='jNQXAC9IVRw', title='Video', duration=18.0, visibility='public', liveStatus='none', uploadStatus='processed', **changes)
     def test_private_is_blocked_and_unlisted_is_accepted(self):
         value=self.sample(); value['visibility']='private'
-        with self.assertRaisesRegex(ValueError,'Private Video Cannot Be Opened'): metadata.validate(value, value['videoID'])
+        with self.assertRaisesRegex(ValueError,'Private YouTube videos are not supported'): metadata.validate(value, value['videoID'])
         value['visibility']='unlisted'
         self.assertEqual(metadata.validate(value)['visibility'], 'unlisted')
     def test_private_access_requires_verified_ownership_and_survives_cache_expiry(self):
@@ -24,7 +24,7 @@ class YouTubeMetadataTests(unittest.TestCase):
         self.assertEqual(verified, [('jNQXAC9IVRw', 'owned-channel')])
         metadata.expire(Path('.'), project, now=project['youtubeMetadata']['fetchedAt'] + 31 * 86400)
         self.assertNotIn('youtubeMetadata', project)
-        with self.assertRaisesRegex(ValueError, 'Private Video'):
+        with self.assertRaisesRegex(ValueError, 'Private YouTube videos are not supported'):
             metadata.guard(project)
         metadata.guard(project, owner)
         self.assertEqual(verified[-1], ('jNQXAC9IVRw', 'owned-channel'))
@@ -54,8 +54,28 @@ class YouTubeMetadataTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as folder:
             root=Path(folder); file=root/'metadata.json'; value=self.sample(); value['visibility']='private'; file.write_text(json.dumps(value))
             args=SimpleNamespace(command='import-youtube',url='https://youtu.be/jNQXAC9IVRw',library=root,name=None,duration=0,youtube_metadata=file)
-            with self.assertRaisesRegex(ValueError,'Private Video'), patch.object(parity,'download_youtube_thumbnail',return_value=None): parity.execute(args,None,None,None)
+            with self.assertRaisesRegex(ValueError,'Private YouTube videos are not supported'), patch.object(parity,'download_youtube_thumbnail',return_value=None): parity.execute(args,None,None,None)
             self.assertEqual(list(root.glob('YouTube-*')),[])
+    def test_owner_verified_private_import_requires_open_anyway(self):
+        with tempfile.TemporaryDirectory() as folder:
+            root = Path(folder)
+            details = self.sample(channelID='owned-channel')
+            details['visibility'] = 'private'
+            file = root / 'metadata.json'
+            file.write_text(json.dumps(details))
+            args = SimpleNamespace(command='import-youtube', url='https://youtu.be/jNQXAC9IVRw', library=root,
+                                   name=None, duration=0, youtube_metadata=file, open_private_youtube=False)
+            saved = []
+            core = SimpleNamespace(save=lambda _, p: saved.append(p), emit=lambda *_a, **_k: None)
+            with patch.object(parity.vertex_ai, 'require_private_youtube_owner') as owner:
+                with self.assertRaisesRegex(ValueError, 'Private YouTube videos are not supported'):
+                    parity.execute(args, None, None, core)
+                self.assertFalse(list(root.glob('YouTube-*')))
+                args.open_private_youtube = True
+                parity.execute(args, None, None, core)
+                owner.assert_called_with('jNQXAC9IVRw', 'owned-channel')
+            self.assertEqual(saved[0]['youtubePrivateChannelID'], 'owned-channel')
+
     def test_refresh_preserves_user_project_content(self):
         with tempfile.TemporaryDirectory() as folder:
             root=Path(folder); file=root/'metadata.json'; file.write_text(json.dumps(self.sample()))

@@ -80,6 +80,8 @@ The signed-in New Project browser shows the current Google Cloud project, source
 
 The Vertex AI task pickers on both desktops read the same bundled capability rules. File transcription, speech generation and video understanding have separate choices. The menus retain exact version IDs and disabled empty states.
 
+Start private YouTube projects from My YouTube Videos or Fetch Details in New Project. Saved private projects also reopen from All Projects for local playback and editing. Both desktops share the same native warning, default Cancel and Open Anyway. Screen readers announce the warning and both choices. Analysis, including the Analysis menu, shortcuts and generation buttons, is disabled before provider selection. The editor keeps local playback and saved results available. Connection-wide permission errors for supported sources still identify the active provider.
+
 The Gemini Developer API picker has a Gemini 4 heading on each desktop whenever a compatible model is present.
 
 Open Cloud Videos follows the My YouTube Videos layout. Refresh sits with the source controls, List View and Table View share the Video layout control, and Actions sits beside Open in Editor. List View shows a thumbnail and filename. Table View separates the thumbnail, title, object path, size and modification date into columns. The native Mac table and Windows list with horizontally scrollable columns preserve the selection between layouts. The selected-video details region provides the full Cloud Storage metadata in either layout.
@@ -108,7 +110,7 @@ New Project and direct video opening check the file size before importing. Above
 
 The Cloud and YouTube browsers center the spinner and short status within the video results, with list selection and the action area kept in place. New YouTube projects center the details-fetch spinner in the source card. Cloud imports retain their separate byte progress.
 
-The Actions and video context menus include a checked Select mode on both desktops. List and Table show a checkbox on each video and share one action target. Cloud changes use the selected object’s verified permissions. Open in Editor requires the same owner connected in YouTube Accounts and signed in to Google Cloud for private YouTube videos. The two Settings sections each start their own service-specific Google consent and offer a separate, Cancel-default removal from this device.
+The Actions and video context menus include a checked Select mode on both desktops. List and Table show a checkbox on each video and share one action target. Cloud changes use the selected object’s verified permissions. Private YouTube opening requires the owner connected in YouTube Accounts and confirmation with Open Anyway. The two Settings sections each start their own service-specific Google consent and offer a separate, Cancel-default removal from this device.
 
 New Project’s YouTube source opens My YouTube Videos as a picker attached to the form. Choose Video returns the URL and preview in the same form, preserving audio and caption settings. Escape cancels the picker and returns to New Project. The standalone browser uses Open in Editor.
 

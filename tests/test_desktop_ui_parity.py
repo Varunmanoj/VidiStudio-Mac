@@ -141,7 +141,7 @@ class DesktopUILayoutParityTests(unittest.TestCase):
             ('Windows/App.xaml.cs', 'library.BringToForeground(restoreMinimized: false);', 'keep minimized All Projects'),
             ('Windows/MainWindow.xaml.cs', 'if (IsIconic(hWnd))', 'preserve maximized windows'),
             ('Windows/MainWindow.Presentation.cs', 'PrivateYouTubeChannel: null, ActiveLocalYouTubePlaybackPath: null', 'saved private projects must not require remote YouTube access'),
-            ('Windows/MainWindow.xaml.cs', 'PrivateYouTubeAccessException => "Private YouTube Access Required"', 'private-video recovery'),
+            ('Windows/MainWindow.xaml.cs', 'PrivateYouTubeAccessException => "Video Unavailable"', 'private-video recovery'),
         ):
             with self.subTest(path=path, marker=marker):
                 self.mutated(path, marker, '', expected)

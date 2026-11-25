@@ -68,6 +68,21 @@ class YouTubePlayback(unittest.TestCase):
         self.assertEqual(kinds.count('audio'), audio_tracks)
         self.assertAlmostEqual(float(info['format']['duration']), 4, delta=.06)
 
+    def test_private_video_analysis_is_blocked_before_either_provider_can_run(self):
+        settings = self.project / 'settings.json'
+        saved = self.manifest.read_bytes()
+        for provider in ('developer', 'vertex'):
+            settings.write_text(json.dumps({'aiProvider': provider, 'vertexAuth': 'signin'}), encoding='utf-8')
+            for command in ('analyze', 'transcribe', 'generate-summary', 'generate-ad-cues',
+                            'reanalyze-transcript-segment', 'reanalyze-segment', 'capture-frame'):
+                with self.subTest(provider=provider, command=command):
+                    result = subprocess.run([*ENGINE, command, '--project', str(self.project)],
+                                            env=os.environ | {'VIDISTUDIO_CONFIG': str(settings)},
+                                            capture_output=True, text=True, timeout=45)
+                    self.assertNotEqual(result.returncode, 0)
+                    self.assertIn('Private YouTube video analysis is not supported.', result.stdout)
+                    self.assertEqual(self.manifest.read_bytes(), saved)
+
     def test_attach_export_and_delete(self):
         result = self.run_engine('attach-youtube-playback', '--video', self.original)
         events = [json.loads(line) for line in result.stdout.splitlines()]

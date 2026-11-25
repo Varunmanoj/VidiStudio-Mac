@@ -226,8 +226,10 @@ def execute(args,root,p,e):
                 args, 'duplicate-youtube', 'Project Already Exists',
                 'A project for this YouTube video already exists. Import Anyway creates a separate project. The existing one is unchanged.',
                 diagnostic=str(exc), context=[str(args.library), url])
-        verify_owner = lambda video, channel: vertex_ai.require_private_youtube_owner(e.config(), video, channel)
+        verify_owner = vertex_ai.require_private_youtube_owner
         details = youtube_metadata.read(args.youtube_metadata, ident, verify_owner) if getattr(args, 'youtube_metadata', None) else None
+        if details and details['visibility'] == 'private' and not getattr(args, 'open_private_youtube', False):
+            raise ValueError(youtube_metadata.PRIVATE_MESSAGE)
         if details:
             if not args.name: name = details.get('title') or name
         else:
@@ -248,7 +250,7 @@ def execute(args,root,p,e):
         for path in removed: path.unlink(missing_ok=True)
         return
     if command=='update-youtube-metadata':
-        verify_owner = lambda video, channel: vertex_ai.require_private_youtube_owner(e.config(), video, channel)
+        verify_owner = vertex_ai.require_private_youtube_owner
         details=youtube_metadata.read(args.youtube_metadata, youtube_url(p['youtubeURL']).split('=')[-1], verify_owner)
         previous=p.get('youtubeMetadata') or {}
         for key in ('playlists', 'openedFromPlaylist', 'playlistChannelTitle', 'playlistLookupStatus'):

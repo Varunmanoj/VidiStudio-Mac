@@ -4,8 +4,11 @@ import math
 import time
 from pathlib import Path
 
-PRIVATE_MESSAGE = ('Private Video Cannot Be Opened. Connect the video’s owner in YouTube Accounts '
-                   'and sign in to Google Cloud with the same account, or import the original video file.')
+PRIVATE_MESSAGE = 'Private YouTube videos are not supported.'
+PRIVATE_ANALYSIS_MESSAGE = 'Private YouTube video analysis is not supported.'
+ANALYSIS_COMMANDS = {'analyze', 'regenerate-all', 'analyze-video', 'transcribe', 'generate-summary',
+                     'generate-ad-cues', 'reanalyze-segment', 'reanalyze-transcript-segment', 'capture-frame',
+                     'prepare-analysis-video', 'check-video-availability'}
 FIELDS = ('videoID', 'title', 'description', 'channelID', 'channelTitle', 'duration',
           'visibility', 'publishedAt', 'thumbnailURL', 'captionsAvailable', 'tags',
           'language', 'audioLanguage', 'categoryID', 'embeddable', 'uploadStatus',

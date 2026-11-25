@@ -586,10 +586,6 @@ def ai_stage_label(stage):
 def gemini_client(project=None):
     from google import genai
     cfg = config()
-    if project and youtube_metadata.is_private(project):
-        if cfg.get('aiProvider') != 'vertex' or vertex_ai.express(cfg):
-            raise ValueError(youtube_metadata.PRIVATE_MESSAGE)
-        youtube_metadata.guard(project, lambda video, channel: vertex_ai.require_private_youtube_owner(cfg, video, channel))
     if cfg.get('aiProvider') == 'vertex':
         provider = 'vertex-express' if vertex_ai.express(cfg) else 'vertex-ai'
         client = vertex_ai.client(cfg, project)
@@ -3267,6 +3263,7 @@ def main():
     parser.add_argument('--media-format', choices=VIDEO_EXPORT_FORMATS + AUDIO_EXPORT_FORMATS)
     parser.add_argument('--content',choices=['transcript','summary','descriptions','combined'],default='descriptions'); parser.add_argument('--url'); parser.add_argument('--name'); parser.add_argument('--timestamp',type=float,default=0); parser.add_argument('--duration',type=float); parser.add_argument('--segment'); parser.add_argument('--segments', action='append'); parser.add_argument('--format',choices=['srt','vtt','txt','json','md'],default='srt'); parser.add_argument('--changed',action='store_true'); parser.add_argument('--start-stage',default='transcribe')
     parser.add_argument('--youtube-metadata', type=Path)
+    parser.add_argument('--open-private-youtube', action='store_true')
     parser.add_argument('--caption-provenance', type=Path)
     parser.add_argument('--output', type=Path); parser.add_argument('--text')
     parser.add_argument('--regenerate-all', action='store_true', help='Regenerate every narration segment using the selected voice after explicit confirmation.')
@@ -3421,6 +3418,8 @@ def main():
         language_results.validate_copy_languages(json.loads(args.input.read_text(encoding='utf-8')), translating=args.command == 'translate-results')
     with project_lock(root):
         p=migrate_project_schema(root,json.loads((root/'project.json').read_text()))
+        if args.command in youtube_metadata.ANALYSIS_COMMANDS and youtube_metadata.is_private(p):
+            raise ValueError(youtube_metadata.PRIVATE_ANALYSIS_MESSAGE)
         if args.command in ('inspect-import', 'inspect-original-audio'):
             # Import preflight must not update timestamps or save a migrated manifest.
             dispatch_project(args, root, p)
@@ -3444,5 +3443,5 @@ if __name__=='__main__':
     signal.signal(signal.SIGINT, cancel_processing)
     try: main()
     except Exception as exc:
-        emit(safe_error(exc), error=True, **(audio_sources.error_metadata(exc) | network_activity.error_metadata(exc) | import_assets.error_metadata(exc, safe_error)))
+        emit(safe_error(exc), error=True, **(audio_sources.error_metadata(exc) | network_activity.error_metadata(exc) | import_assets.error_metadata(exc, safe_error) | vertex_ai.error_metadata(exc)))
         sys.exit(1)

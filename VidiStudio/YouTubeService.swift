@@ -51,7 +51,9 @@ struct YouTubeVideo: Codable, Identifiable, Hashable {
             throw YouTubeFailure("This video is live, scheduled, or has not finished processing on YouTube. Try again when a completed video is available.")
         }
     }
-    static let privateVideoMessage = "Private Video Cannot Be Opened. Connect the video’s owner in YouTube Accounts and sign in to Google Cloud with the same account, or import the original video file."
+    static let privateVideoMessage = "Private YouTube videos are not supported."
+    static let privateOpenTitle = "Open Private YouTube Video?"
+    static let privateAnalysisMessage = "Private YouTube video analysis is not supported."
 
     static func parse(_ value: [String: Any]) -> YouTubeVideo {
         let s = value["snippet"] as? [String: Any] ?? [:], c = value["contentDetails"] as? [String: Any] ?? [:]
@@ -94,7 +96,7 @@ enum YouTubeLinkIssue: LocalizedError {
     var errorDescription: String? {
         switch self {
         case .privateVideo: YouTubeVideo.privateVideoMessage
-        case .unavailable: "YouTube couldn’t find an accessible video at this link. Check the URL. For a private video, connect its owner in YouTube Accounts and use the same Google account for Vertex AI."
+        case .unavailable: "YouTube couldn’t find an accessible video at this link. Check the URL."
         }
     }
 }
@@ -372,9 +374,9 @@ struct YouTubeReleaseConfiguration: Decodable {
         return try await jsonURL(url.url!.absoluteString, bearer: bearer)
     }
     func privateConnection(_ channelID: String, settings: StudioSettings) -> YouTubeConnection? {
-        guard settings.vertexConnected, !settings.vertexProject.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
-              !cloudSubject.isEmpty, !channelID.isEmpty else { return nil }
-        return connections.first { $0.subject == cloudSubject && $0.channelID == channelID }
+        guard !channelID.isEmpty else { return nil }
+        if let selected, selected.channelID == channelID { return selected }
+        return connections.first { $0.channelID == channelID }
     }
 
     func projectVideo(_ id: String, privateChannelID: String?, settings: StudioSettings) async throws -> YouTubeVideo {

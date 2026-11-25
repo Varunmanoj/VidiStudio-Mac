@@ -87,7 +87,7 @@ def credentials(project, *, allow_missing_project=False):
 
 def youtube_owner_credentials(channel_id):
     from google.oauth2.credentials import Credentials
-    subject = os.environ.get('VIDISTUDIO_CLOUD_SUBJECT', '')
+    subject = os.environ.get('VIDISTUDIO_YOUTUBE_OWNER_SUBJECT', '')
     if not re.fullmatch(r'[A-Za-z0-9_-]{1,128}', subject) or not re.fullmatch(r'[A-Za-z0-9_-]{1,128}', channel_id or ''):
         raise ValueError(youtube_metadata.PRIVATE_MESSAGE)
     account = f'{subject}:{channel_id}'
@@ -104,9 +104,9 @@ def youtube_owner_credentials(channel_id):
                        scopes=[YOUTUBE_SCOPE])
 
 
-def require_private_youtube_owner(cfg, video_id, channel_id):
+def require_private_youtube_owner(video_id, channel_id):
     from google.auth.transport.requests import AuthorizedSession
-    if not cfg.get('vertexProject', '').strip() or not re.fullmatch(r'[A-Za-z0-9_-]{11}', video_id or ''):
+    if not re.fullmatch(r'[A-Za-z0-9_-]{11}', video_id or ''):
         raise ValueError(youtube_metadata.PRIVATE_MESSAGE)
     try:
         with AuthorizedSession(youtube_owner_credentials(channel_id)) as session:
@@ -170,11 +170,25 @@ def client(cfg, project=None):
         project_id = reference['project'] if reference else cfg.get('vertexProject', '').strip()
         sdk = genai.Client(vertexai=True, credentials=credentials(project_id), project=project_id,
                            location='global', http_options=options)
-    return VertexSession(sdk)
+    private_url = (project or {}).get('youtubeURL') if not express(cfg) and youtube_metadata.is_private(project or {}) else None
+    return VertexSession(sdk, private_youtube_url=private_url)
+
+
+class PrivateYouTubeAnalysisDenied(Exception):
+    code = 403
+
+
+def error_metadata(error):
+    while error is not None:
+        if isinstance(error, PrivateYouTubeAnalysisDenied):
+            return {'aiFailureKind': 'private-youtube-video'}
+        error = error.__cause__
+    return {}
 
 
 class VertexSession:
-    def __init__(self, sdk):
+    def __init__(self, sdk, *, private_youtube_url=None):
+        self.private_youtube_url = private_youtube_url
         self.models = network_activity.ClientProxy(sdk.models)
         self.interactions = self
         self.close = sdk.close
@@ -224,7 +238,14 @@ class VertexSession:
         if response_format:
             config.response_mime_type = response_format['mime_type']
             config.response_json_schema = response_format.get('schema')
-        result = self.models.generate_content(model=model, contents=parts, config=config)
+        try:
+            result = self.models.generate_content(model=model, contents=parts, config=config)
+        except Exception as error:
+            if (self.private_youtube_url and getattr(error, 'code', None) == 403
+                    and getattr(error, 'message', '').strip().rstrip('.').lower() == 'the caller does not have permission'
+                    and any(part.file_data and part.file_data.file_uri == self.private_youtube_url for part in parts)):
+                raise PrivateYouTubeAnalysisDenied(str(error)) from error
+            raise
         return SimpleNamespace(output_text=result.text or '')
 
 

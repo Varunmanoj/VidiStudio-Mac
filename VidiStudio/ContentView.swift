@@ -432,7 +432,7 @@ private struct NewProjectView: View {
             _ = studio.importVideo(at: videoURL, completion: finished)
         case .youtube:
             guard let youtubePreview else { return }
-            studio.openYouTubeVideo(youtubePreview.video, reuseExisting: false, completion: finished)
+            studio.openYouTubeVideo(youtubePreview.video, reuseExisting: false, privateRoute: true, completion: finished)
         }
     }
 
@@ -459,7 +459,7 @@ private struct NewProjectView: View {
         studio.selectedID = project.id
         dismiss()
         DispatchQueue.main.async {
-            openWindow(id: "project-editor", value: project.id)
+            openWindow(id: "project-editor", value: ProjectEditorWindowValue.preferredWindow(project.id, isPrivate: project.requiresLocalYouTubePlayback))
             if chooseYouTubeCaptions { studio.youtubeDetailAction = "youtube-captions"; openWindow(id: "youtube-details") }
         }
     }
@@ -477,6 +477,12 @@ private struct NewProjectView: View {
             guard requestedURL == trimmedYouTubeURL else { return }
             let owner = YouTubeService.shared.privateConnection(preview.video.channelID, settings: studio.settings)
             try preview.video.requireAvailable(allowPrivate: owner != nil)
+            if preview.video.visibility == "private" {
+                studio.openYouTubeVideo(preview.video, privateRoute: true) { project in
+                    if let project { completeCreation(project, combine: false) }
+                }
+                return
+            }
             youtubePreview = preview
             AccessibilityNotification.Announcement("Visibility: \(preview.video.visibility.capitalized)").post()
         } catch {
@@ -1028,27 +1034,29 @@ struct ContentView: View {
     @AppStorage("projectBrowserGrid") private var projectGrid = false
     @AppStorage("projectGridItemSize") private var projectGridItemSize = 180.0
 
-    private func prepareEditor(_ project: StudioProject) -> Bool {
-        if let channel = project.privateYouTubeChannel, YouTubeService.shared.privateConnection(channel, settings: studio.settings) == nil {
-            studio.errorTitle = "Private Video Cannot Be Opened"
+    private func prepareEditor(_ project: StudioProject, fromGallery: Bool = false) -> Bool {
+        guard !studio.busy else { return false }
+        if project.requiresLocalYouTubePlayback && !fromGallery {
+            studio.errorTitle = "Video Unavailable"
             studio.error = YouTubeVideo.privateVideoMessage
             return false
         }
+        if project.requiresLocalYouTubePlayback && !studio.confirmPrivateYouTubeOpen() { return false }
         ProjectOpenHistory.record(project)
         studio.selectedID = project.id
         return true
     }
 
     private func openEditor(_ project: StudioProject) {
-        guard prepareEditor(project) else { return }
+        guard prepareEditor(project, fromGallery: true) else { return }
         // The project ID is the WindowGroup value and therefore its window identity.
         // Reopening the same value activates that editor instead of creating a duplicate.
-        openWindow(id: "project-editor", value: project.id)
+        openWindow(id: "project-editor", value: ProjectEditorWindowValue.preferredWindow(project.id, isPrivate: project.requiresLocalYouTubePlayback))
     }
 
     private func openEditorNewWindow(_ project: StudioProject) {
-        guard !studio.busy else { return }
-        openWindow(id: "project-editor", value: ProjectEditorWindowValue.newWindow(for: project.id))
+        guard prepareEditor(project, fromGallery: true) else { return }
+        openWindow(id: "project-editor", value: ProjectEditorWindowValue.newWindow(for: project.id, privateYouTubeApproved: project.requiresLocalYouTubePlayback))
     }
 
     private func handleSharedURL(_ url: URL) {
@@ -1388,7 +1396,10 @@ struct ProjectEditorWindow: View {
                 )
             }
             Group {
-                if let issue = youtubeOpeningIssue {
+                if let project = studio.selected, project.requiresLocalYouTubePlayback,
+                   !ProjectEditorWindowValue.permitsPrivateProject(windowProjectID, projectID: project.id) {
+                    ContentUnavailableView("Video Unavailable", systemImage: "lock", description: Text(YouTubeVideo.privateVideoMessage))
+                } else if let issue = youtubeOpeningIssue {
                     ContentUnavailableView("YouTube Video Cannot Be Opened", systemImage: "exclamationmark.triangle", description: Text(issue))
                 } else if youtubeOpening {
                     ProgressView("Checking YouTube video availability")
@@ -1575,6 +1586,12 @@ struct ProjectEditorWindow: View {
             if !AppWindowLifetime.hasLibraryWindow { openWindow(id: "studio") }
             studio.reload()
             studio.selectedID = projectID
+            if studio.selected?.requiresLocalYouTubePlayback == true,
+               !ProjectEditorWindowValue.permitsPrivateProject(windowProjectID, projectID: projectID),
+               let windowProjectID {
+                dismissWindow(id: "project-editor", value: windowProjectID)
+                return
+            }
             if let project = studio.selected { ProjectOpenHistory.record(project) }
             editorShortcutActions.youtubeHandler = { action in
                 if action == "youtube-refresh" { studio.youtubeInspectorRefresh = UUID(); showInspector = true }
@@ -1649,12 +1666,12 @@ struct ProjectEditorWindow: View {
     }
 
     private func openProjectInNewWindow(_ project: StudioProject) {
-        guard !studio.busy else { return }
+        guard !studio.busy, !project.requiresLocalYouTubePlayback else { return }
         openWindow(id: "project-editor", value: ProjectEditorWindowValue.newWindow(for: project.id))
     }
 
     private func switchProject(_ project: StudioProject) {
-        guard !studio.busy, !editorShortcutActions.summaryEditing else { return }
+        guard !studio.busy, !editorShortcutActions.summaryEditing, !project.requiresLocalYouTubePlayback else { return }
         guard studio.selectedID != project.id else { return }
         let oldID = studio.selectedID
         studio.reload()
@@ -2084,7 +2101,7 @@ private struct AnalysisVideoStatusView: View {
                         .help(!studio.hasApiKey ? "Enter your Gemini API key in Settings → Gemini to prepare video for analysis" : studio.isApiKeyInvalid ? "Gemini API key is invalid — enter a valid key in Settings → Gemini to prepare video for analysis" : "Prepare video for analysis")
                         .requiresInternet(.gemini)
                         .accessibilityLabel("Prepare video for analysis")
-                        .disabled(studio.busy || !studio.hasValidApiKey)
+                        .disabled(studio.busy || !studio.canAnalyzeSelectedVideo)
                     }
 
                     if video != nil {
@@ -2095,7 +2112,7 @@ private struct AnalysisVideoStatusView: View {
                         .help(!studio.hasApiKey ? "Enter your Gemini API key in Settings → Gemini to check video analysis status" : studio.isApiKeyInvalid ? "Gemini API key is invalid — enter a valid key in Settings → Gemini to check video analysis status" : "Refresh video analysis status")
                         .requiresInternet(.gemini)
                         .accessibilityLabel("Refresh video analysis status")
-                        .disabled(studio.busy || !studio.hasValidApiKey)
+                        .disabled(studio.busy || !studio.canAnalyzeSelectedVideo)
                     }
                 }
                 .frame(maxWidth: .infinity, alignment: .leading)
@@ -2626,8 +2643,8 @@ struct ProjectEditor: View {
         if let action = generationAction {
             Button(action.title, systemImage: action.icon) { studio.execute(action.command) }
                 .accessibilityLabel(action.title)
-                .disabled(studio.busy || !studio.hasValidApiKey || (action.command == "generate-ad-cues" && !project.canGenerateDescriptions))
-                .help(action.title + ". " + (!studio.hasApiKey
+                .disabled(studio.busy || !studio.canAnalyzeSelectedVideo || (action.command == "generate-ad-cues" && !project.canGenerateDescriptions))
+                .help(action.title + ". " + (project.requiresLocalYouTubePlayback ? YouTubeVideo.privateAnalysisMessage : !studio.hasApiKey
                     ? "Enter your Gemini API key in Settings → Gemini to enable this feature"
                     : studio.isApiKeyInvalid
                         ? "Gemini API key is invalid — enter a valid key in Settings → Gemini to enable this feature"
@@ -2701,9 +2718,9 @@ struct ProjectEditor: View {
                             readCurrentFrameText()
                         }
                         .labelStyle(.iconOnly)
-                        .help(!studio.hasApiKey ? "Enter your Gemini API key in Settings → Gemini to read frame text" : studio.isApiKeyInvalid ? "Gemini API key is invalid — enter a valid key in Settings → Gemini to read frame text" : "Extract text from the current video frame")
+                        .help(project.requiresLocalYouTubePlayback ? YouTubeVideo.privateAnalysisMessage : !studio.hasApiKey ? "Enter your Gemini API key in Settings → Gemini to read frame text" : studio.isApiKeyInvalid ? "Gemini API key is invalid — enter a valid key in Settings → Gemini to read frame text" : "Extract text from the current video frame")
                         .requiresInternet(.gemini)
-                        .disabled(studio.busy || !studio.hasValidApiKey)
+                        .disabled(studio.busy || !studio.canAnalyzeSelectedVideo)
                     }
                     if captionControlsAvailable {
                         Menu {
@@ -3027,7 +3044,7 @@ struct ProjectEditor: View {
     }
 
     private func segmentEditor(for row: TranscriptRow) -> some View {
-        let readFrameAction: ((Double) -> Void)? = (tab == "descriptions" || tab == "ad-transcript") && row.isDescription
+        let readFrameAction: ((Double) -> Void)? = !project.requiresLocalYouTubePlayback && (tab == "descriptions" || tab == "ad-transcript") && row.isDescription
             ? { timestamp in readFrameForSegment(at: timestamp) }
             : nil
         return SegmentEditor(
@@ -3045,7 +3062,7 @@ struct ProjectEditor: View {
             capturedScreenText: $segmentScreenText,
             isReadingFrame: readingFrameForSegment,
             readFrame: readFrameAction,
-            canReanalyze: (!row.isDescription || project.canGenerateDescriptions) && !studio.busy && studio.hasValidApiKey,
+            canReanalyze: (!row.isDescription || project.canGenerateDescriptions) && !studio.busy && studio.canAnalyzeSelectedVideo,
             hasApiKey: studio.hasApiKey,
             apiKeyVerified: studio.isApiKeyInvalid ? false : nil,
             reanalyze: { segment, hint in
@@ -4263,6 +4280,7 @@ struct ProjectEditor: View {
         shortcutActions.hasGeneratedTranscript = GeneratedContentComponent.transcript.hasContent(in: project)
         shortcutActions.hasGeneratedSummary = GeneratedContentComponent.summary.hasContent(in: project)
         shortcutActions.youtubeProject = project.isYouTubeURLProject
+        shortcutActions.privateYouTubeProject = project.requiresLocalYouTubePlayback
         shortcutActions.hasApiKey = studio.hasApiKey
         shortcutActions.apiKeyVerified = studio.isApiKeyInvalid ? false : nil
         shortcutActions.geminiNarrationReady = studio.canUseGeminiNarration

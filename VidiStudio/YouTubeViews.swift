@@ -238,7 +238,7 @@ struct VideoBrowserLoadingIndicator: View {
             if let error { Text(error).foregroundStyle(.red) }
         }
         .padding().frame(minWidth: 850, minHeight: 580)
-        .alert("Private Video Cannot Be Opened", isPresented: Binding(get: { error?.hasPrefix("Private Video Cannot Be Opened") == true }, set: { if !$0 { error = nil } })) {
+        .alert("Video Unavailable", isPresented: Binding(get: { error == YouTubeVideo.privateVideoMessage }, set: { if !$0 { error = nil } })) {
             Button("OK") { error = nil }
         } message: { Text(error ?? "") }
 
@@ -394,21 +394,21 @@ struct VideoBrowserLoadingIndicator: View {
                 current.openedFromPlaylist = playlists.first { $0.id == playlist }
                 guard !Task.isCancelled, generation == stamp, service.selectedID == connection.id else { return }
                 try current.requireAvailable(allowPrivate: canOpen(current))
-                if choose, let onChooseVideo {
+                if choose, current.visibility != "private", let onChooseVideo {
                     let preview = await YouTubeProjectPreviewFetcher.selectedVideo(current, account: connection)
                     guard !Task.isCancelled, generation == stamp, service.selectedID == connection.id else { return }
                     onChooseVideo(preview)
                     dismiss()
                     return
                 }
-                studio.openYouTubeVideo(current) { project in
+                studio.openYouTubeVideo(current, privateRoute: true) { project in
                     guard let project else { return }
                     if let onOpenProject {
                         onOpenProject(project)
                         dismiss()
                         return
                     }
-                    openWindow(id: "project-editor", value: project.id)
+                    openWindow(id: "project-editor", value: ProjectEditorWindowValue.preferredWindow(project.id, isPrivate: project.requiresLocalYouTubePlayback))
                     if chooseCaptions { studio.youtubeDetailAction = "youtube-captions"; openWindow(id: "youtube-details") }
                 }
             } catch { if !Task.isCancelled, generation == stamp { self.error = error.localizedDescription } }
@@ -544,13 +544,33 @@ extension StudioModel {
         NSWorkspace.shared.open(url)
     }
 
-    func openYouTubeVideo(_ video: YouTubeVideo, name: String? = nil, reuseExisting: Bool = true, completion: @escaping (StudioProject?) -> Void) {
+    func confirmPrivateYouTubeOpen() -> Bool {
+        let alert = NSAlert()
+        alert.alertStyle = .warning
+        alert.messageText = YouTubeVideo.privateOpenTitle
+        alert.informativeText = YouTubeVideo.privateAnalysisMessage
+        alert.addButton(withTitle: "Cancel").keyEquivalent = "\u{1b}"
+        alert.addButton(withTitle: "Open Anyway")
+        return alert.runModal() == .alertSecondButtonReturn && !busy
+    }
+
+    func openYouTubeVideo(_ video: YouTubeVideo, name: String? = nil, reuseExisting: Bool = true,
+                          privateRoute: Bool = false, completion: @escaping (StudioProject?) -> Void) {
         do {
-            try video.requireAvailable(allowPrivate: YouTubeService.shared.privateConnection(video.channelID, settings: settings) != nil)
-            if reuseExisting, let existing = existingProject(forYouTubeURL: video.url) { selectedID = existing.id; completion(existing); return }
+            let isPrivate = video.visibility == "private"
+            try video.requireAvailable(allowPrivate: privateRoute && YouTubeService.shared.privateConnection(video.channelID, settings: settings) != nil)
+            if isPrivate && !confirmPrivateYouTubeOpen() { completion(nil); return }
+            if reuseExisting || isPrivate, let existing = existingProject(forYouTubeURL: video.url) {
+                if isPrivate != existing.requiresLocalYouTubePlayback {
+                    let metadata = try temporaryYouTubeFile(try JSONEncoder().encode(video), extension: "json")
+                    execute("update-youtube-metadata", extra: ["--youtube-metadata", metadata.path],
+                            project: existing, cleanupURL: metadata, completion: completion)
+                } else { selectedID = existing.id; completion(existing) }
+                return
+            }
             let metadata = try temporaryYouTubeFile(try JSONEncoder().encode(video), extension: "json")
             let nameArgument = name.map { ["--name", $0] } ?? []
-            execute("import-youtube", extra: ["--url", video.url, "--library", settings.libraryPath, "--youtube-metadata", metadata.path] + nameArgument,
+            execute("import-youtube", extra: ["--url", video.url, "--library", settings.libraryPath, "--youtube-metadata", metadata.path] + nameArgument + (isPrivate ? ["--open-private-youtube"] : []),
                     cleanupURL: metadata, completion: completion)
         } catch { self.error = error.localizedDescription; completion(nil) }
     }

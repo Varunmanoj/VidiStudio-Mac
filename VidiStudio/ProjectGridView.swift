@@ -243,11 +243,12 @@ struct AllProjectsActions {
         }
         guard project.integrityPlaceholder != true else { return false }
         switch action {
-        case "open-selected-project", "open-gallery-window", "export": return project.folder != nil
+        case "open-selected-project", "open-gallery-window": return project.folder != nil
+        case "export": return project.folder != nil
         case "delete-content": return project.hasGeneratedContent
         case "prepare-video": return !project.isYouTubeURLProject || ConnectivityService.shared.available(.youtube)
         case "analyze", "transcribe", "generate-summary", "generate-ad-cues":
-            return studio.hasValidApiKey
+            return !project.requiresLocalYouTubePlayback && studio.hasValidApiKey
                 && ConnectivityService.shared.available(.gemini) && (action != "generate-ad-cues" || project.canGenerateDescriptions)
         default: return false
         }

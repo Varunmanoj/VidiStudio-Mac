@@ -15,6 +15,29 @@ import vertex_ai
 
 
 class VertexCloudTests(unittest.TestCase):
+    def test_vertex_marks_only_the_private_youtube_media_denial(self):
+        from google.genai.errors import ClientError
+
+        url = 'https://www.youtube.com/watch?v=jNQXAC9IVRw'
+        private = {'type': 'video', 'uri': url, 'mime_type': 'video/mp4'}
+        sdk = Mock()
+        session = vertex_ai.VertexSession(sdk, private_youtube_url=url)
+        generic = 'The caller does not have permission'
+        for source, reason, failure_kind in (
+            ([private], generic, 'private-youtube-video'),
+            ('Text-only request', generic, None),
+            ([dict(private, uri='gs://bucket/file.mp4')], generic, None),
+            ([private], 'Permission aiplatform.endpoints.predict denied', None),
+        ):
+            with self.subTest(source=source, reason=reason):
+                sdk.models.generate_content.side_effect = ClientError(403, {'error': {
+                    'code': 403, 'status': 'PERMISSION_DENIED', 'message': reason,
+                }})
+                with self.assertRaises(Exception) as result:
+                    session.create(model='model', input=source)
+                self.assertEqual(vertex_ai.error_metadata(result.exception).get('aiFailureKind'), failure_kind)
+                self.assertIn(reason, str(result.exception))
+
     def test_cloud_sign_in_writes_only_the_cloud_credential(self):
         with patch.object(vertex_ai, 'vault') as vault, patch.object(vertex_ai, 'oauth_client', return_value={'client_id': 'test-desktop-client'}):
             vertex_ai.save_google_sign_in('fake-refresh-token')
@@ -25,7 +48,7 @@ class VertexCloudTests(unittest.TestCase):
                     vertex_ai.save_google_sign_in(invalid)
             self.assertEqual(vault.return_value.set_password.call_count, 1)
 
-    def test_private_youtube_requires_the_vertex_account_to_own_the_channel(self):
+    def test_private_youtube_requires_the_connected_account_to_own_the_channel(self):
         details = Mock()
         details.json.return_value = {'items': [{'id': 'jNQXAC9IVRw', 'status': {'privacyStatus': 'private'},
                                                'snippet': {'channelId': 'owner'}}]}
@@ -35,14 +58,14 @@ class VertexCloudTests(unittest.TestCase):
             session = authorized.return_value.__enter__.return_value
             session.get.side_effect = [details, channels, details, channels]
             channels.json.side_effect = [{'items': [{'id': 'other-account'}]}, {'items': [{'id': 'owner'}]}]
-            with self.assertRaisesRegex(ValueError, 'Private Video Cannot Be Opened'):
-                vertex_ai.require_private_youtube_owner(cfg, 'jNQXAC9IVRw', 'owner')
-            vertex_ai.require_private_youtube_owner(cfg, 'jNQXAC9IVRw', 'owner')
+            with self.assertRaisesRegex(ValueError, 'Private YouTube videos are not supported'):
+                vertex_ai.require_private_youtube_owner('jNQXAC9IVRw', 'owner')
+            vertex_ai.require_private_youtube_owner('jNQXAC9IVRw', 'owner')
             credentials.assert_called_with('owner')
 
     def test_cloud_and_youtube_use_separate_scopes_and_vault_entries(self):
         client = {'client_id': 'test-desktop-client', 'client_secret': 'test-secret'}
-        with patch.dict(os.environ, {'VIDISTUDIO_CLOUD_SUBJECT': 'cloud-owner'}), \
+        with patch.dict(os.environ, {'VIDISTUDIO_YOUTUBE_OWNER_SUBJECT': 'cloud-owner'}), \
                 patch.object(vertex_ai, 'vault') as vault, patch.object(vertex_ai, 'oauth_client', return_value=client):
             service_and_account = (('VidiStudio/YouTube/cloud-owner:private-channel', 'YouTube refresh token')
                                    if os.name == 'nt' else ('com.vidistudio.youtube', 'cloud-owner:private-channel'))
@@ -55,7 +78,7 @@ class VertexCloudTests(unittest.TestCase):
             youtube = vertex_ai.youtube_owner_credentials('private-channel')
             self.assertEqual((cloud.refresh_token, cloud.scopes), ('cloud-refresh', [vertex_ai.SCOPE]))
             self.assertEqual((youtube.refresh_token, youtube.scopes), ('youtube-refresh', [vertex_ai.YOUTUBE_SCOPE]))
-            with self.assertRaisesRegex(ValueError, 'Private Video Cannot Be Opened'):
+            with self.assertRaisesRegex(ValueError, 'Private YouTube videos are not supported'):
                 vertex_ai.youtube_owner_credentials('different-channel')
             vertex_ai.disconnect()
             vault.return_value.delete_password.assert_called_once_with(vertex_ai.SERVICE, client['client_id'])

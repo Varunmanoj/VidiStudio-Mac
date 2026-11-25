@@ -104,7 +104,8 @@ final class EditorShortcutActions {
         switch action {
         case "segment-one-play", "segment-one-skip":
             return !playerUnavailable && (!drivesYouTubePlayer || ConnectivityService.shared.available(.youtube))
-        case "segment-one-reanalyze", "segment-one-rewrite": return hasValidApiKey
+        case "segment-one-reanalyze": return hasValidApiKey && !privateYouTubeProject
+        case "segment-one-rewrite": return hasValidApiKey
         case "segment-one-synthesize": return (!ttsUsesGemini || geminiNarrationReady) && (!ttsUsesSarvam || sarvamReady)
         case "segment-one-preview": return audioReady || isPreviewing
         case "segment-one-preview-stop": return isPreviewing
@@ -134,6 +135,7 @@ final class EditorShortcutActions {
     }
 
     var canGenerateDescriptions = false
+    var privateYouTubeProject = false
     var hasNarrationAudio = false
     var hasDescriptions = false
     var descriptionCount = 0
@@ -375,7 +377,7 @@ final class EditorShortcutActions {
         case "undo": return canUndoSegment
         case "redo": return canRedoSegment
         case "reanalyze-selection":
-            guard hasValidApiKey else { return false }
+            guard hasValidApiKey, !privateYouTubeProject else { return false }
             return activeSection == "transcript" || (activeSection == "descriptions" && canGenerateDescriptions)
         case "segment-edit-mode": return segmentEditingAvailable
         case "segment-select-all": return segmentEditMode && segmentCount > 0 && selectedSegmentCount < segmentCount
@@ -387,8 +389,8 @@ final class EditorShortcutActions {
         case "caption-transcript": return captionControlsAvailable && hasTranscriptText
         case "caption-ad-transcript": return captionControlsAvailable && (hasTranscriptText || hasDescriptions)
         case "prepare-video": return !youtubeProject || ConnectivityService.shared.available(.youtube)
-        case "analyze", "transcribe", "generate-summary": return hasValidApiKey
-        case "generate-ad-cues": return hasValidApiKey && canGenerateDescriptions
+        case "analyze", "transcribe", "generate-summary": return hasValidApiKey && !privateYouTubeProject
+        case "generate-ad-cues": return hasValidApiKey && !privateYouTubeProject && canGenerateDescriptions
         case "synthesize-tts":
             if ttsUsesGemini && !geminiNarrationReady { return false }
             if ttsUsesSarvam && !sarvamReady { return false }

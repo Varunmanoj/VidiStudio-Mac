@@ -73,7 +73,28 @@ struct UserFacingIssue: Equatable {
         return UserFacingIssue(title: "Project Already Exists", message: "\(subject) already exists\(name). \(nextStep)")
     }
 
-    static func forEngine(command: String, technicalDetails: String?) -> UserFacingIssue {
+    static func vertexAccess(technicalDetails: String, connection: AIConnection?) -> UserFacingIssue? {
+        let detail = technicalDetails.lowercased()
+        guard detail.contains("permission_denied") || detail.contains("permission denied")
+            || detail.contains("unauthenticated") || detail.hasPrefix("401 ") || detail.hasPrefix("403 ")
+            || detail.contains("api key") else { return nil }
+        switch connection {
+        case .googleSignIn:
+            return UserFacingIssue(title: "Vertex AI Access Needs Attention",
+                                   message: "Check Google sign-in and your Vertex AI permissions for the Cloud project, then try again.")
+        case .express:
+            return UserFacingIssue(title: "Vertex AI Express Access Needs Attention",
+                                   message: "Check your Vertex AI Express API key and its restrictions in Settings → AI, then try again.")
+        default:
+            return nil
+        }
+    }
+
+    static func forEngine(command: String, technicalDetails: String?, connection: AIConnection? = nil,
+                          failureKind: String? = nil) -> UserFacingIssue {
+        if technicalDetails == YouTubeVideo.privateAnalysisMessage || failureKind == "private-youtube-video" {
+            return UserFacingIssue(title: "AI Analysis Unavailable", message: YouTubeVideo.privateAnalysisMessage)
+        }
         if (command == "import-video" || command == "import-youtube"),
            technicalDetails == "This project already exists. Please continue with the existing project or delete the existing project before continuing." {
             return duplicateProject(isYouTube: command == "import-youtube")
@@ -118,12 +139,15 @@ struct UserFacingIssue: Equatable {
             return UserFacingIssue(title: "Attachment Changed", message: message)
         }
         if let message = technicalDetails, message == YouTubeVideo.privateVideoMessage {
-            return UserFacingIssue(title: "YouTube Account Access Required", message: message)
+            return UserFacingIssue(title: "Video Unavailable", message: message)
         }
         let detail = technicalDetails?.lowercased() ?? ""
         if detail.contains("storage.objects.get") && detail.contains("gcp-sa-aiplatform") {
             return UserFacingIssue(title: "Vertex AI Needs Video Access",
                                    message: "Ask your Google Cloud administrator to grant the Vertex AI service agent read access to this video, then retry.")
+        }
+        if let technicalDetails, let issue = vertexAccess(technicalDetails: technicalDetails, connection: connection) {
+            return issue
         }
         if command == "generate-summary" {
             return UserFacingIssue(title: "Summary Couldn’t Be Created",

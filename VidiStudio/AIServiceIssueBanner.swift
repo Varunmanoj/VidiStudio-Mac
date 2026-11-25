@@ -27,19 +27,19 @@ struct AIServiceIssueBanner: View {
                 Spacer(minLength: 12)
                 HStack(spacing: 8) {
                     Button("Retry AI", systemImage: "arrow.clockwise") {
-                        studio.checkGeminiApiKey()
+                        studio.retryAIConnection()
                     }
                     .controlSize(.small)
                     .disabled(studio.busy)
-                    .help("Check the Gemini key and processing access again. AI actions stay disabled until this succeeds.")
+                    .help("Check the active AI connection again.")
                     .requiresInternet(.gemini)
-                    Button("Gemini Settings…", systemImage: "gearshape") {
+                    Button("AI Settings…", systemImage: "gearshape") {
                         studio.settingsSection = "Gemini"
                         SettingsSectionRequest.request("Gemini")
                         openSettings()
                     }
                     .controlSize(.small)
-                    .help("Open Gemini settings to review the key, plan, and billing or quota information")
+                    .help("Open AI settings to review the active connection.")
                 }
             }
             .padding(.horizontal, 16)
