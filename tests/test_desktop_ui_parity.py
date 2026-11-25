@@ -201,6 +201,8 @@ class DesktopUILayoutParityTests(unittest.TestCase):
                 self.mutated(path, token, '', 'YouTube account, browser or caption control is missing')
         self.mutated('Mac/YouTubeProjectPreview.swift', 'YouTubeService.shared.videoForNewProject(', 'missing(', 'must retain metadata lookup')
         self.mutated('Windows/Views/NewProjectDialog.cs', 'FetchYouTubeDetailsAsync(YouTubeService.Shared.VideoForNewProjectAsync)', 'missing', 'must retain metadata lookup')
+        self.mutated('Mac/YouTubeInspectorInformationView.swift', 'YouTubeService.shared.refreshedProjectVideo(', 'missing(', 'must retain metadata lookup')
+        self.mutated('Windows/MainWindow.YouTube.cs', 'YouTubeService.Shared.RefreshedProjectVideoAsync(', 'missing(', 'must retain metadata lookup')
 
     def test_youtube_link_preview_requires_visibility_and_private_owner_guard(self):
         for path, token in (

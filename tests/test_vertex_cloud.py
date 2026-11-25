@@ -15,23 +15,26 @@ import vertex_ai
 
 
 class VertexCloudTests(unittest.TestCase):
-    def test_vertex_marks_only_the_private_youtube_media_denial(self):
+    def test_vertex_distinguishes_youtube_media_denial_from_provider_permissions(self):
         from google.genai.errors import ClientError
 
         url = 'https://www.youtube.com/watch?v=jNQXAC9IVRw'
         private = {'type': 'video', 'uri': url, 'mime_type': 'video/mp4'}
         sdk = Mock()
-        session = vertex_ai.VertexSession(sdk, private_youtube_url=url)
         generic = 'The caller does not have permission'
-        for source, reason, failure_kind in (
-            ([private], generic, 'private-youtube-video'),
-            ('Text-only request', generic, None),
-            ([dict(private, uri='gs://bucket/file.mp4')], generic, None),
-            ([private], 'Permission aiplatform.endpoints.predict denied', None),
+        for source, restricted_url, is_private, reason, details, failure_kind in (
+            ([private], url, True, generic, [], 'private-youtube-video'),
+            ([private], url, False, generic, [], 'youtube-video-access'),
+            ([private], None, False, generic, [], None),
+            ('Text-only request', url, False, generic, [], None),
+            ([dict(private, uri='gs://bucket/file.mp4')], url, False, generic, [], None),
+            ([private], url, False, 'Permission aiplatform.endpoints.predict denied', [], None),
+            ([private], url, False, generic, [{'reason': 'IAM_PERMISSION_DENIED'}], None),
         ):
-            with self.subTest(source=source, reason=reason):
+            with self.subTest(source=source, restricted_url=restricted_url, private=is_private, reason=reason, details=details):
+                session = vertex_ai.VertexSession(sdk, restricted_youtube_url=restricted_url, private_youtube=is_private)
                 sdk.models.generate_content.side_effect = ClientError(403, {'error': {
-                    'code': 403, 'status': 'PERMISSION_DENIED', 'message': reason,
+                    'code': 403, 'status': 'PERMISSION_DENIED', 'message': reason, 'details': details,
                 }})
                 with self.assertRaises(Exception) as result:
                     session.create(model='model', input=source)

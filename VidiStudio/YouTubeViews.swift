@@ -498,8 +498,7 @@ struct VideoBrowserLoadingIndicator: View {
         guard let url = project.youtubeURL, let id = StudioModel.youtubeVideoID(from: url) else { return }
         loading = true; error = nil; defer { loading = false }
         do {
-            let value = try await YouTubeService.shared.projectVideo(id, privateChannelID: project.privateYouTubeChannel, settings: studio.settings)
-            try value.requireAvailable(allowPrivate: project.privateYouTubeChannel != nil)
+            let value = try await YouTubeService.shared.refreshedProjectVideo(id, project: project, settings: studio.settings)
             video = value
             studio.saveYouTubeMetadata(value, project: project)
         }
@@ -584,7 +583,11 @@ extension StudioModel {
         guard !busy else { return }
         do {
             let file = try temporaryYouTubeFile(try JSONEncoder().encode(video), extension: "json")
-            execute("update-youtube-metadata", extra: ["--youtube-metadata", file.path], project: project, cleanupURL: file)
+            execute("update-youtube-metadata", extra: ["--youtube-metadata", file.path], project: project, cleanupURL: file) { updated in
+                if updated?.requiresLocalYouTubePlayback == true, !project.requiresLocalYouTubePlayback, self.selectedID == project.id {
+                    self.youtubeRefreshApprovedProjectID = project.id
+                }
+            }
         } catch { self.error = error.localizedDescription }
     }
     func importYouTubeCaption(_ data: Data, caption: YouTubeCaption, project: StudioProject, replace: Bool) {

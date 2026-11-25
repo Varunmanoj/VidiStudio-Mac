@@ -302,8 +302,9 @@ def validate(source):
         ('Windows/Views/NewProjectDialog.cs', 'FetchYouTubeDetailsAsync(YouTubeService.Shared.VideoForNewProjectAsync)'),
         ('Mac/ProjectSourcesSettingsView.swift', 'Button("YouTube Details & Captions…"'),
         ('Windows/Views/ProjectSourcesSettingsControl.cs', 'Action("YouTube Details & Captions…", "youtube-captions")'),
-        ('Mac/YouTubeViews.swift', 'YouTubeService.shared.projectVideo('),
-        ('Windows/MainWindow.YouTube.cs', 'YouTubeService.Shared.ProjectVideoAsync(id, project.PrivateYouTubeChannel, Model.Settings)'),
+        ('Mac/YouTubeViews.swift', 'YouTubeService.shared.refreshedProjectVideo('),
+        ('Mac/YouTubeInspectorInformationView.swift', 'YouTubeService.shared.refreshedProjectVideo('),
+        ('Windows/MainWindow.YouTube.cs', 'YouTubeService.Shared.RefreshedProjectVideoAsync(id, project, Model.Settings)'),
     ]:
         require(path, action, 'linked YouTube videos must retain metadata lookup and details')
     for path, action in (

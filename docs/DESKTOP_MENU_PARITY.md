@@ -117,7 +117,7 @@ YouTube commands: File > My YouTube Videos…; Project > YouTube > Video Details
 
 YouTube browser commands now have a dedicated YouTube menu and selected-video editor/browser actions. Shortcuts: Cmd/Ctrl+Option/Alt+Y (videos), +Shift+Y (accounts); Cmd/Ctrl+Return (editor), +Shift+Return (YouTube); Cmd/Ctrl+R (refresh); Cmd/Ctrl+Option/Alt+L (more videos), +Shift+L (more playlists). Browser actions are guarded by the focused browser and selection.
 
-Project > YouTube > Refresh YouTube Details (stable ID youtube-refresh) now refreshes the inspector and saved project metadata directly. The inspector button shares that action. Video Details and caption import remain separate commands.
+Project > YouTube > Refresh YouTube Details (stable ID youtube-refresh) now refreshes the inspector and saved project metadata directly. The inspector button shares that action. Both routes can refresh a video that has become private through its connected owning channel. Video Details and caption import remain separate commands.
 
 YouTube > List View/Table View change the remembered YouTube browser layout. File > Open in YouTube and YouTube > Open in YouTube share youtube-open-browser and resolve the focused YouTube browser selection, otherwise the selected/current imported YouTube project. Project context menus and inspector use the same saved canonical URL.
 

@@ -4428,3 +4428,29 @@ All Projects can reopen a saved private YouTube project after the same Cancel/Op
 Built, installed and launched Mac 1.0.426/build 426. Spotlight and LaunchServices found only `/Applications/VidiStudio.app`. The installed app and registered Safari, Share and Finder extensions share version 1.0.426/build 426 and the Apple Development team LLVWNNUV26. In the installed app, using the Open Project accessibility action on the existing “Cyber security course” project showed the warning and focused Cancel. Cancel kept All Projects open. Open Anyway opened the Transcript editor with Generate Transcript disabled and Choose Local Playback Video available. The project had no local playback file selected. Eight packaged-engine tests, paired error presentation checks, menu icon and parity checks, and 101 menu and layout tests passed.
 
 The updated Help guide passed TypeScript, its production build, local navigation and search at desktop and compact widths, the Exports anchor and both generated desktop feeds. Publication is pending.
+
+## 1.0.427 · Consistent private YouTube analysis status · 2026-11-25
+
+Transcript, Summary, and Descriptions show “Private YouTube video analysis is not supported.” for private projects. The editor status, inspector, toolbar and guard use the same wording with every provider. A matching, generic Vertex 403 on a non-public or unclassified YouTube URL shows a project media access alert without disabling the AI connection. Explicit provider and Cloud Storage access errors retain their own guidance.
+
+Built, installed, and launched Mac 1.0.427/build 427. Spotlight and LaunchServices found only `/Applications/VidiStudio.app`. The app and registered Safari, Share, and Finder extensions match the version and retain Apple Development team LLVWNNUV26. Native accessibility checks opened an isolated private fixture and confirmed the status, disabled generation, and consistent inspector help on all three tabs. The fixture was removed from the library after the check. Paired Swift/C# presentation tests, 55 source-engine tests, eight installed-engine tests, and 101 menu and layout parity tests passed. The reported project’s saved details showed Unlisted. The fix was verified using simulated provider denials without running live analysis on that video.
+
+## 1.0.428 · Refresh private YouTube details in the editor · 2026-11-25
+
+Refresh YouTube Details can resolve a private video through the connected owning channel when the saved public or unlisted visibility has changed. A verified refresh updates the saved details and keeps the current editor open. The Project menu reveals and expands YouTube Information. Private video analysis stays disabled.
+
+Built, installed and launched Mac 1.0.428/build 428. Spotlight and LaunchServices found one `/Applications/VidiStudio.app`. The app and registered Safari, Share and Finder extensions matched build 428 and retained Apple Development team LLVWNNUV26. The actual “Cyber security course” project changed from cached Unlisted to live Private and stayed open. Verified the inspector button and Project menu in the installed app, including opening the inspector from its hidden state, advancing Fetched and retaining enabled local playback. The saved transcript, summary, descriptions, language results, local playback attachment, and project name matched their hashes before the refresh. The AI analysis warning and disabled generation remained visible. The 23 source-engine tests, eight installed-engine tests, paired presentation checks, and 101 menu and layout tests passed.
+
+## 1.0.429 · Private YouTube metadata sign-in guidance · 2026-11-25
+
+The inspector explains that a private metadata refresh needs the owning channel signed in to YouTube Accounts on this device. The same text covers missing owner access during save. A saved private project can open with its local playback file and existing metadata while signed out. The analysis warning remains separate.
+
+Built and installed Mac 1.0.429/build 429. A same-version rebuild temporarily registered the installed Share extension twice. Removed and re-registered the three installed extension paths, then verified a single current registration each for Share, Safari and Finder, with matching build 429 and Apple Development team LLVWNNUV26. Spotlight and LaunchServices found one installed app. In the launched app, a synthetic private project with a local playback copy and an unconnected owner opened after Open Anyway. Refresh showed the exact sign-in message and retained the Fetched value, enabled Play and enabled Refresh controls. Removed the fixture from the library. Paired error presentation, 23 source-engine tests, eight installed-engine tests, and 101 menu and layout tests passed. The Help guide passed locally and is pending publication.
+
+## 1.0.430 · Private YouTube refresh sign-in dialog · 2026-11-25
+
+An explicit refresh with missing owner sign-in shows the same YouTube Sign-In Required dialog on Mac and Windows. The inspector stops loading and retains its saved details. The automatic metadata lookup suppresses the missing-sign-in dialog.
+
+Installed and launched Mac 1.0.430/build 430. Spotlight and LaunchServices found one `/Applications/VidiStudio.app`. The registered Safari, Share and Finder extensions match build 430 and Apple Development team LLVWNNUV26. In the installed Mac app, Refresh YouTube Details on a signed-out private fixture opened the exact sign-in dialog and focused OK. After dismissal the Fetched value, enabled Refresh and enabled local Play controls were visible without an inline sign-in message. Removed the temporary project from the library. Paired error presentation, 101 menu and layout tests, and the Help guide production build and local navigation checks passed.
+
+Eight YouTube playback tests passed against the final installed Mac engine.

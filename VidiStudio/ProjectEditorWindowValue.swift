@@ -17,8 +17,10 @@ enum ProjectEditorWindowValue {
         guard isPrivate else { return projectID }
         return encode(Reference(projectID: projectID, windowID: privateSession, privateApproval: privateSession))
     }
-    static func permitsPrivateProject(_ value: String?, projectID: String) -> Bool {
-        guard let value, let reference = reference(value) else { return false }
+    static func permitsPrivateProject(_ value: String?, projectID: String, refreshedProjectID: String? = nil) -> Bool {
+        guard let value else { return false }
+        if refreshedProjectID == projectID { return Self.projectID(from: value) == projectID }
+        guard let reference = reference(value) else { return false }
         return reference.privateApproval == privateSession && reference.projectID == projectID
     }
     static func replacingProject(in value: String, with projectID: String) -> String {

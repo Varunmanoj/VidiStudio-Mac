@@ -90,10 +90,21 @@ struct UserFacingIssue: Equatable {
         }
     }
 
+    static var privateYouTubeRefreshSignIn: UserFacingIssue {
+        UserFacingIssue(title: "YouTube Sign-In Required", message: YouTubeVideo.privateRefreshSignInMessage)
+    }
+
     static func forEngine(command: String, technicalDetails: String?, connection: AIConnection? = nil,
                           failureKind: String? = nil) -> UserFacingIssue {
+        if command == "update-youtube-metadata", technicalDetails == YouTubeVideo.privateVideoMessage {
+            return .privateYouTubeRefreshSignIn
+        }
         if technicalDetails == YouTubeVideo.privateAnalysisMessage || failureKind == "private-youtube-video" {
             return UserFacingIssue(title: "AI Analysis Unavailable", message: YouTubeVideo.privateAnalysisMessage)
+        }
+        if failureKind == "youtube-video-access" {
+            return UserFacingIssue(title: "AI Analysis Unavailable",
+                                   message: "AI could not access this YouTube video. " + YouTubeVideo.privateAnalysisMessage)
         }
         if (command == "import-video" || command == "import-youtube"),
            technicalDetails == "This project already exists. Please continue with the existing project or delete the existing project before continuing." {

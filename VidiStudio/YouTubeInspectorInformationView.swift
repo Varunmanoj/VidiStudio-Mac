@@ -1,17 +1,16 @@
 import SwiftUI
+import Accessibility
 
 struct YouTubeInspectorInformationView: View {
     @Bindable var studio: StudioModel
     let project: StudioProject
-    @State private var fetched: YouTubeVideo?
     @State private var refreshing = false
     @State private var issue: String?
     @State private var request: Task<Void, Never>?
-    private var details: YouTubeVideo? { fetched ?? project.youtubeMetadata }
     var body: some View {
         InspectorSection("YouTube Information") {
             VStack(alignment: .leading, spacing: 8) {
-                if let video = details {
+                if let video = project.youtubeMetadata {
                     row("YouTube title", video.title)
                     row("Channel", video.channelTitle)
                     row("Visibility", video.visibility.capitalized)
@@ -45,14 +44,17 @@ struct YouTubeInspectorInformationView: View {
                     }
                 }
                 YouTubeProjectLinkButtons(studio: studio, project: project)
-                Button("Refresh YouTube Details") { startRefresh() }.disabled(refreshing || studio.busy)
+                Button("Refresh YouTube Details", systemImage: "arrow.clockwise") { startRefresh() }.disabled(refreshing || studio.busy)
                 if refreshing { HStack { ProgressView().controlSize(.small); Text("Fetching YouTube details…") } }
                 if let issue { Text(issue).foregroundStyle(.red) }
             }.font(.caption)
         }
-        .task(id: project.id) { if details == nil { await refresh() } }
-        .onChange(of: studio.youtubeInspectorRefresh) { _, _ in startRefresh() }
-        .onChange(of: project.youtubeMetadata) { _, _ in fetched = nil }
+        .task(id: project.id) { if project.youtubeMetadata == nil && request == nil { await refresh() } }
+        .onChange(of: studio.youtubeInspectorRefresh, initial: true) { _, projectID in
+            guard projectID == project.id else { return }
+            studio.youtubeInspectorRefresh = nil
+            startRefresh()
+        }
         .onDisappear { request?.cancel() }
     }
     private func row(_ label: String, _ value: String) -> some View {
@@ -65,19 +67,28 @@ struct YouTubeInspectorInformationView: View {
         return parsed?.formatted(date: .abbreviated, time: .shortened) ?? (value.isEmpty ? "Unavailable" : value)
     }
     private func language(_ value: String?) -> String { value.flatMap { Locale.current.localizedString(forIdentifier: $0) } ?? value ?? "Unavailable" }
-    private func startRefresh() { guard !refreshing else { return }; request = Task { await refresh() } }
-    private func refresh() async {
+    private func startRefresh() {
+        guard !refreshing, request == nil else { return }
+        request = Task { await refresh(showPrivateSignInDialog: true); request = nil }
+    }
+    private func refresh(showPrivateSignInDialog: Bool = false) async {
         guard let id = project.youtubeURL.flatMap(StudioModel.youtubeVideoID), !refreshing else { return }
         refreshing = true; issue = nil; defer { refreshing = false }
         do {
-            let value = try await YouTubeService.shared.projectVideo(id, privateChannelID: project.privateYouTubeChannel, settings: studio.settings)
-            try value.requireAvailable(allowPrivate: project.privateYouTubeChannel != nil)
+            let value = try await YouTubeService.shared.refreshedProjectVideo(id, project: project, settings: studio.settings)
             try Task.checkCancellation()
-            fetched = value
             while studio.busy { try await Task.sleep(for: .milliseconds(100)); try Task.checkCancellation() }
             guard studio.selectedID == project.id else { return }
             studio.saveYouTubeMetadata(value, project: project)
-        } catch is CancellationError {} catch { issue = error.localizedDescription }
+        } catch YouTubeLinkIssue.privateRefreshSignIn {
+            if showPrivateSignInDialog, !Task.isCancelled, studio.selectedID == project.id {
+                refreshing = false
+                studio.present(.privateYouTubeRefreshSignIn, context: "Refresh YouTube details")
+            }
+        } catch is CancellationError {} catch {
+            issue = error.localizedDescription
+            AccessibilityNotification.Announcement(error.localizedDescription).post()
+        }
     }
 }
 

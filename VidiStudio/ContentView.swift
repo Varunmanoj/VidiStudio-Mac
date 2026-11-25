@@ -1282,6 +1282,7 @@ struct ProjectEditorWindow: View {
     @State private var youtubeOpening = false
     @State private var youtubeOpeningIssue: String?
     @State private var showInspector = true
+    @AppStorage("inspectorSection.YouTube Information.expanded") private var youtubeInspectorExpanded = true
     @State private var showingExportDialog = false
     @State private var renamingProject = false
     @State private var renamingTarget: StudioProject?
@@ -1397,7 +1398,7 @@ struct ProjectEditorWindow: View {
             }
             Group {
                 if let project = studio.selected, project.requiresLocalYouTubePlayback,
-                   !ProjectEditorWindowValue.permitsPrivateProject(windowProjectID, projectID: project.id) {
+                   !ProjectEditorWindowValue.permitsPrivateProject(windowProjectID, projectID: project.id, refreshedProjectID: studio.youtubeRefreshApprovedProjectID) {
                     ContentUnavailableView("Video Unavailable", systemImage: "lock", description: Text(YouTubeVideo.privateVideoMessage))
                 } else if let issue = youtubeOpeningIssue {
                     ContentUnavailableView("YouTube Video Cannot Be Opened", systemImage: "exclamationmark.triangle", description: Text(issue))
@@ -1452,7 +1453,7 @@ struct ProjectEditorWindow: View {
         .safeAreaInset(edge: .top, spacing: 0) {
             VStack(spacing: 0) {
                 ConnectivityBanner()
-                AIServiceIssueBanner(studio: studio)
+                AIServiceIssueBanner(studio: studio, showsProjectStatus: true)
                 ActiveExportProgressView()
                 DeletionProgressBanner()
                 CloudImportProgressBanner()
@@ -1587,15 +1588,18 @@ struct ProjectEditorWindow: View {
             studio.reload()
             studio.selectedID = projectID
             if studio.selected?.requiresLocalYouTubePlayback == true,
-               !ProjectEditorWindowValue.permitsPrivateProject(windowProjectID, projectID: projectID),
+               !ProjectEditorWindowValue.permitsPrivateProject(windowProjectID, projectID: projectID, refreshedProjectID: studio.youtubeRefreshApprovedProjectID),
                let windowProjectID {
                 dismissWindow(id: "project-editor", value: windowProjectID)
                 return
             }
             if let project = studio.selected { ProjectOpenHistory.record(project) }
             editorShortcutActions.youtubeHandler = { action in
-                if action == "youtube-refresh" { studio.youtubeInspectorRefresh = UUID(); showInspector = true }
-                else { studio.youtubeDetailAction = action; studio.showingYouTubeDetails = true }
+                if action == "youtube-refresh" {
+                    studio.youtubeInspectorRefresh = studio.selectedID
+                    youtubeInspectorExpanded = true
+                    showInspector = true
+                } else { studio.youtubeDetailAction = action; studio.showingYouTubeDetails = true }
             }
             studio.refreshProjectIntegrity(for: projectID)
             openProjects.open(projectID, name: studio.selected?.name ?? "Project", folder: studio.selected?.folder, owner: windowOwner, actions: editorShortcutActions)
@@ -1610,15 +1614,12 @@ struct ProjectEditorWindow: View {
             guard let project = studio.selected, project.isYouTubeURLProject, let id = project.youtubeURL.flatMap(StudioModel.youtubeVideoID) else { youtubeOpeningIssue = nil; return }
             youtubeOpeningIssue = nil
             // Avoid an automatic second ownership check and write when opening a saved private project.
-            // Explicit refresh and AI analysis still revalidate the connected account.
+            // Explicit metadata refresh still revalidates the connected account.
             if project.privateYouTubeChannel == nil, project.activeLocalYouTubePlaybackURL != nil {
                 youtubeOpening = false
                 return
             }
-            if let channel = project.privateYouTubeChannel, project.youtubeMetadata != nil {
-                if YouTubeService.shared.privateConnection(channel, settings: studio.settings) == nil {
-                    youtubeOpeningIssue = YouTubeVideo.privateVideoMessage
-                }
+            if project.requiresLocalYouTubePlayback {
                 youtubeOpening = false
                 return
             }
@@ -1632,6 +1633,9 @@ struct ProjectEditorWindow: View {
                 if !Task.isCancelled { youtubeOpeningIssue = error.localizedDescription }
             }
             youtubeOpening = false
+        }
+        .onChange(of: studio.selected?.youtubeMetadata?.fetchedAt) { _, fetchedAt in
+            if fetchedAt != nil { youtubeOpeningIssue = nil }
         }
         .task(id: projectID) {
             while !Task.isCancelled {
@@ -1676,6 +1680,8 @@ struct ProjectEditorWindow: View {
         let oldID = studio.selectedID
         studio.reload()
         guard let target = studio.projects.first(where: { $0.id == project.id }) else { return }
+        studio.youtubeRefreshApprovedProjectID = nil
+        studio.youtubeInspectorRefresh = nil
         if let oldID, oldID != target.id { openProjects.close(oldID, owner: windowOwner) }
         studio.selectedID = target.id
         ProjectOpenHistory.record(target)
@@ -1850,7 +1856,9 @@ struct ProcessingInspector: View {
                                         }
                                         .frame(maxWidth: .infinity, alignment: .leading)
                                         .disabled(!editorActions.canRun(action))
-                                        .help(!studio.hasApiKey && action != "prepare-video"
+                                        .help(p.requiresLocalYouTubePlayback && OnlineRequirements.privateYouTubeAnalysisCommands.contains(action)
+                                            ? YouTubeVideo.privateAnalysisMessage
+                                            : !studio.hasApiKey && action != "prepare-video"
                                             ? "Enter your Gemini API key in Settings → Gemini to enable this feature"
                                             : studio.isApiKeyInvalid && action != "prepare-video"
                                                 ? "Gemini API key is invalid — enter a valid key in Settings → Gemini to enable this feature"

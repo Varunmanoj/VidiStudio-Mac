@@ -54,6 +54,7 @@ struct YouTubeVideo: Codable, Identifiable, Hashable {
     static let privateVideoMessage = "Private YouTube videos are not supported."
     static let privateOpenTitle = "Open Private YouTube Video?"
     static let privateAnalysisMessage = "Private YouTube video analysis is not supported."
+    static let privateRefreshSignInMessage = "Sign in to the owning channel in YouTube Accounts on this device to refresh this private video."
 
     static func parse(_ value: [String: Any]) -> YouTubeVideo {
         let s = value["snippet"] as? [String: Any] ?? [:], c = value["contentDetails"] as? [String: Any] ?? [:]
@@ -91,11 +92,13 @@ struct YouTubeFailure: LocalizedError {
 
 enum YouTubeLinkIssue: LocalizedError {
     case privateVideo
+    case privateRefreshSignIn
     case unavailable
 
     var errorDescription: String? {
         switch self {
         case .privateVideo: YouTubeVideo.privateVideoMessage
+        case .privateRefreshSignIn: YouTubeVideo.privateRefreshSignInMessage
         case .unavailable: "YouTube couldn’t find an accessible video at this link. Check the URL."
         }
     }
@@ -312,7 +315,7 @@ struct YouTubeReleaseConfiguration: Decodable {
     }
     private func bearer(_ id: String) async throws -> String {
         if let value = access[id], value.1 > Date() { return value.0 }
-        guard let refresh = credential(id).read() else { throw YouTubeFailure("Sign in to this YouTube account again.") }
+        guard let refresh = credential(id).read() else { throw YouTubeFailure("Sign in to this YouTube account again.", accessExpired: true) }
         let result: [String: Any]
         do { result = try await token(["client_id": configuration.clientID, "client_secret": configuration.clientSecret, "refresh_token": refresh, "grant_type": "refresh_token", "scope": Self.youtubeScope]) }
         catch let error as YouTubeFailure where error.accessExpired {
@@ -321,7 +324,7 @@ struct YouTubeReleaseConfiguration: Decodable {
             }
             throw error
         }
-        guard let token = result["access_token"] as? String else { throw YouTubeFailure("Sign in to this YouTube account again.") }
+        guard let token = result["access_token"] as? String else { throw YouTubeFailure("Sign in to this YouTube account again.", accessExpired: true) }
         guard connections.contains(where: { $0.id == id }) else { throw CancellationError() }
         access[id] = (token, Date().addingTimeInterval(max(0, (result["expires_in"] as? Double ?? 3600) - 60)))
         return token
@@ -358,7 +361,7 @@ struct YouTubeReleaseConfiguration: Decodable {
             let code = reason?.first?["reason"] as? String ?? ""
             if ["quotaExceeded", "dailyLimitExceeded"].contains(code) { throw YouTubeFailure("VidiStudio’s YouTube allowance has been reached. Try again later.") }
             if status == 404 { throw YouTubeFailure("YouTube information was not found.", httpStatus: 404) }
-            if status == 401 { throw YouTubeFailure("Google access has expired. Sign in again from YouTube Accounts.") }
+            if status == 401 { throw YouTubeFailure("Google access has expired. Sign in again from YouTube Accounts.", httpStatus: 401) }
             if status == 403 { throw YouTubeFailure("YouTube did not allow this request. Check that the selected account can access or edit this video and has granted the requested permission.") }
             throw YouTubeFailure("YouTube information is unavailable. Check your connection, video, and account permissions.")
         }
@@ -393,7 +396,21 @@ struct YouTubeReleaseConfiguration: Decodable {
         return result
     }
 
-    func videoForNewProject(_ id: String, settings: StudioSettings) async throws -> YouTubeVideo {
+    func refreshedProjectVideo(_ id: String, project: StudioProject, settings: StudioSettings) async throws -> YouTubeVideo {
+        do {
+            if let channel = project.privateYouTubeChannel {
+                return try await projectVideo(id, privateChannelID: channel, settings: settings)
+            }
+            return try await videoForNewProject(id, settings: settings, knownChannelID: project.youtubeMetadata?.channelID)
+        } catch YouTubeLinkIssue.privateVideo {
+            throw YouTubeLinkIssue.privateRefreshSignIn
+        } catch let error as YouTubeFailure where error.message == YouTubeVideo.privateVideoMessage
+            || (project.requiresLocalYouTubePlayback && (error.accessExpired || error.httpStatus == 401)) {
+            throw YouTubeLinkIssue.privateRefreshSignIn
+        }
+    }
+
+    func videoForNewProject(_ id: String, settings: StudioSettings, knownChannelID: String? = nil) async throws -> YouTubeVideo {
         do {
             let result = try await video(id)
             if result.visibility == "private" {
@@ -404,6 +421,15 @@ struct YouTubeReleaseConfiguration: Decodable {
             return result
         } catch let error as YouTubeFailure where error.httpStatus == 404 {
             // Missing public metadata can also mean the link is private.
+        }
+
+        if let knownChannelID, !knownChannelID.isEmpty {
+            guard privateConnection(knownChannelID, settings: settings) != nil else { throw YouTubeLinkIssue.unavailable }
+            do {
+                return try await projectVideo(id, privateChannelID: knownChannelID, settings: settings)
+            } catch let error as YouTubeFailure where error.httpStatus == 404 {
+                throw YouTubeLinkIssue.unavailable
+            }
         }
 
         var accounts = connections.filter {

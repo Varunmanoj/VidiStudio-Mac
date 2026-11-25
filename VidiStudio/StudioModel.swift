@@ -352,7 +352,8 @@ struct AIServiceIssue: Equatable, Identifiable {
     var detail: String?
 
     static func detect(_ rawDetail: String, connection: AIConnection = .developer, failureKind: String? = nil) -> AIServiceIssue? {
-        if failureKind == "private-youtube-video" { return nil }
+        if failureKind == "private-youtube-video" || failureKind == "youtube-video-access"
+            || rawDetail == YouTubeVideo.privateAnalysisMessage { return nil }
         let detail = rawDetail.lowercased()
         if detail.contains("storage.objects.get") && detail.contains("gcp-sa-aiplatform") { return nil }
         if detail.contains("api key not valid") || detail.contains("api_key_invalid")
@@ -1652,7 +1653,8 @@ final class StudioModel {
     var showingYouTubeBrowser = false
     var showingYouTubeDetails = false
     var youtubeDetailAction = "youtube-details"
-    var youtubeInspectorRefresh = UUID()
+    var youtubeInspectorRefresh: String?
+    var youtubeRefreshApprovedProjectID: String?
     static let defaultErrorTitle = "VidiStudio Couldn’t Finish"
     var projects: [StudioProject] = []
     var projectManagementRequest: ProjectManagementRequest?

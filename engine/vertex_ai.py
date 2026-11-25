@@ -170,25 +170,33 @@ def client(cfg, project=None):
         project_id = reference['project'] if reference else cfg.get('vertexProject', '').strip()
         sdk = genai.Client(vertexai=True, credentials=credentials(project_id), project=project_id,
                            location='global', http_options=options)
-    private_url = (project or {}).get('youtubeURL') if not express(cfg) and youtube_metadata.is_private(project or {}) else None
-    return VertexSession(sdk, private_youtube_url=private_url)
+    source = project or {}
+    private = youtube_metadata.is_private(source)
+    visibility = (source.get('youtubeMetadata') or {}).get('visibility')
+    restricted_url = source.get('youtubeURL') if private or visibility != 'public' else None
+    return VertexSession(sdk, restricted_youtube_url=restricted_url, private_youtube=private)
 
 
-class PrivateYouTubeAnalysisDenied(Exception):
+class YouTubeAnalysisDenied(Exception):
     code = 403
+
+    def __init__(self, message, *, private):
+        super().__init__(message)
+        self.failure_kind = 'private-youtube-video' if private else 'youtube-video-access'
 
 
 def error_metadata(error):
     while error is not None:
-        if isinstance(error, PrivateYouTubeAnalysisDenied):
-            return {'aiFailureKind': 'private-youtube-video'}
+        if isinstance(error, YouTubeAnalysisDenied):
+            return {'aiFailureKind': error.failure_kind}
         error = error.__cause__
     return {}
 
 
 class VertexSession:
-    def __init__(self, sdk, *, private_youtube_url=None):
-        self.private_youtube_url = private_youtube_url
+    def __init__(self, sdk, *, restricted_youtube_url=None, private_youtube=False):
+        self.restricted_youtube_url = restricted_youtube_url
+        self.private_youtube = private_youtube
         self.models = network_activity.ClientProxy(sdk.models)
         self.interactions = self
         self.close = sdk.close
@@ -241,10 +249,15 @@ class VertexSession:
         try:
             result = self.models.generate_content(model=model, contents=parts, config=config)
         except Exception as error:
-            if (self.private_youtube_url and getattr(error, 'code', None) == 403
+            # An opaque denial on the submitted YouTube URI does not establish its current visibility.
+            # Keep errors with a structured permission reason on the provider or bucket path.
+            details = getattr(error, 'details', None)
+            provider_error = details.get('error', {}) if isinstance(details, dict) else {}
+            if (self.restricted_youtube_url and getattr(error, 'code', None) == 403
                     and getattr(error, 'message', '').strip().rstrip('.').lower() == 'the caller does not have permission'
-                    and any(part.file_data and part.file_data.file_uri == self.private_youtube_url for part in parts)):
-                raise PrivateYouTubeAnalysisDenied(str(error)) from error
+                    and isinstance(provider_error, dict) and not provider_error.get('details')
+                    and any(part.file_data and part.file_data.file_uri == self.restricted_youtube_url for part in parts)):
+                raise YouTubeAnalysisDenied(str(error), private=self.private_youtube) from error
             raise
         return SimpleNamespace(output_text=result.text or '')
 

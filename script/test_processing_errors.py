@@ -11,7 +11,7 @@ with tempfile.TemporaryDirectory(prefix='vidi-errors-') as folder:
     model = (ROOT/'VidiStudio/StudioModel.swift').read_text()
     banner = model[model.index('struct AIServiceIssue:'):model.index('\nstruct NarrationFailureReport:')]
     (root/'Issue.swift').write_text(source + '\n' + connection + '\n' + banner +
-        '\nstruct YouTubeVideo { static let privateVideoMessage = "Private YouTube videos are not supported."; static let privateAnalysisMessage = "Private YouTube video analysis is not supported." }\n')
+        '\nstruct YouTubeVideo { static let privateVideoMessage = "Private YouTube videos are not supported."; static let privateAnalysisMessage = "Private YouTube video analysis is not supported."; static let privateRefreshSignInMessage = "Sign in to the owning channel in YouTube Accounts on this device to refresh this private video." }\n')
     (root/'main.swift').write_text('''
 import Foundation
 let diagnostic = "400 Invalid enum value standard, key=private-test-key"
@@ -31,9 +31,17 @@ precondition(youtube.title == local.title && youtube.message.contains("YouTube")
 let preflight = UserFacingIssue.duplicateProject(isYouTube: false, projectName: "Example Video")
 precondition(preflight.title == local.title && preflight.message.contains("Example Video"))
 let denied = "403 PERMISSION_DENIED. The caller does not have permission"
-let privateVideo = UserFacingIssue.forEngine(command: "transcribe", technicalDetails: denied, connection: .googleSignIn, failureKind: "private-youtube-video")
-precondition(privateVideo.title == "AI Analysis Unavailable" && privateVideo.message == YouTubeVideo.privateAnalysisMessage)
-precondition(AIServiceIssue.detect(denied, connection: .googleSignIn, failureKind: "private-youtube-video") == nil)
+for command in ["transcribe", "generate-summary", "generate-ad-cues"] {
+    let privateVideo = UserFacingIssue.forEngine(command: command, technicalDetails: denied, connection: .googleSignIn, failureKind: "private-youtube-video")
+    let inaccessible = UserFacingIssue.forEngine(command: command, technicalDetails: denied, connection: .googleSignIn, failureKind: "youtube-video-access")
+    precondition(privateVideo.title == "AI Analysis Unavailable" && privateVideo.message == YouTubeVideo.privateAnalysisMessage)
+    precondition(inaccessible.title == privateVideo.title && inaccessible.message.hasSuffix(privateVideo.message))
+}
+for kind in ["private-youtube-video", "youtube-video-access"] {
+    precondition(AIServiceIssue.detect(denied, connection: .googleSignIn, failureKind: kind) == nil)
+}
+let refresh = UserFacingIssue.forEngine(command: "update-youtube-metadata", technicalDetails: YouTubeVideo.privateVideoMessage)
+precondition(refresh == .privateYouTubeRefreshSignIn && refresh.title == "YouTube Sign-In Required" && refresh.message == YouTubeVideo.privateRefreshSignInMessage)
 let vertex = UserFacingIssue.forEngine(command: "generate-summary", technicalDetails: denied, connection: .googleSignIn)
 precondition(vertex.title == "Vertex AI Access Needs Attention" && vertex.message.contains("Cloud project"))
 precondition(AIServiceIssue.detect(denied, connection: .googleSignIn)?.message == vertex.message)
@@ -47,6 +55,10 @@ precondition(ProjectEditorWindowValue.projectID(from: privateValue) == "private"
 precondition(ProjectEditorWindowValue.permitsPrivateProject(privateValue, projectID: "private"))
 precondition(!ProjectEditorWindowValue.permitsPrivateProject(privateValue, projectID: "other"))
 precondition(!ProjectEditorWindowValue.permitsPrivateProject("private", projectID: "private"))
+precondition(ProjectEditorWindowValue.permitsPrivateProject("private", projectID: "private", refreshedProjectID: "private"))
+precondition(!ProjectEditorWindowValue.permitsPrivateProject("other", projectID: "private", refreshedProjectID: "private"))
+precondition(!ProjectEditorWindowValue.permitsPrivateProject("private", projectID: "private", refreshedProjectID: "other"))
+precondition(!ProjectEditorWindowValue.permitsPrivateProject(nil, projectID: "private", refreshedProjectID: "private"))
 precondition(!ProjectEditorWindowValue.permitsPrivateProject(ProjectEditorWindowValue.newWindow(for: "private"), projectID: "private"))
 precondition(ProjectEditorWindowValue.replacingProject(in: privateValue, with: "beta") == "beta")
 let extraPrivateWindow = ProjectEditorWindowValue.newWindow(for: "private", privateYouTubeApproved: true)
@@ -79,8 +91,14 @@ if (!local.IsDuplicateProject || !local.Message.Contains("All Projects") || !loc
 if (!youtube.IsDuplicateProject || !youtube.Message.Contains("YouTube") || !youtube.Message.Contains("All Projects")) throw new Exception("YouTube duplicate guidance missing");
 if (new ProcessingException(duplicate, command: "generate-summary").IsDuplicateProject) throw new Exception("Unrelated operation treated as a duplicate project");
 const string denied = "403 PERMISSION_DENIED. The caller does not have permission";
-var privateVideo = new ProcessingException(denied, command: "transcribe", connection: AiConnection.GoogleSignIn, failureKind: "private-youtube-video");
-if (!privateVideo.IsMediaAccessFailure || privateVideo.IssueTitle != "AI Analysis Unavailable" || privateVideo.Message != YouTubeVideo.PrivateAnalysisMessage) throw new Exception("Private YouTube guidance missing");
+foreach (var command in new[] { "transcribe", "generate-summary", "generate-ad-cues" }) {
+    var privateVideo = new ProcessingException(denied, command: command, connection: AiConnection.GoogleSignIn, failureKind: "private-youtube-video");
+    var inaccessible = new ProcessingException(denied, command: command, connection: AiConnection.GoogleSignIn, failureKind: "youtube-video-access");
+    if (!privateVideo.IsMediaAccessFailure || privateVideo.IssueTitle != "AI Analysis Unavailable" || privateVideo.Message != YouTubeVideo.PrivateAnalysisMessage) throw new Exception("Private YouTube guidance missing");
+    if (!inaccessible.IsMediaAccessFailure || inaccessible.IssueTitle != privateVideo.IssueTitle || !inaccessible.Message.EndsWith(privateVideo.Message)) throw new Exception("Inaccessible YouTube guidance missing");
+}
+var refresh = new ProcessingException(YouTubeVideo.PrivateVideoMessage, command: "update-youtube-metadata");
+if (refresh.IssueTitle != "YouTube Details Could Not Be Refreshed" || refresh.Message != YouTubeVideo.PrivateRefreshSignInMessage) throw new Exception("Private metadata sign-in guidance missing");
 var vertex = new ProcessingException(denied, command: "generate-summary", connection: AiConnection.GoogleSignIn);
 if (vertex.IsMediaAccessFailure || !vertex.Message.Contains("Cloud project") || AIServiceIssueDetector.Detect(denied, AiConnection.GoogleSignIn)?.Message != vertex.Message) throw new Exception("Vertex project guidance missing");
 if (!new ProcessingException(denied, command: "transcribe", connection: AiConnection.Express).Message.Contains("Vertex AI Express API key")) throw new Exception("Express key guidance missing");
@@ -89,7 +107,7 @@ if (!bucket.IsMediaAccessFailure || bucket.IssueTitle != "Vertex AI Needs Video 
 Console.WriteLine("Windows error presentation: generic off, diagnostic on, credential redacted");
 namespace Vidi_Studio_Windows.Services {
     internal enum AiConnection { Developer, GoogleSignIn, Express }
-    internal static class YouTubeVideo { internal const string PrivateVideoMessage = "Private YouTube videos are not supported."; internal const string PrivateAnalysisMessage = "Private YouTube video analysis is not supported."; }
+    internal static class YouTubeVideo { internal const string PrivateVideoMessage = "Private YouTube videos are not supported."; internal const string PrivateAnalysisMessage = "Private YouTube video analysis is not supported."; internal const string PrivateRefreshSignInMessage = "Sign in to the owning channel in YouTube Accounts on this device to refresh this private video."; }
     public static class SpeechService { public static string FriendlyMessage(string text) => text; }
 }
 ''')

@@ -4,10 +4,18 @@ import SwiftUI
 /// service failures. AI actions stay disabled until Retry AI succeeds.
 struct AIServiceIssueBanner: View {
     @Bindable var studio: StudioModel
+    var showsProjectStatus = false
     @Environment(\.openSettings) private var openSettings
 
     var body: some View {
-        if let issue = studio.aiServiceIssue {
+        if showsProjectStatus && studio.selected?.requiresLocalYouTubePlayback == true {
+            Label(YouTubeVideo.privateAnalysisMessage, systemImage: "info.circle")
+                .font(.subheadline)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .padding(.horizontal, 16)
+                .padding(.vertical, 9)
+                .background(.secondary.opacity(0.1))
+        } else if let issue = studio.aiServiceIssue {
             HStack(alignment: .top, spacing: 12) {
                 Image(systemName: issue.kind == .quota ? "creditcard.trianglebadge.exclamationmark" : "exclamationmark.triangle.fill")
                     .font(.title3)
