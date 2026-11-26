@@ -4470,3 +4470,27 @@ Project processing announces its current task once at startup through AppKit acc
 Installed and launched signed Mac 1.0.432/build 432. The installed Safari, Share and Finder extensions retain Apple Development team LLVWNNUV26 and match build 432. PlugInKit, Spotlight and LaunchServices confirmed the current installation at /Applications/VidiStudio.app. An external AXObserver received one AXAnnouncementRequested event with “Processing. Adding the video to your project…” for each real local import from All Projects and from an open editor. Both imports opened their new editors. Removed the synthetic projects and clips from the user areas. Spoken VoiceOver was not recorded.
 
 The paired menu and layout suites passed 103 tests per checkout. The installed Mac engine passed 24 CLI and import tests. Website Help TypeScript, production build and wide and compact search and anchor navigation passed locally. The guide update is unpublished. Logs are in build/processing-announcement-432-install.log and build/processing-announcement-432-native.log.
+
+## 1.0.433 · Editor shortcuts and Project menu · 2026-11-26
+
+Transcript, Summary and Descriptions keep Command+Option+Shift+T, S and D in their respective sections. Generate or Regenerate All AD Audio uses Command+Option+Shift+N in Descriptions, AD Transcript and Overview. The editor buttons and Project menu share guarded actions and confirmations. Project > Cloud Storage appears when the open project is linked to a bucket video. Help and the shortcut reference describe the actions and their availability.
+
+Installed and launched signed Mac 1.0.433/build 433. The app and its Safari, Share and Finder extensions match build 433, retain Apple Development team LLVWNNUV26 and are registered under the only discoverable /Applications/VidiStudio.app. Native accessibility inspection verified all four menu accelerators, the generation and regeneration titles for Descriptions and Narration, and Cloud Storage visibility for local and bucket-backed fixtures. The Narration keystroke opened the real regeneration confirmation and Escape canceled it. Removed the two disposable local projects from the main library. The installed Mac engine passed 24 CLI and import tests. See build/editor-shortcuts-433-install.log, build/editor-shortcuts-433-native.log and build/editor-shortcuts-433-regeneration.log.
+
+The paired menu and layout suites passed 103 tests per checkout. The website Help and Shortcuts pages passed TypeScript, the production build, and wide and compact searches and anchor navigation. The live guide at commit d6f8a8a passed the same browser checks for Mac and Windows.
+
+## 1.0.434 · Editor Projects sidebar layout · 2026-11-26
+
+The editor Projects sidebar uses icon-only List View and Grid View segments. Both keep native accessible names, tooltips and selected states. View menu commands and shortcuts still open the sidebar in the chosen layout.
+
+Installed and launched signed Mac 1.0.434/build 434. The Share, Finder and Safari extensions match version and build, retain team LLVWNNUV26, and are registered under the only app listed by Spotlight and LaunchServices. A native screenshot confirmed both icons. Accessibility inspection verified both radio buttons and their selected states, compact window access, disappearance when closing the sidebar and Command+Option+2 reopening it in Grid View. Restored the prior List View preference and removed the disposable project. The installed engine passed 24 CLI and import tests, and both desktop checkouts passed 103 menu and layout tests each. Logs are in build/project-sidebar-434-install.log and build/project-sidebar-434-native.log.
+
+The Help change passed TypeScript, the production build, and wide and compact search and anchor navigation locally. Publication is pending.
+
+## 1.0.435 · Grouped Help shortcuts · 2026-11-26
+
+Settings > Help presents the expanded keyboard reference under nine task headings, in the same order as Windows. Each shortcut stays paired with its action, and the existing disclosure and its context-menu toggle remain the entry points.
+
+Installed and launched signed Mac 1.0.435/build 435. The Share, Safari and Finder extensions match build 435, retain Apple Development team LLVWNNUV26 and register under /Applications/VidiStudio.app, the only app listed by Spotlight and LaunchServices. Live accessibility inspection verified ordered headings, paired spoken labels and keys, and access to the final YouTube Browser section. Verified 24 installed-engine CLI and import tests, and 103 paired menu and layout tests per checkout. Logs are in build/grouped-shortcuts-435-install.log and build/grouped-shortcuts-435-native.log.
+
+The guide update passed TypeScript, the production build and local navigation and search at wide and compact widths. Publication is pending.

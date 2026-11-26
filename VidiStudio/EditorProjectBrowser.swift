@@ -63,8 +63,14 @@ struct EditorProjectBrowser: View {
             if filtered.isEmpty { Text("No projects to show").foregroundStyle(.secondary) }
             HStack {
                 Picker("Project layout", selection: $grid) {
-                    Label("List", systemImage: "list.bullet").tag(false)
-                    Label("Grid", systemImage: "square.grid.2x2").tag(true)
+                    Label("List View", systemImage: "list.bullet")
+                        .labelStyle(.iconOnly)
+                        .help("List View")
+                        .tag(false)
+                    Label("Grid View", systemImage: "square.grid.2x2")
+                        .labelStyle(.iconOnly)
+                        .help("Grid View")
+                        .tag(true)
                 }.pickerStyle(.segmented).labelsHidden()
                 Button("Remove from List", systemImage: "minus.circle") { if let selected { removeFromList(selected) } }
                     .labelStyle(.iconOnly)

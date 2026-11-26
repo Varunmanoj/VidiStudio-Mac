@@ -1905,7 +1905,7 @@ struct ProcessingInspector: View {
                                         }
                                         .frame(maxWidth: .infinity, alignment: .leading)
                                         .disabled(!editorActions.canRun(action))
-                                        .help(p.requiresLocalYouTubePlayback && OnlineRequirements.privateYouTubeAnalysisCommands.contains(action)
+                                        .help(StudioShortcut.generationHelp(action, p.requiresLocalYouTubePlayback && OnlineRequirements.privateYouTubeAnalysisCommands.contains(action)
                                             ? YouTubeVideo.privateAnalysisMessage
                                             : !studio.hasApiKey && action != "prepare-video"
                                             ? "Enter your Gemini API key in Settings → Gemini to enable this feature"
@@ -1917,7 +1917,7 @@ struct ProcessingInspector: View {
                                                         ? "Read video details and create timeline pictures without using AI"
                                                         : title.hasPrefix("Regenerate")
                                                             ? "Regenerate the current \(sectionTitle.lowercased()) after confirmation"
-                                                            : "Generate the \(sectionTitle.lowercased()) for this project")
+                                                            : "Generate the \(sectionTitle.lowercased()) for this project"))
                                         .requiresInternet(OnlineRequirements.services(action, project: p, settings: studio.settings).first)
                                         if let component = currentComponent, component.hasContent(in: p) {
                                             Button("Delete \(component.title)…", systemImage: "trash", role: .destructive) {
@@ -2010,11 +2010,11 @@ struct ProcessingInspector: View {
                                         }
                                         .frame(maxWidth: .infinity, alignment: .leading)
                                         .disabled(!editorActions.canRun("synthesize-tts"))
-                                        .help(studio.settings.ttsMode == "gemini" && !studio.hasApiKey
+                                        .help(StudioShortcut.generationHelp("synthesize-tts", studio.settings.ttsMode == "gemini" && !studio.hasApiKey
                                             ? "Enter your Gemini API key in Settings → Gemini to synthesize Gemini TTS narration"
                                             : studio.settings.ttsMode == "gemini" && studio.isApiKeyInvalid
                                                 ? "Gemini API key is invalid — enter a valid key in Settings → Gemini to synthesize Gemini TTS narration"
-                                                : "Create narration audio for all Audio Description segments")
+                                                : "Create narration audio for all Audio Description segments"))
                                         .requiresInternet(studio.settings.narrationService)
                                         if studio.isSynthesizingNarration {
                                             ProgressView()
@@ -2698,16 +2698,16 @@ struct ProjectEditor: View {
     @ViewBuilder
     private var sectionGenerationButton: some View {
         if let action = generationAction {
-            Button(action.title, systemImage: action.icon) { studio.execute(action.command) }
+            Button(action.title, systemImage: action.icon) { shortcutActions.run(action.command) }
                 .accessibilityLabel(action.title)
-                .disabled(studio.busy || !studio.canAnalyzeSelectedVideo || (action.command == "generate-ad-cues" && !project.canGenerateDescriptions))
-                .help(action.title + ". " + (project.requiresLocalYouTubePlayback ? YouTubeVideo.privateAnalysisMessage : !studio.hasApiKey
+                .disabled(!shortcutActions.canRun(action.command))
+                .help(StudioShortcut.generationHelp(action.command, action.title + ". " + (project.requiresLocalYouTubePlayback ? YouTubeVideo.privateAnalysisMessage : !studio.hasApiKey
                     ? "Enter your Gemini API key in Settings → Gemini to enable this feature"
                     : studio.isApiKeyInvalid
                         ? "Gemini API key is invalid — enter a valid key in Settings → Gemini to enable this feature"
                         : action.command == "generate-ad-cues" && !project.canGenerateDescriptions
                             ? "Generate the transcript and summary first"
-                            : action.command == "prepare-video" ? "Read video details and create timeline pictures without using AI" : action.title.hasPrefix("Regenerate") ? "Regenerate the existing content after confirmation" : "Generate content for this section"))
+                            : action.title.hasPrefix("Regenerate") ? "Regenerate the existing content after confirmation" : "Generate content for this section")))
         }
     }
 
@@ -3596,7 +3596,7 @@ struct ProjectEditor: View {
                         : studio.message
                 )
             } else if tab == "ad-overview" {
-                ADOverviewView(studio: studio, project: project)
+                ADOverviewView(studio: studio, project: project, shortcuts: shortcutActions)
             } else if tab == "summary" {
                 if summaryEditMode {
                     SummaryMarkdownEditorView(
@@ -4332,7 +4332,7 @@ struct ProjectEditor: View {
         shortcutActions.canRedoSegment = !(tab == "transcript" ? project.transcriptRedoStack ?? [] : project.redoStack ?? []).isEmpty
         shortcutActions.hasNarrationAudio = GeneratedContentComponent.narration.hasContent(in: project)
         shortcutActions.hasDescriptions = GeneratedContentComponent.descriptions.hasContent(in: project)
-        shortcutActions.descriptionCount = project.cues.count
+        shortcutActions.descriptionCount = tab == "ad-overview" && !project.overviewMatchesEditingResult ? 0 : project.cues.count
         shortcutActions.hasChangedNarration = project.canGenerateMissingOrChangedAudio
         shortcutActions.hasGeneratedTranscript = GeneratedContentComponent.transcript.hasContent(in: project)
         shortcutActions.hasGeneratedSummary = GeneratedContentComponent.summary.hasContent(in: project)

@@ -382,7 +382,19 @@ def validate(source):
     require('Windows/Views/SettingsDialog.Information.cs', 'private bool shortcutReferenceExpanded = false;', 'Help reference starts collapsed')
     require('Windows/Views/SettingsDialog.Information.cs', 'IsExpanded = shortcutReferenceExpanded', 'Help reference must retain expansion across navigation')
     require('Windows/Views/SettingsDialog.Information.cs', 'reference.Expanding += (_, _) => shortcutReferenceExpanded = true', 'Help reference must retain expansion across navigation')
-    require('Mac/KeyboardShortcuts.swift', 'ForEach((StudioShortcut.editor + StudioShortcut.youtube).filter', 'Help must retain the complete shared shortcut list')
+    mac_reference = source['Mac/KeyboardShortcuts.swift'].split('struct ShortcutReferenceView: View', 1)[1]
+    win_registry = source['Windows/MainWindow.Menus.cs']
+    win_reference = win_registry.split('[] ShortcutReferenceGroups =', 1)[1].split('};', 1)[0]
+    mac_sections = re.findall(r'referenceSection\("([^"]+)"\)', mac_reference)
+    win_sections = re.findall(r'\("([^"]+)", new\[\]', win_reference)
+    if len(set(mac_sections)) < 2 or mac_sections != win_sections:
+        raise ValueError('Help shortcut section headings and order must match on both desktops')
+    win_shortcuts = win_registry.split('> DesktopShortcuts = new()', 1)[1].split('};', 1)[0]
+    reference_ids = re.findall(r'"([\w-]+)"', re.sub(r'\("[^"]+", new\[\]', '', win_reference))
+    if sorted(reference_ids) != sorted(re.findall(r'\["([^"]+)"\] = ', win_shortcuts)):
+        raise ValueError('Windows Help must list every keyboard shortcut exactly once')
+    require('Mac/KeyboardShortcuts.swift', 'accessibilityHeading(.h3)\n            rows()', 'Help reference sections need accessible headings')
+    require('Windows/Views/SettingsDialog.Information.cs', 'shortcuts.Children.Add(ScreenReaderHeading.Mark(new TextBlock', 'Help reference sections need accessible headings')
     require('Mac/KeyboardShortcuts.swift', '.init(id: "jump-to-time", title: "Jump to Time…"', 'Help must retain Jump to Time')
     require('Windows/Views/SettingsDialog.Information.cs', 'menuOwner.DesktopShortcutReference', 'Help must retain the complete shared shortcut list')
     for action in ('about-ffmpeg-license', 'about-license-index', 'about-license-folder'):

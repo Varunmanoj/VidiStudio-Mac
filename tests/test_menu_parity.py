@@ -124,7 +124,9 @@ class DesktopMenuParity(unittest.TestCase):
         command = next(row for row in self.checker.shortcut_rows(self.mac) if row['id'] == 'open-cloud-videos')
         self.assertEqual((command['key'], command['modifiers']), ('"g"', '[.command, .option]'))
         self.assertIn('["open-cloud-videos"] = (VirtualKey.G, VirtualKeyModifiers.Control | VirtualKeyModifiers.Menu, "Ctrl+Alt+G")', self.windows)
-        self.assertIn('ForEach([StudioShortcut.cloudBrowser, StudioShortcut.youtubeBrowser])', self.mac)
+        reference = self.mac.split('struct ShortcutReferenceView: View', 1)[1]
+        projects = reference.split('referenceSection("Projects and Windows")', 1)[1].split('referenceSection(', 1)[0]
+        self.assertIn('catalogRows([StudioShortcut.cloudBrowser, StudioShortcut.youtubeBrowser])', projects)
         start = self.windows.index('string Text)> DesktopShortcuts')
         reference = self.windows[start:].split('};', 1)[0]
         self.assertRegex(reference, r'\["open-cloud-videos"\].*\n\s*\["youtube-browser"\]')

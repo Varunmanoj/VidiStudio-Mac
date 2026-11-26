@@ -4,11 +4,13 @@ struct ADOverviewView: View {
     @Bindable var studio: StudioModel
     @Environment(\.openSettings) private var openSettings
     let sourceProject: StudioProject
+    let shortcuts: EditorShortcutActions
     private let project: StudioProject
-    init(studio: StudioModel, project: StudioProject) {
+    init(studio: StudioModel, project: StudioProject, shortcuts: EditorShortcutActions) {
         self.studio = studio
         self.sourceProject = project
         self.project = project.overviewProject
+        self.shortcuts = shortcuts
     }
     private func audioStatus(_ cue: Segment) -> SynchronizedAudioStatus {
         .resolve(cue: cue, project: project)
@@ -201,12 +203,12 @@ struct ADOverviewView: View {
                             .accessibilityElement(children: .combine)
                         }
                         HStack {
-                            Button(project.allADAudioTitle) { studio.execute("synthesize-tts") }
-                                .help(studio.settings.ttsMode == "gemini" && !studio.hasApiKey
+                            Button(project.allADAudioTitle) { shortcuts.run("synthesize-tts") }
+                                .help(StudioShortcut.generationHelp("synthesize-tts", studio.settings.ttsMode == "gemini" && !studio.hasApiKey
                                     ? "Enter your Gemini API key in Settings → Gemini to synthesize narration with Gemini TTS"
-                                    : "Create narration audio for all Audio Description segments")
+                                    : "Create narration audio for all Audio Description segments"))
                                 .requiresInternet(studio.settings.narrationService)
-                                .disabled(narrationControlsDisabled)
+                                .disabled(narrationControlsDisabled || !shortcuts.canRun("synthesize-tts"))
                             Button("Generate Missing or Changed AD Audio") { studio.execute("synthesize-tts", extra: ["--changed"]) }
                                 .help(studio.settings.ttsMode == "gemini" && !studio.hasApiKey
                                     ? "Enter your Gemini API key in Settings → Gemini to synthesize narration with Gemini TTS"

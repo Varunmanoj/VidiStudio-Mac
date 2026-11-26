@@ -502,6 +502,7 @@ struct StudioShortcut: Identifiable {
         case "analyze", "generate-ad-cues": return "sparkles"
         case "transcribe": return "text.bubble"
         case "generate-summary": return "text.alignleft"
+        case "synthesize-tts": return "speaker.wave.2"
         case "reanalyze-selection": return "arrow.triangle.2.circlepath"
         default: return "arrow.clockwise"
         }
@@ -564,8 +565,14 @@ struct StudioShortcut: Identifiable {
         .init(id: "analyze", title: "Analyze Video…", key: "a", modifiers: [.command, .option, .shift], spoken: "Command + Option + Shift + A", group: "Analysis"),
         .init(id: "transcribe", title: "Generate or Regenerate Transcript…", key: "t", modifiers: [.command, .option, .shift], spoken: "Command + Option + Shift + T", group: "Analysis"),
         .init(id: "generate-summary", title: "Generate or Regenerate Summary…", key: "s", modifiers: [.command, .option, .shift], spoken: "Command + Option + Shift + S", group: "Analysis"),
-        .init(id: "generate-ad-cues", title: "Generate or Regenerate Audio Descriptions…", key: "d", modifiers: [.command, .option, .shift], spoken: "Command + Option + Shift + D", group: "Analysis")
+        .init(id: "generate-ad-cues", title: "Generate or Regenerate Audio Descriptions…", key: "d", modifiers: [.command, .option, .shift], spoken: "Command + Option + Shift + D", group: "Analysis"),
+        .init(id: "synthesize-tts", title: "Generate or Regenerate All AD Audio…", key: "n", modifiers: [.command, .option, .shift], spoken: "Command + Option + Shift + N", group: "Narration")
     ]
+
+    static func generationHelp(_ action: String, _ detail: String) -> String {
+        guard let shortcut = editor.first(where: { $0.id == action }) else { return detail }
+        return "\(detail) (\(shortcut.spoken))"
+    }
 }
 struct StudioCommands: Commands {
     let studio: StudioModel
@@ -961,16 +968,18 @@ struct StudioCommands: Commands {
             }
         }
         CommandMenu("Project") {
-            Menu("Cloud Storage", systemImage: "cloud") {
-                if studio.settings.vertexConnected {
-                    Button("Upload Video to Cloud Storage…", systemImage: "icloud.and.arrow.up") { runProject("cloud-upload") }.disabled(!canRunProject("cloud-upload"))
-                }
-                Button("Open Video in Google Cloud Console", systemImage: "arrow.up.right.square") { runProject("cloud-open") }.disabled(!canRunProject("cloud-open"))
-                if allowsCloudMutation("cloud-rename") {
-                    Button("Rename Cloud Video…", systemImage: "pencil") { runProject("cloud-rename") }.disabled(!canRunProject("cloud-rename"))
-                }
-                if allowsCloudMutation("cloud-remove") {
-                    Button("Remove Cloud Video…", systemImage: "icloud.slash") { runProject("cloud-remove") }.disabled(!canRunProject("cloud-remove"))
+            if allProjects != nil || editor?.resultProject?.cloudConsoleURL != nil {
+                Menu("Cloud Storage", systemImage: "cloud") {
+                    if allProjects != nil && studio.settings.vertexConnected {
+                        Button("Upload Video to Cloud Storage…", systemImage: "icloud.and.arrow.up") { runProject("cloud-upload") }.disabled(!canRunProject("cloud-upload"))
+                    }
+                    Button("Open Video in Google Cloud Console", systemImage: "arrow.up.right.square") { runProject("cloud-open") }.disabled(!canRunProject("cloud-open"))
+                    if allowsCloudMutation("cloud-rename") {
+                        Button("Rename Cloud Video…", systemImage: "pencil") { runProject("cloud-rename") }.disabled(!canRunProject("cloud-rename"))
+                    }
+                    if allowsCloudMutation("cloud-remove") {
+                        Button("Remove Cloud Video…", systemImage: "icloud.slash") { runProject("cloud-remove") }.disabled(!canRunProject("cloud-remove"))
+                    }
                 }
             }
             if let allProjects {
@@ -1067,6 +1076,7 @@ struct StudioCommands: Commands {
                         }
                         Menu("Narration Audio", systemImage: "speaker.wave.2") {
                             Button(editor?.synthesizeNarrationTitle ?? "Generate All AD Audio", systemImage: editor?.isSynthesizingNarration == true ? "rays" : "speaker.wave.2") { editor?.run("synthesize-tts") }
+                                .keyboardShortcut("n", modifiers: [.command, .option, .shift])
                                 .disabled(editor?.canRun("synthesize-tts") != true)
                             Button("Generate Missing or Changed AD Audio", systemImage: "waveform") { editor?.run("synthesize-changed") }
                                 .disabled(editor?.canRun("synthesize-changed") != true)
@@ -1224,41 +1234,85 @@ struct ShortcutReferenceView: View {
         HStack(alignment: .firstTextBaseline) {
             Text(title)
             Spacer(minLength: 16)
-            Text(value).foregroundStyle(.secondary)
+            Text(value).foregroundStyle(.secondary).multilineTextAlignment(.trailing)
         }
         .accessibilityElement(children: .ignore)
         .accessibilityLabel(Text("\(title): \(value)"))
     }
 
+    private func referenceSection<Rows: View>(_ title: String, @ViewBuilder rows: () -> Rows) -> some View {
+        VStack(alignment: .leading, spacing: 8) {
+            Text(title).font(.headline).accessibilityAddTraits(.isHeader).accessibilityHeading(.h3)
+            rows()
+        }
+    }
+
+    private func catalogRows(_ shortcuts: [StudioShortcut]) -> some View {
+        ForEach(shortcuts) { shortcut in
+            shortcutRow(shortcut.title, value: shortcut.spoken)
+        }
+    }
+
+    private func editorRows(groups: [String] = [], ids: [String] = []) -> some View {
+        catalogRows(StudioShortcut.editor.filter { groups.contains($0.group) || ids.contains($0.id) })
+    }
+
     var body: some View {
-        VStack(alignment: .leading, spacing: 14) {
-            Text("Keyboard Shortcuts").font(.title2).accessibilityAddTraits(.isHeader).accessibilityHeading(.h1).accessibilityAddTraits(.isHeader)
-            Text("These shortcuts apply to the native macOS app. Editor commands are available with a project open and no editing sheet or processing operation active.")
-            Text("The File menu contains Export with Video, Audio, and Text choices. View can show or hide the preview, the complete timeline, and thumbnail images. Thumbnail images are hidden by default; the choice is remembered. The centered transport row in the timeline shares the Playback menu shortcuts for a single Play/Pause toggle, Stop Video, and five-second Rewind/Fast Forward on local and YouTube videos. Pause keeps the current position; Stop returns to the beginning and stops narration. Playback also contains Transcript Overlay controls on Transcript, Descriptions, and AD Transcript, plus Summary Reading commands that become available only on Summary. Summary Reading includes Previous and Next Sentence and Paragraph navigation, which jump to the target text and read it aloud from the centered Summary transport. Project > Segments mirrors segment editing, creation, selection, bulk editing, deletion, Follow, Undo, and Redo. Project > Analysis contains Video Details and Timeline Pictures, Analyze Video, and the individual Transcript, Summary, and Audio Description stages. The inspector stays specific to its open section. Existing content is regenerated only after confirmation.")
-            shortcutRow("New Project", value: "Command + N")
-            ForEach([StudioShortcut.cloudBrowser, StudioShortcut.youtubeBrowser]) { shortcut in
-                shortcutRow(shortcut.title, value: shortcut.spoken)
+        VStack(alignment: .leading, spacing: 20) {
+            Text("Editor commands are available with a project open and no editing sheet or processing operation active.")
+            referenceSection("Projects and Windows") {
+                shortcutRow("New Project", value: "Command + N")
+                catalogRows([StudioShortcut.cloudBrowser, StudioShortcut.youtubeBrowser])
+                shortcutRow("Open Project Folder", value: "Command + Shift + O")
+                shortcutRow("Rename Selected Project", value: "Return (All Projects)")
+                shortcutRow("Settings", value: "Command + Comma")
+                shortcutRow("Open Project Settings", value: "Command + Shift + Comma (selected project or current editor)")
+                shortcutRow("VidiStudio Help", value: "Command + Option + Slash")
             }
-            shortcutRow("Open Project Folder", value: "Command + Shift + O")
-            shortcutRow("Rename Selected Project", value: "Return; All Projects")
-            shortcutRow("Settings", value: "Command + Comma")
-            shortcutRow("Open Project Settings", value: "Command + Shift + Comma; selected project or current editor")
-            shortcutRow("Show or Hide Inspector", value: "Command + Shift + B; requires a selected project")
-            shortcutRow("Show or Hide Timeline", value: "View menu; project editor")
-            shortcutRow("Show or Hide Thumbnail Images", value: "View menu; hidden by default")
-            shortcutRow("Project List View", value: "Command + Option + 1")
-            shortcutRow("Project Grid View", value: "Command + Option + 2")
-            shortcutRow("VidiStudio Help", value: "Command + Option + Slash")
-            ForEach((StudioShortcut.editor + StudioShortcut.youtube).filter { !["open-cloud-videos", "youtube-browser"].contains($0.id) }) { shortcut in
-                shortcutRow(shortcut.title, value: shortcut.spoken)
+            referenceSection("Editor Navigation") {
+                editorRows(groups: ["Search"])
+                shortcutRow("Show or Hide Project List", value: "Command + B")
+                shortcutRow("Show or Hide Inspector", value: "Command + Shift + B (requires a selected project)")
+                shortcutRow("Show or Hide Timeline", value: "View menu (project editor)")
+                shortcutRow("Show or Hide Thumbnail Images", value: "View menu (hidden by default)")
+                shortcutRow("Project List View", value: "Command + Option + 1")
+                shortcutRow("Project Grid View", value: "Command + Option + 2")
+                editorRows(ids: ["transcript", "summary", "descriptions", "ad-transcript", "ad-overview"])
             }
-            shortcutRow("Read Summary from Start", value: "Playback → Summary Reading menu; Summary section")
-            shortcutRow("Read Summary from Selection", value: "Playback → Summary Reading menu, summary text right-click menu, or Play button options; needs a selection in the summary")
-            shortcutRow("Read Selected Summary Text", value: "Playback → Summary Reading menu, summary text right-click menu, or Play button options; needs selected summary text")
-            shortcutRow("Save Segment (in its editor)", value: "Return")
-            shortcutRow("Cancel a sheet or leave full-screen video", value: "Escape")
-            Text("Segment changes save when you choose Save Segment. Standard Command + Z and Command + Shift + Z remain available for text editing; the separate segment-history commands do not replace them.")
-            Text("Use Tab and Shift + Tab to move between controls, Space to activate buttons and toggles, and arrow keys inside lists and pickers. Enable Keyboard navigation in macOS System Settings → Keyboard to reach all controls with Tab. VoiceOver users can use standard Control + Option navigation and interaction commands; those combinations are not assigned by VidiStudio.")
+            referenceSection("Video Playback") {
+                editorRows(groups: ["Playback"])
+                shortcutRow("Cancel a sheet or leave full-screen video", value: "Escape")
+            }
+            referenceSection("Transcript Overlay") {
+                editorRows(groups: ["Captions"])
+            }
+            referenceSection("Summary Reading") {
+                editorRows(groups: ["Summary"])
+                shortcutRow("Read Summary from Start", value: "Playback → Summary Reading menu (Summary section)")
+                shortcutRow("Read Summary from Selection", value: "Playback → Summary Reading, summary text context menu, or Play button options (requires a selection)")
+                shortcutRow("Read Selected Summary Text", value: "Playback → Summary Reading, summary text context menu, or Play button options (requires a selection)")
+                editorRows(groups: ["Summary Zoom"])
+            }
+            referenceSection("Segment Editing") {
+                editorRows(groups: ["Segments"], ids: ["follow", "undo", "redo"])
+                shortcutRow("Save Segment (in its editor)", value: "Return")
+                Text("Standard Command + Z and Command + Shift + Z remain available for text editing.")
+            }
+            referenceSection("Generation and Narration") {
+                editorRows(groups: ["Analysis", "Narration"], ids: ["delete-narration"])
+                Text("Regenerating existing content requires confirmation.")
+            }
+            referenceSection("Import and Export") {
+                shortcutRow("Import Existing Assets…", value: "Command + Option + Shift + I")
+                shortcutRow("Import Transcript…", value: "Command + Option + I")
+                shortcutRow("Import Summary…", value: "Command + Option + M")
+                shortcutRow("Import Descriptions…", value: "Command + Option + D")
+                editorRows(groups: ["File"])
+            }
+            referenceSection("YouTube Browser") {
+                catalogRows(StudioShortcut.youtube.filter { $0.id != "youtube-browser" })
+            }
+            Text("Use Tab and Shift + Tab to move between controls, Space to activate buttons and toggles, and arrow keys inside lists and pickers. Enable Keyboard navigation in macOS System Settings → Keyboard to reach all controls with Tab. VoiceOver users can use standard Control + Option navigation and interaction commands.")
         }
     }
 }

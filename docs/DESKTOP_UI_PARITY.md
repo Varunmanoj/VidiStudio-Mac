@@ -66,7 +66,7 @@ Created Exports and export-readiness counts also follow the shared project langu
 
 ## 2026-11-17 — Help and About information parity (1.0.351)
 
-Settings Help uses one Help and keyboard shortcuts group on both desktops: Open VidiStudio Help followed by a collapsed Keyboard shortcut reference, with a checked context-menu toggle (`settings-shortcut-reference`). Both lists include Jump to Time. About has VidiStudio, FFmpeg, Piper voices and Third-party notices in the same order. It does not include a separate shortcut section; Windows no longer has Other components. App versions use three parts. FFmpeg has a concise release and separate license row; Windows values align to the right, and bundled media metadata comes from the bundled executable. Development builds without that executable identify the configured/PATH version as Installed version.
+Settings Help uses one Help and keyboard shortcuts group on both desktops: Open VidiStudio Help followed by a collapsed Keyboard shortcut reference, with a checked context-menu toggle (`settings-shortcut-reference`). The expanded reference presents matching accessible headings for Projects and Windows, Editor Navigation, Video Playback, Transcript Overlay, Summary Reading, Segment Editing, Generation and Narration, Import and Export, and YouTube Browser. Each action and its key stay together. Both references include Jump to Time. About has VidiStudio, FFmpeg, Piper voices and Third-party notices in the same order. It does not include a separate shortcut section; Windows no longer has Other components. App versions use three parts. FFmpeg has a concise release and separate license row; Windows values align to the right, and bundled media metadata comes from the bundled executable. Development builds without that executable identify the configured/PATH version as Installed version.
 
 Piper licensing remains an actual platform exception: Mac bundles OHF piper-tts 1.8.0 (GPL v3+, including g2pW notices); Windows bundles rhasspy/piper 2023.11.14-2 (MIT). Mac has a separate g2pW notice action and Finder folder action; Windows uses File Explorer. Both retain the matching FFmpeg license, notice-index and notice-folder actions and context menus. Windows copies original Python distribution notices into its bundled engine license folder during builds. Native caption buttons remain OS-owned; Windows supplies opaque theme-matched hover/pressed fills to DWM.
 
@@ -97,6 +97,16 @@ In Settings > AI, both AI providers use the same Local video and YouTube video g
 ## Project Overview
 
 The final editor section follows AD Transcript. Project details span the editor. Transcript and Summary appear side by side when space allows, followed by Audio description details and Description origins. Each pair stacks in a compact editor. Create narration audio follows the statistics. Each group has a visible heading and an accessible name. Counts and summary availability use the selected saved results in the viewing language.
+
+## Editor generation shortcuts and Cloud Storage
+
+The Project menu and editor buttons share the same generation actions, eligibility checks and regeneration confirmations. Use Command+Option+Shift on Mac or Ctrl+Alt+Shift on Windows with T in Transcript, S in Summary, D in Descriptions and N in Descriptions, AD Transcript or Overview. Windows mouse-hover tooltips on editor buttons include their matching shortcut where available in the active section. Accessible control names remain descriptive, and Windows also exposes the shortcut through UI Automation.
+
+The editor Project menu includes Cloud Storage only when the project is linked to a video in a bucket. The All Projects menu retains access to cloud upload.
+
+## Editor Projects sidebar layout
+
+Both editors show the layout icons only while the Projects sidebar is open. Mac uses an icon-only List View and Grid View segmented control at the bottom of the sidebar. Windows uses an icon button that describes the layout it will switch to and shows the matching shortcut. Closing the Windows sidebar while its layout button has keyboard focus returns focus to the sidebar toggle. View menu actions and keyboard shortcuts can open the sidebar in either layout.
 
 ## Editor preview toolbar
 
