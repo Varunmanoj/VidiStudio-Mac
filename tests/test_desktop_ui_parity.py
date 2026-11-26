@@ -258,6 +258,14 @@ class DesktopUILayoutParityTests(unittest.TestCase):
         self.mutated('Windows/Views/NewProjectDialog.cs', 'SystemFillColorCriticalBrush', 'TextFillColorSecondaryBrush',
                      'New Project YouTube errors need a red cross')
 
+    def test_processing_announcement_follows_the_active_surface(self):
+        for path, token in (
+            ('Mac/ContentView.swift', '.announceProcessingStart(studio)'),
+            ('Windows/Views/ProgressOverlay.xaml.cs', 'peer.RaiseNotificationEvent(AutomationNotificationKind.Other,'),
+            ('Windows/Views/ProgressOverlay.xaml.cs', 'model.HasAnnouncedProcessing = true;'),
+        ):
+            self.mutated(path, token, '', 'Processing must be announced where it appears without moving focus')
+
     def test_local_video_chooser_remains_owned_and_named(self):
         for path, token in (
             ('Mac/ContentView.swift', 'libraryStudio.newProjectPresentation(for: windowOwner)'),

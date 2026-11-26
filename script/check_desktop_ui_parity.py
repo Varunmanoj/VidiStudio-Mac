@@ -10,7 +10,7 @@ MAC_FILES = ('ADOverviewView.swift', 'StudioHelp.swift', 'CreatedExportsView.swi
 WIN_FILES = ('Views/SettingsDialog.Gemini.cs', 'Views/SettingsDialog.GeminiVoices.cs', 'Views/HelpWindow.xaml', 'Views/HelpWindow.xaml.cs', 'MainWindow.Presentation.cs', 'MainWindow.LanguageResults.cs', 'Views/ImportAssetsDialog.cs', 'MainWindow.ImportDecision.cs', 'MainWindow.Accessibility.cs', 'MainWindow.xaml', 'Views/CompactDialogLayout.cs', 'Views/WindowAppearance.cs',
              'Views/SettingsDialog.Compact.cs', 'Views/SettingsDialog.Layout.cs',
              'Views/SettingsDialog.ElevenLabs.cs', 'Views/SettingsDialog.SarvamBrowser.cs', 'Views/SettingsDialog.SpeechLayout.cs', 'MainWindow.DialogLayoutSmoke.cs', 'Views/SettingsDialog.cs', 'Views/SettingsDialog.Sarvam.cs', 'Views/PiperVoicesDialog.cs', 'Views/PiperDeleteVoicesDialog.cs', 'Services/VoiceSampleSession.cs', 'Views/SettingsDialog.Information.cs', 'MainWindow.Menus.cs',
-             'Views/NewProjectDialog.cs', 'Views/CloudVideosDialog.cs', 'Views/VideoBrowserSelection.cs', 'Views/ProjectSourcesSettingsControl.cs', 'MainWindow.YouTube.cs', 'MainWindow.xaml.cs', 'App.xaml.cs', 'Views/ExportDialog.cs')
+             'Views/ProgressOverlay.xaml.cs', 'Views/ProgressOverlay.xaml', 'Views/NewProjectDialog.cs', 'Views/CloudVideosDialog.cs', 'Views/VideoBrowserSelection.cs', 'Views/ProjectSourcesSettingsControl.cs', 'MainWindow.YouTube.cs', 'MainWindow.xaml.cs', 'App.xaml.cs', 'Views/ExportDialog.cs')
 
 def sources(workspace):
     workspace = Path(workspace)
@@ -235,6 +235,15 @@ def validate(source):
         ('Windows/Views/NewProjectDialog.cs', 'chooseVideoItem.Click += async (_, _) => await ChooseVideoAsync();'),
     ):
         require(path, token, 'New Project must keep the native file picker owned and accessible')
+    for path, token in (
+        ('Mac/ContentView.swift', 'announceProcessingStart(studio, suppress: openProjects.sharedVideoOpening != nil)'),
+        ('Mac/ContentView.swift', '.announceProcessingStart(studio)'),
+        ('Windows/Views/ProgressOverlay.xaml.cs', 'peer.RaiseNotificationEvent(AutomationNotificationKind.Other,'),
+        ('Windows/Views/ProgressOverlay.xaml.cs', 'GetForegroundWindow() != WinRT.Interop.WindowNative.GetWindowHandle(window)'),
+        ('Windows/Views/ProgressOverlay.xaml.cs', 'model.HasAnnouncedProcessing = true;'),
+        ('Windows/Views/ProgressOverlay.xaml', 'AutomationProperties.AutomationId="ProcessingStatus"'),
+    ):
+        require(path, token, 'Processing must be announced where it appears without moving focus')
     for path in ('Mac/ContentView.swift', 'Windows/Views/CloudVideosDialog.cs'):
         for token in ('Open Cloud Videos', 'Google Cloud project', 'Source bucket', 'Search videos',
                       'Recently Modified', 'Largest First', 'Open in Editor', 'Load Thumbnail', 'Rename Video…', 'Delete Video…'):

@@ -551,6 +551,19 @@ final class SharedVideoProgressPanel: NSPanel {
     }
 }
 
+private extension View {
+    @MainActor
+    func announceProcessingStart(_ studio: StudioModel, suppress: Bool = false) -> some View {
+        onChange(of: studio.busy) { _, busy in
+            guard busy, !suppress, studio.exportActivity == nil, NSApp.isActive else { return }
+            NSAccessibility.post(element: NSApp as Any, notification: .announcementRequested, userInfo: [
+                .announcement: "Processing. \(studio.message)",
+                .priority: NSAccessibilityPriorityLevel.medium.rawValue
+            ])
+        }
+    }
+}
+
 private struct CloudVideosView: View {
     @Environment(\.dismiss) private var dismiss
     @Bindable var studio: StudioModel
@@ -1181,6 +1194,7 @@ struct ContentView: View {
         .onReceive(NotificationCenter.default.publisher(for: ProjectListVisibility.didChange)) { _ in
             studio.reload()
         }
+        .announceProcessingStart(studio, suppress: openProjects.sharedVideoOpening != nil)
         .onReceive(NotificationCenter.default.publisher(for: .vidiStudioProjectDeleted)) { notification in
             if let deletedID = notification.userInfo?["projectID"] as? String { studio.projectWasDeleted(deletedID) }
         }
@@ -1333,6 +1347,7 @@ struct ProjectEditorWindow: View {
     var body: some View {
         editorContent
             .focusedSceneValue(\.newProjectHost, windowOwner)
+            .announceProcessingStart(studio)
             .sheet(isPresented: libraryStudio.newProjectPresentation(for: windowOwner)) {
                 NewProjectView(studio: libraryStudio)
             }

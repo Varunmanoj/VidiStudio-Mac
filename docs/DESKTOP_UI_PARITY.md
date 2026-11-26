@@ -147,3 +147,7 @@ Mac uses the native AppKit alert and Windows the responsive, theme-aware compani
 Both Narration pages put the Gemini voice browser inside the existing Voices group. The active connection, Language and region, full-width search, style and sort controls, selected voice and scrollable rows use the same order. Voice rows show their group, selected state and an adjacent icon for preview. Choosing a row applies its voice immediately. Row samples use the Narration sample text and the existing one-sample guard. Express shows an unavailable state. Each eligible provider controls its own library search and saved narrator preference.
 
 In Settings > Narration, the selected narration provider’s voice and sample settings precede the separate on-device Summary voice section. This order applies to Gemini Voices, Sarvam Voices, and ElevenLabs Voices on both desktops.
+
+## Processing announcements
+
+Mac announces the current task when processing starts from All Projects or the editor. Windows announces the current task from the foreground Processing card, with one announcement per operation even when Settings and the main window observe the same job. Both keep the status available through accessibility and preserve keyboard focus. File and browser handoff progress uses its own opening announcement.
