@@ -1007,6 +1007,14 @@ struct ProjectVideoInformation {
     let container: String
     let sourceFileSize: String
 
+    static func youtubeSource(for project: StudioProject) -> (videoID: String?, url: String?) {
+        let url = project.youtubeURL.flatMap { $0.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? nil : $0 }
+        let savedVideoID = project.youtubeMetadata?.videoID.trimmingCharacters(in: .whitespacesAndNewlines)
+        let videoID = url.flatMap { VidiStudioShareLink.youtubeVideoID(from: $0) }
+            ?? savedVideoID.flatMap { $0.isEmpty ? nil : $0 }
+        return (videoID, url)
+    }
+
     init(project: StudioProject) {
         let probe = Self.loadProbe(project)
         let streams = probe?["streams"] as? [[String: Any]] ?? []
@@ -1020,10 +1028,10 @@ struct ProjectVideoInformation {
         projectFolder = project.folder?.path ?? "Not available"
         sourceDetailLabel = project.isYouTubeURLProject ? "Video ID" : "Source File"
         if project.isYouTubeURLProject {
-            let url = project.youtubeURL.flatMap { $0.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? nil : $0 }
-            youtubeVideoID = url.flatMap { VidiStudioShareLink.youtubeVideoID(from: $0) }
+            let youtube = Self.youtubeSource(for: project)
+            youtubeVideoID = youtube.videoID
             sourceDetail = youtubeVideoID ?? "Not available"
-            sourceURL = url
+            sourceURL = youtube.url
         } else {
             youtubeVideoID = nil
             let filename = URL(fileURLWithPath: project.source).lastPathComponent

@@ -26,12 +26,13 @@ struct YouTubeInspectorInformationView: View {
                     row("Embedding", video.embeddable.map { $0 ? "Allowed" : "Not allowed" } ?? "Unavailable")
                     row("Processing", video.uploadStatus?.capitalized ?? "Unavailable")
                     row("Live status", video.liveStatus == "none" ? "Not live" : video.liveStatus?.capitalized ?? "Unavailable")
-                    row("Video ID", video.videoID)
                     row("Channel ID", video.channelID)
                     row("Fetched", Date(timeIntervalSince1970: video.fetchedAt).formatted(date: .abbreviated, time: .shortened))
                     if !video.description.isEmpty { DisclosureGroup("Video description") { Text(video.description).textSelection(.enabled) } }
                     if !video.tags.isEmpty { DisclosureGroup("Tags") { Text(video.tags.joined(separator: ", ")).textSelection(.enabled) } }
                 } else { Text("YouTube details have not been saved for this project yet.") }
+                let source = ProjectVideoInformation.youtubeSource(for: project)
+                YouTubeSourceInformationRows(videoID: source.videoID, sourceURL: source.url, identifierSuffix: "-youtube-information")
                 YouTubePlaybackVideoControls(studio: studio, project: project)
                 if !project.allowsOriginalAudioImport {
                     VStack(alignment: .leading, spacing: 8) {

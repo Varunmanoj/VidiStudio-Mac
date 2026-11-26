@@ -433,6 +433,13 @@ def validate(source):
     require('Mac/KeyboardShortcuts.swift', 'revision: searchCaptureRevision', 'Help shortcut searches must announce repeated result counts')
     require('Windows/Views/SettingsDialog.Information.cs', 'RefreshSearch(announce: true)', 'Help shortcut searches must announce repeated result counts')
     require('Windows/Views/SettingsDialog.Information.cs', 'pendingAnnouncement, "settings-shortcut-reference-results"', 'Help shortcut search counts must send a native announcement')
+    require('Mac/KeyboardShortcuts.swift', 'entries.values.first?.first?.singleResultAnnouncement', 'A sole shortcut match must announce the action and key')
+    require('Windows/Views/SettingsDialog.Information.cs', 'SingleShortcutAnnouncement(match.Label, match.Shortcut)', 'A sole shortcut match must announce the action and key')
+    for path in ('Mac/YouTubeInspectorInformationView.swift', 'Windows/MainWindow.YouTube.cs'):
+        if '"Information source"' in source[path] or 'YouTube Data API · saved in this project' in source[path]:
+            raise ValueError('YouTube Information must start with the saved video details')
+    require('Mac/YouTubeInspectorInformationView.swift', 'YouTubeSourceInformationRows(videoID: source.videoID, sourceURL: source.url, identifierSuffix: "-youtube-information")', 'YouTube Information must share the copyable source rows')
+    require('Windows/MainWindow.YouTube.cs', 'AddVideoSourceInformation(YouTubeInspectorDetails, project, "-youtube-information");', 'YouTube Information must share the copyable source rows')
     require('Mac/SettingsView.swift', 'reference.searchActions', 'Mac Help must expose search commands in the reference menu')
     require('Mac/SettingsView.swift', 'reference.bulkActions', 'Mac Help must expose bulk commands in the reference menu')
     require('Windows/Views/SettingsDialog.Information.cs', 'command.Click += (_, _) => SetAllSections(expanded)', 'Windows Help menu must share the bulk button action')

@@ -29,6 +29,8 @@ class SegmentDurationBoundsTests(unittest.TestCase):
 struct Segment { var start: Double; var end: Double; var text = "Text" }
 struct TranscriptRow: Identifiable { var id = "row"; var segment: Segment; var isDescription: Bool }
 struct StudioProject {
+    struct YouTubeMetadata { var videoID: String }
+    var youtubeMetadata: YouTubeMetadata?
     var name = "Test"; var source = "source.mp4"; var folder: URL?; var youtubeURL: String?;
     var isYouTubeURLProject = false; var duration: Double = 0; var width = 0; var height = 0; var hasAudio = false
     func url(_ path: String) -> URL? { folder?.appendingPathComponent(path) }
@@ -62,6 +64,11 @@ extension TimecodeInput {
         precondition(ProjectVideoInformation(project: local).duration == "11m 53s 955ms")
         local.isYouTubeURLProject = true
         precondition(ProjectVideoInformation(project: local).duration == "11m 53s 955ms")
+        local.youtubeMetadata = .init(videoID: "storedID123")
+        precondition(ProjectVideoInformation(project: local).youtubeVideoID == "storedID123")
+        local.youtubeURL = "https://www.youtube.com/watch?v=abcdefghijk&t=6"
+        precondition(ProjectVideoInformation(project: local).youtubeVideoID == "abcdefghijk")
+        precondition(ProjectVideoInformation(project: local).sourceURL == local.youtubeURL)
         local.duration = 714
         precondition(ProjectVideoInformation(project: local).duration == "11m 54s")
         precondition(NarrationTimeFormat.timestamp(59.9996) == "00:01:00.000")

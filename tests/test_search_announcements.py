@@ -10,9 +10,11 @@ class SearchAnnouncements(unittest.TestCase):
     def test_native_announcement_debounce_clear_and_cancellation(self):
         source = (MAC / 'VidiStudio/ProjectSearchResultsView.swift').read_text()
         scheduler = declaration(source, 'final class SearchAnnouncementDebouncer')
+        shortcuts = (MAC / 'VidiStudio/KeyboardShortcuts.swift').read_text()
+        entry = declaration(shortcuts.split('struct ShortcutReferenceView: View', 1)[1], 'private struct Entry')
         harness = '''import AppKit
 @MainActor
-''' + scheduler + '''
+''' + scheduler + '\n' + entry + '''
 @main struct Main { @MainActor static func main() {
  let scheduler=SearchAnnouncementDebouncer();var spoken:[String]=[]
  func drain() {RunLoop.main.run(until:Date().addingTimeInterval(0.42))}
@@ -21,8 +23,12 @@ class SearchAnnouncements(unittest.TestCase):
  update("a","2 results");update("ab","0 results");drain();precondition(spoken==["0 results"],"Rapid typing must replace the pending count")
  update("abc","0 results");drain();precondition(spoken==["0 results","0 results"],"A different query needs an announcement even if its count is unchanged")
  update("abc","0 results");drain();precondition(spoken.count==2,"Unchanged render updates must stay silent")
- update("Command + Shift + J","1 shortcut found",1);drain();precondition(spoken.last=="1 shortcut found" && spoken.count==3)
- update("Command + Shift + J","1 shortcut found",2);drain()
+ let jump = Entry("Jump to Time…", "Command + Shift + J").singleResultAnnouncement
+ precondition(jump == "1 shortcut found. Jump to Time. Command plus Shift plus J.")
+ let previous = Entry("Previous Summary Sentence", "Command + Shift + [").singleResultAnnouncement
+ precondition(previous == "1 shortcut found. Previous Summary Sentence. Command plus Shift plus Left bracket.")
+ update("Command + Shift + J",jump,1);drain();precondition(spoken.last==jump && spoken.count==3)
+ update("Command + Shift + J",jump,2);drain()
  precondition(spoken.count==4,"Pressing the same shortcut again must announce the count")
  update("summary","7 shortcuts found",2);drain();precondition(spoken.last=="7 shortcuts found")
  update("","cleared",2);drain();precondition(spoken.last=="cleared")

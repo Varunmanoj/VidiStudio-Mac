@@ -1261,6 +1261,15 @@ struct ShortcutReferenceView: View {
             self.value = value
         }
 
+        var singleResultAnnouncement: String {
+            let action = title.trimmingCharacters(in: CharacterSet(charactersIn: ".…"))
+            let keys = value.replacingOccurrences(of: " + ", with: " plus ")
+                .replacingOccurrences(of: "[", with: "Left bracket")
+                .replacingOccurrences(of: "]", with: "Right bracket")
+                .replacingOccurrences(of: " → ", with: ", ")
+            return "1 shortcut found. \(action). \(keys)."
+        }
+
         private static let keyNames = [
             "cmd": "command", "ctrl": "control", "opt": "option", "esc": "escape", "enter": "return",
             ",": "comma", ".": "period", "/": "slash", "=": "equals", "-": "minus",
@@ -1453,6 +1462,9 @@ struct ShortcutReferenceView: View {
         let entries = visibleEntries
         let count = entries.values.reduce(0) { $0 + $1.count }
         let status = count == 0 ? "No shortcuts found" : count == 1 ? "1 shortcut found" : "\(count) shortcuts found"
+        let announcement = count == 1
+            ? (entries.values.first?.first?.singleResultAnnouncement ?? status)
+            : status
         VStack(alignment: .leading, spacing: 12) {
             HStack(spacing: 12) {
                 HStack {
@@ -1493,7 +1505,7 @@ struct ShortcutReferenceView: View {
             }
         }
         .background {
-            SearchResultAnnouncements(query: query, status: isSearching ? status : "Shortcut search cleared",
+            SearchResultAnnouncements(query: query, status: isSearching ? announcement : "Shortcut search cleared",
                                       revision: searchCaptureRevision)
                 .frame(width: 0, height: 0)
                 .accessibilityHidden(true)
