@@ -2279,9 +2279,15 @@ private struct ProjectVideoInformationView: View {
             }
             InspectorSection("Video Information") {
                 VStack(alignment: .leading, spacing: 5) {
-                    informationRow(information.sourceDetailLabel, information.sourceDetail)
+                    if let videoID = information.youtubeVideoID {
+                        copyableInformationRow("Video ID", value: videoID, copyTitle: "Copy YouTube Video ID",
+                                               confirmation: "YouTube video ID copied", id: "copy-youtube-video-id")
+                    } else {
+                        informationRow(information.sourceDetailLabel, information.sourceDetail)
+                    }
                     if let sourceURL = information.sourceURL {
-                        informationRow("Source URL", sourceURL)
+                        copyableInformationRow("Source URL", value: sourceURL, copyTitle: "Copy YouTube URL",
+                                               confirmation: "YouTube URL copied", id: "copy-youtube-url")
                     }
                     InspectorInformationRow(label: "Duration", value: information.duration, spokenValue: information.spokenDuration)
                     informationRow("Frame Rate", information.frameRate)
@@ -2302,6 +2308,26 @@ private struct ProjectVideoInformationView: View {
 
     private func informationRow(_ label: String, _ value: String) -> some View {
         InspectorInformationRow(label: label, value: value)
+    }
+
+    private func copyableInformationRow(_ label: String, value: String, copyTitle: String, confirmation: String, id: String) -> some View {
+        func copy() {
+            NSPasteboard.general.clearContents()
+            let copied = NSPasteboard.general.setString(value, forType: .string)
+            AccessibilityNotification.Announcement(copied ? confirmation : "Could not copy \(label)").post()
+        }
+        return HStack(alignment: .top, spacing: 6) {
+            informationRow(label, value)
+            Button(copyTitle, systemImage: "document.on.document", action: copy)
+                .labelStyle(.iconOnly)
+                .controlSize(.small)
+                .help(copyTitle)
+                .accessibilityIdentifier(id)
+        }
+        .contextMenu {
+            Button(copyTitle, systemImage: "document.on.document", action: copy)
+                .accessibilityIdentifier(id)
+        }
     }
 }
 

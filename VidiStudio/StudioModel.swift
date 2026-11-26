@@ -994,6 +994,7 @@ struct ProjectVideoInformation {
     let projectFolder: String
     let sourceDetailLabel: String
     let sourceDetail: String
+    let youtubeVideoID: String?
     let sourceURL: String?
     let duration: String
     let spokenDuration: String
@@ -1019,9 +1020,12 @@ struct ProjectVideoInformation {
         projectFolder = project.folder?.path ?? "Not available"
         sourceDetailLabel = project.isYouTubeURLProject ? "Video ID" : "Source File"
         if project.isYouTubeURLProject {
-            sourceDetail = project.youtubeURL.flatMap { VidiStudioShareLink.youtubeVideoID(from: $0) } ?? "Not available"
-            sourceURL = project.youtubeURL
+            let url = project.youtubeURL.flatMap { $0.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? nil : $0 }
+            youtubeVideoID = url.flatMap { VidiStudioShareLink.youtubeVideoID(from: $0) }
+            sourceDetail = youtubeVideoID ?? "Not available"
+            sourceURL = url
         } else {
+            youtubeVideoID = nil
             let filename = URL(fileURLWithPath: project.source).lastPathComponent
             sourceDetail = filename.isEmpty ? "Not available" : filename
             sourceURL = nil

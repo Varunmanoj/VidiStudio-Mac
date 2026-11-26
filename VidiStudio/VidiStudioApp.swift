@@ -61,8 +61,16 @@ final class VidiStudioAppDelegate: NSObject, NSApplicationDelegate {
     static func handleTextShortcut(_ event: NSEvent) -> NSEvent? {
         let modifiers = event.modifierFlags.intersection(.deviceIndependentFlagsMask).subtracting(.capsLock)
         guard modifiers == .command || modifiers == [.command, .shift],
-              let text = NSApp.keyWindow?.firstResponder as? NSTextView,
               let key = event.charactersIgnoringModifiers?.lowercased() else { return event }
+        if modifiers == .command, key == "q" {
+            if event.isARepeat { return nil }
+            if let window = event.window, window.isKeyWindow,
+               AppWindowLifetime.isSettingsWindow(window) || window.identifier == StudioHelp.windowIdentifier {
+                window.performClose(nil)
+                return nil
+            }
+        }
+        guard let text = NSApp.keyWindow?.firstResponder as? NSTextView else { return event }
         if key == "z" {
             guard let manager = text.undoManager else { return event }
             if modifiers.contains(.shift) {

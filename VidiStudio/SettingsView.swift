@@ -104,6 +104,12 @@ struct SettingsView: View {
     }
     @State private var soundPreview = SettingsSoundPreview()
     @State private var shortcutReferenceExpanded = false
+    @State private var shortcutSearchQuery = ""
+    @State private var shortcutSearchUsesExactKey = false
+    @State private var shortcutSearchCaptureRevision = 0
+    @State private var collapsedShortcutSearchSections: Set<ShortcutReferenceView.Category> = []
+    @FocusState private var shortcutSearchFocused: Bool
+    @State private var expandedShortcutSections: Set<ShortcutReferenceView.Category> = []
     @State private var searchHighlightColorRequest = 0
     @State private var expandedPromptStages: Set<String> = []
     @State private var finderExtensionEnabled = FIFinderSyncController.isExtensionEnabled
@@ -152,6 +158,37 @@ struct SettingsView: View {
             return left == right ? $0 < $1 : left < right
         }
     }
+    private var helpSection: some View {
+        let reference = ShortcutReferenceView(expandedSections: $expandedShortcutSections,
+                                              referenceExpanded: $shortcutReferenceExpanded,
+                                              searchQuery: $shortcutSearchQuery,
+                                              searchUsesExactKey: $shortcutSearchUsesExactKey,
+                                              searchCaptureRevision: $shortcutSearchCaptureRevision,
+                                              collapsedSearchSections: $collapsedShortcutSearchSections,
+                                              searchFocused: $shortcutSearchFocused)
+        let searchKeys = ShortcutSearchKeys(isCaptureFocused: shortcutSearchFocused,
+                                            onFind: { reference.focusSearch() },
+                                            onCapture: { reference.captureShortcut($0) })
+        return Section {
+            Button("Open VidiStudio Help", systemImage: "questionmark.circle") { StudioHelp.open() }
+            DisclosureGroup("Keyboard shortcut reference", isExpanded: $shortcutReferenceExpanded) {
+                reference
+            }
+            .animation(interfaceAnimation, value: shortcutReferenceExpanded)
+            .background { searchKeys.frame(width: 0, height: 0).accessibilityHidden(true) }
+            .contextMenu {
+                Toggle("Keyboard shortcut reference", isOn: $shortcutReferenceExpanded)
+                    .accessibilityIdentifier("settings-shortcut-reference")
+                Divider()
+                reference.bulkActions
+                Divider()
+                reference.searchActions
+            }
+        } header: {
+            Text("Help and keyboard shortcuts").accessibilityAddTraits(.isHeader).accessibilityHeading(.h2)
+        }
+    }
+
     var body: some View {
         NavigationSplitView {
             List(sections, id: \.self, selection: $studio.settingsSection) { item in
@@ -175,16 +212,7 @@ struct SettingsView: View {
         Form {
             Text(section == "Gemini" ? "AI" : section).font(.title2.bold()).accessibilityAddTraits(.isHeader).accessibilityHeading(.h1)
             if section == "About" { AboutSettingsView() }
-            if section == "Help" { Section {
-                Button("Open VidiStudio Help", systemImage: "questionmark.circle") { StudioHelp.open() }
-                DisclosureGroup("Keyboard shortcut reference", isExpanded: $shortcutReferenceExpanded) { ShortcutReferenceView() }
-                    .animation(interfaceAnimation, value: shortcutReferenceExpanded)
-                    .contextMenu {
-                        Toggle("Keyboard shortcut reference", isOn: $shortcutReferenceExpanded)
-                            .accessibilityIdentifier("settings-shortcut-reference")
-                    }
-            } header: { Text("Help and keyboard shortcuts").accessibilityAddTraits(.isHeader).accessibilityHeading(.h2) }
-            }
+            if section == "Help" { helpSection }
             if section == "Appearance" { appearanceSections }
             if section == "Projects" {
                 if settingsProjects.isEmpty {

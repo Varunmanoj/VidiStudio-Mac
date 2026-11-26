@@ -1230,89 +1230,374 @@ struct StudioCommands: Commands {
     }
 }
 struct ShortcutReferenceView: View {
-    private func shortcutRow(_ title: String, value: String) -> some View {
-        HStack(alignment: .firstTextBaseline) {
-            Text(title)
-            Spacer(minLength: 16)
-            Text(value).foregroundStyle(.secondary).multilineTextAlignment(.trailing)
-        }
-        .accessibilityElement(children: .ignore)
-        .accessibilityLabel(Text("\(title): \(value)"))
+    enum Category: String, CaseIterable {
+        case projectsAndWindows = "Projects and Windows"
+        case editorNavigation = "Editor Navigation"
+        case videoPlayback = "Video Playback"
+        case transcriptOverlay = "Transcript Overlay"
+        case summaryReading = "Summary Reading"
+        case segmentEditing = "Segment Editing"
+        case generationAndNarration = "Generation and Narration"
+        case importAndExport = "Import and Export"
+        case youtubeBrowser = "YouTube Browser"
     }
 
-    private func referenceSection<Rows: View>(_ title: String, @ViewBuilder rows: () -> Rows) -> some View {
-        VStack(alignment: .leading, spacing: 8) {
-            Text(title).font(.headline).accessibilityAddTraits(.isHeader).accessibilityHeading(.h3)
-            rows()
+    private static let searchHint = "Type an action name or press a shortcut."
+
+    @Binding var expandedSections: Set<Category>
+    @Binding var referenceExpanded: Bool
+    @Binding var searchQuery: String
+    @Binding var searchUsesExactKey: Bool
+    @Binding var searchCaptureRevision: Int
+    @Binding var collapsedSearchSections: Set<Category>
+    var searchFocused: FocusState<Bool>.Binding
+
+    private struct Entry {
+        let title: String
+        let value: String
+
+        init(_ title: String, _ value: String) {
+            self.title = title
+            self.value = value
+        }
+
+        private static let keyNames = [
+            "cmd": "command", "ctrl": "control", "opt": "option", "esc": "escape", "enter": "return",
+            ",": "comma", ".": "period", "/": "slash", "=": "equals", "-": "minus",
+            "←": "left arrow", "→": "right arrow", "↩": "return", "⎋": "escape"
+        ]
+
+        static func keyWords(_ text: String) -> String {
+            let symbolic = text.lowercased()
+                .replacingOccurrences(of: "⌘", with: " command ")
+                .replacingOccurrences(of: "⌥", with: " option ")
+                .replacingOccurrences(of: "⇧", with: " shift ")
+                .replacingOccurrences(of: "⌃", with: " control ")
+            return symbolic.split(whereSeparator: { $0 == "+" || $0.isWhitespace })
+                .map { keyNames[String($0)] ?? String($0) }.joined(separator: " ")
+        }
+
+        func matches(_ actionWords: [Substring], keyQuery: String, exactKey: Bool) -> Bool {
+            if !exactKey && actionWords.allSatisfy({ title.localizedCaseInsensitiveContains(String($0)) }) { return true }
+            guard !keyQuery.isEmpty else { return false }
+            let key = Self.keyWords(String(value.prefix { $0 != "(" && $0 != ";" }))
+            if exactKey { return key == keyQuery }
+            return (" " + key + " ").contains(" " + keyQuery + " ")
         }
     }
 
-    private func catalogRows(_ shortcuts: [StudioShortcut]) -> some View {
-        ForEach(shortcuts) { shortcut in
-            shortcutRow(shortcut.title, value: shortcut.spoken)
-        }
+    private static func catalogRows(_ shortcuts: [StudioShortcut]) -> [Entry] {
+        shortcuts.map { Entry($0.title, $0.spoken) }
     }
 
-    private func editorRows(groups: [String] = [], ids: [String] = []) -> some View {
+    private static func editorRows(groups: [String] = [], ids: [String] = []) -> [Entry] {
         catalogRows(StudioShortcut.editor.filter { groups.contains($0.group) || ids.contains($0.id) })
     }
 
+    private static let entries: [Category: [Entry]] = [
+        .projectsAndWindows: [Entry("New Project", "Command + N")]
+            + catalogRows([StudioShortcut.cloudBrowser, StudioShortcut.youtubeBrowser])
+            + [
+                Entry("Open Project Folder", "Command + Shift + O"),
+                Entry("Rename Selected Project", "Return (All Projects)"),
+                Entry("Settings", "Command + Comma"),
+                Entry("Open Project Settings", "Command + Shift + Comma (selected project or current editor)"),
+                Entry("VidiStudio Help", "Command + Option + Slash")
+            ],
+        .editorNavigation: editorRows(groups: ["Search"])
+            + [
+                Entry("Show or Hide Project List", "Command + B"),
+                Entry("Show or Hide Inspector", "Command + Shift + B (requires a selected project)"),
+                Entry("Show or Hide Timeline", "View menu (project editor)"),
+                Entry("Show or Hide Thumbnail Images", "View menu (hidden by default)"),
+                Entry("Project List View", "Command + Option + 1"),
+                Entry("Project Grid View", "Command + Option + 2")
+            ]
+            + editorRows(ids: ["transcript", "summary", "descriptions", "ad-transcript", "ad-overview"]),
+        .videoPlayback: editorRows(groups: ["Playback"])
+            + [Entry("Cancel a sheet or leave full-screen video", "Escape")],
+        .transcriptOverlay: editorRows(groups: ["Captions"]),
+        .summaryReading: editorRows(groups: ["Summary"])
+            + [
+                Entry("Read Summary from Start", "Playback → Summary Reading menu (Summary section)"),
+                Entry("Read Summary from Selection", "Playback → Summary Reading, summary text context menu, or Play button options (requires a selection)"),
+                Entry("Read Selected Summary Text", "Playback → Summary Reading, summary text context menu, or Play button options (requires a selection)")
+            ]
+            + editorRows(groups: ["Summary Zoom"]),
+        .segmentEditing: editorRows(groups: ["Segments"], ids: ["follow", "undo", "redo"])
+            + [Entry("Save Segment (in its editor)", "Return")],
+        .generationAndNarration: editorRows(groups: ["Analysis", "Narration"], ids: ["delete-narration"]),
+        .importAndExport: [
+            Entry("Import Existing Assets…", "Command + Option + Shift + I"),
+            Entry("Import Transcript…", "Command + Option + I"),
+            Entry("Import Summary…", "Command + Option + M"),
+            Entry("Import Descriptions…", "Command + Option + D")
+        ] + editorRows(groups: ["File"]),
+        .youtubeBrowser: catalogRows(StudioShortcut.youtube.filter { $0.id != "youtube-browser" })
+    ]
+
+    private var query: String { searchQuery.trimmingCharacters(in: .whitespacesAndNewlines) }
+    private var isSearching: Bool { !query.isEmpty }
+
+    private var visibleEntries: [Category: [Entry]] {
+        let words = query.split(whereSeparator: \.isWhitespace)
+        let keyQuery = Entry.keyWords(query)
+        return Self.entries.compactMapValues { entries in
+            let matches = entries.filter { $0.matches(words, keyQuery: keyQuery, exactKey: searchUsesExactKey) }
+            return matches.isEmpty ? nil : matches
+        }
+    }
+
+    private func isSectionExpanded(_ category: Category) -> Bool {
+        isSearching ? !collapsedSearchSections.contains(category) : expandedSections.contains(category)
+    }
+
+    private func setSection(_ category: Category, expanded: Bool) {
+        if isSearching {
+            if expanded { collapsedSearchSections.remove(category) }
+            else { collapsedSearchSections.insert(category) }
+        } else {
+            if expanded { expandedSections.insert(category) }
+            else { expandedSections.remove(category) }
+        }
+    }
+
+    private func canSetAllSections(expanded: Bool) -> Bool {
+        visibleEntries.keys.contains { isSectionExpanded($0) != expanded }
+    }
+
+    private func setAllSections(expanded: Bool) {
+        guard canSetAllSections(expanded: expanded) else { return }
+        for category in visibleEntries.keys { setSection(category, expanded: expanded) }
+        if expanded { referenceExpanded = true }
+    }
+
+    private func updateQuery(_ text: String, exactKey: Bool = false) {
+        if exactKey || searchUsesExactKey || query != text.trimmingCharacters(in: .whitespacesAndNewlines) {
+            collapsedSearchSections.removeAll()
+        }
+        searchUsesExactKey = exactKey
+        searchQuery = text
+    }
+
+    @ViewBuilder var bulkActions: some View {
+        Button("Expand All", systemImage: "chevron.down.2") { setAllSections(expanded: true) }
+            .disabled(!canSetAllSections(expanded: true))
+            .accessibilityIdentifier("settings-shortcut-reference-expand-all")
+        Button("Collapse All", systemImage: "chevron.up.2") { setAllSections(expanded: false) }
+            .disabled(!canSetAllSections(expanded: false))
+            .accessibilityIdentifier("settings-shortcut-reference-collapse-all")
+    }
+
+    func focusSearch() {
+        referenceExpanded = true
+        DispatchQueue.main.async { searchFocused.wrappedValue = true }
+    }
+
+    func captureShortcut(_ text: String) {
+        updateQuery(text, exactKey: true)
+        searchCaptureRevision &+= 1
+    }
+
+    @ViewBuilder var searchActions: some View {
+        Button("Search Shortcuts", systemImage: "magnifyingglass", action: focusSearch)
+            .keyboardShortcut("f", modifiers: .command)
+            .accessibilityIdentifier("settings-shortcut-reference-focus-search")
+        Button("Clear Shortcut Search", systemImage: "xmark.circle") { clearSearch() }
+            .disabled(searchQuery.isEmpty)
+            .accessibilityIdentifier("settings-shortcut-reference-clear-search")
+    }
+
+    private func clearSearch() {
+        updateQuery("")
+        if referenceExpanded { searchFocused.wrappedValue = true }
+    }
+
+    private func shortcutRow(_ entry: Entry) -> some View {
+        HStack(alignment: .firstTextBaseline) {
+            Text(entry.title)
+            Spacer(minLength: 16)
+            Text(entry.value).foregroundStyle(.secondary).multilineTextAlignment(.trailing)
+        }
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel(Text("\(entry.title): \(entry.value)"))
+    }
+
+    private func referenceSection(_ category: Category, entries: [Entry]) -> some View {
+        let title = category.rawValue
+        let expanded = Binding(
+            get: { isSectionExpanded(category) },
+            set: { setSection(category, expanded: $0) }
+        )
+        let id = "settings-shortcut-section-" + title.lowercased().replacingOccurrences(of: " ", with: "-")
+        return DisclosureGroup(isExpanded: expanded) {
+            VStack(alignment: .leading, spacing: 8) {
+                ForEach(entries, id: \.title) { shortcutRow($0) }
+                if !isSearching && category == .segmentEditing {
+                    Text("Standard Command + Z and Command + Shift + Z remain available for text editing.")
+                }
+                if !isSearching && category == .generationAndNarration {
+                    Text("Regenerating existing content requires confirmation.")
+                }
+            }
+        } label: {
+            Text(title).font(.headline).accessibilityAddTraits(.isHeader).accessibilityHeading(.h3)
+        }
+        .contextMenu {
+            Toggle(isOn: expanded) { Label(title, systemImage: "keyboard") }
+                .accessibilityIdentifier(id)
+        }
+    }
+
     var body: some View {
-        VStack(alignment: .leading, spacing: 20) {
-            Text("Editor commands are available with a project open and no editing sheet or processing operation active.")
-            referenceSection("Projects and Windows") {
-                shortcutRow("New Project", value: "Command + N")
-                catalogRows([StudioShortcut.cloudBrowser, StudioShortcut.youtubeBrowser])
-                shortcutRow("Open Project Folder", value: "Command + Shift + O")
-                shortcutRow("Rename Selected Project", value: "Return (All Projects)")
-                shortcutRow("Settings", value: "Command + Comma")
-                shortcutRow("Open Project Settings", value: "Command + Shift + Comma (selected project or current editor)")
-                shortcutRow("VidiStudio Help", value: "Command + Option + Slash")
+        let entries = visibleEntries
+        let count = entries.values.reduce(0) { $0 + $1.count }
+        let status = count == 0 ? "No shortcuts found" : count == 1 ? "1 shortcut found" : "\(count) shortcuts found"
+        VStack(alignment: .leading, spacing: 12) {
+            HStack(spacing: 12) {
+                HStack {
+                    Image(systemName: "magnifyingglass").foregroundStyle(.secondary).accessibilityHidden(true)
+                    TextField("Search shortcuts", text: Binding(get: { searchQuery }, set: { updateQuery($0) }))
+                        .focused(searchFocused)
+                        .accessibilityLabel("Search shortcuts")
+                        .accessibilityHint(Self.searchHint)
+                        .help(Self.searchHint)
+                        .accessibilityIdentifier("settings-shortcut-reference-search")
+                    if !searchQuery.isEmpty {
+                        Button("Clear Shortcut Search", systemImage: "xmark.circle") { clearSearch() }
+                            .labelStyle(.iconOnly)
+                            .help("Clear Shortcut Search")
+                    }
+                }
+                Text(Self.searchHint)
+                    .font(.callout)
+                    .foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+                    .frame(maxWidth: 220, alignment: .leading)
+                    .accessibilityHidden(true)
             }
-            referenceSection("Editor Navigation") {
-                editorRows(groups: ["Search"])
-                shortcutRow("Show or Hide Project List", value: "Command + B")
-                shortcutRow("Show or Hide Inspector", value: "Command + Shift + B (requires a selected project)")
-                shortcutRow("Show or Hide Timeline", value: "View menu (project editor)")
-                shortcutRow("Show or Hide Thumbnail Images", value: "View menu (hidden by default)")
-                shortcutRow("Project List View", value: "Command + Option + 1")
-                shortcutRow("Project Grid View", value: "Command + Option + 2")
-                editorRows(ids: ["transcript", "summary", "descriptions", "ad-transcript", "ad-overview"])
+            HStack { bulkActions }
+                .controlSize(.small)
+            if isSearching {
+                Text(status)
+                    .foregroundStyle(.secondary)
+                    .accessibilityIdentifier("settings-shortcut-reference-results")
+            } else {
+                Text("Editor commands are available with a project open and no editing sheet or processing operation active.")
             }
-            referenceSection("Video Playback") {
-                editorRows(groups: ["Playback"])
-                shortcutRow("Cancel a sheet or leave full-screen video", value: "Escape")
+            ForEach(Category.allCases, id: \.self) { category in
+                if let rows = entries[category] { referenceSection(category, entries: rows) }
             }
-            referenceSection("Transcript Overlay") {
-                editorRows(groups: ["Captions"])
+            if !isSearching {
+                Text("Use Tab and Shift + Tab to move between controls, Space to activate buttons and toggles, and arrow keys inside lists and pickers. Enable Keyboard navigation in macOS System Settings → Keyboard to reach all controls with Tab. VoiceOver users can use standard Control + Option navigation and interaction commands.")
             }
-            referenceSection("Summary Reading") {
-                editorRows(groups: ["Summary"])
-                shortcutRow("Read Summary from Start", value: "Playback → Summary Reading menu (Summary section)")
-                shortcutRow("Read Summary from Selection", value: "Playback → Summary Reading, summary text context menu, or Play button options (requires a selection)")
-                shortcutRow("Read Selected Summary Text", value: "Playback → Summary Reading, summary text context menu, or Play button options (requires a selection)")
-                editorRows(groups: ["Summary Zoom"])
+        }
+        .background {
+            SearchResultAnnouncements(query: query, status: isSearching ? status : "Shortcut search cleared",
+                                      revision: searchCaptureRevision)
+                .frame(width: 0, height: 0)
+                .accessibilityHidden(true)
+        }
+    }
+}
+
+/// Route Find in Settings Help before the app menu, and capture other keys in the search field.
+struct ShortcutSearchKeys: NSViewRepresentable {
+    let isCaptureFocused: Bool
+    let onFind: () -> Void
+    let onCapture: (String) -> Void
+
+    func makeNSView(context: Context) -> KeyView { KeyView() }
+
+    func updateNSView(_ view: KeyView, context: Context) {
+        view.setHandlers(find: onFind, capture: isCaptureFocused ? onCapture : nil)
+    }
+
+    static func dismantleNSView(_ view: KeyView, coordinator: ()) {
+        view.setHandlers(find: nil, capture: nil)
+    }
+
+    final class KeyView: NSView {
+        private var monitor: Any?
+        private var onFind: (() -> Void)?
+        private var onCapture: ((String) -> Void)?
+
+        func setHandlers(find: (() -> Void)?, capture: ((String) -> Void)?) {
+            onFind = find
+            onCapture = capture
+            if find == nil {
+                if let monitor { NSEvent.removeMonitor(monitor) }
+                monitor = nil
+            } else if monitor == nil {
+                monitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { [weak self] event in
+                    MainActor.assumeIsolated {
+                        guard let self else { return event }
+                        return self.handle(event)
+                    }
+                }
             }
-            referenceSection("Segment Editing") {
-                editorRows(groups: ["Segments"], ids: ["follow", "undo", "redo"])
-                shortcutRow("Save Segment (in its editor)", value: "Return")
-                Text("Standard Command + Z and Command + Shift + Z remain available for text editing.")
+        }
+
+        private func handle(_ event: NSEvent) -> NSEvent? {
+            guard let window, event.window === window, window.isKeyWindow else { return event }
+            let modifiers = event.modifierFlags.intersection(.deviceIndependentFlagsMask).subtracting(.capsLock)
+            if modifiers == .command {
+                switch event.charactersIgnoringModifiers?.lowercased() {
+                case "f":
+                    if !event.isARepeat { onFind?() }
+                    return nil
+                case "q":
+                    return event // The app delegate closes the active Settings or Help window.
+                default: break
+                }
             }
-            referenceSection("Generation and Narration") {
-                editorRows(groups: ["Analysis", "Narration"], ids: ["delete-narration"])
-                Text("Regenerating existing content requires confirmation.")
+            guard let onCapture, let editor = window.firstResponder as? NSTextView,
+                  editor.isFieldEditor, !editor.hasMarkedText(),
+                  let key = Self.searchText(for: event) else { return event }
+            if !event.isARepeat { onCapture(key) }
+            return nil
+        }
+
+        private static func searchText(for event: NSEvent) -> String? {
+            let modifiers = event.modifierFlags.intersection([.command, .control, .option, .shift])
+            let key: String
+            switch event.specialKey {
+            case .leftArrow: key = "Left Arrow"
+            case .rightArrow: key = "Right Arrow"
+            case .upArrow: key = "Up Arrow"
+            case .downArrow: key = "Down Arrow"
+            case .delete: key = "Delete"
+            case .home: key = "Home"
+            case .end: key = "End"
+            case .pageUp: key = "Page Up"
+            case .pageDown: key = "Page Down"
+            case let special? where (NSEvent.SpecialKey.f1.rawValue...NSEvent.SpecialKey.f20.rawValue).contains(special.rawValue):
+                key = "F\(special.rawValue - NSEvent.SpecialKey.f1.rawValue + 1)"
+            default:
+                switch event.keyCode {
+                case 36, 76: key = "Return"
+                case 53: key = "Escape"
+                case 49: key = "Space"
+                case 51: key = "Delete"
+                case 117: key = "Forward Delete"
+                case 48: return nil
+                default:
+                    guard let character = event.characters(byApplyingModifiers: []), character.count == 1,
+                          character.rangeOfCharacter(from: .controlCharacters) == nil else { return nil }
+                    key = character.uppercased()
+                }
             }
-            referenceSection("Import and Export") {
-                shortcutRow("Import Existing Assets…", value: "Command + Option + Shift + I")
-                shortcutRow("Import Transcript…", value: "Command + Option + I")
-                shortcutRow("Import Summary…", value: "Command + Option + M")
-                shortcutRow("Import Descriptions…", value: "Command + Option + D")
-                editorRows(groups: ["File"])
-            }
-            referenceSection("YouTube Browser") {
-                catalogRows(StudioShortcut.youtube.filter { $0.id != "youtube-browser" })
-            }
-            Text("Use Tab and Shift + Tab to move between controls, Space to activate buttons and toggles, and arrow keys inside lists and pickers. Enable Keyboard navigation in macOS System Settings → Keyboard to reach all controls with Tab. VoiceOver users can use standard Control + Option navigation and interaction commands.")
+
+            // Keep ordinary entry, selections, insertion-point movement, and native editing chords.
+            if modifiers == .command && ["A", "C", "V", "X", "Z", "Left Arrow", "Right Arrow", "Up Arrow", "Down Arrow", "Delete"].contains(key) { return nil }
+            if modifiers == [.command, .shift] && ["Z", "Left Arrow", "Right Arrow", "Up Arrow", "Down Arrow"].contains(key) { return nil }
+            let isFunctionKey = key.first == "F" && Int(key.dropFirst()) != nil
+            guard modifiers.contains(.command) || (modifiers.isEmpty && (isFunctionKey || key == "Return" || key == "Escape")) else { return nil }
+
+            let names: [(NSEvent.ModifierFlags, String)] = [
+                (.command, "Command"), (.control, "Control"), (.option, "Option"), (.shift, "Shift")
+            ]
+            return (names.compactMap { modifiers.contains($0.0) ? $0.1 : nil } + [key]).joined(separator: " + ")
         }
     }
 }

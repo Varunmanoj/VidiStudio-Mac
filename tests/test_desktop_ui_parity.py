@@ -24,6 +24,26 @@ class DesktopUILayoutParityTests(unittest.TestCase):
         changed = dict(self.source); changed[path] = changed[path].replace(before, after)
         with self.assertRaisesRegex(ValueError, expected): contract.validate(changed)
 
+    def test_shortcut_search_opens_matches_and_syncs_bulk_commands(self):
+        for path, before, after, message in (
+            ('Mac/KeyboardShortcuts.swift', '!collapsedSearchSections.contains(category)',
+             'expandedSections.contains(category)', 'Help search must open matching sections'),
+            ('Windows/Views/SettingsDialog.Information.cs', 'rowCount > 0 && !collapsedShortcutSearchSections.Contains(group.Title)',
+             'expandedShortcutSections.Contains(group.Title)', 'Help search must open matching sections'),
+            ('Mac/SettingsView.swift', 'ShortcutSearchKeys(isCaptureFocused: shortcutSearchFocused,',
+             'ShortcutSearchKeys(isCaptureFocused: true,', 'Help shortcut capture must follow search field focus'),
+            ('Windows/Views/SettingsDialog.cs', 'focusHelpShortcutSearch = null;',
+             '', 'Find must be scoped to the Settings Help page'),
+            ('Windows/Views/SettingsDialog.Information.cs', 'search.PreviewKeyDown +=',
+             'shortcuts.PreviewKeyDown +=', 'Help shortcut capture must follow search field focus'),
+            ('Mac/KeyboardShortcuts.swift', '.disabled(!canSetAllSections(expanded: true))',
+             '.disabled(false)', 'Help must disable bulk commands'),
+            ('Windows/Views/SettingsDialog.Information.cs', 'collapse.Button.IsEnabled = collapse.Command.IsEnabled = CanSetAllSections(false)',
+             'collapse.Button.IsEnabled = CanSetAllSections(false)', 'Help must disable bulk commands'),
+        ):
+            with self.subTest(path=path, before=before):
+                self.mutated(path, before, after, message)
+
     def test_summary_voice_follows_the_narration_provider(self):
         path = 'Windows/Views/SettingsDialog.cs'
         call = 'BuildAdditionalSpeechControls(panel);'

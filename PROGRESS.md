@@ -4494,3 +4494,43 @@ Settings > Help presents the expanded keyboard reference under nine task heading
 Installed and launched signed Mac 1.0.435/build 435. The Share, Safari and Finder extensions match build 435, retain Apple Development team LLVWNNUV26 and register under /Applications/VidiStudio.app, the only app listed by Spotlight and LaunchServices. Live accessibility inspection verified ordered headings, paired spoken labels and keys, and access to the final YouTube Browser section. Verified 24 installed-engine CLI and import tests, and 103 paired menu and layout tests per checkout. Logs are in build/grouped-shortcuts-435-install.log and build/grouped-shortcuts-435-native.log.
 
 The guide update passed TypeScript, the production build and local navigation and search at wide and compact widths. Publication is pending.
+
+## 1.0.436 · Collapsible Help shortcuts and YouTube source copying · 2026-11-26
+
+The Settings Help reference starts with nine individually collapsed sections. Each disclosure and its context command share expansion state. Help retains the open sections while switching Settings pages. YouTube projects expose named Copy YouTube Video ID and Copy YouTube URL buttons in the inspector's Video Information section, with matching context actions. Copy uses the ID or exact stored URL.
+
+Installed Mac 1.0.436/build 436. Share, Safari and Finder extensions retain team LLVWNNUV26, match the version and build, and are registered under the single /Applications/VidiStudio.app found by LaunchServices and Spotlight. Live Mac inspection verified all nine collapsed headings, two independent expansions, retained state after visiting About, and successful collapse through the section's context menu. Opened a disposable YouTube editor and confirmed both named buttons copied the exact values, including the time offset. Restored the pasteboard and removed the fixture. See build/shortcut-sections-and-youtube-copy-436-install.log and build/shortcut-sections-and-youtube-copy-436-clipboard.log.
+
+Both checkouts passed 103 paired menu and layout tests each. The installed Mac engine passed 24 CLI and import tests. The guide passed TypeScript, the production build, and wide and compact search and navigation locally. Publication is pending.
+
+## 1.0.437 · Expand and collapse all Help shortcuts · 2026-11-26
+
+Settings Help places Expand All and Collapse All together above the shortcut sections and in the reference's context menu. Expand All opens the reference when needed. Collapse All resets its sections and leaves the parent in its current state. Individual disclosures keep their existing behavior.
+
+Installed Mac 1.0.437/build 437. Share, Safari and Finder extensions match build 437, retain Apple Development team LLVWNNUV26, and register under the single /Applications/VidiStudio.app in Spotlight and LaunchServices. In native Settings, both buttons and both context menu commands controlled all nine headings. A menu action expanded the initially closed reference, and both collapse paths kept its open headings available. See build/shortcut-bulk-actions-437-install.log.
+
+Both desktop checkouts passed their 103 paired menu and UI tests. The installed Mac engine passed 24 CLI and import tests. The guide passed TypeScript, the production build, and normal and compact search and anchor navigation. Publication is pending.
+
+## 1.0.439 · Search and capture Help shortcuts · 2026-11-26
+
+Settings Help finds shortcuts by action or key combination, opens matching sections, and restores the previous browsing state when cleared. The bulk buttons and context commands disable when there is nothing to expand or collapse. The focused search field captures a pressed shortcut as an exact query and keeps typing, native text editing and Tab navigation available.
+
+Installed and launched signed Mac 1.0.438/build 438 to verify the initial typed search and menu states, then replaced it with 1.0.439/build 439 for key capture. The Safari, Share and Finder extensions match the final app version and build, retain Apple Development team LLVWNNUV26 and register under the single /Applications/VidiStudio.app shown by Spotlight and LaunchServices. Native accessibility inspection verified the named field, results and disclosure states, action and symbol queries, both disabled bulk states, and the context menu's focus and clear commands. Command+Shift+J and Return produced exact matches. Command+N searched inside the field and opened New Project after Tab moved focus out. The latter dialog was cancelled without creating a project. See build/shortcut-search-438-install.log and build/shortcut-search-439-install.log.
+
+Each desktop passed 104 paired menu and layout tests. The installed Mac engine passed 24 CLI and import tests. The updated website guide passed TypeScript, the production build, and local search and anchors at 1440 and 390 CSS pixels. The guide update is unpublished.
+
+## 1.0.440 · Visible shortcut search hint · 2026-11-26
+
+Settings Help shows “Type an action name or press a shortcut.” beside the Search shortcuts field. The field exposes the same wording as accessibility help and the hint can wrap.
+
+Installed and launched signed 1.0.440/build 440. The app and registered Safari, Share and Finder extensions retain Apple Development team LLVWNNUV26 and the same designated requirements. Spotlight and LaunchServices show a single /Applications/VidiStudio.app. Native Mac inspection in dark appearance confirmed the visible hint and field help before and after capturing Command+Shift+J. The Mac compact-width and light-appearance checks were not independently completed. See build/shortcut-search-hint-440-install.log.
+
+Both checkouts passed 104 paired menu and layout tests. The installed Mac engine passed 24 CLI and import tests. The website guide passed TypeScript, the production build, and local navigation and search at 1440 and 390 CSS pixels. Publication is pending.
+
+## 1.0.442 · Settings Find, Close and shortcut result announcements · 2026-11-26
+
+Command+F opens the collapsed shortcut reference and focuses Search shortcuts from Settings Help. Pressing Find again preserves the query. Command+Q closes the active Settings or standalone Help window through its normal close action. Shortcut search announces zero, one or multiple results through AppKit after input settles, including when the user presses the same shortcut again.
+
+Installed signed 1.0.441/build 441 for the scoped Find and Close change, then installed signed 1.0.442/build 442 with result announcements. The app and registered Safari, Share and Finder extensions share build 442 and the Apple Development team LLVWNNUV26. Spotlight and LaunchServices show a single /Applications/VidiStudio.app. Native Mac checks verified the collapsed reference, retained query, scope outside Help, Command+Q from the shortcut field and Appearance, and closure of the standalone reader while keeping the main app open. The native search displayed zero, one and two results from captured keys. The Swift announcement test verified coalescing, repeated capture with the same count, idle silence and cancellation. Actual VoiceOver speech was outside the test. See build/settings-shortcuts-441-install.log and build/settings-shortcuts-442-install.log.
+
+The 105 paired menu, layout and Mac announcement tests passed. The installed engine passed 24 CLI and import tests. The updated website guide passed TypeScript, the production build, and local search and navigation at 1440 and 390 CSS pixels. Publication is pending.

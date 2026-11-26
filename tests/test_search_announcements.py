@@ -16,14 +16,18 @@ class SearchAnnouncements(unittest.TestCase):
 @main struct Main { @MainActor static func main() {
  let scheduler=SearchAnnouncementDebouncer();var spoken:[String]=[]
  func drain() {RunLoop.main.run(until:Date().addingTimeInterval(0.42))}
- func update(_ query:String,_ message:String) {scheduler.update(query:query,status:message){spoken.append($0)}}
+ func update(_ query:String,_ message:String,_ revision:Int=0) {scheduler.update(query:query,status:message,revision:revision){spoken.append($0)}}
  update("","cleared");drain();precondition(spoken.isEmpty,"Initial idle windows must stay silent")
  update("a","2 results");update("ab","0 results");drain();precondition(spoken==["0 results"],"Rapid typing must replace the pending count")
  update("abc","0 results");drain();precondition(spoken==["0 results","0 results"],"A different query needs an announcement even if its count is unchanged")
  update("abc","0 results");drain();precondition(spoken.count==2,"Unchanged render updates must stay silent")
- update("","cleared");drain();precondition(spoken.last=="cleared")
- update("cancel","1 result");scheduler.cancel();drain();precondition(spoken.count==3,"Detached views must cancel pending speech")
- print("PASS: coalesced final counts, unchanged-count queries, silent idle/rendering, clearing and cancellation")
+ update("Command + Shift + J","1 shortcut found",1);drain();precondition(spoken.last=="1 shortcut found" && spoken.count==3)
+ update("Command + Shift + J","1 shortcut found",2);drain()
+ precondition(spoken.count==4,"Pressing the same shortcut again must announce the count")
+ update("summary","7 shortcuts found",2);drain();precondition(spoken.last=="7 shortcuts found")
+ update("","cleared",2);drain();precondition(spoken.last=="cleared")
+ update("cancel","No shortcuts found",2);scheduler.cancel();drain();precondition(spoken.count==6,"Detached views must cancel pending speech")
+ print("PASS: coalesced counts, repeated captures, changed queries, clearing and cancellation")
 } }
 '''
         with tempfile.TemporaryDirectory() as folder:

@@ -333,3 +333,7 @@ The warning’s scoped context menu mirrors Okay (cancel icon) and, when availab
 ## Gemini narration voices
 
 The inline Gemini browser in Settings > Narration exposes scoped menu actions for search, clearing search, library search, language, style, sort, reset, select, and play or stop. Row selection has checked state and each sample action names its voice for assistive technology.
+
+## Settings Help shortcut reference
+
+The Settings Help shortcut reference context menu provides its checked disclosure, Expand All, Collapse All, Search Shortcuts, and Clear Shortcut Search on both desktops. Search Shortcuts displays Command+F on Mac and Ctrl+F on Windows. The shortcut opens the reference and focuses its field only from Settings Help. Clearing shares the field action, and the bulk items match the enabled state of their buttons.

@@ -6,6 +6,7 @@ import WebKit
         NSWorkspace.shared.open(URL(string: "https://vidistudio.varunmanojkumar.in/")!)
     }
 
+    static let windowIdentifier = NSUserInterfaceItemIdentifier("vidistudio-help")
     private static let reader = HelpReader()
     static let guide = URL(string: "https://vidistudio.varunmanojkumar.in/docs")!
 
@@ -55,6 +56,7 @@ import WebKit
         ])
         window.contentView = root
         window.title = "VidiStudio Help"
+        window.identifier = StudioHelp.windowIdentifier
         window.isReleasedWhenClosed = false
         window.setFrameAutosaveName("VidiStudioHelpWindow")
         window.center()

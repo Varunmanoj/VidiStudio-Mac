@@ -7,6 +7,7 @@ enum AppWindowLifetime {
     private static weak var settingsWindow: NSWindow?
     private static weak var libraryWindow: NSWindow?
     static var hasLibraryWindow: Bool { libraryWindow != nil }
+    static func isSettingsWindow(_ window: NSWindow) -> Bool { window === settingsWindow }
     static var isLibraryMiniaturized: Bool { libraryWindow?.isMiniaturized == true }
     private static var closeObserver: NSObjectProtocol?
 

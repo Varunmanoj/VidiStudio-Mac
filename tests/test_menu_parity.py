@@ -125,7 +125,7 @@ class DesktopMenuParity(unittest.TestCase):
         self.assertEqual((command['key'], command['modifiers']), ('"g"', '[.command, .option]'))
         self.assertIn('["open-cloud-videos"] = (VirtualKey.G, VirtualKeyModifiers.Control | VirtualKeyModifiers.Menu, "Ctrl+Alt+G")', self.windows)
         reference = self.mac.split('struct ShortcutReferenceView: View', 1)[1]
-        projects = reference.split('referenceSection("Projects and Windows")', 1)[1].split('referenceSection(', 1)[0]
+        projects = reference.split('.projectsAndWindows:', 1)[1].split('.editorNavigation:', 1)[0]
         self.assertIn('catalogRows([StudioShortcut.cloudBrowser, StudioShortcut.youtubeBrowser])', projects)
         start = self.windows.index('string Text)> DesktopShortcuts')
         reference = self.windows[start:].split('};', 1)[0]

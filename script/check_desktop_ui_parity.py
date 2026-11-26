@@ -381,11 +381,16 @@ def validate(source):
     require('Mac/SettingsView.swift', '@State private var shortcutReferenceExpanded = false', 'Help reference starts collapsed')
     require('Windows/Views/SettingsDialog.Information.cs', 'private bool shortcutReferenceExpanded = false;', 'Help reference starts collapsed')
     require('Windows/Views/SettingsDialog.Information.cs', 'IsExpanded = shortcutReferenceExpanded', 'Help reference must retain expansion across navigation')
-    require('Windows/Views/SettingsDialog.Information.cs', 'reference.Expanding += (_, _) => shortcutReferenceExpanded = true', 'Help reference must retain expansion across navigation')
+    require('Windows/Views/SettingsDialog.Information.cs', 'shortcutReferenceExpanded = reference.IsExpanded', 'Help reference must retain expansion across navigation')
     mac_reference = source['Mac/KeyboardShortcuts.swift'].split('struct ShortcutReferenceView: View', 1)[1]
     win_registry = source['Windows/MainWindow.Menus.cs']
     win_reference = win_registry.split('[] ShortcutReferenceGroups =', 1)[1].split('};', 1)[0]
-    mac_sections = re.findall(r'referenceSection\("([^"]+)"\)', mac_reference)
+    mac_categories = dict(re.findall(r'^\s*case (\w+) = "([^"]+)"', mac_reference, re.M))
+    mac_order = re.findall(r'^\s*\.(\w+):', mac_reference.split('private static let entries:', 1)[1].split('private var query:', 1)[0], re.M)
+    require('Mac/KeyboardShortcuts.swift', r'ForEach(Category.allCases, id: \.self)', 'Help shortcut groups must follow category order')
+    if mac_order != list(mac_categories):
+        raise ValueError('Mac Expand All must cover the rendered shortcut sections exactly once')
+    mac_sections = [mac_categories[category] for category in mac_order]
     win_sections = re.findall(r'\("([^"]+)", new\[\]', win_reference)
     if len(set(mac_sections)) < 2 or mac_sections != win_sections:
         raise ValueError('Help shortcut section headings and order must match on both desktops')
@@ -393,8 +398,47 @@ def validate(source):
     reference_ids = re.findall(r'"([\w-]+)"', re.sub(r'\("[^"]+", new\[\]', '', win_reference))
     if sorted(reference_ids) != sorted(re.findall(r'\["([^"]+)"\] = ', win_shortcuts)):
         raise ValueError('Windows Help must list every keyboard shortcut exactly once')
-    require('Mac/KeyboardShortcuts.swift', 'accessibilityHeading(.h3)\n            rows()', 'Help reference sections need accessible headings')
-    require('Windows/Views/SettingsDialog.Information.cs', 'shortcuts.Children.Add(ScreenReaderHeading.Mark(new TextBlock', 'Help reference sections need accessible headings')
+    require('Mac/KeyboardShortcuts.swift', 'accessibilityHeading(.h3)', 'Help reference sections need accessible headings')
+    require('Windows/Views/SettingsDialog.Information.cs', 'ScreenReaderHeading.Mark(section, AutomationHeadingLevel.Level3)', 'Help reference sections need accessible headings')
+    require('Mac/SettingsView.swift', 'ShortcutReferenceView(expandedSections: $expandedShortcutSections,', 'Help shortcut sections must retain independent expansion across navigation')
+    require('Mac/KeyboardShortcuts.swift', 'DisclosureGroup(isExpanded: expanded)', 'Help shortcut sections must use a native disclosure')
+    require('Windows/Views/SettingsDialog.Information.cs', 'expandedShortcutSections.Contains(group.Title)', 'Help shortcut sections must retain independent expansion across navigation')
+    for path in ('Mac/KeyboardShortcuts.swift', 'Windows/Views/SettingsDialog.Information.cs'):
+        require(path, 'settings-shortcut-section-', 'Help shortcut sections need matching context-menu commands')
+        for label in ('Expand All', 'Collapse All', 'settings-shortcut-reference-expand-all', 'settings-shortcut-reference-collapse-all'):
+            require(path, label, 'Help bulk controls must have matching context-menu commands')
+    for path in ('Mac/KeyboardShortcuts.swift', 'Windows/Views/SettingsDialog.Information.cs'):
+        for label in ('Search Shortcuts', 'Clear Shortcut Search', 'settings-shortcut-reference-search',
+                      'settings-shortcut-reference-focus-search', 'settings-shortcut-reference-clear-search', 'No shortcuts found'):
+            require(path, label, 'Help shortcut search must have matching accessible controls and menu commands')
+    require('Mac/KeyboardShortcuts.swift', 'Text(Self.searchHint)', 'Help shortcut search needs a visible hint')
+    require('Mac/KeyboardShortcuts.swift', '.accessibilityHint(Self.searchHint)', 'Help shortcut search needs accessible field help')
+    require('Windows/Views/SettingsDialog.Information.cs', 'searchRow.Children.Add(hint)', 'Help shortcut search needs a visible hint')
+    require('Windows/Views/SettingsDialog.Information.cs', 'AutomationProperties.SetHelpText(search, ShortcutSearchHint)', 'Help shortcut search needs accessible field help')
+    require('Mac/KeyboardShortcuts.swift', '!collapsedSearchSections.contains(category)', 'Help search must open matching sections')
+    require('Windows/Views/SettingsDialog.Information.cs', 'rowCount > 0 && !collapsedShortcutSearchSections.Contains(group.Title)', 'Help search must open matching sections')
+    require('Mac/KeyboardShortcuts.swift', '.disabled(!canSetAllSections(expanded: true))', 'Help must disable bulk commands when already expanded or collapsed')
+    require('Mac/KeyboardShortcuts.swift', '.disabled(!canSetAllSections(expanded: false))', 'Help must disable bulk commands when already expanded or collapsed')
+    require('Windows/Views/SettingsDialog.Information.cs', 'expand.Button.IsEnabled = expand.Command.IsEnabled = CanSetAllSections(true)', 'Help must disable bulk commands when already expanded or collapsed')
+    require('Windows/Views/SettingsDialog.Information.cs', 'collapse.Button.IsEnabled = collapse.Command.IsEnabled = CanSetAllSections(false)', 'Help must disable bulk commands when already expanded or collapsed')
+    require('Mac/SettingsView.swift', 'ShortcutSearchKeys(isCaptureFocused: shortcutSearchFocused,', 'Help shortcut capture must follow search field focus')
+    require('Mac/SettingsView.swift', 'onFind: { reference.focusSearch() },', 'Settings Find must use the same scoped action as Search Shortcuts')
+    require('Mac/KeyboardShortcuts.swift', 'systemImage: "magnifyingglass", action: focusSearch)', 'Settings Find must use the same scoped action as Search Shortcuts')
+    require('Windows/Views/SettingsDialog.cs', 'layout.PreviewKeyDown += HandleHelpShortcutSearch;', 'Settings Find must precede search field capture')
+    require('Windows/Views/SettingsDialog.cs', 'focusHelpShortcutSearch = null;', 'Find must be scoped to the Settings Help page')
+    require('Windows/Views/SettingsDialog.Information.cs', 'focusHelpShortcutSearch = FocusSearch;', 'Settings Find must use the same scoped action as Search Shortcuts')
+    require('Windows/Views/SettingsDialog.Information.cs', 'KeyboardAcceleratorTextOverride = "Ctrl+F"', 'Settings Find must be available through the context menu')
+    require('Mac/VidiStudioApp.swift', 'AppWindowLifetime.isSettingsWindow(window) || window.identifier == StudioHelp.windowIdentifier', 'Mac close shortcuts must keep Settings and Help separate from Quit')
+    require('Windows/Views/SettingsDialog.Information.cs', 'search.PreviewKeyDown +=', 'Help shortcut capture must follow search field focus')
+    require('Mac/KeyboardShortcuts.swift', 'revision: searchCaptureRevision', 'Help shortcut searches must announce repeated result counts')
+    require('Windows/Views/SettingsDialog.Information.cs', 'RefreshSearch(announce: true)', 'Help shortcut searches must announce repeated result counts')
+    require('Windows/Views/SettingsDialog.Information.cs', 'pendingAnnouncement, "settings-shortcut-reference-results"', 'Help shortcut search counts must send a native announcement')
+    require('Mac/SettingsView.swift', 'reference.searchActions', 'Mac Help must expose search commands in the reference menu')
+    require('Mac/SettingsView.swift', 'reference.bulkActions', 'Mac Help must expose bulk commands in the reference menu')
+    require('Windows/Views/SettingsDialog.Information.cs', 'command.Click += (_, _) => SetAllSections(expanded)', 'Windows Help menu must share the bulk button action')
+    for path in ('Mac/ContentView.swift', 'Windows/MainWindow.Presentation.cs'):
+        for label in ('Copy YouTube Video ID', 'copy-youtube-video-id', 'Copy YouTube URL', 'copy-youtube-url'):
+            require(path, label, 'YouTube video information must expose matching copy actions')
     require('Mac/KeyboardShortcuts.swift', '.init(id: "jump-to-time", title: "Jump to Time…"', 'Help must retain Jump to Time')
     require('Windows/Views/SettingsDialog.Information.cs', 'menuOwner.DesktopShortcutReference', 'Help must retain the complete shared shortcut list')
     for action in ('about-ffmpeg-license', 'about-license-index', 'about-license-folder'):
