@@ -225,6 +225,16 @@ def validate(source):
         ('Windows/MainWindow.xaml.cs', 'ShowDialogAsync(dialog, Views.NewProjectDialog.WindowWidth, Views.NewProjectDialog.WindowHeight);'),
     ):
         require(path, token, 'Windows New Project must use fixed bounds across sources')
+    for path, token in (
+        ('Mac/ContentView.swift', 'libraryStudio.newProjectPresentation(for: windowOwner)'),
+        ('Mac/ContentView.swift', 'studio.pickLocalVideo(attachedTo: sheet)'),
+        ('Mac/ContentView.swift', 'Button(chooseVideoTitle, systemImage: "folder", action: chooseVideo)'),
+        ('Windows/Views/NewProjectDialog.cs', 'FileOpenPicker(pickerOwner.AppWindow.Id)'),
+        ('Windows/Views/NewProjectDialog.cs', 'AutomationProperties.SetName(control, label);'),
+        ('Windows/Views/NewProjectDialog.cs', 'chooseVideo.Focus(FocusState.Programmatic);'),
+        ('Windows/Views/NewProjectDialog.cs', 'chooseVideoItem.Click += async (_, _) => await ChooseVideoAsync();'),
+    ):
+        require(path, token, 'New Project must keep the native file picker owned and accessible')
     for path in ('Mac/ContentView.swift', 'Windows/Views/CloudVideosDialog.cs'):
         for token in ('Open Cloud Videos', 'Google Cloud project', 'Source bucket', 'Search videos',
                       'Recently Modified', 'Largest First', 'Open in Editor', 'Load Thumbnail', 'Rename Video…', 'Delete Video…'):

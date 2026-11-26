@@ -1727,6 +1727,7 @@ final class StudioModel {
     var screenTimestamp = 0.0
     var process: Process?
     var isCreatingProject = false
+    private var newProjectHost: UUID?
     var isBrowsingCloudVideos = false
     var canBeginNewProject: Bool { !busy && !isCreatingProject && !isBrowsingCloudVideos }
     var canOpenCloudVideos: Bool { canBeginNewProject }
@@ -1737,10 +1738,17 @@ final class StudioModel {
     private(set) var newProjectSource = NewProjectSource.videoFile
     /// Opens the New Project dialog. Local and YouTube projects can be created
     /// without a Gemini key; AI actions explain their own prerequisites later.
-    func beginNewProject(source: NewProjectSource = .videoFile) {
+    func beginNewProject(source: NewProjectSource = .videoFile, host: UUID? = nil) {
         guard canBeginNewProject, source != .cloud || settings.vertexConnected else { return }
         newProjectSource = source
+        newProjectHost = host
         isCreatingProject = true
+    }
+    func newProjectPresentation(for host: UUID? = nil) -> Binding<Bool> {
+        Binding(
+            get: { self.isCreatingProject && self.newProjectHost == host },
+            set: { if !$0 && self.newProjectHost == host { self.isCreatingProject = false } }
+        )
     }
     var availableGeminiModels: [GeminiModelOption] = []
     var geminiModelsLoaded = false
@@ -2436,12 +2444,22 @@ final class StudioModel {
         execute("remove-original-audio", project: project)
     }
 
-    func pickLocalVideo() -> URL? {
+    private func localVideoPanel() -> NSOpenPanel {
         let panel = NSOpenPanel()
         panel.allowedContentTypes = [.movie, .video, .mpeg4Movie, .quickTimeMovie]
         panel.allowsMultipleSelection = false
+        return panel
+    }
+
+    func pickLocalVideo() -> URL? {
+        let panel = localVideoPanel()
         panel.prompt = "Choose Video"
         return panel.runModal() == .OK ? panel.url : nil
+    }
+
+    func pickLocalVideo(attachedTo sheet: NSWindow) async -> URL? {
+        let panel = localVideoPanel()
+        return await panel.beginSheetModal(for: sheet) == .OK ? panel.url : nil
     }
 
     func importVideo() {

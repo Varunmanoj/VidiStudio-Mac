@@ -258,6 +258,16 @@ class DesktopUILayoutParityTests(unittest.TestCase):
         self.mutated('Windows/Views/NewProjectDialog.cs', 'SystemFillColorCriticalBrush', 'TextFillColorSecondaryBrush',
                      'New Project YouTube errors need a red cross')
 
+    def test_local_video_chooser_remains_owned_and_named(self):
+        for path, token in (
+            ('Mac/ContentView.swift', 'libraryStudio.newProjectPresentation(for: windowOwner)'),
+            ('Mac/ContentView.swift', 'studio.pickLocalVideo(attachedTo: sheet)'),
+            ('Windows/Views/NewProjectDialog.cs', 'FileOpenPicker(pickerOwner.AppWindow.Id)'),
+            ('Windows/Views/NewProjectDialog.cs', 'AutomationProperties.SetName(control, label);'),
+            ('Windows/Views/NewProjectDialog.cs', 'chooseVideo.Focus(FocusState.Programmatic);'),
+        ):
+            self.mutated(path, token, '', 'New Project must keep the native file picker owned and accessible')
+
     def test_new_project_preserves_title_inset_in_taller_modes(self):
         self.mutated('Mac/ContentView.swift', 'maxHeight: preferredHeight, alignment: .topLeading',
                      'maxHeight: preferredHeight', 'New Project must keep its title inset')

@@ -90,11 +90,11 @@ final class ConnectivityService {
         return alert
     }
     var notice: String? {
-        let missing = OnlineService.allCases.filter { !available($0) }
-        guard !missing.isEmpty else { return nil }
-        if missing.contains(where: { state($0) == .offline }) {
+        if states.values.contains(.offline) {
             return "You’re offline. Online processing and YouTube playback need internet. You can continue working with local files and installed voices."
         }
+        let missing = OnlineService.allCases.filter { state($0) == .unreachable }
+        guard !missing.isEmpty else { return nil }
         return missing.compactMap(reason).joined(separator: " ")
     }
     func routeChanged(_ available: Bool) {
@@ -152,10 +152,6 @@ struct ConnectivityBanner: View {
             .background(.orange.opacity(0.12))
                 .accessibilityElement(children: .contain)
             }
-        }
-        .onChange(of: connection.notice) { old, new in
-            guard old != new else { return }
-            NSAccessibility.post(element: NSApp as Any, notification: .announcementRequested, userInfo: [.announcement: new ?? "Connection restored. Online features are available.", .priority: NSAccessibilityPriorityLevel.medium.rawValue])
         }
     }
 }

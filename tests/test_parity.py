@@ -113,7 +113,7 @@ class Parity(unittest.TestCase):
     def test_new_project_does_not_require_api_key(self):
         root = Path(__file__).resolve().parents[1]
         model = (root / 'VidiStudio' / 'StudioModel.swift').read_text(encoding='utf-8')
-        self.assertIn('func beginNewProject(source: NewProjectSource = .videoFile)', model)
+        self.assertIn('func beginNewProject(source: NewProjectSource = .videoFile, host: UUID? = nil)', model)
         entry = model.split('func beginNewProject(', 1)[1].split('\n    }', 1)[0]
         self.assertIn('source != .cloud || settings.vertexConnected', entry)
         self.assertIn('newProjectSource = source', entry)

@@ -58,6 +58,8 @@ private struct NewProjectView: View {
         _cloudImport = State(initialValue: studio.newProjectSource == .cloud)
     }
     @State private var videoURL: URL?
+    @State private var choosingVideo = false
+    @FocusState private var videoChooserFocused: Bool
     @State private var videoRequiresCloud = false
     @State private var youtubeURL = ""
     @State private var youtubePreview: YouTubeProjectPreview?
@@ -70,12 +72,15 @@ private struct NewProjectView: View {
     }
 
     private var canCreate: Bool {
+        if choosingVideo { return false }
         if source == .cloud && (!studio.canUploadCloudVideo || cloudImport) { return false }
         if source == .videoFile && videoRequiresCloud { return false }
         if source != .youtube { return videoURL != nil }
         guard let video = youtubePreview?.video, ConnectivityService.shared.available(.youtube) else { return false }
         return video.visibility != "private" || YouTubeService.shared.privateConnection(video.channelID, settings: studio.settings) != nil
     }
+
+    private var chooseVideoTitle: String { videoURL == nil ? "Choose Video…" : "Choose Different Video…" }
 
     private var preferredHeight: CGFloat {
         if source == .youtube { return 640 }
@@ -85,7 +90,9 @@ private struct NewProjectView: View {
     private func sourcePicker(_ options: [NewProjectSource], selection: Binding<NewProjectSource>) -> some View {
         Picker("Project type", selection: selection) {
             ForEach(options) { option in
-                Label(option.title, systemImage: option.icon).tag(option)
+                Label(option.title, systemImage: option.icon)
+                    .accessibilityLabel(option.title)
+                    .tag(option)
             }
         }
         .pickerStyle(.radioGroup)
@@ -157,10 +164,15 @@ private struct NewProjectView: View {
                         }
                 } else if source != .youtube {
                     LabeledContent("Video file") {
-                        Button(videoURL == nil ? "Choose Video…" : "Choose Different Video…", systemImage: "folder") {
-                            chooseVideo()
-                        }
-                        .help("Choose the local video file for this project")
+                        Button(chooseVideoTitle, systemImage: "folder", action: chooseVideo)
+                            .accessibilityLabel(chooseVideoTitle)
+                            .accessibilityIdentifier("new-project-choose-video")
+                            .focused($videoChooserFocused)
+                            .help("Choose the local video file for this project")
+                    }
+                    .contextMenu {
+                        Button(chooseVideoTitle, systemImage: "folder", action: chooseVideo)
+                            .disabled(choosingVideo)
                     }
                     Text(videoURL?.path ?? "No video selected")
                         .font(.caption)
@@ -400,20 +412,32 @@ private struct NewProjectView: View {
     }
 
     private func chooseVideo() {
-        while let selected = studio.pickLocalVideo() {
-            switch studio.videoImportChoice(selected, asCloud: source == .cloud) {
-            case .smaller: continue
-            case .cancel: return
-            case .cloud:
-                cloudImport = false
-                source = .cloud
-                videoRequiresCloud = (try? LocalVideoFilePolicy.exceedsMaximumSize(selected)) ?? false
-                videoURL = selected
-            case .local:
-                videoRequiresCloud = false
-                videoURL = selected
+        guard !choosingVideo, let keyWindow = NSApp.keyWindow else { return }
+        let sheet = keyWindow.attachedSheet ?? keyWindow
+        choosingVideo = true
+        Task { @MainActor in
+            defer {
+                choosingVideo = false
+                if sheet.isVisible { videoChooserFocused = true }
             }
-            return
+            while let selected = await studio.pickLocalVideo(attachedTo: sheet), sheet.isVisible {
+                switch studio.videoImportChoice(selected, asCloud: source == .cloud) {
+                case .smaller: continue
+                case .cancel: return
+                case .cloud:
+                    cloudImport = false
+                    source = .cloud
+                    videoRequiresCloud = (try? LocalVideoFilePolicy.exceedsMaximumSize(selected)) ?? false
+                case .local:
+                    videoRequiresCloud = false
+                }
+                videoURL = selected
+                NSAccessibility.post(element: sheet, notification: .announcementRequested, userInfo: [
+                    .announcement: "Selected video: \(selected.lastPathComponent)",
+                    .priority: NSAccessibilityPriorityLevel.medium.rawValue
+                ])
+                return
+            }
         }
     }
 
@@ -1188,7 +1212,7 @@ struct ContentView: View {
                 )
             }
         }
-        .sheet(isPresented: $studio.isCreatingProject) {
+        .sheet(isPresented: studio.newProjectPresentation()) {
             NewProjectView(studio: studio)
         }
         .sheet(isPresented: $studio.isBrowsingCloudVideos) {
@@ -1270,6 +1294,7 @@ struct ProjectEditorWindow: View {
     @Environment(\.accessibilityReduceMotion) private var reduceProjectMotion
     @AppStorage("editorProjectBrowserGrid") private var projectGrid = false
     let openProjects: OpenProjectRegistry
+    let libraryStudio: StudioModel
     @Environment(\.openSettings) private var openSettings
     @Environment(\.dismissWindow) private var dismissWindow
     @State private var studio: StudioModel
@@ -1287,10 +1312,11 @@ struct ProjectEditorWindow: View {
     @State private var renamingProject = false
     @State private var renamingTarget: StudioProject?
     @State private var projectName = ""
-    init(projectID: String, windowProjectID: Binding<String?>, openProjects: OpenProjectRegistry) {
+    init(projectID: String, windowProjectID: Binding<String?>, openProjects: OpenProjectRegistry, libraryStudio: StudioModel) {
         _windowProjectID = windowProjectID
         self.projectID = projectID
         self.openProjects = openProjects
+        self.libraryStudio = libraryStudio
         let model = StudioModel()
         model.selectedID = projectID
         _studio = State(initialValue: model)
@@ -1305,6 +1331,14 @@ struct ProjectEditorWindow: View {
     }
 
     var body: some View {
+        editorContent
+            .focusedSceneValue(\.newProjectHost, windowOwner)
+            .sheet(isPresented: libraryStudio.newProjectPresentation(for: windowOwner)) {
+                NewProjectView(studio: libraryStudio)
+            }
+    }
+
+    private var editorContent: some View {
         NavigationSplitView(columnVisibility: Binding(
             get: { showProjects ? .all : .detailOnly },
             set: { projectBrowserVisibility.wrappedValue = $0 != .detailOnly }

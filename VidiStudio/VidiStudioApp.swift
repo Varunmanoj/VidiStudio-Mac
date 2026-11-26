@@ -107,37 +107,11 @@ struct VidiStudioApp: App {
         }
         .defaultSize(width: 1200, height: 780)
         .windowToolbarStyle(.automatic)
-        .commands {
-            CommandGroup(replacing: .newItem) {
-                Button("New Project…", systemImage: "plus") {
-                    openWindow(id: "studio")
-                    studio.beginNewProject()
-                }
-                .keyboardShortcut("n")
-                .disabled(!studio.canBeginNewProject)
-                Button("New YouTube Project…", systemImage: "play.rectangle") {
-                    openWindow(id: "studio")
-                    studio.beginNewProject(source: .youtube)
-                }
-                .disabled(!studio.canBeginNewProject)
-                Button("New Cloud Project…", systemImage: "cloud") {
-                    openWindow(id: "studio")
-                    studio.beginNewProject(source: .cloud)
-                }
-                .disabled(!studio.canBeginNewProject || !studio.settings.vertexConnected)
-                Divider()
-                Button("Open Cloud Videos…", systemImage: "icloud.and.arrow.down") {
-                    openWindow(id: "studio")
-                    studio.openCloudVideos()
-                }
-                .keyboardShortcut(StudioShortcut.cloudBrowser.key, modifiers: StudioShortcut.cloudBrowser.modifiers)
-                .disabled(!studio.canOpenCloudVideos)
-            }
-        }
+        .commands { NewProjectCommands(studio: studio) }
         .commands { StudioCommands(studio: studio) }
         WindowGroup("Project Editor", id: "project-editor", for: String.self) { $projectID in
             if let value = projectID {
-                ProjectEditorWindow(projectID: ProjectEditorWindowValue.projectID(from: value), windowProjectID: $projectID, openProjects: openProjects)
+                ProjectEditorWindow(projectID: ProjectEditorWindowValue.projectID(from: value), windowProjectID: $projectID, openProjects: openProjects, libraryStudio: studio)
             } else {
                 ContentUnavailableView("Project Unavailable", systemImage: "film", description: Text("Return to All Projects and open the project again."))
                     .background(MainWindowLifetime().frame(width: 0, height: 0))
@@ -162,5 +136,46 @@ struct VidiStudioApp: App {
         Settings { SettingsView(studio: studio, openProjects: openProjects) }
             .windowToolbarStyle(.unifiedCompact)
             .defaultSize(width: 980, height: 740)
+    }
+}
+
+
+extension FocusedValues {
+    @Entry var newProjectHost: UUID?
+}
+
+private struct NewProjectCommands: Commands {
+    let studio: StudioModel
+    @Environment(\.openWindow) private var openWindow
+    @FocusedValue(\.newProjectHost) private var host
+
+    var body: some Commands {
+        CommandGroup(replacing: .newItem) {
+            Button("New Project…", systemImage: "plus") {
+                beginNewProject()
+            }
+            .keyboardShortcut("n")
+            .disabled(!studio.canBeginNewProject)
+            Button("New YouTube Project…", systemImage: "play.rectangle") {
+                beginNewProject(source: .youtube)
+            }
+            .disabled(!studio.canBeginNewProject)
+            Button("New Cloud Project…", systemImage: "cloud") {
+                beginNewProject(source: .cloud)
+            }
+            .disabled(!studio.canBeginNewProject || !studio.settings.vertexConnected)
+            Divider()
+            Button("Open Cloud Videos…", systemImage: "icloud.and.arrow.down") {
+                openWindow(id: "studio")
+                studio.openCloudVideos()
+            }
+            .keyboardShortcut(StudioShortcut.cloudBrowser.key, modifiers: StudioShortcut.cloudBrowser.modifiers)
+            .disabled(!studio.canOpenCloudVideos)
+        }
+    }
+
+    private func beginNewProject(source: NewProjectSource = .videoFile) {
+        if host == nil { openWindow(id: "studio") }
+        studio.beginNewProject(source: source, host: host)
     }
 }
