@@ -17,6 +17,9 @@ class DesktopUILayoutParityTests(unittest.TestCase):
             raise unittest.SkipTest('Paired desktop source checks need both checkouts; native parity remains unverified.')
         cls.source = contract.sources(workspace)
 
+    def test_editor_preview_shares_height_with_section(self):
+        self.mutated('Windows/MainWindow.xaml', 'Height="2*" MaxHeight="320"', 'Height="150"', 'share available height')
+
     def test_both_desktops_preserve_the_layout_contract(self): contract.validate(self.source)
 
     def mutated(self, path, before, after, expected):

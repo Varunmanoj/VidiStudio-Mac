@@ -4563,3 +4563,11 @@ Regenerate Transcript, Regenerate Summary, and Regenerate Audio Descriptions ask
 Built, signed, installed and launched 1.0.446 (build 446) with `script/build_and_run.sh --verify`. LaunchServices reports one installation at `/Applications/VidiStudio.app`. Verified matching registered Safari, Share and Finder extensions. On the saved Cyber security course project, opened and canceled the Transcript warning from the toolbar, Summary from the inspector, and Audio Descriptions from the Project menu. All three showed their full accessibility text and focused Cancel before any processing. The saved results and their active selections were byte-equivalent after cancellation. A scoped recording confirmed that VoiceOver spoke the full Audio Descriptions question and explanation. No live AI generation was started.
 
 Each desktop passed 105 focused menu, layout, and sound tests. The installed Mac engine passed 54 saved-language-result tests. The local website Help update passed lint and the production build. Website Help was not published. See `build/regeneration-confirmation-446-install.log` and `build/regeneration-confirmation-446-engine.log`.
+
+## 1.0.447 · Editor pane visibility on compact displays · 2026-11-28
+
+Kept the Mac editor as the reference for the Windows layout fix. Built, signed, installed and launched 1.0.447 (build 447). The Safari, Share and Finder extensions match the app version, build and team LLVWNNUV26. Signing continuity and installed extension registration passed. Spotlight and LaunchServices list only /Applications/VidiStudio.app.
+
+On the installed Mac, native accessibility inspection of Cyber security course — Transcript found the timeline, preview divider and a visible transcript row in light and dark appearance, at 1280 × 614 and 1000 × 610 points. The transcript viewport was 117.5 points high and the visible row was 62.5 points high. Restored the original window size and appearance. The paired menu and layout suites passed 105 tests. The installed engine passed all 20 language-result CLI tests.
+
+The installed Windows ARM64 counterpart passed its 24 light/dark geometry cases across Transcript, Summary, Descriptions and AD Transcript. The website guide built locally and its new editor guidance passed desktop and mobile search/navigation checks. Website publication is pending.

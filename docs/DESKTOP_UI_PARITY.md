@@ -171,3 +171,7 @@ Mac announces the current task when processing starts from All Projects or the e
 ## Editor generation announcements
 
 For Generate, Regenerate, Analyze Video and transcript or description range re-analysis, the visible editor processing indicator sends one native announcement per active stage on both desktops. It says Processing followed by Generating transcript, Generating summary or Generating descriptions. It never announces a queued stage, repeats changing status text or requests keyboard focus. Mac posts from the active status view; Windows posts from the foreground editor status with the progress ring active. Other project-opening, preparation and transfer statuses keep their own feedback.
+
+## Project editor workspace
+
+Project search shares the title row. The timeline and section controls keep their natural heights. On Mac the preview divider reserves room for the active section. Windows divides the remaining space between the video and the scrolling section, and returns the video’s space when preview is hidden. When a short workspace has enough width, Windows places the video beside the tracks above the full-width section. Long notices scroll above a short editor so their actions and section content remain reachable. The project-list buttons share the bottom status row. Windows centers playback controls between the timeline heading and time counter when they fit, and moves them below those labels in narrower panes.

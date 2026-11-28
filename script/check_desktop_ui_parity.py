@@ -86,6 +86,9 @@ def validate(source):
     require('Windows/App.xaml.cs', 'var target = ProjectLibrary();', 'external activation must start in All Projects')
     require('Windows/MainWindow.xaml.cs', 'App.OpenOrActivateEditor(folder)', 'external activation must open a separate editor')
     require('Windows/MainWindow.Menus.cs', 'if (wasEditor && windowClosed) App.ShowProjectLibrary();', 'editor close must return to All Projects')
+    require('Mac/ContentView.swift', 'geometry.size.height - 180 - dividerHeight', 'reserve height for the active editor section')
+    require('Windows/MainWindow.xaml', '<RowDefinition x:Name="PreviewRow" Height="2*" MaxHeight="320"/>', 'share available height between preview and section content')
+    require('Windows/MainWindow.xaml.cs', 'PreviewRow.Height = showPreview && !besideTimeline ?', 'return preview space to the active section when hidden')
     editor_scene = source['Mac/VidiStudioApp.swift'].split('id: "project-editor"', 1)[1].split('Window("My YouTube Videos"', 1)[0]
     if '.defaultWindowPlacement' not in editor_scene or 'context.defaultDisplay.visibleRect' not in editor_scene:
         raise ValueError('Mac editor must open maximized within the usable display')
