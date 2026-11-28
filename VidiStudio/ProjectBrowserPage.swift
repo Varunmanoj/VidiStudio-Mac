@@ -25,17 +25,17 @@ struct ProjectAnalysisMenu: View {
                 .disabled(!hasValidApiKey)
                 .help(aiBlockedHelp ?? (!hasApiKey ? "Enter your Gemini API key in Settings → Gemini to analyze this video" : isApiKeyInvalid ? "Gemini API key is invalid — enter a valid key in Settings → Gemini to analyze this video" : "Generate the transcript, summary, and Audio Descriptions in sequence"))
             Divider()
-            Button(project.hasGeneratedTranscript ? "Regenerate Transcript…" : "Generate Transcript", systemImage: "text.bubble") {
+            Button(project.hasSavedGenerationResult("transcribe") ? "Regenerate Transcript…" : "Generate Transcript", systemImage: "text.bubble") {
                 perform("transcribe")
             }
             .disabled(!hasValidApiKey)
             .help(aiBlockedHelp ?? (!hasApiKey ? "Enter your Gemini API key in Settings → Gemini to transcribe speech" : isApiKeyInvalid ? "Gemini API key is invalid — enter a valid key in Settings → Gemini to transcribe speech" : "Generate dialogue transcript using Gemini"))
-            Button(project.summary.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? "Generate Summary" : "Regenerate Summary…", systemImage: "text.alignleft") {
+            Button(project.hasSavedGenerationResult("generate-summary") ? "Regenerate Summary…" : "Generate Summary", systemImage: "text.alignleft") {
                 perform("generate-summary")
             }
             .disabled(!hasValidApiKey)
             .help(aiBlockedHelp ?? (!hasApiKey ? "Enter your Gemini API key in Settings → Gemini to generate summaries" : isApiKeyInvalid ? "Gemini API key is invalid — enter a valid key in Settings → Gemini to generate summaries" : "Generate video summary using Gemini"))
-            Button(project.cues.isEmpty ? "Generate Audio Descriptions" : "Regenerate Audio Descriptions…", systemImage: "sparkles") {
+            Button(project.hasSavedGenerationResult("generate-ad-cues") ? "Regenerate Audio Descriptions…" : "Generate Audio Descriptions", systemImage: "sparkles") {
                 perform("generate-ad-cues")
             }
             .disabled(!hasValidApiKey || !project.canGenerateDescriptions)

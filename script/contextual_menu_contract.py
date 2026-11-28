@@ -204,13 +204,20 @@ def check_jump_to_time(mac, windows, context, playback, dialog, win_dialog):
 
 
 def check_export_completion_sound(mac, windows):
-    """All four sound rows share preview/menu dispatch and persistent toggle state."""
+    """All five sound rows share preview/menu dispatch and persistent toggle state."""
     choices = [
         ('Sound when narration is off', 'soundWhenNarrationOff', 'Boink3', 'narration-off-sound'),
         ('Sound when synthesized audio is unavailable', 'soundWhenNarrationMissing', 'ascend', 'narration-missing-sound'),
         ('Play sound after export', 'soundAfterExport', 'descend', 'export-completion-sound'),
+        ('Play sound after generation', 'soundAfterGeneration', 'descend', 'generation-completion-sound'),
         ('Sound when timing validation fails', 'soundWhenTimingInvalid', 'Buzzer1', 'timing-validation-sound'),
     ]
+    for template, source in [('SettingsSoundRow(title: "{label}"', mac),
+                             ('AddSoundPreference(narrationGroup, "{label}"', windows)]:
+        markers = [template.format(label=label) for label, *_ in choices]
+        offsets = [source.find(marker) for marker in markers]
+        if -1 in offsets or offsets != sorted(offsets):
+            raise ValueError('Missing or misordered sound preferences: ' + ', '.join(markers))
     for label, key, resource, identifier in choices:
         for token in (f'SettingsSoundRow(title: "{label}", resource: "{resource}"',
                       f'menuIdentifier: "{identifier}-menu"', f'enabled: $studio.settings.{key}, preview: soundPreview'):
@@ -218,9 +225,9 @@ def check_export_completion_sound(mac, windows):
         token = f'AddSoundPreference(narrationGroup, "{label}", "{key}", "{resource}", "{identifier}", "{identifier}-menu")'
         if token not in windows: raise ValueError('Windows sound preference mapping missing: ' + token)
     for token in ( 'Toggle(isOn: $enabled) { Label(title, systemImage: "speaker.wave.2") }.accessibilityIdentifier(menuIdentifier)',
-                  'Button(previewTitle, systemImage: preview.isPlaying(resource) ? "pause.fill" : "play.fill") { preview.toggle(resource) }',
-                  'Button { preview.toggle(resource) } label:',
-                  'preview.isPlaying(resource) ? "Pause" : "Play"',
+                  'Button(previewTitle, systemImage: preview.isPlaying(identifier) ? "pause.fill" : "play.fill") { preview.toggle(identifier, resource: resource) }',
+                  'Button { preview.toggle(identifier, resource: resource) } label:',
+                  'preview.isPlaying(identifier) ? "Pause" : "Play"',
                   '.accessibilityIdentifier(identifier + "-preview-menu")',
                   '.onChange(of: section) { _, _ in soundPreview.stop() }'):
         if token not in mac: raise ValueError('Mac preview/menu state contract missing: ' + token)
@@ -229,9 +236,9 @@ def check_export_completion_sound(mac, windows):
                   'choice.Click += (_, _) => toggle.IsOn = choice.IsChecked;',
                   'toggle.Toggled += (_, _) => draft[key] = toggle.IsOn;',
                   'toggle.ContextFlyout = menu;',
-                  'preview.Click += (_, _) => ToggleSoundPreview(resource);',
-                  'previewItem.Click += (_, _) => ToggleSoundPreview(resource);',
-                  'soundPreview.IsPlaying(resource) ? "Pause" : "Play"',
+                  'preview.Click += (_, _) => ToggleSoundPreview(id, resource);',
+                  'previewItem.Click += (_, _) => ToggleSoundPreview(id, resource);',
+                  'soundPreview.IsPlaying(id) ? "Pause" : "Play"',
                   'soundPreview.Dispose();'):
         if token not in windows: raise ValueError('Windows preview/menu state contract missing: ' + token)
 

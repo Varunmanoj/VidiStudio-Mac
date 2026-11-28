@@ -143,6 +143,7 @@ final class EditorShortcutActions {
     var hasChangedNarration = false
     var hasGeneratedTranscript = false
     var hasGeneratedSummary = false
+    var generationHasSavedResult = false
     var hasGeneratedThumbnails = false
     var hasApiKey = false
     var apiKeyVerified: Bool? = nil
@@ -213,9 +214,9 @@ final class EditorShortcutActions {
 
     var currentGenerationTitle: String? {
         switch activeSection {
-        case "transcript": return hasGeneratedTranscript ? "Regenerate Transcript…" : "Generate Transcript"
-        case "summary": return hasGeneratedSummary ? "Regenerate Summary…" : "Generate Summary"
-        case "descriptions": return hasDescriptions ? "Regenerate Audio Descriptions…" : "Generate Audio Descriptions"
+        case "transcript": return generationHasSavedResult ? "Regenerate Transcript…" : "Generate Transcript"
+        case "summary": return generationHasSavedResult ? "Regenerate Summary…" : "Generate Summary"
+        case "descriptions": return generationHasSavedResult ? "Regenerate Audio Descriptions…" : "Generate Audio Descriptions"
         default: return nil
         }
     }
@@ -1037,17 +1038,17 @@ struct StudioCommands: Commands {
                 Button((!(allProjects?.project?.thumbnails.isEmpty ?? true) || editor?.hasGeneratedThumbnails == true) ? "Regenerate Video Details & Timeline Pictures…" : "Generate Video Details & Timeline Pictures", systemImage: "photo.on.rectangle.angled") { runProject("prepare-video") }
                     .disabled(!canRunProject("prepare-video"))
                 if allProjects != nil || editor?.isCommandVisible("transcribe") == true {
-                    Button((allProjects?.project?.hasGeneratedTranscript == true || editor?.hasGeneratedTranscript == true) ? "Regenerate Transcript…" : "Generate Transcript", systemImage: "text.bubble") { runProject("transcribe") }
+                    Button((allProjects?.project?.hasSavedGenerationResult("transcribe") == true || editor?.generationHasSavedResult == true) ? "Regenerate Transcript…" : "Generate Transcript", systemImage: "text.bubble") { runProject("transcribe") }
                         .keyboardShortcut("t", modifiers: [.command, .option, .shift])
                         .disabled(!canRunProject("transcribe"))
                 }
                 if allProjects != nil || editor?.isCommandVisible("generate-summary") == true {
-                    Button((allProjects?.project?.summary.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty == false || editor?.hasGeneratedSummary == true) ? "Regenerate Summary…" : "Generate Summary", systemImage: "text.alignleft") { runProject("generate-summary") }
+                    Button((allProjects?.project?.hasSavedGenerationResult("generate-summary") == true || editor?.generationHasSavedResult == true) ? "Regenerate Summary…" : "Generate Summary", systemImage: "text.alignleft") { runProject("generate-summary") }
                         .keyboardShortcut("s", modifiers: [.command, .option, .shift])
                         .disabled(!canRunProject("generate-summary"))
                 }
                 if let allProjects {
-                    Button(allProjects.project?.cues.isEmpty == false ? "Regenerate Audio Descriptions…" : "Generate Audio Descriptions", systemImage: "sparkles") { allProjects.run("generate-ad-cues") }
+                    Button(allProjects.project?.hasSavedGenerationResult("generate-ad-cues") == true ? "Regenerate Audio Descriptions…" : "Generate Audio Descriptions", systemImage: "sparkles") { allProjects.run("generate-ad-cues") }
                     .keyboardShortcut("d", modifiers: [.command, .option, .shift])
                         .disabled(!allProjects.canRun("generate-ad-cues"))
                 }
@@ -1066,7 +1067,7 @@ struct StudioCommands: Commands {
                     Menu("Narration", systemImage: editor?.isSynthesizingNarration == true ? "rays" : "speaker.wave.2") {
                         if editor?.isCommandVisible("generate-ad-cues") == true {
                             Menu("AD Segment Generation", systemImage: "sparkles") {
-                                Button(editor?.hasDescriptions == true ? "Regenerate Audio Descriptions…" : "Generate Audio Descriptions", systemImage: "sparkles") { editor?.run("generate-ad-cues") }
+                                Button(editor?.generationHasSavedResult == true ? "Regenerate Audio Descriptions…" : "Generate Audio Descriptions", systemImage: "sparkles") { editor?.run("generate-ad-cues") }
                                     .keyboardShortcut("d", modifiers: [.command, .option, .shift])
                                     .disabled(editor?.canRun("generate-ad-cues") != true)
                                 Divider()

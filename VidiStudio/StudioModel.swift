@@ -1262,6 +1262,7 @@ struct StudioSettings: Codable, Equatable {
     var soundWhenNarrationMissing = true
     var soundWhenTimingInvalid = true
     var soundAfterExport = true
+    var soundAfterGeneration = true
     var systemVoice = ""
     var piperVoice = ""
     var systemSpeechRate = 1.0
@@ -1702,6 +1703,18 @@ final class StudioModel {
     var settingsSection = "Appearance"
     var busy = false
     var processingSection: String?
+    private var announcesGenerationStages = false
+    @ObservationIgnored private var announcedGenerationStages = GenerationProcessingAnnouncement()
+
+    var generationAnnouncementStage: String? {
+        guard busy, exportActivity == nil, announcesGenerationStages,
+              let processingSection, processingPlan.contains(processingSection) else { return nil }
+        return processingSection
+    }
+
+    func takeGenerationAnnouncement() -> String? {
+        announcedGenerationStages.take(stage: generationAnnouncementStage)
+    }
     var activeAIProcessing: (projectID: String, provider: String)?
     var contentTransferCommand: String?
     var contentTransferProgress: Double?
@@ -3035,8 +3048,47 @@ final class StudioModel {
             settings.models[row.id] = preferred?.name
         }
     }
-    private func confirmAnalysisReplacement(_ command: String, project: StudioProject) -> Bool {
-        return true // Results are generated as recoverable alternatives and reviewed afterward.
+    @ObservationIgnored private var regenerationPromptOpen = false
+
+    private func confirmRegeneration(_ command: String, project: StudioProject, extra: [String]) -> Bool {
+        guard let kind = StudioProject.generationResultKind(command) else { return true }
+        let language = extra.firstIndex(of: "--language").flatMap {
+            extra.indices.contains($0 + 1) ? extra[$0 + 1] : nil
+        } ?? project.operationLanguage(command)
+        let savedProject = project.folder.flatMap(Self.loadProject(at:)) ?? project
+        guard savedProject.hasSavedGenerationResult(command, language: language) else { return true }
+
+        let name = kind == "descriptions" ? "Audio Descriptions" : kind.capitalized
+        let action = "Regenerate " + name
+        let title = action + "?"
+        let message = "This creates a new version in “\(project.name)”. Your saved versions will remain available."
+        let alert = NSAlert()
+        alert.alertStyle = .warning
+        alert.messageText = title
+        alert.informativeText = message
+        let cancel = alert.addButton(withTitle: "Cancel")
+        alert.addButton(withTitle: action).keyEquivalent = ""
+        cancel.keyEquivalent = "\u{1b}"
+        alert.layout()
+        alert.window.defaultButtonCell = cancel.cell as? NSButtonCell
+        alert.window.initialFirstResponder = cancel
+
+        regenerationPromptOpen = true
+        let announcement = Timer(timeInterval: 0.15, repeats: false) { _ in
+            MainActor.assumeIsolated {
+                guard alert.window.isVisible, alert.window.isKeyWindow else { return }
+                NSAccessibility.post(element: alert.window, notification: .announcementRequested, userInfo: [
+                    .announcement: "\(title) \(message)",
+                    .priority: NSAccessibilityPriorityLevel.high.rawValue
+                ])
+            }
+        }
+        RunLoop.main.add(announcement, forMode: .modalPanel)
+        defer {
+            announcement.invalidate()
+            regenerationPromptOpen = false
+        }
+        return alert.runModal() == .alertSecondButtonReturn
     }
 
     private func confirmNarrationVoiceChange(_ command: String, extra: [String], project: StudioProject) -> Bool {
@@ -3185,9 +3237,10 @@ final class StudioModel {
         project: StudioProject? = nil,
         configurationURL: URL? = nil,
         cleanupURL: URL? = nil,
+        regenerationConfirmed: Bool = false,
         completion: ((StudioProject?) -> Void)? = nil
     ) {
-        guard !busy else { completion?(nil); return }
+        guard !busy, !regenerationPromptOpen else { completion?(nil); return }
         if ["vertex-check", "vertex-connect", "vertex-disconnect"].contains(command) {
             vertexConnectionVerified = false
             vertexConnectionMessage = ""
@@ -3202,6 +3255,11 @@ final class StudioModel {
             engineCheckStatus = .checking
         }
         let target = project ?? (["vertex-connect", "vertex-disconnect", "vertex-check", "cloud-import", "cloud-create", "cloud-browse", "cloud-preview", "cloud-list", "cloud-projects", "cloud-object-rename", "cloud-object-delete", "check-sarvam-key", "list-sarvam-models", "import-video", "import-youtube", "doctor", "validate-config", "list-models", "check-api-key"].contains(command) ? nil : selected)
+        if let target, !regenerationConfirmed, !confirmRegeneration(command, project: target, extra: extra) {
+            if let cleanupURL { try? FileManager.default.removeItem(at: cleanupURL) }
+            completion?(nil)
+            return
+        }
         guard requireInternet(command, project: target, extra: extra) else {
             if let cleanupURL { try? FileManager.default.removeItem(at: cleanupURL) }
             completion?(nil)
@@ -3254,7 +3312,8 @@ final class StudioModel {
                         completion?(nil)
                         return
                     }
-                    self.execute(command, extra: extra, project: updated, configurationURL: configurationURL, cleanupURL: cleanupURL, completion: completion)
+                    self.execute(command, extra: extra, project: updated, configurationURL: configurationURL,
+                                 cleanupURL: cleanupURL, regenerationConfirmed: true, completion: completion)
                 }
                 return
             }
@@ -3274,7 +3333,6 @@ final class StudioModel {
         if let target, ["select-language", "select-section-language", "sync-section-languages", "select-result", "assign-result-language", "review-result"].contains(command) {
             NotificationCenter.default.post(name: .vidiStudioNarrationAudioWillDelete, object: self, userInfo: ["projectID": target.id])
         }
-        if let target, !confirmAnalysisReplacement(command, project: target) { return }
         if let target, !confirmNarrationVoiceChange(command, extra: extra, project: target) { return }
         let webPlaybackNeedsNarration = command == "export-hls"
             && (extra.contains("closed-description") || extra.contains("open-description"))
@@ -3338,8 +3396,10 @@ final class StudioModel {
         contentTransferCommand = ["copy-results", "translate-results", "attach-youtube-playback"].contains(command) ? command : nil
         contentTransferProgress = nil
         activeAIProcessing = nil
-        processingSection = Self.initialProcessingSection(for: command)
         processingPlan = Self.analysisSections(for: command, extra: extra)
+        processingSection = processingPlan.first ?? Self.initialProcessingSection(for: command)
+        announcesGenerationStages = !processingPlan.isEmpty && contentTransferCommand == nil && command != "prepare-analysis-video"
+        announcedGenerationStages = GenerationProcessingAnnouncement()
         if command == "synthesize-tts", let target {
             isSynthesizingNarration = true
             narratingTotalCount = target.cues.count
@@ -3367,7 +3427,7 @@ final class StudioModel {
         }
         var completedExportPath: String?
         var completedExportPaths: [String] = []
-        var exportFailed = false
+        var completionFailed = false
         var exportSummaryMessage: String?
         let canRecoverYouTubeAudio = target?.allowsOriginalAudioImport == true &&
             ["export-youtube-original-audio", "export-youtube-described-audio", "combine-imported-audio"].contains(command)
@@ -3615,7 +3675,7 @@ final class StudioModel {
                        importReports.last?.id != report.id {
                         importReports.append(report)
                     }
-                    if eventIsError { exportFailed = true }
+                    if eventIsError { completionFailed = true }
                     if eventIsError && !connectionWatch.interrupted {
                         let detail = eventMessage ?? "The operation stopped without further details."
                         let failureKind = event["aiFailureKind"] as? String
@@ -3653,7 +3713,7 @@ final class StudioModel {
                     }
                 }
             } catch {
-                exportFailed = true
+                completionFailed = true
                 if !isKeyCheck || checkedKey == settings.apiKey.trimmingCharacters(in: .whitespacesAndNewlines) {
                     let detail = error.localizedDescription
                     if usesAIConnection, activeAIConnection == requestAIConnection,
@@ -3693,7 +3753,7 @@ final class StudioModel {
                         try await AppleAccessibilityMetadataWriter().verifyVideoTracks(at: folder.appendingPathComponent(path), requiresDescription: described)
                         message = "Video export complete"
                     } catch {
-                        exportFailed = true
+                        completionFailed = true
                         present(.exportMetadata, technicalDetails: error.localizedDescription, context: "Finish export accessibility information")
                     }
                 }
@@ -3782,10 +3842,11 @@ final class StudioModel {
                     }
                 }
             }
-            ExportCompletionSound.shared.complete(
-                command: command, enabled: settings.soundAfterExport,
-                succeeded: task.terminationStatus == 0 && !exportFailed && !connectionWatch.interrupted,
-                cancelled: operationWasCancelled, hasOutput: !completedExportPaths.isEmpty)
+            CompletionSound.shared.complete(
+                command: command, exportEnabled: settings.soundAfterExport, generationEnabled: settings.soundAfterGeneration,
+                succeeded: task.terminationStatus == 0 && !completionFailed && !connectionWatch.interrupted,
+                cancelled: operationWasCancelled, hasExportOutput: !completedExportPaths.isEmpty,
+                hasGeneratedProject: completedProjectPath != nil && completedProject != nil)
             completion?(task.terminationStatus == 0 && !operationWasCancelled ? completedProject : nil)
         }
     }
@@ -3817,8 +3878,11 @@ final class StudioModel {
         case "generate-ad-cues", "reanalyze-segment", "prepare-analysis-video": stages = ["descriptions"]
         default: return []
         }
-        guard let flagIndex = extra.firstIndex(of: "--start-stage"), extra.indices.contains(flagIndex + 1) else { return stages }
-        let startStage = extra[flagIndex + 1]
+        guard command == "analyze", let flagIndex = extra.firstIndex(of: "--start-stage"),
+              extra.indices.contains(flagIndex + 1) else { return stages }
+        let stageArgument = extra[flagIndex + 1]
+        let startStage = ["transcribe": "transcript", "generate-summary": "summary",
+                          "generate-ad-cues": "descriptions"][stageArgument] ?? stageArgument
         guard let index = stages.firstIndex(of: startStage) else { return stages }
         return Array(stages[index...])
     }

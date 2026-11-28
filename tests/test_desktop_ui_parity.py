@@ -280,7 +280,12 @@ class DesktopUILayoutParityTests(unittest.TestCase):
 
     def test_processing_announcement_follows_the_active_surface(self):
         for path, token in (
-            ('Mac/ContentView.swift', '.announceProcessingStart(studio)'),
+            ('Mac/ContentView.swift', '.announceProcessingStart(studio, usesGenerationIndicator: true)'),
+            ('Mac/ContentView.swift', '.modifier(GenerationProcessingAccessibility(studio: studio))'),
+            ('Mac/ContentView.swift', 'content.task(id: appearsActive ? studio.generationAnnouncementStage : nil)'),
+            ('Windows/MainWindow.xaml.cs', 'Model.TakeGenerationAnnouncement() is not { } message'),
+            ('Windows/MainWindow.xaml.cs', 'AutomationNotificationProcessing.ImportantAll, message, "generation-processing"'),
+            ('Windows/MainWindow.xaml.cs', 'StatusRing.Visibility != Visibility.Visible'),
             ('Windows/Views/ProgressOverlay.xaml.cs', 'peer.RaiseNotificationEvent(AutomationNotificationKind.Other,'),
             ('Windows/Views/ProgressOverlay.xaml.cs', 'model.HasAnnouncedProcessing = true;'),
         ):

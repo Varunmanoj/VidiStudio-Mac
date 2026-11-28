@@ -215,6 +215,24 @@ extension StudioProject {
     var languageCode: String { selectedLanguage ?? "auto" }
     func sectionLanguage(_ kind: String) -> String { languageCode }
     func operationLanguage(_ command: String) -> String { languageCode }
+    static func generationResultKind(_ command: String) -> String? {
+        switch command {
+        case "transcribe": return "transcript"
+        case "generate-summary": return "summary"
+        case "generate-ad-cues": return "descriptions"
+        default: return nil
+        }
+    }
+
+    func hasSavedGenerationResult(_ command: String, language: String? = nil) -> Bool {
+        guard let kind = Self.generationResultKind(command) else { return false }
+        let destination = language ?? operationLanguage(command)
+        if savedLanguageResults.contains(where: { $0.kind == kind && $0.language == destination && $0.state == "saved" }) {
+            return true
+        }
+        // Older projects can mark an empty, generated transcript without a result record.
+        return languageResults == nil && destination == "auto" && kind == "transcript" && hasGeneratedTranscript
+    }
     var savedLanguageResults: [SavedLanguageResult] {
         if let languageResults { return languageResults }
         var results: [SavedLanguageResult] = []

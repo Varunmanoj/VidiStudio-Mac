@@ -11,7 +11,10 @@ class ExportCompletionSoundMenus(unittest.TestCase):
         windows = (workspace / 'Vidi-Studio-Windows/Vidi Studio Windows/Views/SettingsDialog.cs').read_text() + (workspace / 'Vidi-Studio-Windows/Vidi Studio Windows/Views/SettingsDialog.Appearance.cs').read_text()
         check(mac, windows)
         for a, b in [(mac.replace('export-completion-sound-menu', ''), windows),
+                     (mac.replace('generation-completion-sound-menu', ''), windows),
+                     (mac.replace('Play sound after generation', 'Generation sound'), windows),
+                     (mac, windows.replace('"soundAfterGeneration", "descend"', '"soundAfterExport", "descend"')),
                      (mac.replace('$studio.settings.soundAfterExport', '$studio.settings.soundWhenTimingInvalid', 1), windows),
                      (mac, windows.replace('choice.IsChecked = toggle.IsOn', 'choice.IsChecked = false')),
-                     (mac, windows.replace('previewItem.Click += (_, _) => ToggleSoundPreview(resource);', ''))]:
+                     (mac, windows.replace('previewItem.Click += (_, _) => ToggleSoundPreview(id, resource);', ''))]:
             with self.assertRaises(ValueError): check(a, b)

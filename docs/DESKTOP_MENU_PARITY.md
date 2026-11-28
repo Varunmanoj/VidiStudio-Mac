@@ -220,6 +220,10 @@ Deletion icons: Windows command IDs and display labels resolve through the share
 Playback > Jump to Time… (`jump-to-time`) follows Fast Forward 5 Seconds on both desktops. Command-Shift-J translates to Ctrl-Shift-J. It requires an idle editor, finite positive video duration and an available connection for YouTube projects. The native Time field accepts seconds, m:ss or h:mm:ss, including fractional seconds. Jump validates the range, preserves playing/paused/stopped transport intent, and resets active narration to the new position. Opening and cancelling do not change playback. Jump and Cancel are also exposed in the dialog context menu; Enter/Escape activate the native dialog buttons. No project data is rewritten.
 
 
+### Generation completion sound
+
+Settings > Narration > Play sound after generation is on by default on both desktops. The matching checked context command (generation-completion-sound-menu) changes the same device-wide setting. The scoped preview command and adjacent button play the existing export WAV without changing that setting. No new shortcut. Analysis, Edit, segment editor, inspector and project controls converge at the same completion handler, including whole-project, section and segment work.
+
 ### Export completion sound
 Settings > Narration > Play sound after export is enabled by default on both desktops. Its context menu exposes the same checked toggle (`export-completion-sound-menu`), sharing `soundAfterExport` with the control. The choice persists per device and applies to all projects. It plays the bundled descend.wav once only after a successful whole export operation; failed, cancelled, interrupted, and all-skipped operations are silent. No shortcut is assigned.
 

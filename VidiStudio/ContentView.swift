@@ -553,11 +553,29 @@ final class SharedVideoProgressPanel: NSPanel {
 
 private extension View {
     @MainActor
-    func announceProcessingStart(_ studio: StudioModel, suppress: Bool = false) -> some View {
+    func announceProcessingStart(_ studio: StudioModel, suppress: Bool = false, usesGenerationIndicator: Bool = false) -> some View {
         onChange(of: studio.busy) { _, busy in
-            guard busy, !suppress, studio.exportActivity == nil, NSApp.isActive else { return }
+            guard busy, !suppress, studio.exportActivity == nil, NSApp.isActive,
+                  !usesGenerationIndicator || studio.generationAnnouncementStage == nil else { return }
             NSAccessibility.post(element: NSApp as Any, notification: .announcementRequested, userInfo: [
                 .announcement: "Processing. \(studio.message)",
+                .priority: NSAccessibilityPriorityLevel.medium.rawValue
+            ])
+        }
+    }
+}
+
+/// Attached only to the visible editor status bar, after the progress indicator appears.
+private struct GenerationProcessingAccessibility: ViewModifier {
+    @Environment(\.appearsActive) private var appearsActive
+    let studio: StudioModel
+
+    func body(content: Content) -> some View {
+        content.task(id: appearsActive ? studio.generationAnnouncementStage : nil) { @MainActor in
+            guard !Task.isCancelled, appearsActive, NSApp.isActive,
+                  let text = studio.takeGenerationAnnouncement() else { return }
+            NSAccessibility.post(element: NSApp as Any, notification: .announcementRequested, userInfo: [
+                .announcement: text,
                 .priority: NSAccessibilityPriorityLevel.medium.rawValue
             ])
         }
@@ -1347,7 +1365,7 @@ struct ProjectEditorWindow: View {
     var body: some View {
         editorContent
             .focusedSceneValue(\.newProjectHost, windowOwner)
-            .announceProcessingStart(studio)
+            .announceProcessingStart(studio, usesGenerationIndicator: true)
             .sheet(isPresented: libraryStudio.newProjectPresentation(for: windowOwner)) {
                 NewProjectView(studio: libraryStudio)
             }
@@ -2615,12 +2633,12 @@ struct ProjectEditor: View {
     private var generationAction: (command: String, title: String, icon: String)? {
         switch tab {
         case "transcript":
-            return ("transcribe", project.hasGeneratedTranscript ? "Regenerate Transcript…" : "Generate Transcript", "text.bubble")
+            return ("transcribe", project.hasSavedGenerationResult("transcribe") ? "Regenerate Transcript…" : "Generate Transcript", "text.bubble")
         case "summary":
-            let hasSummary = !project.summary.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+            let hasSummary = project.hasSavedGenerationResult("generate-summary")
             return ("generate-summary", hasSummary ? "Regenerate Summary…" : "Generate Summary", "text.alignleft")
         case "descriptions":
-            return ("generate-ad-cues", project.cues.isEmpty ? "Generate Audio Descriptions" : "Regenerate Audio Descriptions…", "sparkles")
+            return ("generate-ad-cues", project.hasSavedGenerationResult("generate-ad-cues") ? "Regenerate Audio Descriptions…" : "Generate Audio Descriptions", "sparkles")
         default:
             return nil
         }
@@ -3102,6 +3120,7 @@ struct ProjectEditor: View {
             .padding(.vertical, 8)
             .background(.bar)
             .overlay(alignment: .bottom) { Divider() }
+            .modifier(GenerationProcessingAccessibility(studio: studio))
         }
     }
 
@@ -4368,6 +4387,7 @@ struct ProjectEditor: View {
         shortcutActions.selectedSegmentPreviewing = singleRow.map { $0.isDescription && activePreviewCueID == $0.segment.id } ?? false
         shortcutActions.segmentPreviewPaused = shortcutActions.selectedSegmentPreviewing && previewPaused
         shortcutActions.canGenerateDescriptions = project.canGenerateDescriptions
+        shortcutActions.generationHasSavedResult = generationAction.map { project.hasSavedGenerationResult($0.command) } ?? false
         shortcutActions.canUndoSegment = !(tab == "transcript" ? project.transcriptUndoStack ?? [] : project.undoStack ?? []).isEmpty
         shortcutActions.canRedoSegment = !(tab == "transcript" ? project.transcriptRedoStack ?? [] : project.redoStack ?? []).isEmpty
         shortcutActions.hasNarrationAudio = GeneratedContentComponent.narration.hasContent(in: project)
