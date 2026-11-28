@@ -42,8 +42,13 @@ def check_context_menu_layouts(workspace, windows_root=None):
         if 'CloudVideoActions(studio: studio, project: project)' not in (mac/name).read_text():
             raise ValueError('Missing project cloud actions in ' + name)
     for menu in (sidebar, gallery):
-        if 'foreach (var action in CloudActions(project)) Item(action.Id,action.Title)' not in menu:
+        if 'foreach (var action in CloudActions(project)) Item(action.Id, action.Title)' not in menu:
             raise ValueError('Missing Windows project cloud actions')
+    if 'if (!ShowsCloudVideoActions(p)) return Array.Empty<(string, string)>();' not in source:
+        raise ValueError('Windows must hide cloud actions without a cloud video and configured connection.')
+    cloud_actions = (mac/'ProjectGridView.swift').read_text(encoding='utf-8').split('struct ProjectGridView:', 1)[0]
+    if 'studio.showsCloudVideoActions(for: project) && project.originalCloudVideo != nil' not in cloud_actions:
+        raise ValueError('Mac must hide upload actions without a bucket source and configured connection.')
     guard = source.split('private bool CanRunProjectContextCommand(', 1)[1].split('private async', 1)[0]
     if re.search(r'"export"[^\n]*Model.CanUseAI', guard):
         raise ValueError('Context Export must not acquire an AI requirement')

@@ -265,7 +265,7 @@ class VertexSession:
 def media(cfg, project, source):
     cloud = project.get('cloudVideo')
     if express(cfg):
-        if cloud:
+        if cloud and (not project.get('analysisCopy') or referenced_video(project)):
             raise ValueError('Use Google sign-in to analyze this private Cloud Storage video.')
         uri = source
     else:

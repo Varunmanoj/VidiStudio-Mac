@@ -1129,6 +1129,10 @@ class Validation(unittest.TestCase):
                 engine.tool('ffmpeg'), '-y', '-v', 'error', '-f', 'lavfi',
                 '-i', 'sine=frequency=880:sample_rate=48000', '-t', '0.2', narration,
             ])
+            proxy = root/'analysis/ai.mp4'
+            proxy.parent.mkdir()
+            engine.run([engine.tool('ffmpeg'), '-v', 'error', '-i', source,
+                        '-vf', 'scale=160:90', '-c:v', 'libx264', '-an', proxy])
             project = {
                 'name': 'Accessible Demo', 'sourceType': 'upload', 'source': 'source/video.mp4',
                 'duration': 1.5, 'width': 320, 'height': 180, 'hasAudio': True,
@@ -1138,6 +1142,8 @@ class Validation(unittest.TestCase):
                     'audio':'audio-description/narration.wav', 'audioText':'A shape appears.',
                 }],
                 'exports': [],
+                'analysisCopy': {'path': 'analysis/ai.mp4', 'width': 160, 'height': 90},
+                'useAnalysisCopy': True,
             }
             choices = [
                 ('none', 'transcript'),

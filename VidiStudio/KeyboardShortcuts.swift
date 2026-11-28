@@ -286,6 +286,10 @@ final class EditorShortcutActions {
         case "youtube-details", "youtube-refresh", "youtube-project-open-studio": return youtubeProject
         case "import-original-audio": return youtubeProject
         case "remove-original-audio": return youtubeProject && resultProject?.originalAudio != nil
+        case "open-original-video-file", "reveal-original-video-file": return resultProject.flatMap { ProjectVideoFile.original.path(in: $0) } != nil
+        case "open-ai-copy-file", "reveal-ai-copy-file": return resultProject.flatMap { ProjectVideoFile.analysisCopy.path(in: $0) } != nil
+        case "play-original-video", "play-smaller-ai-copy": return !youtubeProject && resultProject?.analysisCopy != nil
+        case "regenerate-ai-copy": return resultProject?.showsAnalysisCopyAction == true
         case "use-youtube-player", "use-local-video-player": return youtubeProject && offersYouTubePlayerChoice
         case "choose-playback-video": return youtubeProject
         case "remove-playback-video": return youtubeProject && resultProject?.youtubePlaybackVideo != nil
@@ -302,6 +306,10 @@ final class EditorShortcutActions {
             return !action.hasPrefix("summary-") && !["generate-summary", "import-summary", "delete-summary", "delete-current"].contains(action)
         }
         return true
+    }
+
+    var analysisCopyActionTitle: String {
+        resultProject?.analysisCopy == nil ? "Create Smaller AI Copy" : "Regenerate Smaller AI Copy"
     }
 
     var currentSectionCopyTitle: String {
@@ -356,9 +364,9 @@ final class EditorShortcutActions {
         case "saved-results": return !hasUnsavedSummaryEdits && resultProject?.savedLanguageResults.contains { $0.language == viewingLanguage && savedResultKinds.contains($0.kind) } == true
         case "project-language": return !hasUnsavedSummaryEdits && !viewingLanguages.isEmpty
         case "copy-to": return hasCopyableResults && !hasUnsavedSummaryEdits
-        case "cloud-open": return resultProject?.cloudVideo != nil
-        case "cloud-remove", "cloud-rename": return cloudPermission?(action) == true
-        case "cloud-upload": return vertexEnabled && !youtubeProject && resultProject?.cloudVideo == nil
+        case "cloud-open": return vertexEnabled && resultProject?.cloudVideo != nil
+        case "cloud-remove", "cloud-rename": return vertexEnabled && cloudPermission?(action) == true
+        case "cloud-upload": return vertexEnabled && resultProject?.originalCloudVideo != nil && resultProject?.cloudVideo == nil
         case "delete-project": return !hasUnsavedSummaryEdits && canShowDeleteProject
         case "delete-content": return !hasUnsavedSummaryEdits
         case "language-results", "rename-project", "trash-project", "import-assets", "import-transcript", "import-summary", "import-descriptions", "import-ad-audio": return true
@@ -367,6 +375,11 @@ final class EditorShortcutActions {
         case "youtube-project-open-studio": return resultProject?.connectedYouTubeStudioURL != nil
         case "choose-playback-video": return canChoosePlaybackVideo
         case "remove-playback-video": return canChangePlaybackVideo
+        case "play-original-video": return resultProject.flatMap { ProjectVideoFile.original.url(in: $0) } != nil
+        case "play-smaller-ai-copy": return resultProject?.availableAnalysisCopyURL != nil
+        case "open-original-video-file", "reveal-original-video-file": return resultProject.flatMap { ProjectVideoFile.original.url(in: $0) } != nil
+        case "open-ai-copy-file", "reveal-ai-copy-file": return resultProject.flatMap { ProjectVideoFile.analysisCopy.url(in: $0) } != nil
+        case "regenerate-ai-copy": return !hasUnsavedSummaryEdits && resultProject?.originalExceedsAnalysisCopyLimit == true
         case "use-youtube-player", "use-local-video-player": return canChangePlaybackVideo && canChooseYouTubePlayer
         case "clear-segment-filter": return canFilterSegments && segmentFilterActive
         case "clear-segment-sort": return canFilterSegments && segmentSort != "start"
@@ -445,6 +458,28 @@ final class EditorShortcutActions {
         }
     }
 }
+struct AnalysisCopyMenuItems: View {
+    let actions: EditorShortcutActions?
+    var body: some View {
+        if let actions, actions.isCommandVisible("play-original-video") {
+            ForEach(ProjectVideoFile.allCases, id: \.playbackCommand) { file in
+                Toggle(isOn: Binding(
+                    get: { actions.resultProject.map { file.isSelectedForPlayback(in: $0) } == true },
+                    set: { selected in if selected { actions.run(file.playbackCommand) } }
+                )) {
+                    Label(file.playbackTitle, systemImage: "film")
+                }
+                .disabled(!actions.canRun(file.playbackCommand))
+            }
+            if actions.isCommandVisible("regenerate-ai-copy") {
+                Divider()
+                Button("Regenerate Smaller AI Copy", systemImage: "arrow.clockwise") { actions.run("regenerate-ai-copy") }
+                    .disabled(!actions.canRun("regenerate-ai-copy"))
+            }
+        }
+    }
+}
+
 private struct EditorShortcutKey: FocusedValueKey { typealias Value = EditorShortcutActions }
 extension FocusedValues {
     var editorShortcuts: EditorShortcutActions? {
@@ -732,8 +767,10 @@ struct StudioCommands: Commands {
                 }
                 .keyboardShortcut("v", modifiers: [.command, .shift])
                 .disabled(editor?.canRun("preview") != true)
-                if editor?.youtubeProject == true {
+                if editor?.youtubeProject == true || editor?.resultProject?.analysisCopy != nil {
                     Menu("Video Player", systemImage: "play.rectangle") {
+                        AnalysisCopyMenuItems(actions: editor)
+                        if editor?.youtubeProject == true {
                         Button("YouTube Player", systemImage: editor?.drivesYouTubePlayer == true ? "checkmark" : "play.rectangle") {
                             editor?.run("use-youtube-player")
                         }
@@ -752,6 +789,7 @@ struct StudioCommands: Commands {
                         if editor?.isCommandVisible("remove-playback-video") == true {
                             Button("Remove Local Playback Video…", systemImage: "trash") { editor?.run("remove-playback-video") }
                                 .disabled(editor?.canRun("remove-playback-video") != true)
+                        }
                         }
                     }
                 }
@@ -969,12 +1007,14 @@ struct StudioCommands: Commands {
             }
         }
         CommandMenu("Project") {
-            if allProjects != nil || editor?.resultProject?.cloudConsoleURL != nil {
+            if let cloudProject = allProjects?.project ?? editor?.resultProject, studio.showsCloudVideoActions(for: cloudProject) {
                 Menu("Cloud Storage", systemImage: "cloud") {
-                    if allProjects != nil && studio.settings.vertexConnected {
+                    if cloudProject.cloudVideo == nil && cloudProject.originalCloudVideo != nil {
                         Button("Upload Video to Cloud Storage…", systemImage: "icloud.and.arrow.up") { runProject("cloud-upload") }.disabled(!canRunProject("cloud-upload"))
                     }
-                    Button("Open Video in Google Cloud Console", systemImage: "arrow.up.right.square") { runProject("cloud-open") }.disabled(!canRunProject("cloud-open"))
+                    if cloudProject.cloudVideo != nil {
+                        Button("Open Video in Google Cloud Console", systemImage: "arrow.up.right.square") { runProject("cloud-open") }.disabled(!canRunProject("cloud-open"))
+                    }
                     if allowsCloudMutation("cloud-rename") {
                         Button("Rename Cloud Video…", systemImage: "pencil") { runProject("cloud-rename") }.disabled(!canRunProject("cloud-rename"))
                     }
@@ -989,6 +1029,34 @@ struct StudioCommands: Commands {
                 Divider()
             }
             if allProjects == nil {
+                if editor?.isCommandVisible("open-original-video-file") == true {
+                    Menu("Original Video", systemImage: "film") {
+                        Button("Open File", systemImage: "arrow.up.forward.app") { editor?.run("open-original-video-file") }
+                            .disabled(editor?.canRun("open-original-video-file") != true)
+                        Button("Open Folder", systemImage: "folder") { editor?.run("reveal-original-video-file") }
+                            .disabled(editor?.canRun("reveal-original-video-file") != true)
+                    }
+                    .disabled(editor?.canRun("open-original-video-file") != true)
+                }
+                if editor?.isCommandVisible("open-ai-copy-file") == true {
+                    Menu("Smaller AI Copy", systemImage: "film") {
+                        Button("Open File", systemImage: "arrow.up.forward.app") { editor?.run("open-ai-copy-file") }
+                            .disabled(editor?.canRun("open-ai-copy-file") != true)
+                        Button("Open Folder", systemImage: "folder") { editor?.run("reveal-ai-copy-file") }
+                            .disabled(editor?.canRun("reveal-ai-copy-file") != true)
+                    }
+                    .disabled(editor?.canRun("open-ai-copy-file") != true)
+                }
+            }
+            Button("Open Project in Finder", systemImage: "folder") { browser?.run("show-in-finder") }
+                .disabled(browser?.canRun("show-in-finder") != true)
+            if allProjects == nil {
+                if editor?.isCommandVisible("regenerate-ai-copy") == true {
+                    Button(editor?.analysisCopyActionTitle ?? "Regenerate Smaller AI Copy", systemImage: "arrow.clockwise") {
+                        editor?.run("regenerate-ai-copy")
+                    }
+                    .disabled(editor?.canRun("regenerate-ai-copy") != true)
+                }
                 Button("Language and Saved Results…", systemImage: "translate") { editor?.run("language-results") }
                     .disabled(editor?.canRun("language-results") != true)
 
@@ -1140,8 +1208,6 @@ struct StudioCommands: Commands {
                         .disabled(editor?.canRun("import-assets") != true)
                 }
             }
-            Button("Show Project in Finder", systemImage: "folder") { browser?.run("show-in-finder") }
-                .disabled(browser?.canRun("show-in-finder") != true)
             if studio.settings.developerMode {
                 Button("Open Project Configuration", systemImage: "doc.text") { browser?.run("open-configuration") }
                     .disabled(browser?.canRun("open-configuration") != true)

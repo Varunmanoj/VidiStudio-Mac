@@ -61,6 +61,8 @@ private struct NewProjectView: View {
     @State private var choosingVideo = false
     @FocusState private var videoChooserFocused: Bool
     @State private var videoRequiresCloud = false
+    @State private var smallerAICopy = false
+    @State private var creatingCopy = false
     @State private var youtubeURL = ""
     @State private var youtubePreview: YouTubeProjectPreview?
     @State private var youtubeFetchError: String?
@@ -303,8 +305,13 @@ private struct NewProjectView: View {
             }
 
             Section {
+                if creatingCopy {
+                    AICopyProgressView(studio: studio)
+                }
                 HStack {
-                    Button("Cancel", role: .cancel) { dismiss() }
+                    Button("Cancel", role: .cancel) {
+                        if creatingCopy { studio.cancelCurrentOperation() } else { dismiss() }
+                    }
                         .keyboardShortcut(.cancelAction)
                     Spacer()
                     if assetMode == .existing, assets.adAudio != nil {
@@ -324,6 +331,7 @@ private struct NewProjectView: View {
             .formStyle(.grouped)
             .frame(minHeight: 0, maxHeight: .infinity)
         }
+        .interactiveDismissDisabled(creatingCopy)
         .frame(width: 640)
         .frame(minHeight: 320, idealHeight: preferredHeight, maxHeight: preferredHeight, alignment: .topLeading)
         .onChange(of: studio.settings.vertexConnected) { if !studio.settings.vertexConnected && source == .cloud { source = .videoFile; cloudImport = false } }
@@ -421,16 +429,18 @@ private struct NewProjectView: View {
                 if sheet.isVisible { videoChooserFocused = true }
             }
             while let selected = await studio.pickLocalVideo(attachedTo: sheet), sheet.isVisible {
-                switch studio.videoImportChoice(selected, asCloud: source == .cloud) {
+                let choice = studio.videoImportChoice(selected, asCloud: source == .cloud)
+                switch choice {
                 case .smaller: continue
                 case .cancel: return
                 case .cloud:
                     cloudImport = false
                     source = .cloud
                     videoRequiresCloud = (try? LocalVideoFilePolicy.exceedsMaximumSize(selected)) ?? false
-                case .local:
+                case .reduce, .local:
                     videoRequiresCloud = false
                 }
+                smallerAICopy = choice == .reduce
                 videoURL = selected
                 NSAccessibility.post(element: sheet, notification: .announcementRequested, userInfo: [
                     .announcement: "Selected video: \(selected.lastPathComponent)",
@@ -444,16 +454,18 @@ private struct NewProjectView: View {
     private func createProject(combine: Bool) {
         guard canCreate else { return }
         let finished: (StudioProject?) -> Void = { project in
+            creatingCopy = false
             if let project { completeCreation(project, combine: combine) }
         }
         if let createdProject { finished(createdProject); return }
+        creatingCopy = source != .youtube && smallerAICopy
         switch source {
         case .cloud:
             guard let videoURL else { return }
-            _ = studio.importVideo(at: videoURL, asCloud: true, completion: finished)
+            if !studio.importVideo(at: videoURL, asCloud: true, smallerAICopy: smallerAICopy, cloudSizeApproved: videoRequiresCloud, completion: finished) { creatingCopy = false }
         case .videoFile:
             guard let videoURL else { return }
-            _ = studio.importVideo(at: videoURL, completion: finished)
+            if !studio.importVideo(at: videoURL, smallerAICopy: smallerAICopy, completion: finished) { creatingCopy = false }
         case .youtube:
             guard let youtubePreview else { return }
             studio.openYouTubeVideo(youtubePreview.video, reuseExisting: false, privateRoute: true, completion: finished)
@@ -522,13 +534,48 @@ private struct NewProjectView: View {
     }
 }
 
+private struct AICopyProgressView: View {
+    let studio: StudioModel
+
+    var body: some View {
+        ProgressView(value: studio.progress) {
+            Text(studio.message)
+        } currentValueLabel: {
+            Text(studio.progress.formatted(.percent))
+        }
+        .progressViewStyle(.linear)
+        .accessibilityLabel(studio.message)
+        .accessibilityValue(studio.progress.formatted(.percent))
+        .accessibilityIdentifier("smaller-ai-copy-progress")
+    }
+}
+
+private struct SharedVideoProcessingStatus: View {
+    let message: String
+    let studio: StudioModel?
+
+    var body: some View {
+        if let studio, studio.busy, studio.isMakingAICopy {
+            VStack(spacing: 12) {
+                AICopyProgressView(studio: studio)
+                Button("Cancel Processing", systemImage: "stop.circle") { studio.cancelCurrentOperation() }
+                    .keyboardShortcut(.cancelAction)
+                    .contextMenu {
+                        Button("Cancel Processing", systemImage: "stop.circle") { studio.cancelCurrentOperation() }
+                    }
+            }
+        } else {
+            ProgressView(message).progressViewStyle(.circular).accessibilityLabel(message)
+        }
+    }
+}
+
 @MainActor
 final class SharedVideoProgressPanel: NSPanel {
-    init(message: String, accessibilityID: String) {
-        let content = NSHostingView(rootView: ProgressView(message)
-            .progressViewStyle(.circular)
-            .accessibilityLabel(message)
+    init(message: String, accessibilityID: String, studio: StudioModel?) {
+        let content = NSHostingView(rootView: SharedVideoProcessingStatus(message: message, studio: studio)
             .accessibilityIdentifier(accessibilityID)
+            .frame(minWidth: 280, minHeight: 80)
             .padding(20))
         super.init(contentRect: NSRect(origin: .zero, size: content.fittingSize),
                    styleMask: [.titled, .nonactivatingPanel], backing: .buffered, defer: false)
@@ -825,7 +872,7 @@ private struct CloudVideosView: View {
                 .accessibilityLabel("Selected video details")
             }
             if studio.busy && listingMessage == nil {
-                if importing && studio.message.hasPrefix("Downloading video:") {
+                if importing && (studio.message.hasPrefix("Downloading video:") || studio.message.contains("AI copy")) {
                     ProgressView(studio.message, value: studio.progress)
                 } else {
                     ProgressView(studio.message)
@@ -909,6 +956,10 @@ private struct CloudVideosView: View {
         Toggle(isOn: $selectingVideos) { Label("Select", systemImage: "checklist") }
             .disabled(!canBrowse || videos.isEmpty)
         if let target {
+            if (target.size.flatMap(Int64.init) ?? 0) > LocalVideoFilePolicy.maximumSizeBytes {
+                Button("Create Smaller AI Copy", systemImage: "film") { importVideo(target, smallerAICopy: true) }
+                    .disabled(!canImportVideo(target))
+            }
             Button("Open in Editor", systemImage: "square.and.arrow.down") { importVideo(target) }
                 .disabled(!canImportVideo(target))
             if thumbnail(for: target) == nil, matchingPreview(for: target) == nil {
@@ -1037,23 +1088,30 @@ private struct CloudVideosView: View {
             && (!selectingVideos || videoID == file.id)
     }
 
-    private func importVideo(_ file: StorageFileChoice) {
+    private func importVideo(_ file: StorageFileChoice, smallerAICopy: Bool = false) {
         guard canImportVideo(file),
               videos.contains(where: { $0.id == file.id && $0.generation == file.generation }) else { return }
-        if let size = file.size.flatMap(Int64.init), size > LocalVideoFilePolicy.maximumCloudSizeBytes {
+        var reduce = smallerAICopy
+        let importLimit = studio.settings.aiProvider == "vertex" && studio.settings.vertexAuth == "signin"
+            ? LocalVideoFilePolicy.maximumCloudSizeBytes : LocalVideoFilePolicy.maximumSizeBytes
+        if !reduce, let size = file.size.flatMap(Int64.init), size > importLimit {
             let alert = NSAlert()
             alert.alertStyle = .warning
             alert.messageText = "Video Is Too Large"
             alert.informativeText = LocalVideoFilePolicy.analysisSizeWarning(size)
             alert.addButton(withTitle: "Choose a Smaller Video")
+            alert.addButton(withTitle: "Create Smaller AI Copy")
             alert.addButton(withTitle: "Cancel").keyEquivalent = "\u{1b}"
-            if alert.runModal() == .alertFirstButtonReturn { videoID = nil }
-            return
+            switch alert.runModal() {
+            case .alertFirstButtonReturn: videoID = nil; return
+            case .alertSecondButtonReturn: reduce = true
+            default: return
+            }
         }
         importing = true
-        studio.execute("cloud-import", extra: arguments(file) + ["--library", studio.settings.libraryPath]) { project in
+        studio.execute("cloud-import", extra: arguments(file) + ["--library", studio.settings.libraryPath] + (reduce ? ["--smaller-ai-copy"] : [])) { project in
             importing = false
-            guard studio.error == nil, let project, project.cloudVideo != nil else { return }
+            guard studio.error == nil, let project, project.cloudVideo != nil || project.analysisCopy != nil else { return }
             dismiss()
             openEditor(project)
         }
@@ -1132,7 +1190,7 @@ struct ContentView: View {
         case .videoFile(let fileURL):
             let existing = studio.existingProject(forVideoAt: fileURL)
             let message = existing == nil ? "Importing video…" : "Opening video project…"
-            openProjects.beginSharedVideoOpening(message: message, accessibilityID: "shared-file-opening")
+            openProjects.beginSharedVideoOpening(message: message, accessibilityID: "shared-file-opening", studio: studio)
             AccessibilityNotification.Announcement(message).post()
             if let existing {
                 openProjects.restoreLibraryAfterSharedOpen = restoreMinimization
@@ -1508,6 +1566,16 @@ struct ProjectEditorWindow: View {
         .sheet(item: $studio.languageDeletionProject) { project in
             GeneratedContentDeletionView(studio: studio, project: project)
         }
+        .contextMenu {
+            if let project = studio.selected {
+                if editorShortcutActions.isCommandVisible("copy-to") {
+                    Button("Copy and Translate…", systemImage: "doc.on.doc") { editorShortcutActions.run("copy-to") }
+                        .disabled(!editorShortcutActions.canRun("copy-to"))
+                }
+                Button("Open Project Settings…", systemImage: "gearshape") { studio.requestProjectManagement("project-settings", project: project) }
+                    .disabled(!studio.canManageProject("project-settings", project: project))
+            }
+        }
         .inspector(isPresented: $showInspector) {
             ProcessingInspector(
                 studio: studio,
@@ -1545,16 +1613,6 @@ struct ProjectEditorWindow: View {
         // so an open menu does not get rebuilt and lose focus.
         .focusedSceneValue(\.editorShortcuts, studio.selected == nil ? nil : editorShortcutActions)
         .preferredColorScheme(studio.settings.theme == "dark" ? .dark : studio.settings.theme == "light" ? .light : nil)
-        .contextMenu {
-            if let project = studio.selected {
-                if editorShortcutActions.isCommandVisible("copy-to") {
-                    Button("Copy and Translate…", systemImage: "doc.on.doc") { editorShortcutActions.run("copy-to") }
-                        .disabled(!editorShortcutActions.canRun("copy-to"))
-                }
-                Button("Open Project Settings…", systemImage: "gearshape") { studio.requestProjectManagement("project-settings", project: project) }
-                    .disabled(!studio.canManageProject("project-settings", project: project))
-            }
-        }
         .searchable(text: $projectSearch.text, placement: .toolbar, prompt: "Search project")
         .searchFocused($projectSearchFocused)
         .onChange(of: projectSearch.focusRequest) { _, _ in projectSearchFocused = true }
@@ -1812,8 +1870,8 @@ struct ProcessingInspector: View {
                     VStack(alignment: .leading, spacing: 10) {
                         LanguageResultControls(studio: studio, project: project, editorActions: editorActions)
                         InspectorAIProcessing(studio: studio, project: project, editorActions: editorActions)
-                        ProjectVideoInformationView(project: project)
-                        if project.cloudVideo != nil || (!project.isYouTubeURLProject && studio.settings.vertexConnected) {
+                        ProjectVideoInformationView(project: project, editorActions: editorActions)
+                        if studio.showsCloudVideoActions(for: project) {
                             InspectorSection("Cloud Storage") {
                                 if let cloud = project.cloudVideo {
                                     if let image = project.thumbnails.lazy.compactMap({ path in
@@ -2276,9 +2334,18 @@ private func cloudStorageDate(_ value: String) -> String {
 }
 
 private struct ProjectVideoInformationView: View {
+    let originalBucketPath: String?
+    let project: StudioProject
+    let editorActions: EditorShortcutActions
     let information: ProjectVideoInformation
 
-    init(project: StudioProject) {
+    init(project: StudioProject, editorActions: EditorShortcutActions) {
+        self.project = project
+        self.editorActions = editorActions
+        originalBucketPath = project.originalCloudVideo.flatMap { record in
+            guard let bucket = record["bucket"], let name = record["object"] else { return nil }
+            return "gs://" + bucket + "/" + name
+        }
         information = ProjectVideoInformation(project: project)
     }
 
@@ -2299,8 +2366,18 @@ private struct ProjectVideoInformationView: View {
                 VStack(alignment: .leading, spacing: 5) {
                     if information.youtubeVideoID != nil || information.sourceURL != nil {
                         YouTubeSourceInformationRows(videoID: information.youtubeVideoID, sourceURL: information.sourceURL)
+                    } else if ProjectVideoFile.original.path(in: project) != nil {
+                        ProjectVideoFileRow(file: .original, label: information.sourceDetailLabel,
+                                            value: information.sourceDetail, editorActions: editorActions)
                     } else {
                         informationRow(information.sourceDetailLabel, information.sourceDetail)
+                    }
+                    if !project.isYouTubeURLProject, project.analysisCopy != nil {
+                        let copy = project.useAnalysisCopy == true ? project.availableAnalysisCopyURL : nil
+                        let file = copy ?? ProjectVideoFile.original.url(in: project)
+                        let version = copy == nil ? "Original Video" : "Smaller AI Copy"
+                        informationRow("Preview Source", file.map { "\(version) (\($0.lastPathComponent))" } ?? "Unavailable")
+                            .accessibilityIdentifier("preview-video-source")
                     }
                     InspectorInformationRow(label: "Duration", value: information.duration, spokenValue: information.spokenDuration)
                     informationRow("Frame Rate", information.frameRate)
@@ -2311,16 +2388,159 @@ private struct ProjectVideoInformationView: View {
                     informationRow("Audio", information.audio)
                     informationRow("Container", information.container)
                     informationRow("Source Size", information.sourceFileSize)
+                    if let originalBucketPath { informationRow("Original bucket object", originalBucketPath) }
                 }
                 .font(.caption)
                 .accessibilityElement(children: .contain)
                 .accessibilityLabel("Video information")
             }
+            if project.canManageAnalysisCopy {
+                InspectorSection("Smaller AI Copy") {
+                    VStack(alignment: .leading, spacing: 6) {
+                        if let copy = project.analysisCopy {
+                            ProjectVideoFileRow(file: .analysisCopy, label: "AI analysis file",
+                                                value: copy.path, editorActions: editorActions)
+                                .id(copy.path)
+                            informationRow("AI copy size", LocalVideoFilePolicy.displaySize(copy.size))
+                            informationRow("AI copy resolution", "\(copy.width) × \(copy.height)")
+                            InspectorInformationRow(label: "AI copy duration", value: NarrationTimeFormat.projectDuration(copy.duration),
+                                                    spokenValue: NarrationTimeFormat.spokenProjectDuration(copy.duration))
+                            informationRow("AI copy codecs", "\(copy.codec) / \(copy.audio)")
+                        }
+                        if project.showsAnalysisCopyAction {
+                            analysisCopyAction
+                                .accessibilityIdentifier("inspector-manage-ai-copy")
+                                .contextMenu { analysisCopyAction }
+                        }
+                    }
+                    .font(.caption)
+                }
+            }
         }
+    }
+
+    private var analysisCopyAction: some View {
+        Button(editorActions.analysisCopyActionTitle, systemImage: "arrow.clockwise") {
+            editorActions.run("regenerate-ai-copy")
+        }
+        .disabled(!editorActions.canRun("regenerate-ai-copy"))
+        .help(editorActions.analysisCopyActionTitle)
     }
 
     private func informationRow(_ label: String, _ value: String) -> some View {
         InspectorInformationRow(label: label, value: value)
+    }
+}
+
+enum ProjectVideoFile: CaseIterable {
+    case original, analysisCopy
+
+    var informationTitle: String {
+        self == .original ? "Original Video Information" : "Smaller AI Copy Information"
+    }
+
+    var informationID: String {
+        self == .original ? "original-video-file-information" : "ai-copy-file-information"
+    }
+
+    var openCommand: String { self == .original ? "open-original-video-file" : "open-ai-copy-file" }
+    var revealCommand: String { self == .original ? "reveal-original-video-file" : "reveal-ai-copy-file" }
+    var playbackCommand: String { self == .original ? "play-original-video" : "play-smaller-ai-copy" }
+    var playbackTitle: String { self == .original ? "Play Original Video" : "Play Smaller AI Copy" }
+
+    func isSelectedForPlayback(in project: StudioProject) -> Bool {
+        switch self {
+        case .original: return !project.usesAnalysisCopyForPlayback && url(in: project) != nil
+        case .analysisCopy: return project.usesAnalysisCopyForPlayback
+        }
+    }
+
+    func path(in project: StudioProject) -> String? {
+        guard !project.isYouTubeURLProject else { return nil }
+        if self == .analysisCopy { return project.analysisCopy?.path }
+        return project.source.isEmpty ? nil : project.source
+    }
+
+    func url(in project: StudioProject) -> URL? {
+        guard let path = path(in: project), let url = project.url(path),
+              (try? url.resourceValues(forKeys: [.isRegularFileKey]).isRegularFile) == true else { return nil }
+        return url
+    }
+
+    @MainActor
+    func open(in project: StudioProject, reveal: Bool) async -> Bool {
+        guard let url = url(in: project) else { return false }
+        let workspace = NSWorkspace.shared
+        if reveal {
+            workspace.activateFileViewerSelecting([url])
+            return true
+        }
+        guard opensBackIntoStudio(workspace.urlForApplication(toOpen: url)) else {
+            return workspace.open(url)
+        }
+        guard let player = workspace.urlForApplication(withBundleIdentifier: "com.apple.QuickTimePlayerX") else {
+            return false
+        }
+        do {
+            _ = try await workspace.open([url], withApplicationAt: player, configuration: .init())
+            return true
+        } catch {
+            return false
+        }
+    }
+
+    private func opensBackIntoStudio(_ appURL: URL?) -> Bool {
+        guard let appURL, let app = Bundle(url: appURL) else { return false }
+        if app.bundleIdentifier == Bundle.main.bundleIdentifier { return true }
+        let types = app.object(forInfoDictionaryKey: "CFBundleURLTypes") as? [[String: Any]] ?? []
+        return types.contains { type in
+            let schemes = type["CFBundleURLSchemes"] as? [String] ?? []
+            return schemes.contains(VidiStudioShareLink.scheme)
+        }
+    }
+}
+
+private struct ProjectVideoFileRow: View {
+    let file: ProjectVideoFile
+    let label: String
+    let value: String
+    let editorActions: EditorShortcutActions
+    @State private var showingInformation = false
+
+    var body: some View {
+        HStack(alignment: .top, spacing: 8) {
+            InspectorInformationRow(label: label, value: value)
+            Button {
+                showingInformation = true
+            } label: {
+                Image(systemName: "eye")
+            }
+            .font(.title3)
+            .buttonStyle(.borderless)
+            .help(file.informationTitle)
+            .accessibilityLabel(file.informationTitle)
+            .accessibilityIdentifier(file.informationID)
+            .disabled(!editorActions.canRun(file.openCommand))
+            .confirmationDialog(file.informationTitle, isPresented: $showingInformation, titleVisibility: .visible) {
+                fileActions
+                Button("Cancel", systemImage: "xmark", role: .cancel) {}
+            } message: {
+                Text(URL(fileURLWithPath: value).lastPathComponent)
+            }
+        }
+        .contextMenu {
+            Button(file.informationTitle, systemImage: "eye") { showingInformation = true }
+                .disabled(!editorActions.canRun(file.openCommand))
+            fileActions
+        }
+    }
+
+    @ViewBuilder
+    private var fileActions: some View {
+        Button("Open File", systemImage: "arrow.up.forward.app") { editorActions.run(file.openCommand) }
+            .disabled(!editorActions.canRun(file.openCommand))
+        Button("Open Folder", systemImage: "folder") { editorActions.run(file.revealCommand) }
+            .disabled(!editorActions.canRun(file.revealCommand))
     }
 }
 
@@ -3082,24 +3302,28 @@ struct ProjectEditor: View {
                 ProgressView()
                     .controlSize(.small)
                     .accessibilityHidden(true)
-                VStack(alignment: .leading, spacing: 2) {
-                    Text(studio.processingStageTitle)
-                        .font(.callout.weight(.semibold))
-                    Text(studio.message)
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-                        .lineLimit(2)
-                    if studio.contentTransferCommand != nil {
-                        if let fraction = studio.contentTransferProgress {
-                            ProgressView(value: fraction).progressViewStyle(.linear)
-                                .accessibilityLabel(studio.processingStageTitle)
-                                .accessibilityValue("\(Int(fraction * 100)) percent")
-                        } else { ProgressView().progressViewStyle(.linear).accessibilityLabel(studio.processingStageTitle) }
+                if studio.isMakingAICopy {
+                    AICopyProgressView(studio: studio)
+                } else {
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text(studio.processingStageTitle)
+                            .font(.callout.weight(.semibold))
+                        Text(studio.message)
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                            .lineLimit(2)
+                        if studio.contentTransferCommand != nil {
+                            if let fraction = studio.contentTransferProgress {
+                                ProgressView(value: fraction).progressViewStyle(.linear)
+                                    .accessibilityLabel(studio.processingStageTitle)
+                                    .accessibilityValue("\(Int(fraction * 100)) percent")
+                            } else { ProgressView().progressViewStyle(.linear).accessibilityLabel(studio.processingStageTitle) }
+                        }
                     }
+                    .accessibilityElement(children: .ignore)
+                    .accessibilityLabel("\(studio.processingStageTitle). \(studio.message)")
+                    .accessibilityValue(studio.contentTransferProgress.map { "\(Int($0 * 100)) percent" } ?? "")
                 }
-                .accessibilityElement(children: .ignore)
-                .accessibilityLabel("\(studio.processingStageTitle). \(studio.message)")
-                .accessibilityValue(studio.contentTransferProgress.map { "\(Int($0 * 100)) percent" } ?? "")
                 Spacer(minLength: 12)
                 Button {
                     studio.cancelCurrentOperation()
@@ -3251,8 +3475,7 @@ struct ProjectEditor: View {
     }
 
     private func loadVideoPlayback() {
-        let local = project.isYouTubeURLProject ? project.activeLocalYouTubePlaybackURL
-            : (project.source.isEmpty ? nil : project.url(project.source))
+        let local = project.selectedLocalVideoURL
         playback.webPlaybackFailed = false
         playback.videoPlaybackUnavailable = project.requiresLocalYouTubePlayback && local == nil
         playback.player.replaceCurrentItem(with: local.map { AVPlayerItem(url: $0) })
@@ -3586,7 +3809,7 @@ struct ProjectEditor: View {
                             YouTubePlayer(url: url, playback: playback, useOriginalAudio: project.usesStandaloneYouTubeAudio && project.audioSources?.playback == "imported")
                         }
                     } else {
-                        NativeVideoPlayer(player: playback.player, playback: playback)
+                        NativeVideoPlayer(player: playback.player, playback: playback, analysisCopyActions: shortcutActions)
                     }
                 }
                 TranscriptCaptionOverlay(
@@ -4211,6 +4434,21 @@ struct ProjectEditor: View {
         case "remove-original-audio": studio.removeYouTubeOriginalAudio(project)
         case "youtube-project-open-studio": studio.openProjectInYouTubeStudio(project)
         case "use-youtube-player": studio.selectYouTubePlayer(project, embedded: true)
+        case "play-original-video", "play-smaller-ai-copy":
+            let useCopy = action == "play-smaller-ai-copy"
+            if useCopy != project.usesAnalysisCopyForPlayback {
+                studio.execute("set-copy-playback", extra: ["--playback-copy", useCopy ? "ai" : "original"], project: project)
+            }
+        case "open-original-video-file", "reveal-original-video-file", "open-ai-copy-file", "reveal-ai-copy-file":
+            let file: ProjectVideoFile = action.hasSuffix("original-video-file") ? .original : .analysisCopy
+            let reveal = action.hasPrefix("reveal-")
+            Task { @MainActor in
+                if !(await file.open(in: project, reveal: reveal)) {
+                    studio.errorTitle = reveal ? "Couldn’t Show the Video in Finder" : "Couldn’t Open the Video"
+                    studio.error = "Check that the project video is available."
+                }
+            }
+        case "regenerate-ai-copy": studio.execute("regenerate-ai-copy", project: project)
         case "use-local-video-player": studio.selectYouTubePlayer(project, embedded: false)
         case "choose-playback-video": studio.chooseYouTubePlaybackVideo(project)
         case "remove-playback-video": studio.removeYouTubePlaybackVideo(project)
@@ -4341,7 +4579,7 @@ struct ProjectEditor: View {
             return action == "cloud-rename" ? permissions?.rename == true : permissions?.delete == true
         }
         if shortcutActions.resultProject?.id != project.id || shortcutActions.resultProject?.updatedAt != project.updatedAt || shortcutActions.resultProject?.languageCode != project.languageCode {
-            shortcutActions.vertexEnabled = studio.settings.vertexConnected
+            shortcutActions.vertexEnabled = studio.canUploadCloudVideo
             shortcutActions.resultProject = project
         }
         shortcutActions.viewingLanguage = project.languageCode
@@ -4436,7 +4674,7 @@ struct ProjectEditor: View {
                   notification.userInfo?["projectID"] as? String == project.id, !studio.busy else { return }
             studio.reload()
         }
-        .onChange(of: project.activeLocalYouTubePlaybackURL) { _, local in
+        .onChange(of: project.selectedLocalVideoURL) { _, local in
             let position = playback.time
             playback.exitVideoFullScreen()
             playback.pausePlayback()
@@ -4448,7 +4686,7 @@ struct ProjectEditor: View {
             playback.videoPlaybackUnavailable = required && project.localYouTubePlaybackURL == nil
         }
         .onChange(of: playback.duration) { _, duration in
-            if project.localYouTubePlaybackURL == nil, !studio.busy, duration > 0, abs(duration - project.duration) > 0.001 { studio.execute("update-metadata", extra: ["--duration", String(duration)]) }
+            if project.useAnalysisCopy != true, project.localYouTubePlaybackURL == nil, !studio.busy, duration > 0, abs(duration - project.duration) > 0.001 { studio.execute("update-metadata", extra: ["--duration", String(duration)]) }
         }
     }
 

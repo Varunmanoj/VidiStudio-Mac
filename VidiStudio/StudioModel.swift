@@ -3,6 +3,7 @@ import AVFoundation
 import SwiftUI
 import AppKit
 import MediaAccessibility
+import Accessibility
 import UniformTypeIdentifiers
 
 struct Segment: Codable, Identifiable, Hashable {
@@ -541,6 +542,16 @@ enum SectionProcessingState: Equatable {
     var isProcessing: Bool { self != .idle }
 }
 
+struct AnalysisVideoCopy: Codable {
+    var path: String
+    var size: Int64
+    var duration: Double
+    var width: Int
+    var height: Int
+    var codec: String
+    var audio: String
+}
+
 struct StudioProject: Codable, Identifiable {
     var overviewLanguage: String?
     var selectedLanguage: String?
@@ -570,6 +581,9 @@ struct StudioProject: Codable, Identifiable {
     var cloudVideo: [String: String]?
     var referencesCloudVideo: Bool { cloudVideo?["ownership"] == "referenced" }
     var ownsCloudVideo: Bool { cloudVideo != nil && !referencesCloudVideo }
+    var hasCloudStorageVideo: Bool {
+        !isYouTubeURLProject && (cloudVideo != nil || originalCloudVideo != nil)
+    }
     var cloudConsoleURL: URL? {
         guard let bucket = cloudVideo?["bucket"], let object = cloudVideo?["object"] else { return nil }
         var url = URLComponents()
@@ -577,6 +591,26 @@ struct StudioProject: Codable, Identifiable {
         url.host = "console.cloud.google.com"
         url.path = "/storage/browser/_details/" + bucket + "/" + object
         return url.url
+    }
+    var originalCloudVideo: [String: String]?
+    var analysisCopy: AnalysisVideoCopy?
+    var useAnalysisCopy: Bool?
+    var canManageAnalysisCopy: Bool {
+        !isYouTubeURLProject && (analysisCopy != nil || (cloudVideo == nil && hasFile(source)))
+    }
+    var showsAnalysisCopyAction: Bool {
+        canManageAnalysisCopy && (analysisCopy == nil || originalExceedsAnalysisCopyLimit)
+    }
+    var originalExceedsAnalysisCopyLimit: Bool {
+        guard hasFile(source), let original = url(source) else { return false }
+        return (try? LocalVideoFilePolicy.exceedsMaximumSize(original)) == true
+    }
+    var availableAnalysisCopyURL: URL? { ProjectVideoFile.analysisCopy.url(in: self) }
+    var usesAnalysisCopyForPlayback: Bool { useAnalysisCopy == true && availableAnalysisCopyURL != nil }
+    var selectedLocalVideoURL: URL? {
+        if isYouTubeURLProject { return activeLocalYouTubePlaybackURL }
+        if useAnalysisCopy == true, let copy = availableAnalysisCopyURL { return copy }
+        return source.isEmpty ? nil : url(source)
     }
     var sourceType: String?
     var youtubeMetadata: YouTubeVideo?
@@ -1026,7 +1060,7 @@ struct ProjectVideoInformation {
         projectType = project.isYouTubeURLProject ? "YouTube Video" : "Local Video"
         projectSize = Self.formattedByteCount(Self.projectFolderSize(project)) ?? "Not available"
         projectFolder = project.folder?.path ?? "Not available"
-        sourceDetailLabel = project.isYouTubeURLProject ? "Video ID" : "Source File"
+        sourceDetailLabel = project.isYouTubeURLProject ? "Video ID" : project.analysisCopy != nil ? "Original Video File" : "Source File"
         if project.isYouTubeURLProject {
             let youtube = Self.youtubeSource(for: project)
             youtubeVideoID = youtube.videoID
@@ -1263,6 +1297,7 @@ struct StudioSettings: Codable, Equatable {
     var soundWhenTimingInvalid = true
     var soundAfterExport = true
     var soundAfterGeneration = true
+    var soundAfterAICopy = true
     var systemVoice = ""
     var piperVoice = ""
     var systemSpeechRate = 1.0
@@ -1598,11 +1633,11 @@ final class OpenProjectRegistry {
     private var sharedVideoStarted = ContinuousClock.now
     var restoreLibraryAfterSharedOpen: (() -> Void)?
 
-    func beginSharedVideoOpening(message: String, accessibilityID: String) {
+    func beginSharedVideoOpening(message: String, accessibilityID: String, studio: StudioModel? = nil) {
         sharedVideoStarted = .now
         sharedVideoOpening = .preparing
         if !AppWindowLifetime.isLibraryMiniaturized {
-            sharedVideoPanel = SharedVideoProgressPanel(message: message, accessibilityID: accessibilityID)
+            sharedVideoPanel = SharedVideoProgressPanel(message: message, accessibilityID: accessibilityID, studio: studio)
             sharedVideoPanel?.showOverCurrentWindow()
         }
     }
@@ -1701,6 +1736,7 @@ final class StudioModel {
     @ObservationIgnored private var settingsPersistenceEnabled = false
     @ObservationIgnored private var applyingExternalSettings = false
     var settingsSection = "Appearance"
+    var isMakingAICopy = false
     var busy = false
     var processingSection: String?
     private var announcesGenerationStages = false
@@ -2424,6 +2460,10 @@ final class StudioModel {
             && !settings.vertexBucket.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
     }
 
+    func showsCloudVideoActions(for project: StudioProject) -> Bool {
+        canUploadCloudVideo && project.hasCloudStorageVideo
+    }
+
     func canChangeYouTubePlaybackVideo(_ project: StudioProject) -> Bool {
         guard !busy, project.isYouTubeURLProject, project.integrityPlaceholder != true else { return false }
         let report = integrityReport(for: project)
@@ -2493,24 +2533,26 @@ final class StudioModel {
     }
 
     @discardableResult
-    func importVideo(at url: URL, asCloud: Bool = false, completion: ((StudioProject?) -> Void)? = nil) -> Bool {
+    func importVideo(at url: URL, asCloud: Bool = false, smallerAICopy: Bool = false, cloudSizeApproved: Bool = false, completion: ((StudioProject?) -> Void)? = nil) -> Bool {
         guard !busy else { return false }
         var candidate = url
-        var choice = videoImportChoice(candidate, asCloud: asCloud)
+        let cloudApproved = asCloud && cloudSizeApproved && (try? LocalVideoFilePolicy.size(at: candidate)).map { $0 <= LocalVideoFilePolicy.maximumCloudSizeBytes } == true
+        var choice: LocalVideoFilePolicy.ImportChoice = smallerAICopy ? .reduce : cloudApproved ? .cloud : videoImportChoice(candidate, asCloud: asCloud)
         while choice == .smaller {
             guard let next = pickLocalVideo() else { return false }
             candidate = next
             choice = videoImportChoice(candidate, asCloud: asCloud)
         }
-        guard choice == .local || choice == .cloud else { return false }
-        guard choice != .cloud || canUploadCloudVideo else {
+        guard choice != .cancel else { return false }
+        let upload = choice == .cloud || (asCloud && choice == .reduce)
+        guard !upload || canUploadCloudVideo else {
             errorTitle = "Cloud Storage Unavailable"
             error = "Sign in to Google and choose your Cloud project and bucket in Settings > AI."
             return false
         }
         execute(
-            choice == .cloud ? "cloud-create" : "import-video",
-            extra: ["--video", candidate.path, "--library", settings.libraryPath],
+            upload ? "cloud-create" : "import-video",
+            extra: ["--video", candidate.path, "--library", settings.libraryPath] + (choice == .reduce ? ["--smaller-ai-copy"] : []),
             project: nil,
             completion: completion
         )
@@ -2528,7 +2570,7 @@ final class StudioModel {
             error = "VidiStudio couldn’t open this video. Choose an available video and try again."
             return .cancel
         }
-        if asCloud && size <= LocalVideoFilePolicy.maximumCloudSizeBytes { return .cloud }
+        if asCloud && size <= LocalVideoFilePolicy.maximumSizeBytes { return .cloud }
         if !asCloud && size <= LocalVideoFilePolicy.maximumSizeBytes { return .local }
 
         let fitsCloud = size <= LocalVideoFilePolicy.maximumCloudSizeBytes
@@ -2536,20 +2578,15 @@ final class StudioModel {
         let alert = NSAlert()
         alert.alertStyle = .warning
         alert.messageText = "Video Is Too Large"
-        let sizeLabel = LocalVideoFilePolicy.displaySize(size)
-        if !fitsCloud {
-            alert.informativeText = LocalVideoFilePolicy.analysisSizeWarning(size)
-        } else if offerUpload {
-            alert.informativeText = "This video is \(sizeLabel). Video File projects accept videos up to 2 GB. Choose a smaller video or upload this one to Cloud Storage."
-        } else {
-            alert.informativeText = "This video is \(sizeLabel). Video File projects accept videos up to 2 GB. Choose a smaller video and try again."
-        }
+        alert.informativeText = LocalVideoFilePolicy.analysisSizeWarning(size)
         alert.addButton(withTitle: "Choose a Smaller Video")
+        alert.addButton(withTitle: "Create Smaller AI Copy")
         if offerUpload { alert.addButton(withTitle: "Upload to Cloud Storage") }
         alert.addButton(withTitle: "Cancel").keyEquivalent = "\u{1b}"
         switch alert.runModal() {
         case .alertFirstButtonReturn: return .smaller
-        case .alertSecondButtonReturn where offerUpload: return .cloud
+        case .alertSecondButtonReturn: return .reduce
+        case .alertThirdButtonReturn where offerUpload: return .cloud
         default: return .cancel
         }
     }
@@ -2658,12 +2695,12 @@ final class StudioModel {
         }
     }
     func cloudAction(_ action: String, project: StudioProject) {
-        guard !busy, !project.isYouTubeURLProject else { return }
+        guard !busy, showsCloudVideoActions(for: project) else { return }
         switch action {
         case "cloud-open":
             if let url = project.cloudConsoleURL { NSWorkspace.shared.open(url) }
         case "cloud-upload":
-            guard settings.vertexConnected, project.cloudVideo == nil, confirmDeletion(title: "Upload video to Cloud Storage?", message: settings.vertexBucket, actionTitle: "Upload") else { return }
+            guard project.originalCloudVideo != nil, project.cloudVideo == nil, confirmDeletion(title: "Upload video to Cloud Storage?", message: settings.vertexBucket, actionTitle: "Upload") else { return }
             execute(action, project: project)
         case "cloud-remove":
             guard cloudPermissions(for: project)?.delete == true,
@@ -3051,17 +3088,25 @@ final class StudioModel {
     @ObservationIgnored private var regenerationPromptOpen = false
 
     private func confirmRegeneration(_ command: String, project: StudioProject, extra: [String]) -> Bool {
-        guard let kind = StudioProject.generationResultKind(command) else { return true }
-        let language = extra.firstIndex(of: "--language").flatMap {
-            extra.indices.contains($0 + 1) ? extra[$0 + 1] : nil
-        } ?? project.operationLanguage(command)
-        let savedProject = project.folder.flatMap(Self.loadProject(at:)) ?? project
-        guard savedProject.hasSavedGenerationResult(command, language: language) else { return true }
-
-        let name = kind == "descriptions" ? "Audio Descriptions" : kind.capitalized
-        let action = "Regenerate " + name
+        let action: String
+        let message: String
+        if command == "regenerate-ai-copy" {
+            let savedProject = project.folder.flatMap(Self.loadProject(at:)) ?? project
+            guard project.analysisCopy != nil || savedProject.analysisCopy != nil else { return true }
+            action = "Regenerate Smaller AI Copy"
+            message = "The new copy will replace the current AI copy after it is saved."
+        } else {
+            guard let kind = StudioProject.generationResultKind(command) else { return true }
+            let language = extra.firstIndex(of: "--language").flatMap {
+                extra.indices.contains($0 + 1) ? extra[$0 + 1] : nil
+            } ?? project.operationLanguage(command)
+            let savedProject = project.folder.flatMap(Self.loadProject(at:)) ?? project
+            guard savedProject.hasSavedGenerationResult(command, language: language) else { return true }
+            let name = kind == "descriptions" ? "Audio Descriptions" : kind.capitalized
+            action = "Regenerate " + name
+            message = "This creates a new version in “\(project.name)”. Your saved versions will remain available."
+        }
         let title = action + "?"
-        let message = "This creates a new version in “\(project.name)”. Your saved versions will remain available."
         let alert = NSAlert()
         alert.alertStyle = .warning
         alert.messageText = title
@@ -3287,8 +3332,8 @@ final class StudioModel {
             let stage = command == "generate-summary" ? "summary" : ["generate-ad-cues", "reanalyze-segment"].contains(command) ? "audio_descriptions" : "youtube_transcript"
             let inlineModel = settings.vertexExpressModels[stage] ?? "gemini-3-flash-preview"
             let limit = inlineModel.hasPrefix("gemini-3") ? 256_000_000 : 15_000_000
-            let size = target.flatMap { project in project.folder.flatMap { try? $0.appendingPathComponent(project.source).resourceValues(forKeys: [.fileSizeKey]).fileSize } } ?? 0
-            if target?.cloudVideo != nil || size > limit {
+            let size = target.flatMap { project in project.folder.flatMap { try? $0.appendingPathComponent(project.analysisCopy?.path ?? project.source).resourceValues(forKeys: [.fileSizeKey]).fileSize } } ?? 0
+            if (target?.cloudVideo != nil && target?.analysisCopy == nil) || size > limit {
                 let projectID = vertexVideoTask && target?.referencesCloudVideo == true
                     ? target?.cloudVideo?["project"] ?? "" : settings.vertexProject
                 guard settings.vertexConnected, !projectID.isEmpty else {
@@ -3377,6 +3422,8 @@ final class StudioModel {
                 return
             }
         }
+        let makingAICopy = extra.contains("--smaller-ai-copy") || command == "regenerate-ai-copy"
+        isMakingAICopy = makingAICopy
         let deletionActivity = DeletionActivityRegistry.shared.begin(command: command, projectName: target?.name ?? "Project")
         busy = true
         cancellationRequested = false
@@ -3436,7 +3483,7 @@ final class StudioModel {
         var importIssue: ImportIssueNotice?
         var completedProjectPath: String?
         progress = 0
-        message = UserFacingProgress.message(for: command)
+        message = makingAICopy ? "Preparing smaller AI copy…" : UserFacingProgress.message(for: command)
         let sarvamKey = settings.sarvamApiKey
         let elevenlabsKey = settings.elevenlabsApiKey
         let apiKey = settings.apiKey.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -3475,6 +3522,7 @@ final class StudioModel {
             let issue = UserFacingIssue.forEngine(command: command, technicalDetails: detail)
             if command == "doctor" { engineCheckStatus = .failed(issue.message) }
             busy = false
+            isMakingAICopy = false
             exportActivity = nil
             cancellationRequested = false
             videoPreparationActivity = nil
@@ -3496,7 +3544,7 @@ final class StudioModel {
         let isKeyCheck = command == "check-api-key" || command == "list-models"
         let checkedKey = settings.apiKey.trimmingCharacters(in: .whitespacesAndNewlines)
         var keyCheckGotVerdict = false
-        var cloudAnnouncementStep = -1
+        var lastCopyAnnouncement: String?
         let cloudImport = command == "cloud-import" ? CloudImportActivity.shared.begin() : nil
         let connectionWatch = ConnectionRecoveryWatch { [weak self] in self?.cancelCurrentOperation() }
         Task {
@@ -3591,12 +3639,14 @@ final class StudioModel {
                         let planName = (event["plan"] as? String ?? settings.geminiPlan) == "paid" ? "Paid Plan" : "Free Plan"
                         apiKeyVerificationMessage = "The entered Gemini API key is valid. \(availableGeminiModels.count) models available (\(planName))."
                     }
-                    if command.hasPrefix("cloud-"), !eventIsError, let status = event["message"] as? String {
-                        let step = (event["progress"] as? Double).map { Int($0 * 10) }
-                        if step == nil || step != cloudAnnouncementStep {
+                    if (command.hasPrefix("cloud-") || makingAICopy), !eventIsError, NSApp.isActive,
+                       let status = event["message"] as? String {
+                        let step = (event["progress"] as? Double).map { Int(min(1, max(0, $0)) * 10) * 10 }
+                        let announcement = makingAICopy ? (step.map { "\(status), \($0) percent" } ?? status) : status
+                        if announcement != lastCopyAnnouncement {
                             NSAccessibility.post(element: NSApp as Any, notification: .announcementRequested,
-                                userInfo: [.announcement: status, .priority: NSAccessibilityPriorityLevel.medium.rawValue])
-                            cloudAnnouncementStep = step ?? -1
+                                userInfo: [.announcement: announcement, .priority: NSAccessibilityPriorityLevel.medium.rawValue])
+                            lastCopyAnnouncement = announcement
                         }
                     }
                     if let value = event["progress"] as? Double {
@@ -3676,7 +3726,7 @@ final class StudioModel {
                         importReports.append(report)
                     }
                     if eventIsError { completionFailed = true }
-                    if eventIsError && !connectionWatch.interrupted {
+                    if eventIsError && !connectionWatch.interrupted && !(makingAICopy && cancellationRequested) {
                         let detail = eventMessage ?? "The operation stopped without further details."
                         let failureKind = event["aiFailureKind"] as? String
                         if usesAIConnection, activeAIConnection == requestAIConnection,
@@ -3714,7 +3764,7 @@ final class StudioModel {
                 }
             } catch {
                 completionFailed = true
-                if !isKeyCheck || checkedKey == settings.apiKey.trimmingCharacters(in: .whitespacesAndNewlines) {
+                if !(makingAICopy && cancellationRequested), !isKeyCheck || checkedKey == settings.apiKey.trimmingCharacters(in: .whitespacesAndNewlines) {
                     let detail = error.localizedDescription
                     if usesAIConnection, activeAIConnection == requestAIConnection,
                        let aiIssue = AIServiceIssue.detect(detail, connection: requestAIConnection) {
@@ -3763,6 +3813,7 @@ final class StudioModel {
             let operationWasCancelled = cancellationRequested
             let exportWasCancelled = operationWasCancelled && exportActivity != nil
             busy = false
+            isMakingAICopy = false
             exportActivity = nil
             cancellationRequested = false
             processingSection = nil
@@ -3796,7 +3847,8 @@ final class StudioModel {
                 return
             }
             if operationWasCancelled {
-                message = exportWasCancelled ? "Export cancelled." : "Operation cancelled."
+                message = makingAICopy ? "AI copy cancelled." : exportWasCancelled ? "Export cancelled." : "Operation cancelled."
+                if makingAICopy { AccessibilityNotification.Announcement(message).post() }
             } else if task.terminationStatus != 0 && youtubeAudioUnavailable, let target {
                 youtubeAudioExportRecovery = YouTubeAudioExportRecovery(project: target, command: command, arguments: extra)
                 present(UserFacingIssue(
@@ -3843,10 +3895,10 @@ final class StudioModel {
                 }
             }
             CompletionSound.shared.complete(
-                command: command, exportEnabled: settings.soundAfterExport, generationEnabled: settings.soundAfterGeneration,
+                command: makingAICopy ? "regenerate-ai-copy" : command, exportEnabled: settings.soundAfterExport, generationEnabled: settings.soundAfterGeneration,
                 succeeded: task.terminationStatus == 0 && !completionFailed && !connectionWatch.interrupted,
                 cancelled: operationWasCancelled, hasExportOutput: !completedExportPaths.isEmpty,
-                hasGeneratedProject: completedProjectPath != nil && completedProject != nil)
+                hasGeneratedProject: completedProjectPath != nil && completedProject != nil, copyEnabled: settings.soundAfterAICopy)
             completion?(task.terminationStatus == 0 && !operationWasCancelled ? completedProject : nil)
         }
     }
@@ -3906,6 +3958,7 @@ final class StudioModel {
     /// section is processed. Video preparation takes precedence so the Files API
     /// upload step is called out before the stage name.
     var processingStageTitle: String {
+        if isMakingAICopy { return "Preparing smaller AI copy" }
         if contentTransferCommand == "translate-results" { return "Translating content" }
         if contentTransferCommand == "copy-results" { return "Copying content" }
         if contentTransferCommand == "attach-youtube-playback" { return "Copying local playback video" }

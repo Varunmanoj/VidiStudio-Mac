@@ -195,6 +195,7 @@ enum NativeMenuIcons {
         "Show Preview": "video",
         "Show Project List": "sidebar.left",
         "Show Project in Finder": "folder",
+        "Open Project in Finder": "folder",
         "Show Thumbnail Images": "photo.on.rectangle",
         "Show Timeline": "timeline.selection",
         "Sort AD Transcript…": "arrow.up.arrow.down",
@@ -285,6 +286,7 @@ enum NativeMenuIcons {
         case "Summary Reading": return "speaker.wave.2"
         case "Editor Sections": return "rectangle.split.3x1"
         case "Segments": return "timeline.selection"
+        case "Play Original Video", "Play Smaller AI Copy": return "film"
         case "Analysis", "AD Segment Generation": return "sparkles"
         case "Narration", "Narration Audio": return "speaker.wave.2"
         case "Edit Audio description Segment…", "Edit Audio Description Segment…", "Edit Transcript Segment…", "Edit Segment…", "Rename":

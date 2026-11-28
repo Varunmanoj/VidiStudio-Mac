@@ -78,7 +78,7 @@ class DesktopUILayoutParityTests(unittest.TestCase):
             ('Mac/ImportAssetsView.swift', 'Section("Local playback video") { playbackVideoRow }'),
             ('Windows/Views/ImportAssetsDialog.cs', 'panel.Children.Insert(0, Section("Local playback video", row));'),
             ('Mac/YouTubeInspectorInformationView.swift', 'Button("Remove Local Playback Video…", systemImage: "trash")'),
-            ('Windows/MainWindow.Menus.cs', 'group.IsEnabled = Model.Project is { } project && CanChangeYouTubePlayback(project);'),
+            ('Windows/MainWindow.Menus.cs', 'group.IsEnabled = Model.Project is { } project && (CanChangeYouTubePlayback(project) || (Model.Idle && project.AnalysisCopy != null));'),
             ('Mac/ImportAssetsView.swift', 'canChoose: project.allowsOriginalAudioImport && selection.localPlaybackVideo == nil'),
             ('Windows/Views/ImportAssetsDialog.cs', 'CanChoosePlaybackVideo => !hasSavedOriginalAudio && originalAudio == null'),
         ):

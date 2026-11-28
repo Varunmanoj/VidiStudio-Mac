@@ -6,7 +6,7 @@ enum LocalVideoFilePolicy {
     static let maximumCloudSizeBytes: Int64 = 2 * 1_024 * 1_024 * 1_024 - 500 * 1_024
 
     enum ImportChoice {
-        case local, cloud, smaller, cancel
+        case local, cloud, reduce, smaller, cancel
     }
 
     static func size(at url: URL) throws -> Int64 {
@@ -32,7 +32,7 @@ enum LocalVideoFilePolicy {
     }
 
     static func analysisSizeWarning(_ byteCount: Int64) -> String {
-        "This video is \(displaySize(byteCount)) and is too large for analysis. Choose a smaller video."
+        "This video (\(displaySize(byteCount))) exceeds the analysis limit. Create a smaller AI copy and keep the original for playback."
     }
 
     static func displaySize(_ byteCount: Int64) -> String {

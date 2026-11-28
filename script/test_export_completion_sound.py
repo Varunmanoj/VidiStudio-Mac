@@ -30,6 +30,16 @@ for command in commands:
         named = ', '.join(f'{k}: {str(v).lower()}' for k, v in zip(flags, values))
         swift += f'precondition(Cue.shouldPlay(command: "{command}", {named}) == {str(expected).lower()})\n'
         cs += f'if (Cue.ShouldPlay("{command}", {args}) != {str(expected).lower()}) throw new Exception("Completion policy mismatch");\n'
+# The copy preference is independent of the general generation and export settings.
+copy_cases = 0
+for copy_on, succeeded, cancelled, saved in itertools.product([False, True], repeat=4):
+    values = [not copy_on, not copy_on, succeeded, cancelled, True, saved, copy_on]
+    expected = str(copy_on and succeeded and not cancelled and saved).lower()
+    named = ', '.join(f'{key}: {str(value).lower()}' for key, value in zip([*flags, 'copyEnabled'], values))
+    args = ', '.join(str(value).lower() for value in values)
+    swift += f'precondition(Cue.shouldPlay(command: "regenerate-ai-copy", {named}) == {expected})\n'
+    cs += f'if (Cue.ShouldPlay("regenerate-ai-copy", {args}) != {expected}) throw new Exception("AI copy cue mismatch");\n'
+    copy_cases += 1
 cs = 'using System;\n' + cs + '\nstatic class Cue {\n' + cs_policy + '}\n'
 with tempfile.TemporaryDirectory(prefix='vidistudio-export-sound-') as folder:
     path = Path(folder)
@@ -43,7 +53,7 @@ assets = [ROOT/'VidiStudio/Sounds/descend.wav', WIN/'Assets/Sounds/descend.wav']
 assert len({hashlib.sha256(p.read_bytes()).hexdigest() for p in assets}) == 1
 with wave.open(str(assets[0])) as audio:
     assert audio.getnframes() > 0
-    print(f'PASS: both production policies, {len(commands) * 2**len(flags)} cases each; identical bundled WAV ({audio.getnframes()/audio.getframerate():.3f}s)')
+    print(f'PASS: both production policies, {len(commands) * 2**len(flags) + copy_cases} cases each; identical bundled WAV ({audio.getnframes()/audio.getframerate():.3f}s)')
 
 # Real AVAudioPlayer delegate/lifecycle regression in a disposable resource bundle.
 import shutil

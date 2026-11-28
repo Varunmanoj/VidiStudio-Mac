@@ -113,7 +113,7 @@ def tool(name):
     raise ValueError(f'{name} is unavailable. Set its path in Settings.')
 
 
-def run(args, timeout=3600, export_progress=None):
+def run(args, timeout=3600, export_progress=None, progress_key="exportProgress"):
     if export_progress:
         args = [args[0], '-progress', 'pipe:1', '-nostats', '-stats_period', '0.25', *args[1:]]
     process = subprocess.Popen([str(x) for x in args], stdout=subprocess.PIPE,
@@ -153,7 +153,7 @@ def run(args, timeout=3600, export_progress=None):
             closed = set()
             seconds = 0.0
             last_fraction = start
-            emit(message, exportProgress=start)
+            emit(message, **{progress_key: start})
             while len(closed) < 2:
                 if time.monotonic() >= deadline:
                     raise subprocess.TimeoutExpired(args, timeout)
@@ -174,12 +174,12 @@ def run(args, timeout=3600, export_progress=None):
                         ratio = min(1, max(0, seconds / duration)) if duration > 0 else 0
                         fraction = start + (end - start) * ratio
                         if fraction - last_fraction >= 0.005:
-                            emit(message, exportProgress=fraction)
+                            emit(message, **{progress_key: fraction})
                             last_fraction = fraction
             process.wait(timeout=max(0.001, deadline - time.monotonic()))
             if process.returncode:
                 raise ValueError(stderr or f'Command failed: {Path(args[0]).name}')
-            emit(message, exportProgress=end)
+            emit(message, **{progress_key: end})
             return ''
         stdout, stderr = process.communicate(timeout=timeout)
         if process.returncode:
@@ -805,13 +805,13 @@ def file_expiry(value):
 
 def reusable_video(root,p,client):
     if isinstance(client, vertex_ai.VertexSession):
-        return vertex_ai.media(config(), p, local(root, p['source']))
+        return vertex_ai.media(config(), p, analysis_source(root, p))
     if vertex_ai.referenced_video(p):
         raise ValueError('Choose Vertex AI with Google sign-in in Settings > AI to analyze this Cloud Storage video.')
     if p.get('sourceType') == 'youtube':
         raise ValueError('YouTube videos use their public link and do not need a Files API upload.')
-    source=local(root,p['source']);ensure_supported_local_video(source)
-    stat=source.stat();fingerprint=f"{p['source']}|{stat.st_size}|{stat.st_mtime_ns}"
+    source=analysis_source(root,p);ensure_supported_local_video(source)
+    stat=source.stat();fingerprint=f"{source.relative_to(root.resolve()).as_posix()}|{stat.st_size}|{stat.st_mtime_ns}"
     cached=p.get('geminiVideo')
     if cached and cached.get('fingerprint')==fingerprint:
         f=remote_video_status(root,p,client)
@@ -1078,7 +1078,7 @@ def _ai_video_once(root, p, stage):
                     chunk=root/'transcript'/f'audio-{start}.wav'
                     emit(f'Creating the transcript from minute {start//60}')
                     try:
-                        run([tool('ffmpeg'),'-y','-v','error','-ss',str(start),'-i',local(root,p['source']),'-t',str(chunk_seconds),'-vn','-ac','1','-ar','16000',chunk])
+                        run([tool('ffmpeg'),'-y','-v','error','-ss',str(start),'-i',analysis_source(root,p),'-t',str(chunk_seconds),'-vn','-ac','1','-ar','16000',chunk])
                         data.extend(gemini_adapter.transcribe_audio(client,model,chunk,start,lambda text:emit(text)))
                     finally:
                         chunk.unlink(missing_ok=True)
@@ -1086,7 +1086,7 @@ def _ai_video_once(root, p, stage):
             if youtube: uri=p['youtubeURL'];mime=None
             else:
                 if not isinstance(client, vertex_ai.VertexSession):
-                    ensure_supported_local_video(local(root,p['source']))
+                    ensure_supported_local_video(analysis_source(root,p))
                 emit('Preparing the video for analysis')
                 uploaded=reusable_video(root,p,client);uri=uploaded.uri;mime=uploaded.mime_type
             pair=parity.media_prompt_pair(cfg,key)
@@ -3194,9 +3194,117 @@ def dispatch_project(args, root, p):
         import_assets.save_summary(p, text, origin)
     elif args.command in parity.COMMANDS: parity.execute(args,root,p,core)
 
+def analysis_source(root, project):
+    copy = project.get('analysisCopy')
+    return local(root, copy['path'] if copy else project['source'])
+
+
+def check_copy_cancellation():
+    if os.name == 'nt':
+        youtube_audio.check_cancelled()
+
+
+def encode_analysis_copy(root, project):
+    source = local(root, project['source'])
+    duration = project['duration']
+    limit = MAX_LOCAL_VIDEO_SIZE_BYTES
+    cfg = config()
+    if cfg.get('aiProvider') == 'vertex' and vertex_ai.express(cfg):
+        models = cfg.get('vertexExpressModels') or {}
+        limit = min(256_000_000 if models.get(stage, 'gemini-3').startswith('gemini-3') else 15_000_000
+                    for stage in ('youtube_transcript', 'summary', 'audio_descriptions'))
+    # Leave room for MP4 tables and encoder variance. Short inputs use a quality cap.
+    target = min(limit * 0.8, source.stat().st_size * 0.45)
+    total_rate = int(8 * target / duration)
+    audio_rate = min(96_000, total_rate // 5) if project['hasAudio'] else 0
+    video_rate = min(1_200_000, total_rate - audio_rate)
+    if video_rate < 12_000:
+        raise import_assets.ImportIssue('Couldn’t Create Smaller AI Copy', 'This video is too long to create a usable AI copy within the analysis limit.')
+    relative = 'analysis/ai-' + uuid.uuid4().hex[:12] + '.mp4'
+    output = local(root, relative)
+    output.parent.mkdir(exist_ok=True)
+    try:
+        for attempt in range(2):
+            message = 'Creating smaller AI copy' if not attempt else 'Retrying smaller AI copy at a lower bitrate'
+            emit(message, progress=0)
+            command = [tool('ffmpeg'), '-nostdin', '-y', '-v', 'error', '-i', source,
+                       '-map', '0:V:0', '-map', '0:a:0?', '-map_metadata', '-1', '-map_chapters', '-1',
+                       '-vf', "scale='min(iw,1280)':'min(ih,720)':force_original_aspect_ratio=decrease:force_divisible_by=2",
+                       '-c:v', 'libx264', '-preset', 'veryfast', '-pix_fmt', 'yuv420p', '-crf', '26',
+                       '-maxrate', str(video_rate), '-bufsize', str(video_rate * 2)]
+            if audio_rate:
+                command += ['-c:a', 'aac', '-ac', '2', '-b:a', str(audio_rate)]
+            run([*command, '-movflags', '+faststart', output], timeout=max(3600, duration * 5),
+                export_progress=(duration, 0, 0.9, message), progress_key='progress')
+            check_copy_cancellation()
+            size = output.stat().st_size
+            if 0 < size < min(limit, source.stat().st_size):
+                break
+            video_rate = max(8_000, video_rate // 2)
+        else:
+            raise import_assets.ImportIssue('Couldn’t Create Smaller AI Copy', 'FFmpeg could not make a complete video below the analysis limit.')
+        emit('Verifying smaller AI copy', progress=0.92)
+        info = probe(output)
+        stream = next(s for s in info['streams'] if s['codec_type'] == 'video')
+        audio = next((s for s in info['streams'] if s['codec_type'] == 'audio'), {})
+        actual_duration = float(info['format']['duration'])
+        if not math.isfinite(actual_duration) or abs(actual_duration - duration) > 0.5 or bool(audio) != project['hasAudio']:
+            raise import_assets.ImportIssue('Couldn’t Create Smaller AI Copy', 'The AI copy did not preserve the original duration or audio.')
+        return dict(path=relative, size=size, duration=actual_duration, width=stream['width'],
+                    height=stream['height'], codec=stream['codec_name'], audio=audio.get('codec_name', 'None'))
+    except BaseException:
+        output.unlink(missing_ok=True)
+        raise
+
+
+def regenerate_analysis_copy(root, project):
+    original = local(root, project['source']) if project.get('source') else None
+    if original is None or not original.is_file():
+        raise import_assets.ImportIssue('Couldn’t Create Smaller AI Copy', 'The original video file is unavailable.')
+    folder = root / 'analysis'
+    if folder.is_symlink():
+        raise import_assets.ImportIssue('Couldn’t Create Smaller AI Copy', 'The AI copy folder is a symbolic link.')
+    previous = project.get('analysisCopy')
+    previous_path = local(root, previous['path']) if previous else None
+    manifest = root / 'project.json'
+    saved = json.loads(manifest.read_text(encoding='utf-8'))
+    copy = encode_analysis_copy(root, project)
+    fresh = local(root, copy['path'])
+    try:
+        cloud = project.get('cloudVideo')
+        if cloud and cloud_video.crc32c(fresh) != cloud.get('crc32c'):
+            raise import_assets.ImportIssue('Couldn’t Create Smaller AI Copy', 'The new encode differs from the uploaded AI copy. Remove the project-owned cloud copy before replacing it.')
+        emit('Saving smaller AI copy', progress=0.97)
+        check_copy_cancellation()
+        project['analysisCopy'] = copy
+        project.pop('geminiVideo', None)
+        save(root, project)
+    except BaseException:
+        # The atomic save may have finished just before cancellation arrived.
+        if json.loads(manifest.read_text(encoding='utf-8')).get('analysisCopy') != copy:
+            fresh.unlink(missing_ok=True)
+        raise
+
+    # Retire older generated files only after the validated replacement is published.
+    # Keep the previously referenced copy until the end so a cleanup failure can roll back.
+    try:
+        for candidate in folder.glob('ai-*.mp4'):
+            if (re.fullmatch(r'ai-[0-9a-f]{12}\.mp4', candidate.name) and not candidate.is_symlink()
+                    and candidate not in (fresh, previous_path, original)):
+                candidate.unlink(missing_ok=True)
+        if previous_path is not None and previous_path.parent == folder and previous_path not in (fresh, original):
+            previous_path.unlink(missing_ok=True)
+    except OSError as exc:
+        atomic_json(manifest, saved)
+        fresh.unlink(missing_ok=True)
+        raise import_assets.ImportIssue('Couldn’t Replace Smaller AI Copy', 'Close any player that has the AI copy open and try again.') from exc
+
+
 def import_local_video(args, cloud_reference=None):
     if not args.video or not args.library: raise ValueError('Import requires --video and --library.')
-    ensure_supported_local_video(args.video, cloud=args.command in ('cloud-create', 'cloud-import'))
+    reducing = getattr(args, 'smaller_ai_copy', False)
+    if not reducing:
+        ensure_supported_local_video(args.video, cloud=args.command in ('cloud-create', 'cloud-import'))
     if args.command != 'cloud-import':
         try:
             ensure_unique_local_video(args.library, args.video.name)
@@ -3212,24 +3320,61 @@ def import_local_video(args, cloud_reference=None):
     if not video: raise import_assets.ImportIssue('Video Couldn’t Be Imported', 'The selected file has no video stream.')
     duration=float(info['format'].get('duration',video.get('duration',0)))
     if not math.isfinite(duration) or duration<=0: raise ValueError('The video duration could not be determined.')
-    root=args.library.resolve()/(args.video.stem[:60]+'-'+str(uuid.uuid4())[:8])
+    library = args.library.resolve()
+    destination = library / (args.video.stem[:60] + '-' + str(uuid.uuid4())[:8])
+    library.mkdir(parents=True, exist_ok=True)
+    if reducing:
+        # Keep the unpublished manifest below the library scanner's depth.
+        with tempfile.TemporaryDirectory(dir=library, prefix='.import-') as staging:
+            staged = Path(staging) / 'project'
+            try:
+                write_video_project(args, staged, info, video, duration, cloud_reference, reducing=True)
+                check_copy_cancellation()
+                staged.rename(destination)
+            except BaseException:
+                # Roll back only the generation uploaded by this new project.
+                manifest = staged / 'project.json'
+                if args.command == 'cloud-create' and manifest.is_file():
+                    pending = json.loads(manifest.read_text(encoding='utf-8'))
+                    if pending.get('cloudVideo'):
+                        cloud_video.delete_project_object(config(), pending['id'], pending['cloudVideo'], emit)
+                raise
+    else:
+        write_video_project(args, destination, info, video, duration, cloud_reference, reducing=False)
+    emit('Import complete', project=str(destination), progress=1)
+
+
+def write_video_project(args, root, info, video, duration, cloud_reference, *, reducing):
+    streams = info['streams']
     for folder in ['source','metadata','thumbnails']: (root/folder).mkdir(parents=True,exist_ok=True)
     source='source/'+args.video.name
     emit('Copying source video into local project')
-    shutil.copy2(args.video,root/source)
+    if reducing:
+        with args.video.open('rb') as src, (root/source).open('xb') as dest:
+            while block := src.read(8 * 1024 * 1024):
+                check_copy_cancellation()
+                dest.write(block)
+    else:
+        shutil.copy2(args.video,root/source)
     p=dict(schemaVersion=2,id=str(uuid.uuid4()),name=args.video.stem,source=source,duration=duration,width=video.get('width',0),height=video.get('height',0),hasAudio=any(s['codec_type']=='audio' for s in streams),createdAt=time.time(),updatedAt=time.time(),thumbnails=[],transcript=[],summary='',cues=[],exports=[],exportMediaInfo={},status='Imported',transcriptGenerated=False,summaryGenerated=False,descriptionsGenerated=False)
-    if cloud_reference:
+    if reducing:
+        info['format']['filename'] = source
+        p['analysisCopy'] = encode_analysis_copy(root, p)
+        emit('Saving smaller AI copy', progress=0.97)
+    if cloud_reference and reducing:
+        p['originalCloudVideo'] = cloud_reference
+    elif cloud_reference:
         p.update(sourceType='cloud', cloudVideo=cloud_reference)
     language_results.migrate(p, language_results.default_language(config()))
     atomic_json(root/'metadata/probe.json',info); save(root,p)
-    emit('Project imported',project=str(root))
+    if not reducing: emit('Project imported',project=str(root))
     with project_lock(root):
         thumbnails(root,p)
         cleanup_project_storage(root,p)
         save(root,p)
         if args.command == 'cloud-create':
             cloud_video.update(SimpleNamespace(command='cloud-upload'), root, p, config(), SimpleNamespace(**globals()))
-    emit('Import complete',project=str(root),progress=1); return
+
 
 
 def delete_cloud_project_video(args):
@@ -3258,7 +3403,9 @@ def delete_cloud_project_video(args):
 def main():
     parser=argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--voice-search', default='')
-    parser.add_argument('command',choices=['cloud-projects','cloud-delete-project-video','cloud-object-permissions','cloud-object-rename','cloud-object-delete','cloud-browse','cloud-preview','cloud-list','cloud-import','cloud-create','vertex-connect','vertex-adopt-google-signin','vertex-disconnect','vertex-check','cloud-upload','cloud-rename','cloud-remove','elevenlabs-settings','preview-sarvam-sample','check-sarvam-key','list-sarvam-models','normalize-speech','check-api-key','reanalyze-transcript-segment','undo-transcript','redo-transcript','reanalyze-segment','prepare-analysis-video','check-video-availability','cleanup-project','clear-generated','delete-generated','delete-segment-audio','list-models','list-voices','preview-tts','synthesize-speech','import-video','probe-video','generate-thumbnails','transcribe','generate-summary','generate-ad-cues','synthesize-tts','export-final-video','export-selectable-video','export-closed-audio-description-video','export-open-audio-description-video','export-closed-caption-video','export-dual-closed-caption-video','export-open-caption-video','export-original-audio','export-described-audio','export-youtube-described-audio','export-youtube-original-audio','download-youtube-audio','export-hls','save-cues','save-segments','save-summary','doctor','read-youtube-metadata','expire-youtube-cache',*parity.COMMANDS,*import_assets.COMMANDS,*audio_sources.COMMANDS,*language_results.COMMANDS,*youtube_playback.COMMANDS])
+    parser.add_argument('--smaller-ai-copy', action='store_true')
+    parser.add_argument('--playback-copy', choices=['original','ai'])
+    parser.add_argument('command',choices=['regenerate-ai-copy','set-copy-playback','cloud-projects','cloud-delete-project-video','cloud-object-permissions','cloud-object-rename','cloud-object-delete','cloud-browse','cloud-preview','cloud-list','cloud-import','cloud-create','vertex-connect','vertex-adopt-google-signin','vertex-disconnect','vertex-check','cloud-upload','cloud-rename','cloud-remove','elevenlabs-settings','preview-sarvam-sample','check-sarvam-key','list-sarvam-models','normalize-speech','check-api-key','reanalyze-transcript-segment','undo-transcript','redo-transcript','reanalyze-segment','prepare-analysis-video','check-video-availability','cleanup-project','clear-generated','delete-generated','delete-segment-audio','list-models','list-voices','preview-tts','synthesize-speech','import-video','probe-video','generate-thumbnails','transcribe','generate-summary','generate-ad-cues','synthesize-tts','export-final-video','export-selectable-video','export-closed-audio-description-video','export-open-audio-description-video','export-closed-caption-video','export-dual-closed-caption-video','export-open-caption-video','export-original-audio','export-described-audio','export-youtube-described-audio','export-youtube-original-audio','download-youtube-audio','export-hls','save-cues','save-segments','save-summary','doctor','read-youtube-metadata','expire-youtube-cache',*parity.COMMANDS,*import_assets.COMMANDS,*audio_sources.COMMANDS,*language_results.COMMANDS,*youtube_playback.COMMANDS])
     parser.add_argument('--project',type=Path); parser.add_argument('--video',type=Path); parser.add_argument('--library',type=Path); parser.add_argument('--input',type=Path)
     parser.add_argument('--media-format', choices=VIDEO_EXPORT_FORMATS + AUDIO_EXPORT_FORMATS)
     parser.add_argument('--content',choices=['transcript','summary','descriptions','combined'],default='descriptions'); parser.add_argument('--url'); parser.add_argument('--name'); parser.add_argument('--timestamp',type=float,default=0); parser.add_argument('--duration',type=float); parser.add_argument('--segment'); parser.add_argument('--segments', action='append'); parser.add_argument('--format',choices=['srt','vtt','txt','json','md'],default='srt'); parser.add_argument('--changed',action='store_true'); parser.add_argument('--start-stage',default='transcribe')
@@ -3405,7 +3552,7 @@ def main():
             if not source_bucket:
                 raise ValueError('Choose a source bucket before importing a Cloud Storage video.')
             source_cfg = dict(cfg, vertexBucket=source_bucket)
-            args.video, reference = cloud_video.download(source_cfg, args.name, Path(tmp), vertex_ai.MAX_CLOUD_VIDEO_SIZE_BYTES, emit,
+            args.video, reference = cloud_video.download(source_cfg, args.name, Path(tmp), None if args.smaller_ai_copy else vertex_ai.MAX_CLOUD_VIDEO_SIZE_BYTES, emit,
                                                          generation=args.source_generation, source_project=args.source_project)
             import_local_video(args, reference)
         return
@@ -3423,6 +3570,19 @@ def main():
         if args.command in ('inspect-import', 'inspect-original-audio'):
             # Import preflight must not update timestamps or save a migrated manifest.
             dispatch_project(args, root, p)
+            return
+        if args.command in ('regenerate-ai-copy', 'set-copy-playback'):
+            previous = p.get('analysisCopy')
+            if p.get('sourceType') == 'youtube' or (not previous and p.get('cloudVideo')):
+                raise ValueError('Open a local project with an original video available.')
+            if args.command == 'set-copy-playback':
+                if not previous or not args.playback_copy or (args.playback_copy == 'ai' and not analysis_source(root, p).is_file()):
+                    raise ValueError('The selected playback file is unavailable.')
+                p['useAnalysisCopy'] = args.playback_copy == 'ai'
+                save(root, p)
+            else:
+                regenerate_analysis_copy(root, p)
+            emit('AI copy ready' if args.command == 'regenerate-ai-copy' else 'Playback source changed', project=str(root), progress=1)
             return
         if args.command in youtube_playback.COMMANDS:
             youtube_playback.execute(args, root, p, core)

@@ -49,6 +49,10 @@ contract['check_jump_to_time'](
     (workspace / 'VidiStudio Mac/VidiStudio/PlaybackModel.swift').read_text(),
     (workspace / 'VidiStudio Mac/VidiStudio/JumpToTime.swift').read_text(),
     (workspace / 'Vidi-Studio-Windows/Vidi Studio Windows/MainWindow.JumpToTime.cs').read_text())
+contract['check_project_video_file_menus'](
+    (workspace / 'VidiStudio Mac/VidiStudio/ContentView.swift').read_text(encoding='utf-8'),
+    (workspace / 'Vidi-Studio-Windows/Vidi Studio Windows/MainWindow.Presentation.cs').read_text(encoding='utf-8'),
+)
 contract['check_export_completion_sound'](
     (workspace / 'VidiStudio Mac/VidiStudio/SettingsView.swift').read_text() + (workspace / 'VidiStudio Mac/VidiStudio/SettingsSoundPreview.swift').read_text(),
     (workspace / 'Vidi-Studio-Windows/Vidi Studio Windows/Views/SettingsDialog.cs').read_text() + (workspace / 'Vidi-Studio-Windows/Vidi Studio Windows/Views/SettingsDialog.Appearance.cs').read_text())

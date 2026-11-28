@@ -265,6 +265,9 @@ struct SettingsView: View {
                     SettingsSoundRow(title: "Play sound after generation", resource: "descend",
                         identifier: "generation-completion-sound", menuIdentifier: "generation-completion-sound-menu",
                         enabled: $studio.settings.soundAfterGeneration, preview: soundPreview)
+                    SettingsSoundRow(title: "Play sound after creating a smaller AI copy", resource: "descend",
+                        identifier: "ai-copy-completion-sound", menuIdentifier: "ai-copy-completion-sound-menu",
+                        enabled: $studio.settings.soundAfterAICopy, preview: soundPreview)
                     SettingsSoundRow(title: "Sound when timing validation fails", resource: "Buzzer1",
                         identifier: "timing-validation-sound", menuIdentifier: "timing-validation-sound-menu",
                         enabled: $studio.settings.soundWhenTimingInvalid, preview: soundPreview)

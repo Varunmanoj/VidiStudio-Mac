@@ -93,7 +93,7 @@ def prepare_video(root,p,e):
         e.emit('YouTube details and picture refreshed',progress=1)
         return
     if not p.get('source'):raise ValueError('This project has no local video source.')
-    source=e.local(root,p['source']);e.ensure_supported_local_video(source)
+    source=e.local(root,p['source']);e.ensure_supported_local_video(e.analysis_source(root, p), cloud=bool(p.get('cloudVideo')))
     e.emit('Reading video details',progress=.1)
     info=e.probe(source);streams=info['streams'];video=next((s for s in streams if s.get('codec_type')=='video'),None)
     if not video:raise ValueError('The selected file has no video stream.')
@@ -319,7 +319,7 @@ def execute(args,root,p,e):
                 with tempfile.NamedTemporaryFile(suffix='.jpg',delete=False) as temporary:
                     frame=Path(temporary.name)
                 try:
-                    e.run([e.tool('ffmpeg'),'-y','-v','error','-ss',str(args.timestamp),'-i',e.local(root,p['source']),'-frames:v','1',frame])
+                    e.run([e.tool('ffmpeg'),'-y','-v','error','-ss',str(args.timestamp),'-i',e.analysis_source(root,p),'-frames:v','1',frame])
                     result=client.interactions.create(model=model,input=[{'type':'image','data':base64.b64encode(frame.read_bytes()).decode(),'mime_type':'image/jpeg'},{'type':'text','text':prompt}],system_instruction=pair['system_instruction']);raw=gemini_adapter.output_text(result)
                 finally:frame.unlink(missing_ok=True)
             data=parse_json(raw);text=data.get('screenText','')

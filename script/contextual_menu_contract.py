@@ -203,13 +203,32 @@ def check_jump_to_time(mac, windows, context, playback, dialog, win_dialog):
             raise ValueError('Jump to Time transport/dialog contract missing: ' + token)
 
 
+def check_project_video_file_menus(mac, windows):
+    mac_row = mac.split('enum ProjectVideoFile {', 1)[-1].split('struct YouTubeSourceInformationRows:', 1)[0]
+    win_row = windows.split('private void AddProjectVideoFileRow(', 1)[-1].split('private async void UpdateInspector(', 1)[0]
+    for token in ('.contextMenu {', 'Button(file.informationTitle, systemImage: "eye")',
+                  'Button("Open File", systemImage: "arrow.up.forward.app") { editorActions.run(file.openCommand) }',
+                  'Button("Open Folder", systemImage: "folder") { editorActions.run(file.revealCommand) }',
+                  'opensBackIntoStudio(workspace.urlForApplication(toOpen: url))',
+                  'workspace.activateFileViewerSelecting([url])'):
+        if token not in mac_row:
+            raise ValueError('Mac project video file action mismatch: ' + token)
+    for token in ('row.ContextFlyout = menu;', 'AddMenuAction(informationTitle, informationId, ShowInformation);',
+                  'AddMenuAction("Open File", isCopy ? "open-ai-copy-file" : "open-original-video-file"',
+                  'AddMenuAction("Open Folder", isCopy ? "reveal-ai-copy-file" : "reveal-original-video-file"',
+                  'Launcher.LaunchFileAsync(file)', 'Launcher.LaunchFolderPathAsync('):
+        if token not in win_row:
+            raise ValueError('Windows project video file action mismatch: ' + token)
+
+
 def check_export_completion_sound(mac, windows):
-    """All five sound rows share preview/menu dispatch and persistent toggle state."""
+    """All six sound rows share preview/menu dispatch and persistent toggle state."""
     choices = [
         ('Sound when narration is off', 'soundWhenNarrationOff', 'Boink3', 'narration-off-sound'),
         ('Sound when synthesized audio is unavailable', 'soundWhenNarrationMissing', 'ascend', 'narration-missing-sound'),
         ('Play sound after export', 'soundAfterExport', 'descend', 'export-completion-sound'),
         ('Play sound after generation', 'soundAfterGeneration', 'descend', 'generation-completion-sound'),
+        ('Play sound after creating a smaller AI copy', 'soundAfterAICopy', 'descend', 'ai-copy-completion-sound'),
         ('Sound when timing validation fails', 'soundWhenTimingInvalid', 'Buzzer1', 'timing-validation-sound'),
     ]
     for template, source in [('SettingsSoundRow(title: "{label}"', mac),

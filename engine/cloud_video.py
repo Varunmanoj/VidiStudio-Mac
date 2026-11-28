@@ -65,7 +65,7 @@ class UploadReader:
 
 def update(args, root, project, cfg, core):
     from google.api_core.exceptions import NotFound, PreconditionFailed
-    source = core.local(root, project['source'])
+    source = core.local(root, (project.get('analysisCopy') or {}).get('path') or project['source'])
     record = project.get('cloudVideo')
     if record and record.get('ownership') == 'referenced':
         raise PermissionError('This project references an existing Cloud Storage video.')
@@ -311,7 +311,7 @@ def download(cfg, name, directory, limit, emit, generation=None, source_project=
             raise ValueError(DOWNLOAD_CHANGED_ERROR)
         if not is_video(blob):
             raise ValueError('Choose a supported Cloud Storage video.')
-        if blob.size > limit:
+        if limit is not None and blob.size > limit:
             raise ValueError(vertex_ai.CLOUD_VIDEO_SIZE_MESSAGE)
         try:
             with iam_permission_test(cfg, bucket.name) as (resource, allowed):

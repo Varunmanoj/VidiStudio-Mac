@@ -6,7 +6,7 @@ struct CloudVideoActions: View {
     let project: StudioProject
 
     var body: some View {
-        if project.cloudVideo != nil {
+        if studio.showsCloudVideoActions(for: project) && project.cloudVideo != nil {
             Button("Open Video in Google Cloud Console", systemImage: "arrow.up.right.square") { studio.cloudAction("cloud-open", project: project) }
             if studio.cloudPermissions(for: project)?.rename == true {
                 Button("Rename Cloud Video…", systemImage: "pencil") { studio.cloudAction("cloud-rename", project: project) }
@@ -14,7 +14,7 @@ struct CloudVideoActions: View {
             if studio.cloudPermissions(for: project)?.delete == true {
                 Button("Remove Cloud Video…", systemImage: "icloud.slash") { studio.cloudAction("cloud-remove", project: project) }
             }
-        } else if !project.isYouTubeURLProject && studio.settings.vertexConnected {
+        } else if studio.showsCloudVideoActions(for: project) && project.originalCloudVideo != nil {
             Button("Upload Video to Cloud Storage…", systemImage: "icloud.and.arrow.up") { studio.cloudAction("cloud-upload", project: project) }
         }
     }
@@ -234,8 +234,11 @@ struct AllProjectsActions {
                 || aiProviderFilter.wrappedValue != "all" || !search.wrappedValue.isEmpty
         }
         guard !studio.busy, let project else { return false }
-        if ["cloud-remove", "cloud-rename"].contains(action) { return allowsCloudMutation(action) }
-        if action.hasPrefix("cloud-") { return action == "cloud-upload" ? !project.isYouTubeURLProject && project.cloudVideo == nil && studio.settings.vertexConnected : project.cloudVideo != nil }
+        if action.hasPrefix("cloud-") {
+            guard studio.showsCloudVideoActions(for: project) else { return false }
+            if ["cloud-remove", "cloud-rename"].contains(action) { return allowsCloudMutation(action) }
+            return action == "cloud-upload" ? project.originalCloudVideo != nil && project.cloudVideo == nil : project.cloudVideo != nil
+        }
         if action == "delete-project" { return project.folder != nil && canShowDeleteProject }
         if action == "remove-from-list" { return project.folder != nil && studio.listedProjects.contains { $0.id == project.id } }
         if ["rename-project", "youtube-open-browser", "project-settings", "show-in-finder", "open-configuration"].contains(action) {

@@ -4571,3 +4571,71 @@ Kept the Mac editor as the reference for the Windows layout fix. Built, signed, 
 On the installed Mac, native accessibility inspection of Cyber security course — Transcript found the timeline, preview divider and a visible transcript row in light and dark appearance, at 1280 × 614 and 1000 × 610 points. The transcript viewport was 117.5 points high and the visible row was 62.5 points high. Restored the original window size and appearance. The paired menu and layout suites passed 105 tests. The installed engine passed all 20 language-result CLI tests.
 
 The installed Windows ARM64 counterpart passed its 24 light/dark geometry cases across Transcript, Summary, Descriptions and AD Transcript. The website guide built locally and its new editor guidance passed desktop and mobile search/navigation checks. Website publication is pending.
+
+## 2026-11-28 — Smaller AI video copies, 1.0.448 (build 448)
+
+New Project, local-file handoff, Cloud Storage upload, and the existing-bucket browser support creating a reduced AI copy. The browser's Actions menu and row context menu capture the selected object and generation. Local selection records the user's choice and waits for Create Project. Projects with a copy open on the full-size original. The inspector shows original and AI metadata and byte counts. View > Video Player and the preview menu share the playback choice and regeneration action. Settings > Narration controls the copy completion sound independently.
+
+The engine stages the original and a full-duration H.264 MP4, verifies duration, audio and byte limits, and publishes the project after preparation. Gemini uses the encoded local file, including for its upload cache and audio extraction. Signed-in Vertex uses the uploaded derivative and express can use the encoded file directly. Conversion of an existing bucket video retains its original object and generation as provenance. Rollback and cloud-object routing were tested with simulated Google services.
+
+Installed and launched the signed Release app via `script/build_and_run.sh --verify`. Verified one Spotlight and LaunchServices app at `/Applications/VidiStudio.app`. The Safari, Share and Finder extensions matched 1.0.448/448, team LLVWNNUV26 and their prior signing requirements, and all three registered from the installed bundle. No Xcode IDE MCP transport was exposed in this session. A new session or client restart is required for IDE MCP control.
+
+The installed engine processed a 2,150,000,001-byte synthetic MP4 with 10 seconds of H.264/AAC media and a padding atom. Verified the full project original with a byte comparison. The AI copy was 1,197,913 bytes, 960 × 540, H.264/AAC and 10 seconds. Cancelling during FFmpeg left the test library empty. Switching playback, regeneration and storage cleanup preserved the expected files. Native New Project consent, editor opening and the checked playback menu were exercised. Native accessibility inspection read both file identities, exact byte counts, and derivative duration, resolution and codecs. Audible VoiceOver speech was not tested.
+
+142 paired menu, layout, Vertex and AI-copy regression cases passed from each desktop checkout. All 60 engine tests passed, along with the menu-icon and menu/layout parity scripts. Compiled Mac and Windows completion policies passed 1,424 cases each, including the independent AI-copy preference. The local Help build and guide search/navigation passed at 1440 and 390 pixels, including the existing exports anchor. The guide is unpublished. No live Gemini or Google Cloud call was made for this validation.
+
+A second native test opened an oversized local file from the registered handoff, chose conversion, identified the named FFmpeg progress indicator and pressed Cancel Processing in that panel. The final build posts a cancellation announcement, dismissed the panel and showed no import-error dialog. Verified that the library contained no project for that source after cancellation.
+
+Native Settings checks located the smaller-copy checkbox and its preview button by accessibility identifier in Light and Dark modes, with window widths requested at 900 and 660 points. Toggled the preference, read back its checked value, and restored the original enabled setting and System appearance.
+
+## 2026-11-28 — Smaller AI Copy inspector and original-source exports (1.0.449, build 449)
+
+The inspector’s Smaller AI Copy disclosure has the encoded file’s path, size in KB, MB or GB, duration, resolution and codecs. Video Information reports the original’s size in readable units. The inspector button, its context menu and the editor’s Project menu share the action for creating a first copy or regenerating one from the original. Existing transcript and analysis results remain available.
+
+Both desktop source checkouts passed 144 focused engine, provider and menu/layout tests. Export tests selected a deliberately smaller playback copy and verified original-resolution output across the audio description and caption choices. The installed Mac engine exported the 640 × 360 original while a 160 × 90 playback copy was selected. The closed-caption result contained the dialogue and description text, and the exported video stream matched the original’s SHA-256. The open captions were rendered at the original resolution. The local Help build and desktop/mobile search passed. Help updates are unpublished.
+
+Installed and launched 1.0.449/449 via the repository verification script. The Mac app and Safari, Share and Finder extensions retain Apple Development team LLVWNNUV26 and their signing requirements. All three extensions registered under the sole app at `/Applications/VidiStudio.app`. Native accessibility checks created the first copy via Project, exposed the original at 8 MB and copy at 527 KB, verified that collapsing the disclosure hides its metadata, and regenerated a new copy via the inspector button. Removed the test project and source. The installed Mac engine also created and regenerated a copy while preserving the source hash. All 66 Mac engine and AI-copy tests passed. Audible VoiceOver output was not tested.
+
+## 2026-11-28 — AI copy file actions (1.0.450, build 450)
+
+Added an eye button beside the Smaller AI Copy filename. Its accessible information dialog and the filename’s right-click menu offer Open File and Open Folder. Open Folder selects the encoded video in Finder. Open File follows macOS file associations. When the association points to VidiStudio or its shared Windows app, QuickTime Player opens the copy.
+
+Built and installed the final signed Mac app. The app and all three extensions report 1.0.450/450 and Apple Development team LLVWNNUV26. Signature continuity and registration were checked. Native testing confirmed the eye button and its accessible name, the scoped right-click menu, Finder selecting the exact copy, and QuickTime opening the matching file URL with the VidiStudio association in place. Both checkouts passed 111 focused tests and the menu and layout checks. The updated Help guide was built and exercised locally and is unpublished.
+
+## 2026-11-28 — Original and AI copy file actions (1.0.451, build 451)
+
+Video Information and Smaller AI Copy have separate eye buttons. Project > Original Video and Project > Smaller AI Copy each offer Open File and Open Folder. Open Project in Finder opens the project root. A saved copy can be regenerated through the inspector or menu only when the original exceeds 2,000,000,000 bytes.
+
+Cloud Storage project actions require sign-in, a configured Google Cloud project and destination bucket, and a cloud video associated with the project. Manual upload is only offered for imported bucket videos that have no current cloud copy. The new cloud project and signed-in Vertex analysis workflows retain their existing upload confirmations.
+
+Installed and launched the signed Mac app. The Safari, Share and Finder extensions match 1.0.451/451, retain team LLVWNNUV26 and their signing requirements, and register from the single installed app. Native checks on a small local project found both eye buttons and Project submenus, verified the original information dialog, used the Project menu to open the project root and select the original in Finder, and opened the exact AI copy in QuickTime. The small project's inspector and Project menu hid regeneration and Cloud Storage actions. Both desktop checkouts passed 143 focused tests, menu icon checks and menu/layout parity. The updated web guide passed local build and search/navigation checks at 1440 and 390 pixels and is unpublished.
+
+Native verification on the synthetic 2,150,000,001-byte original found regeneration in both Project and the inspector and used Project to replace the AI copy. The original still reported 2.15 GB and retained the verified source bytes. Removed the two generated QA projects and clips. No live cloud upload or audible screen-reader output was exercised.
+
+## 2026-11-28 — Editor size limit for creating an AI copy (1.0.452, build 452)
+
+The editor uses the original local video’s current file size. Create Smaller AI Copy stays visible and disabled at 2,000,000,000 bytes or below. Above that limit, eligible projects can create or regenerate their copy from the Project menu or inspector. Projects with a saved copy keep the prior visibility rule for regeneration.
+
+Built and installed the signed app from `script/build_and_run.sh --verify`. The app and Safari, Share and Finder extensions match 1.0.452/452, retain team LLVWNNUV26 and their designated requirements, and register from the only installed app. Spotlight and LaunchServices resolve the same application path. Both desktop checkouts passed the menu and layout checks and 143 focused tests. The installed engine passed the offline media and system-speech pipeline test.
+
+Native Mac accessibility inspection showed disabled Create in the Project menu and inspector for an 8,000,000-byte original. Create was enabled in the Project menu with a 2,000,000,001-byte original. Invoking it created a 442,602-byte copy, preserved the original and exposed Regenerate in the inspector. Removed both synthetic fixtures. Audible screen-reader output and alternate window sizes and appearances were not tested. The Help changes were built and verified locally and are unpublished.
+
+## 2026-11-28 — Playback switch labels and Inspector source (1.0.453, build 453)
+
+View > Video Player and the preview context menu show the destination and current playback versions in the same command. Video Information shows Preview Source with the active version and filename when the project has an AI copy. Both menus and the Inspector follow the local preview and the project saves the selection.
+
+Built and installed with `script/build_and_run.sh --verify`. The app and Safari, Share and Finder extensions report 1.0.453/453, retain team LLVWNNUV26 and their designated requirements, and register from the single application found by Spotlight and LaunchServices. Both checkout suites passed 143 focused tests and the menu and layout checks. Desktop Help was built and verified locally at desktop and mobile widths and is unpublished.
+
+On Mac, switched both ways through View > Video Player and observed distinct frames and matching Inspector filenames in the native window. The final signed build also switched both ways through the native preview context menu, exposing both command names and the Inspector value to accessibility. The final original selection was saved in the fixture, and both files were intact before cleanup. For projects with an AI copy, the Mac context menu prioritizes the app's playback-source actions. AVKit frame-analysis actions were absent from that menu in the fixture. Audible VoiceOver and alternate Mac appearance and window sizes were not tested.
+
+The final installed engine also passed the offline media and macOS system-speech pipeline test.
+
+## 2026-11-28 — Playback choices and confirmed AI copy replacement (1.0.455, build 455)
+
+View > Video Player and the preview context menu list Play Original Video and Play Smaller AI Copy with a single native checkmark. The editor puts Regenerate Smaller AI Copy below a divider for eligible saved copies. All editor routes share a confirmation with Cancel focused before replacing a saved copy. Creation and regeneration show the current step and percentage through the same progress view. The engine validates the replacement, saves it atomically, then deletes the previous managed copy. A blocked deletion restores the prior manifest and removes the attempted replacement.
+
+Installed the signed app with `script/build_and_run.sh --verify`. The app and Safari, Share and Finder extensions match 1.0.455/455, retain team LLVWNNUV26 and their designated requirements, and register from the only installed bundle. Spotlight and LaunchServices point to the same app. Both checkouts passed 145 focused tests and the menu and UI layout checks. The packaged engine passed the offline media and system-speech test. Real FFmpeg creation and regeneration reported the copy stages, retained the original bytes and active selection, and left one AI copy. Local Help build, search and navigation passed and the changes are unpublished.
+
+The preceding 1.0.454 Mac build showed both View playback commands, switched to the smaller preview, and displayed its native checkmark with a separate Regenerate action below a divider in the right-click menu. The Mac locked before the native 1.0.455 confirmation and progress verification. Audible screen-reader output was not exercised.
+
+The two temporary Mac test projects were moved out of the project library. Windows ARM64 completed ExportSoundOnly and GallerySettingsOnly on the installed 1.0.455 package.
