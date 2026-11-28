@@ -4639,3 +4639,11 @@ Installed the signed app with `script/build_and_run.sh --verify`. The app and Sa
 The preceding 1.0.454 Mac build showed both View playback commands, switched to the smaller preview, and displayed its native checkmark with a separate Regenerate action below a divider in the right-click menu. The Mac locked before the native 1.0.455 confirmation and progress verification. Audible screen-reader output was not exercised.
 
 The two temporary Mac test projects were moved out of the project library. Windows ARM64 completed ExportSoundOnly and GallerySettingsOnly on the installed 1.0.455 package.
+
+## 2026-11-28 — Unified video preview context menu (1.0.456, build 456)
+
+The preview starts with Copy and Translate… where supported by the editor section, followed by **Open Project Settings…**. Local projects with an AI copy show both checked playback choices and eligible originals offer regeneration. Public and unlisted YouTube projects with an attached playback file show YouTube Player and Local Video Player on both playback surfaces.
+
+Built and installed the signed Release app using `script/build_and_run.sh --verify`. The app, Safari, Share and Finder extensions match 1.0.456/456 with Apple Development team LLVWNNUV26 and signing continuity. Registration, Spotlight and LaunchServices each point to the single current app under `/Applications`. Browser extensions retain their independent version. Menu icons, menu parity and UI parity checks passed. The focused suite passed 145 tests and the installed engine passed its synthetic media and system-speech pipeline. The local website Help build and search and chapter navigation passed at desktop and mobile widths. The guide changes are unpublished.
+
+Native testing verified the preview menu on a single-source local project and on both surfaces of an unlisted YouTube project with an attached file. Both source selections updated the native checkmark and changed the player. Open Project Settings… opened the project’s Settings. The Mac locked before the native large-local check. Audible VoiceOver and alternate Mac theme testing were not exercised.

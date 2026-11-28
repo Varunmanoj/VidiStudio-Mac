@@ -5,7 +5,13 @@ import WebKit
 @MainActor protocol FullScreenVideoSizing: AnyObject { var fullScreenFrame: NSRect? { get set } }
 final class VideoWebView: WKWebView, FullScreenVideoSizing {
     var fullScreenFrame: NSRect?
+    let contextMenuMonitor = PreviewContextMenuMonitor()
     override var frame: NSRect { get { super.frame } set { super.frame = fullScreenFrame ?? newValue } }
+
+    override func viewDidMoveToWindow() {
+        super.viewDidMoveToWindow()
+        contextMenuMonitor.windowDidChange(on: self)
+    }
 }
 
 /// Full-screen host that exits on Escape even if the key event monitor misses,
@@ -571,8 +577,9 @@ struct YouTubePlayer: NSViewRepresentable {
     let url: String
     let playback: PlaybackModel
     var useOriginalAudio = false
+    var previewMenu: PreviewContextMenu
     func makeCoordinator() -> Coordinator { Coordinator(playback) }
-    func makeNSView(context: Context) -> WKWebView {
+    func makeNSView(context: Context) -> VideoWebView {
         let config = WKWebViewConfiguration()
         config.websiteDataStore = .nonPersistent()
         config.userContentController.add(context.coordinator, name: "playback")
@@ -620,8 +627,11 @@ struct YouTubePlayer: NSViewRepresentable {
         view.loadHTMLString(html, baseURL: URL(string: "https://accessivideo.pages.dev"))
         return view
     }
-    func updateNSView(_ view: WKWebView, context: Context) {}
-    static func dismantleNSView(_ view: WKWebView, coordinator: Coordinator) {
+    func updateNSView(_ view: VideoWebView, context: Context) {
+        view.contextMenuMonitor.update(previewMenu, on: view)
+    }
+    static func dismantleNSView(_ view: VideoWebView, coordinator: Coordinator) {
+        view.contextMenuMonitor.update(nil, on: view)
         view.configuration.userContentController.removeScriptMessageHandler(forName: "playback")
         if coordinator.playback.webView === view { coordinator.playback.webView = nil }
     }

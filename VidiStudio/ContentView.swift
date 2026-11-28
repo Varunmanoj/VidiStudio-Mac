@@ -3794,7 +3794,8 @@ struct ProjectEditor: View {
     }
 
     private var previewPane: some View {
-        VStack(spacing: 0) {
+        let previewMenu = PreviewContextMenu(actions: shortcutActions, studio: studio, project: project)
+        return VStack(spacing: 0) {
             ZStack(alignment: studio.settings.captionPosition == "top" ? .top : .bottom) {
                 Group {
                     if project.isYouTubeURLProject && project.activeLocalYouTubePlaybackURL == nil {
@@ -3806,10 +3807,10 @@ struct ProjectEditor: View {
                             .padding()
                             .foregroundStyle(.white)
                         } else if let url = project.youtubeURL {
-                            YouTubePlayer(url: url, playback: playback, useOriginalAudio: project.usesStandaloneYouTubeAudio && project.audioSources?.playback == "imported")
+                            YouTubePlayer(url: url, playback: playback, useOriginalAudio: project.usesStandaloneYouTubeAudio && project.audioSources?.playback == "imported", previewMenu: previewMenu)
                         }
                     } else {
-                        NativeVideoPlayer(player: playback.player, playback: playback, analysisCopyActions: shortcutActions)
+                        NativeVideoPlayer(player: playback.player, playback: playback, previewMenu: previewMenu)
                     }
                 }
                 TranscriptCaptionOverlay(
@@ -3820,6 +3821,7 @@ struct ProjectEditor: View {
             }
             .frame(minWidth: 0, idealWidth: 700, maxWidth: .infinity, minHeight: 120, idealHeight: 340, maxHeight: .infinity)
             .background(.black)
+            .contextMenu { previewMenu.items }
             if timelineVisible {
                 TimelineView(project: project, playback: playback, thumbnailImagesVisible: thumbnailImagesVisible)
                     .transition(.opacity.combined(with: .scale(scale: 0.98, anchor: .top)))
